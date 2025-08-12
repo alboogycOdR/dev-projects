@@ -1,0 +1,99 @@
+//@version=5
+// Filename: Protected_NY_SMC_Suite.pine
+indicator(title="NY SMC Suite Multi-Killzone (Protected)", shorttitle="714 SMC Multi-Killzone (Protected)", overlay=true, max_boxes_count=500, max_labels_count=500, max_lines_count=500)
+
+// --- IMPORT THE SECURE LIBRARY ---
+// Replace 'YourUsername' with your actual TradingView username.
+// The '1' represents the version of the library.
+import YourUsername/AuthLib/1 as core
+
+// ======================== INPUTS (Remain in the main script) ========================
+// ------ General Settings ------
+grp_general = "General Settings"
+lookbackDays = input.int(3, title="Days to Show Sessions", minval=1, maxval=365, group=grp_general, tooltip="Number of historical days to display session boxes for.")
+obFvgTimeframe = input.timeframe("15", "SMC Detection Timeframe", group=grp_general, tooltip="Timeframe for detecting Order Blocks and Fair Value Gaps.")
+
+// ------ Session & Killzone Visuals ------
+grp_visuals = "Session & Killzone Visuals"
+killzoneColor = input.color(color.new(color.aqua, 85), "Killzone Box Color", group=grp_visuals)
+extKillzoneColor = input.color(color.new(color.gray, 85), "Extended Killzone Box Color", group=grp_visuals)
+killzoneLabelSize = input.string("normal", "Label Size", options=["tiny", "small", "normal", "large"], group=grp_visuals)
+killzoneLabelColor = input.color(color.gray, "Label Text Color", group=grp_visuals)
+trendLineColor = input.color(color.black, "Trend Line Color", group=grp_visuals)
+trendLineWidth = input.int(2, "Trend Line Width", minval=1, maxval=4, group=grp_visuals)
+trendPriceLabelColor = input.color(color.black, "Price Label Background", group=grp_visuals)
+trendPriceLabelTextColor = input.color(color.white, "Price Label Text", group=grp_visuals)
+trendPriceLabelSize = input.string("small", "Price Label Size", options=["tiny", "small", "normal", "large"], group=grp_visuals)
+showRejectionMarkers = input.bool(true, "Show Wick Rejection Markers", group=grp_visuals)
+rejectionUpColor = input.color(color.green, "⏶ Lower Wick Rejection", group=grp_visuals)
+rejectionDownColor = input.color(color.red, "⏷ Upper Wick Rejection", group=grp_visuals)
+
+// ------ SMC: Order Blocks (OB) ------
+grp_ob = "SMC: Order Blocks (OB)"
+showOB = input.bool(true, "Show Order Blocks", group=grp_ob, inline="ob_show")
+maxOBs = input.int(20, "", minval=10, maxval=100, group=grp_ob, inline="ob_show", tooltip="Maximum number of Order Blocks to display.")
+obBullColor = input.color(color.new(#3179f5, 80), "Bullish Color", group=grp_ob)
+obBearColor = input.color(color.new(#f77c80, 80), "Bearish Color", group=grp_ob)
+obLabelTextColor = input.color(color.black, "Label Text Color", group=grp_ob)
+obLabelSize = input.string("tiny", "Label Size", options=["tiny", "small", "normal", "large"], group=grp_ob)
+
+// ------ SMC: Fair Value Gaps (FVG) ------
+grp_fvg = "SMC: Fair Value Gaps (FVG)"
+showFVG = input.bool(true, "Show FVGs", group=grp_fvg, inline="fvg_show")
+maxFVGs = input.int(20, "", minval=10, maxval=100, group=grp_fvg, inline="fvg_show", tooltip="Maximum number of FVGs to display.")
+fvgBullColor = input.color(color.new(#00ff68, 65), "Bullish Color", group=grp_fvg)
+fvgBearColor = input.color(color.new(#ff0008, 65), "Bearish Color", group=grp_fvg)
+fvgLabelTextColor = input.color(color.black, "Label Text Color", group=grp_fvg)
+fvgLabelSize = input.string("tiny", "Label Size", options=["tiny", "small", "normal", "large"], group=grp_fvg)
+
+// ------ SMC: Change in State of Delivery (CISD) ------
+grp_cisd = "SMC: Change in State of Delivery (CISD)"
+showCISD = input.bool(true, "Show CISD", group=grp_cisd, inline="cisd_show")
+maxCISD = input.int(20, "", minval=10, maxval=100, group=grp_cisd, inline="cisd_show", tooltip="Maximum number of CISD markers to display.")
+cisdBullColor = input.color(#089981, "Bullish Color", group=grp_cisd)
+cisdBearColor = input.color(#f23645, "Bearish Color", group=grp_cisd)
+cisdLabelTextColor = input.color(color.white, "Label Text Color", group=grp_cisd)
+cisdLabelSize = input.string("small", "Label Size", options=["tiny", "small", "normal", "large"], group=grp_cisd)
+
+// ------ SMC: Feature Interactions ------
+grp_interactions = "SMC: Feature Interactions"
+showOBFVGInteractions = input.bool(false, "Show OB/FVG Interactions", group=grp_interactions, inline="int_show")
+maxOBFVGInteractions = input.int(40, "", minval=10, maxval=100, group=grp_interactions, inline="int_show", tooltip="Maximum number of interaction markers to display.")
+obFvgInteractionColor = input.color(color.orange, "Marker Color", group=grp_interactions)
+obFvgInteractionLabelSize = input.string("tiny", "Marker Size", options=["tiny", "small", "normal", "large"], group=grp_interactions)
+
+// ------ Alerts ------
+grp_alerts = "Alerts"
+enableAlerts = input.bool(false, "Enable All Alerts", group=grp_alerts)
+alertOBMitigatedMsg = input.string("Order Block Mitigated!", "OB Mitigated Message", group=grp_alerts)
+alertFVGFillMsg = input.string("FVG Filled!", "FVG Fill Message", group=grp_alerts)
+alertCISDMsg = input.string("CISD State Change!", "CISD Alert Message", group=grp_alerts)
+
+// ======================== CORE LOGIC (Now handled by the library) ========================
+
+tz = "America/New_York"
+killzoneLabels_ = array.from("714AM", "714AM-EXT", "714AFTERNOON", "714AFTERNOON-EXT", "ny-open", "ny-open-ext")
+killzoneStartH = array.from(1, 2, 10, 11, 7, 8)
+killzoneStartM = array.from(0, 0, 0, 0, 0, 0)
+killzoneEndH   = array.from(2, 3, 11, 12, 8, 9)
+killzoneEndM   = array.from(0, 30, 0, 0, 0, 0)
+
+// Initialize state objects for the library functions
+var killzoneState = core.newKillzoneState()
+var wickRejectionState = core.newWickRejectionState()
+var smcState = core.newSmcState()
+
+// Call the library function to draw the killzone sessions
+core.drawKillzoneSessions(killzoneState, tz, killzoneLabels_, killzoneStartH, killzoneStartM, killzoneEndH, killzoneEndM, lookbackDays, killzoneColor, extKillzoneColor, killzoneLabelColor, killzoneLabelSize, trendLineColor, trendLineWidth, trendPriceLabelColor, trendPriceLabelTextColor, trendPriceLabelSize, chart.username)
+
+// Call the library function to process wick rejections
+[upperRejection, lowerRejection] = core.processWickRejections(wickRejectionState, tz, showRejectionMarkers, killzoneState.kzone1TrendLines, killzoneState.kzone3TrendLines, killzoneState.kzone5TrendLines, rejectionUpColor, rejectionDownColor, chart.username)
+
+// Call the library function to process all SMC logic
+core.processSMCLogic(smcState, obFvgTimeframe, showOB, maxOBs, obBullColor, obBearColor, obLabelTextColor, obLabelSize, showFVG, maxFVGs, fvgBullColor, fvgBearColor, fvgLabelTextColor, fvgLabelSize, showCISD, maxCISD, cisdBullColor, cisdBearColor, cisdLabelTextColor, cisdLabelSize, showOBFVGInteractions, maxOBFVGInteractions, obFvgInteractionColor, obFvgInteractionLabelSize, enableAlerts, alertOBMitigatedMsg, alertFVGFillMsg, alertCISDMsg, chart.username)
+
+// Plot wick rejection markers
+plotshape(upperRejection, title="Upper Wick Rejection", location=location.abovebar, color=rejectionDownColor, style=shape.triangledown, size=size.small)
+plotshape(lowerRejection, title="Lower Wick Rejection", location=location.belowbar, color=rejectionUpColor, style=shape.triangleup, size=size.small)
+
+

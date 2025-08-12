@@ -1,0 +1,209 @@
+//@version=5
+indicator("Wednesday 13:30 EST Key Levels - perplex2", overlay=true, max_lines_count=500)
+//All Wednesday 13:30 EST Levels - Monthly
+ 
+ 
+// Input settings
+show_labels = input.bool(true, "Show Labels", group="Display Settings")
+show_current_month_only = input.bool(true, "Show Current Month Only", group="Display Settings")
+max_wednesdays = input.int(8, "Maximum Wednesdays to Show", minval=1, maxval=20, group="Display Settings")
+line_style = input.string("Solid", "Line Style", options=["Solid", "Dashed", "Dotted"], group="Display Settings")
+line_width = input.int(2, "Line Width", minval=1, maxval=5, group="Display Settings")
+extend_right = input.bool(true, "Extend Lines Right", group="Display Settings")
+
+// Colors for different Wednesdays
+wed1_high_color = input.color(color.red, "Wednesday 1 - High Color", group="Colors")
+wed1_low_color = input.color(color.blue, "Wednesday 1 - Low Color", group="Colors")
+wed2_high_color = input.color(color.orange, "Wednesday 2 - High Color", group="Colors")
+wed2_low_color = input.color(color.purple, "Wednesday 2 - Low Color", group="Colors")
+wed3_high_color = input.color(color.green, "Wednesday 3 - High Color", group="Colors")
+wed3_low_color = input.color(color.maroon, "Wednesday 3 - Low Color", group="Colors")
+wed4_high_color = input.color(color.yellow, "Wednesday 4 - High Color", group="Colors")
+wed4_low_color = input.color(color.navy, "Wednesday 4 - Low Color", group="Colors")
+wed5_high_color = input.color(color.lime, "Wednesday 5+ - High Color", group="Colors")
+wed5_low_color = input.color(color.gray, "Wednesday 5+ - Low Color", group="Colors")
+
+show_range_boxes = input.bool(false, "Show Range Boxes", group="Colors")
+box_transparency = input.int(90, "Box Transparency", minval=50, maxval=95, group="Colors")
+
+// Time settings
+timezone = input.string("America/New_York", "Timezone", group="Time Settings")
+
+// Arrays to store Wednesday data
+var array<float> wed_highs = array.new<float>()
+var array<float> wed_lows = array.new<float>()
+var array<int> wed_times = array.new<int>()
+var array<int> wed_bar_indices = array.new<int>()
+var array<line> high_lines = array.new<line>()
+var array<line> low_lines = array.new<line>()
+var array<box> range_boxes = array.new<box>()
+
+// Function to check if current bar is Wednesday 13:30 EST
+is_wednesday_1330() =>
+    t = time(timeframe.period, "1330-1345:23456", timezone)
+    dayofweek(time, timezone) == dayofweek.wednesday and not na(t)
+
+// Function to get colors based on Wednesday number
+get_colors(wed_num) =>
+    switch wed_num
+        1 => [wed1_high_color, wed1_low_color]
+        2 => [wed2_high_color, wed2_low_color]
+        3 => [wed3_high_color, wed3_low_color]
+        4 => [wed4_high_color, wed4_low_color]
+        => [wed5_high_color, wed5_low_color]
+
+// Function to check if time is in current month
+is_current_month(check_time) =>
+    current_month = month(timenow)
+    current_year = year(timenow)
+    check_month = month(check_time)
+    check_year = year(check_time)
+    check_month == current_month and check_year == current_year
+
+// Clean up old lines and boxes that are not in current month
+cleanup_old_data() =>
+    if show_current_month_only
+        // Clean arrays based on current month
+        for i = array.size(wed_times) - 1 to 0
+            if array.size(wed_times) > 0
+                wed_time = array.get(wed_times, i)
+                if not is_current_month(wed_time)
+                    // Delete corresponding lines and boxes
+                    if i < array.size(high_lines)
+                        line.delete(array.get(high_lines, i))
+                        array.remove(high_lines, i)
+                    if i < array.size(low_lines)
+                        line.delete(array.get(low_lines, i))
+                        array.remove(low_lines, i)
+                    if i < array.size(range_boxes)
+                        box.delete(array.get(range_boxes, i))
+                        array.remove(range_boxes, i)
+                    
+                    // Remove data from arrays
+                    array.remove(wed_highs, i)
+                    array.remove(wed_lows, i)
+                    array.remove(wed_times, i)
+                    array.remove(wed_bar_indices, i)
+    
+    // Limit total number of Wednesdays
+    while array.size(wed_highs) > max_wednesdays
+        // Remove oldest data
+        if array.size(high_lines) > 0
+            line.delete(array.get(high_lines, 0))
+            array.shift(high_lines)
+        if array.size(low_lines) > 0
+            line.delete(array.get(low_lines, 0))
+            array.shift(low_lines)
+        if array.size(range_boxes) > 0
+            box.delete(array.get(range_boxes, 0))
+            array.shift(range_boxes)
+        
+        array.shift(wed_highs)
+        array.shift(wed_lows)
+        array.shift(wed_times)
+        array.shift(wed_bar_indices)
+
+// Variables for alerts (need to be calculated outside the conditional blocks)
+var float latest_wed_high = na
+var float latest_wed_low = na
+
+// Main logic for detecting Wednesday 13:30 candles
+if is_wednesday_1330()
+    // Clean up old data first
+    cleanup_old_data()
+    
+    // Add new Wednesday data
+    array.push(wed_highs, high)
+    array.push(wed_lows, low)
+    array.push(wed_times, time)
+    array.push(wed_bar_indices, bar_index)
+    
+    // Update latest Wednesday levels for alerts
+    latest_wed_high := high
+    latest_wed_low := low
+    
+    // Get current Wednesday number (position in array)
+    wed_number = array.size(wed_highs)
+    [high_color, low_color] = get_colors(wed_number)
+    
+    // Line style conversion
+    line_style_converted = line_style == "Dashed" ? line.style_dashed : line_style == "Dotted" ? line.style_dotted : line.style_solid
+    
+    // Create high line
+    high_line = line.new(x1=bar_index, y1=high, x2=bar_index + 100, y2=high, color=high_color, style=line_style_converted, width=line_width, extend=extend_right ? extend.right : extend.none)
+    array.push(high_lines, high_line)
+    
+    // Create low line
+    low_line = line.new(x1=bar_index, y1=low, x2=bar_index + 100, y2=low, color=low_color, style=line_style_converted, width=line_width, extend=extend_right ? extend.right : extend.none)
+    array.push(low_lines, low_line)
+    
+    // Create range box if enabled
+    if show_range_boxes
+        range_box = box.new(left=bar_index, top=high, right=bar_index + 50, bottom=low, border_color=color.new(high_color, 50), bgcolor=color.new(high_color, box_transparency), border_width=1, extend=extend.right)
+        array.push(range_boxes, range_box)
+
+// Create labels for all Wednesday levels
+if show_labels and barstate.islast
+    for i = 0 to array.size(wed_highs) - 1
+        if i < array.size(wed_highs)
+            wed_high = array.get(wed_highs, i)
+            wed_low = array.get(wed_lows, i)
+            wed_time = array.get(wed_times, i)
+            [high_color, low_color] = get_colors(i + 1)
+            
+            // Format date for label
+            date_str = str.format("{0}/{1}", month(wed_time), dayofmonth(wed_time))
+            
+            // High label
+            label.new(x=bar_index - 10, y=wed_high, text=str.format("W{0} H: {1} ({2})", i + 1, str.tostring(wed_high, "#.##"), date_str), style=label.style_label_down, color=high_color, textcolor=color.white, size=size.small)
+            
+            // Low label
+            label.new(x=bar_index - 10, y=wed_low, text=str.format("W{0} L: {1} ({2})", i + 1, str.tostring(wed_low, "#.##"), date_str), style=label.style_label_up, color=low_color, textcolor=color.white, size=size.small)
+
+// Fixed alert conditions with constant strings
+alertcondition(close > latest_wed_high and close[1] <= latest_wed_high and not na(latest_wed_high), "Above Latest Wednesday High", "Price broke above the most recent Wednesday 13:30 high level")
+alertcondition(close < latest_wed_low and close[1] >= latest_wed_low and not na(latest_wed_low), "Below Latest Wednesday Low", "Price broke below the most recent Wednesday 13:30 low level")
+
+// General Wednesday level break alerts
+wednesday_high_break = false
+wednesday_low_break = false
+
+if array.size(wed_highs) > 0
+    for i = 0 to array.size(wed_highs) - 1
+        if i < array.size(wed_highs)
+            wed_high = array.get(wed_highs, i)
+            wed_low = array.get(wed_lows, i)
+            
+            if close > wed_high and close[1] <= wed_high
+                wednesday_high_break := true
+            if close < wed_low and close[1] >= wed_low
+                wednesday_low_break := true
+
+alertcondition(wednesday_high_break, "Wednesday High Breakout", "Price broke above a Wednesday 13:30 high level")
+alertcondition(wednesday_low_break, "Wednesday Low Breakdown", "Price broke below a Wednesday 13:30 low level")
+
+// Enhanced information table
+if show_labels and barstate.islast
+    var table info_table = table.new(position.top_right, 3, math.min(array.size(wed_highs) + 1, 9), bgcolor=color.white, border_width=1)
+    
+    if array.size(wed_highs) > 0
+        // Header
+        table.cell(info_table, 0, 0, "Wed", text_color=color.black, bgcolor=color.gray)
+        table.cell(info_table, 1, 0, "High", text_color=color.black, bgcolor=color.gray)
+        table.cell(info_table, 2, 0, "Low", text_color=color.black, bgcolor=color.gray)
+        
+        // Data rows
+        for i = 0 to math.min(array.size(wed_highs) - 1, 7)
+            wed_high = array.get(wed_highs, i)
+            wed_low = array.get(wed_lows, i)
+            wed_time = array.get(wed_times, i)
+            
+            date_str = str.format("{0}/{1}", month(wed_time), dayofmonth(wed_time))
+            [high_color, low_color] = get_colors(i + 1)
+            
+            table.cell(info_table, 0, i + 1, date_str, text_color=color.black)
+            table.cell(info_table, 1, i + 1, str.tostring(wed_high, "#.##"), text_color=high_color)
+            table.cell(info_table, 2, i + 1, str.tostring(wed_low, "#.##"), text_color=low_color)
+
+// Plot background highlight for Wednesday 13:30 periods
+bgcolor(is_wednesday_1330() ? color.new(color.yellow, 95) : na, title="Wednesday 13:30 Highlight")

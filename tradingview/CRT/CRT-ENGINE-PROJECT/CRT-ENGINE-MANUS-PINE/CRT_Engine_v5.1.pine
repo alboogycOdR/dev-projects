@@ -1,0 +1,323 @@
+//@version=5
+indicator(
+     title = "Institutional CRT Engine v5.0 – Fixed",
+     shorttitle = "CRT Engine v5.0",
+     overlay = true,
+     max_lines_count = 500,
+     max_labels_count = 500)
+
+// █▀▀▀▀▀▀▀▀▀▀  INPUTS  █▀▀▀▀▀▀▀▀▀▀
+group_model        = "Model Selection"
+i_model_choice     = input.string(
+     "1H - 9 AM NY",
+     "CRT Model",
+     options = ["1H - 1 AM Asia", "1H - 5 AM London", "1H - 9 AM NY",
+                "4H - London Open (00:00)", "4H - London Close (04:00)", "4H - NY Open (08:00)"],
+     group   = group_model,
+     tooltip = "Select the session candle to base the CRT range on.")
+
+i_entry_model = input.string(
+     "MSS + FVG",
+     "Entry Logic",
+     options = ["MSS + FVG", "Aggressive Turtle Soup"],
+     group   = group_model,
+     tooltip = "MSS + FVG waits for a structure shift before entry.")
+
+group_filters      = "Advanced Contextual Filters"
+i_use_htf_kl_filter = input.bool(true,  "Require HTF Key Level Confluence", group = group_filters)
+i_kl_lookback       = input.int(20,     "HTF Key Level Lookback (H4 Bars)", minval = 5, group = group_filters)
+i_use_smt_filter    = input.bool(false, "Enable SMT Divergence Filter",     group = group_filters)
+i_smt_symbol        = input.string("ES1!", "SMT Correlated Symbol",         group = group_filters)
+
+group_display   = "Display & Alert Settings"
+i_show_boxes    = input.bool(true, "Show CRT Range Box",  group = group_display)
+i_show_labels   = input.bool(true, "Show Buy/Sell Signals", group = group_display)
+i_alerts_on     = input.bool(true, "Enable Alerts", group = group_display)
+i_alert_freq    = input.string("Once Per Bar Close", "Alert Frequency",
+                              options = ["Once Per Bar", "Once Per Bar Close"], group = group_display)
+
+// █▀▀▀▀▀▀▀▀  INTERNAL STATE  █▀▀▀▀▀▀▀▀
+var string a_freq = switch i_alert_freq
+    "Once Per Bar"      => alert.freq_once_per_bar
+    => alert.freq_once_per_bar_close
+
+// CRT timeframe & anchor hour (NY time)
+var string crt_tf = "60"
+var int    crt_hr = 9
+var string ny_tz  = "America/New_York"
+
+switch i_model_choice
+    "1H - 1 AM Asia"          => crt_tf := "60", crt_hr := 1
+    "1H - 5 AM London"        => crt_tf := "60", crt_hr := 5
+    "1H - 9 AM NY"            => crt_tf := "60", crt_hr := 9
+    "4H - London Open (00:00)"=> crt_tf := "240",crt_hr := 0
+    "4H - London Close (04:00)"=>crt_tf := "240",crt_hr := 4
+    "4H - NY Open (08:00)"    => crt_tf := "240",crt_hr := 8
+
+// State machines
+var string st_bull = "WAITING_FOR_RANGE"
+var string st_bear = "WAITING_FOR_RANGE"
+
+// Range + entry variables
+var float  crt_high  = na
+var float  crt_low   = na
+var float  mss_bull  = na
+var float  mss_bear  = na
+var float  fvg_high  = na
+var float  fvg_low   = na
+var int    range_idx = na
+
+var box    rangeBox = na
+var label  lbl_high  = na
+var label  lbl_low   = na
+
+// █▀▀▀▀▀▀▀▀  FUNCTIONS  █▀▀▀▀▀▀▀▀
+f_swingLow(len)  => ta.pivotlow(low,  len, len)
+f_swingHigh(len) => ta.pivothigh(high, len, len)
+
+f_entryFVG(bool bull) =>
+    float h = na, float l = na
+    if bull and high[2] < low
+        h := low, l := high[2]
+    else if not bull and low[2] > high
+        h := low[2], l := high
+    [h, l]
+
+f_htfKeyLevel(bool bull) =>
+    [h, l, c, o] = request.security(syminfo.tickerid, "240",
+                                    [high, low, close, open],
+                                    lookahead = barmerge.lookahead_off)
+    bool in_zone = false
+    for i = 1 to i_kl_lookback
+        if bull
+            bull_fvg = l[i] > h[i+2]
+            bull_ob  = c[i] < o[i] and c[i-1] > o[i-1]
+            if (bull_fvg and low <= l[i]) or (bull_ob and low <= h[i])
+                in_zone := true
+                break
+        else
+            bear_fvg = h[i] < l[i+2]
+            bear_ob  = c[i] > o[i] and c[i-1] < o[i-1]
+            if (bear_fvg and high >= h[i]) or (bear_ob and high >= l[i])
+                in_zone := true
+                break
+    in_zone
+
+f_smtDiv(bool bull) =>
+    [sH, sL] = request.security(i_smt_symbol, timeframe.period,
+                                [high, low], lookahead = barmerge.lookahead_off)
+    bull ? low < low[1] and sL > sL[1] : high > high[1] and sH < sH[1]
+
+// █▀▀▀▀▀▀▀▀  RANGE DETECTION  █▀▀▀▀▀▀▀▀
+[htf_time, htf_o, htf_h, htf_l, htf_c] = request.security(
+     syminfo.tickerid, crt_tf, [time, open, high, low, close],
+     lookahead = barmerge.lookahead_off)
+
+new_htf  = ta.change(htf_time)
+targeted = hour(htf_time[1], ny_tz) == crt_hr
+
+bool freshRange = false
+if new_htf and targeted
+    crt_high  := htf_h[1]
+    crt_low   := htf_l[1]
+    range_idx := bar_index
+    freshRange := true
+    st_bull := "WAITING_FOR_SWEEP"
+    st_bear := "WAITING_FOR_SWEEP"
+
+// Daily reset
+if ta.change(dayofweek(time, ny_tz))
+    st_bull := "WAITING_FOR_RANGE"
+    st_bear := "WAITING_FOR_RANGE"
+    crt_high := na, crt_low := na
+    mss_bull := na, mss_bear := na
+    fvg_high := na, fvg_low  := na
+    if not na(rangeBox)
+        box.delete(rangeBox)
+    if not na(lbl_high)
+        label.delete(lbl_high)
+    if not na(lbl_low)
+        label.delete(lbl_low)
+
+// █▀▀▀▀▀▀▀▀  MAIN LOGIC  █▀▀▀▀▀▀▀▀
+if not na(crt_high)
+
+    // Bullish path
+    if st_bull == "WAITING_FOR_SWEEP" and low < crt_low
+        if i_use_htf_kl_filter and not f_htfKeyLevel(true)
+            st_bull := "INVALID"
+        else
+            mss_bull := f_swingHigh(5)
+            if not na(mss_bull)
+                st_bull := "WAITING_FOR_MSS"
+
+    if st_bull == "WAITING_FOR_MSS" and close > mss_bull
+        [h, l] = f_entryFVG(true)
+        if not na(h)
+            fvg_high := h, fvg_low := l
+            st_bull := "WAITING_FOR_ENTRY"
+
+    // Bearish path
+    if st_bear == "WAITING_FOR_SWEEP" and high > crt_high
+        if i_use_htf_kl_filter and not f_htfKeyLevel(false)
+            st_bear := "INVALID"
+        else
+            mss_bear := f_swingLow(5)
+            if not na(mss_bear)
+                st_bear := "WAITING_FOR_MSS"
+
+    if st_bear == "WAITING_FOR_MSS" and close < mss_bear
+        [h, l] = f_entryFVG(false)
+        if not na(h)
+            fvg_high := h, fvg_low := l
+            st_bear := "WAITING_FOR_ENTRY"
+
+    // Entry triggers
+    buy  = false
+    sell = false
+
+    if st_bull == "WAITING_FOR_ENTRY" and high > fvg_low and low <= fvg_high
+        if i_use_smt_filter and not f_smtDiv(true)
+            st_bull := "INVALID"
+        else
+            buy := true
+            st_bull := "TRIGGERED"
+            st_bear := "INVALID"
+
+    if st_bear == "WAITING_FOR_ENTRY" and low < fvg_high and high >= fvg_low
+        if i_use_smt_filter and not f_smtDiv(false)
+            st_bear := "INVALID"
+        else
+            sell := true
+            st_bear := "TRIGGERED"
+            st_bull := "INVALID"
+
+    // Visuals
+    if freshRange and i_show_boxes
+        if not na(rangeBox)
+            box.delete(rangeBox)
+        if not na(lbl_high)
+            label.delete(lbl_high)
+        if not na(lbl_low)
+            label.delete(lbl_low)
+
+        rangeBox := box.new(
+             left  = range_idx,
+             top   = crt_high,
+             right = bar_index + 1,
+             bottom= crt_low,
+             border_color = color.new(color.gray, 50),
+             bgcolor      = color.new(color.gray, 95),
+             extend       = extend.right)
+
+        lbl_high := label.new(
+             x     = range_idx,
+             y     = crt_high,
+             text  = "CRT High: " + str.tostring(crt_high, format.mintick),
+             style = label.style_label_left,
+             color = color.new(color.gray, 50),
+             textcolor = color.white,
+             size  = size.small)
+
+        lbl_low := label.new(
+             x     = range_idx,
+             y     = crt_low,
+             text  = "CRT Low: " + str.tostring(crt_low, format.mintick),
+             style = label.style_label_left,
+             color = color.new(color.gray, 50),
+             textcolor = color.white,
+             size  = size.small)
+
+    else if i_show_boxes and not na(rangeBox)
+        box.set_right(rangeBox, bar_index + 1)
+        label.set_x(lbl_high, bar_index)
+        label.set_x(lbl_low,  bar_index)
+
+    // Plot signals
+    if buy and i_show_labels
+        label.new(bar_index, low - ta.atr(14), "▲\nBUY",
+             style = label.style_label_up,
+             color = color.new(color.green, 20),
+             textcolor = color.white)
+        if i_alerts_on
+            alert("Institutional CRT Engine: Bullish Setup Confirmed (" + syminfo.ticker + ", " + timeframe.period + ")", freq = a_freq)
+
+    if sell and i_show_labels
+        label.new(bar_index, high + ta.atr(14), "▼\nSELL",
+             style = label.style_label_down,
+             color = color.new(color.red, 20),
+             textcolor = color.white)
+        if i_alerts_on
+            alert("Institutional CRT Engine: Bearish Setup Confirmed (" + syminfo.ticker + ", " + timeframe.period + ")", freq = a_freq)
+
+// █▀▀▀▀▀▀▀▀  3-CANDLE PATTERNS  █▀▀▀▀▀▀▀▀
+group_3c = "3-Candle Pattern Settings"
+enable_3ws = input.bool(false, "Three White Soldiers", group = group_3c)
+enable_3bc = input.bool(false, "Three Black Crows",  group = group_3c)
+enable_ms  = input.bool(false, "Morning Star",       group = group_3c)
+enable_es  = input.bool(false, "Evening Star",       group = group_3c)
+enable_3iu = input.bool(false, "Three Inside Up",    group = group_3c)
+enable_3id = input.bool(false, "Three Inside Down",  group = group_3c)
+
+// Pattern functions
+f_3ws() => close[2] < open[2] and close[1] > open[1] and close[0] > open[0] and
+          close[1] > close[2] and close[0] > close[1] and
+          open[1] > open[2] and open[1] < close[2] and
+          open[0] > open[1] and open[0] < close[1]
+
+f_3bc() => close[2] > open[2] and close[1] < open[1] and close[0] < open[0] and
+          close[1] < close[2] and close[0] < close[1] and
+          open[1] < open[2] and open[1] > close[2] and
+          open[0] < open[1] and open[0] > close[1]
+
+f_ms() =>
+    bear = close[2] < open[2]
+    doji = math.abs(close[1] - open[1]) <= (high[1] - low[1]) * 0.3
+    bull = close[0] > open[0] and close[0] > open[2]
+    bear and doji and bull
+
+f_es() =>
+    bull = close[2] > open[2]
+    doji = math.abs(close[1] - open[1]) <= (high[1] - low[1]) * 0.3
+    bear = close[0] < open[0] and close[0] < open[2]
+    bull and doji and bear
+
+f_3iu() =>
+    bear1 = close[2] < open[2]
+    bull2 = close[1] > open[1] and open[1] > close[2] and close[1] < open[2]
+    bull3 = close[0] > open[0] and close[0] > high[1]
+    bear1 and bull2 and bull3
+
+f_3id() =>
+    bull1 = close[2] > open[2]
+    bear2 = close[1] < open[1] and open[1] < close[2] and close[1] > open[2]
+    bear3 = close[0] < open[0] and close[0] < low[1]
+    bull1 and bear2 and bear3
+
+// Detection
+var string pattern = ""
+if barstate.isconfirmed
+    if enable_3ws and f_3ws()
+        pattern := "Three White Soldiers"
+    else if enable_3bc and f_3bc()
+        pattern := "Three Black Crows"
+    else if enable_ms  and f_ms()
+        pattern := "Morning Star"
+    else if enable_es  and f_es()
+        pattern := "Evening Star"
+    else if enable_3iu and f_3iu()
+        pattern := "Three Inside Up"
+    else if enable_3id and f_3id()
+        pattern := "Three Inside Down"
+    else
+        pattern := ""
+
+if pattern != "" and i_show_labels
+    label.new(bar_index, high, pattern,
+         style = label.style_label_down,
+         color = color.new(color.blue, 20),
+         textcolor = color.white,
+         size  = size.small)
+    if i_alerts_on
+        alert("Institutional CRT Engine: " + pattern + " detected on " + syminfo.ticker + ", " + timeframe.period,
+              freq = a_freq)

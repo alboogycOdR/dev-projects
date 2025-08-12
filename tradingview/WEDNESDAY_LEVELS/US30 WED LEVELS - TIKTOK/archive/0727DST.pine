@@ -1,0 +1,346 @@
+// ───── DESCRIPTION ─────────────────────────────────────────────────────────────────
+//
+// This script is designed to identify and visualize specific, recurring price levels
+// based on two distinct time-based systems: Wednesday SAST (South African Standard Time)
+// and Midnight (UTC+2) levels. These features are intended to highlight potentially
+// significant support and resistance zones for technical analysis.
+//
+// -----------------------------------------------------------------------------
+// │ KEY FEATURES                                                                │
+// -----------------------------------------------------------------------------
+//
+// 1. Wednesday SAST Lines:
+//    - Identifies the high and low of the first five Wednesdays of each month.
+//    - The specific time for capturing the high/low is 20:30 SAST, which the
+//      script automatically adjusts to account for US Daylight Saving Time changes,
+//      switching between 19:30 and 20:30 UTC as needed.
+//    - Each of the five Wednesdays has its own customizable display settings,
+//      allowing users to toggle visibility, and set unique colors and line widths
+//      for both the high and low lines.
+//    - This feature helps traders track monthly price ranges based on a consistent
+//      weekly event.
+//
+// 2. Midnight Levels (UTC+2):
+//    - Plots the high and low of the 00:00 candle (15-minute timeframe) for each
+//      day, based on the UTC+2 timezone.
+//    - Users can specify a lookback period (in days) to display these historical
+//      midnight levels on the chart.
+//    - The appearance of the high and low lines (color, style, width) is fully
+//      customizable.
+//    - This is useful for strategies that focus on the opening range of the
+//      European sessions.
+//
+// 3. General Settings:
+//    - Line Extension: All lines can be configured to either extend indefinitely
+//      into the future or stop at the end of their respective day.
+//    - Date Labels: Optional labels can be displayed to mark the specific date
+//      and type of each line (e.g., "DD Mon High", "Midnight Low").
+//    - Dynamic Updates: The script is built to handle drawing a large number of
+//      lines and labels efficiently without causing chart lag.
+//
+// -----------------------------------------------------------------------------
+//@version=5
+indicator("WED & MIDNIGHT DST System v0.1",
+          overlay=true,
+          max_lines_count=500,
+          max_labels_count=500,
+          dynamic_requests=true)
+
+// ───── INPUTS ────────────────────────────────────────────────────────────────
+
+// Wednesday Lines Group
+GROUP_WEDNESDAY = "Wednesday SAST Lines"
+showWednesdays = input.bool(true, "Show Wednesday Lines", group=GROUP_WEDNESDAY, tooltip="Master switch to show/hide all Wednesday lines.")
+showW1 = input.bool(true, "Show 1st Wednesday", group=GROUP_WEDNESDAY)
+hiC1 = input.color(color.new(color.red, 0), "", inline="1H", group=GROUP_WEDNESDAY)
+loC1 = input.color(color.new(color.blue, 0), "", inline="1L", group=GROUP_WEDNESDAY)
+hiW1 = input.int(2, "Width", minval=1, maxval=10, inline="1H", group=GROUP_WEDNESDAY)
+loW1 = input.int(2, "Width", minval=1, maxval=10, inline="1L", group=GROUP_WEDNESDAY)
+
+showW2 = input.bool(true, "Show 2nd Wednesday", group=GROUP_WEDNESDAY)
+hiC2 = input.color(color.new(color.orange, 0), "", inline="2H", group=GROUP_WEDNESDAY)
+loC2 = input.color(color.new(color.aqua, 0), "", inline="2L", group=GROUP_WEDNESDAY)
+hiW2 = input.int(2, "Width", minval=1, maxval=10, inline="2H", group=GROUP_WEDNESDAY)
+loW2 = input.int(2, "Width", minval=1, maxval=10, inline="2L", group=GROUP_WEDNESDAY)
+
+showW3 = input.bool(true, "Show 3rd Wednesday", group=GROUP_WEDNESDAY)
+hiC3 = input.color(color.new(color.green, 0), "", inline="3H", group=GROUP_WEDNESDAY)
+loC3 = input.color(color.new(color.fuchsia, 0), "", inline="3L", group=GROUP_WEDNESDAY)
+hiW3 = input.int(2, "Width", minval=1, maxval=10, inline="3H", group=GROUP_WEDNESDAY)
+loW3 = input.int(2, "Width", minval=1, maxval=10, inline="3L", group=GROUP_WEDNESDAY)
+
+showW4 = input.bool(true, "Show 4th Wednesday", group=GROUP_WEDNESDAY)
+hiC4 = input.color(color.new(color.purple, 0), "", inline="4H", group=GROUP_WEDNESDAY)
+loC4 = input.color(color.new(color.lime, 0), "", inline="4L", group=GROUP_WEDNESDAY)
+hiW4 = input.int(2, "Width", minval=1, maxval=10, inline="4H", group=GROUP_WEDNESDAY)
+loW4 = input.int(2, "Width", minval=1, maxval=10, inline="4L", group=GROUP_WEDNESDAY)
+
+showW5 = input.bool(false, "Show 5th Wednesday", group=GROUP_WEDNESDAY)
+hiC5 = input.color(color.new(color.gray, 0), "", inline="5H", group=GROUP_WEDNESDAY)
+loC5 = input.color(color.new(color.black, 0), "", inline="5L", group=GROUP_WEDNESDAY)
+hiW5 = input.int(2, "Width", minval=1, maxval=10, inline="5H", group=GROUP_WEDNESDAY)
+loW5 = input.int(2, "Width", minval=1, maxval=10, inline="5L", group=GROUP_WEDNESDAY)
+
+// Midnight Levels Group
+GROUP_MIDNIGHT = "Midnight Levels"
+showMidnightLevelsInput = input.bool(true, 'Show Midnight Levels', group=GROUP_MIDNIGHT, tooltip='Shows the high and low of the 00:00 (UTC+2) candle on the 15m timeframe.')
+midnightLookbackDaysInput = input.int(21, 'Lookback (Days)', group=GROUP_MIDNIGHT, minval=1, tooltip='Number of past days to show the midnight levels for.')
+midnightHighColorInput = input.color(color.new(color.orange, 50), 'High Color', group=GROUP_MIDNIGHT, inline='mlHigh')
+midnightHighStyleInput = input.string("Solid", 'High Style', group=GROUP_MIDNIGHT, options=["Solid", "Dashed", "Dotted"], inline='mlHigh')
+midnightHighWidthInput = input.int(1, 'High Width', group=GROUP_MIDNIGHT, minval=1, maxval=4, inline='mlHigh')
+midnightLowColorInput = input.color(color.new(color.purple, 50), 'Low Color', group=GROUP_MIDNIGHT, inline='mlLow')
+midnightLowStyleInput = input.string("Solid", 'Low Style', group=GROUP_MIDNIGHT, options=["Solid", "Dashed", "Dotted"], inline='mlLow')
+midnightLowWidthInput = input.int(1, 'Low Width', group=GROUP_MIDNIGHT, minval=1, maxval=4, inline='mlLow')
+
+// General Settings
+GROUP_GENERAL = "General Settings"
+extendRight = input.bool(true, "Extend Lines into Future", group=GROUP_GENERAL)
+labelText = input.bool(true, "Show Date Labels", group=GROUP_GENERAL)
+labelSize = input.string("Tiny", "Label Size", options=["Tiny", "Small", "Normal", "Large", "Huge"], group=GROUP_GENERAL)
+
+// ───── CONSTANTS ─────────────────────────────────────────────────────────────
+TARGET_TIMEZONE = "UTC+2"
+DAYOFWED        = 4 // 1=Sun, 2=Mon, 3=Tue, 4=Wed, 5=Thu, 6=Fri, 7=Sat
+
+// ───── DATA STRUCTURES ───────────────────────────────────────────────────────
+type midnightLevel
+    float high
+    float low
+    int barTime
+
+// ───── HELPER FUNCTIONS ──────────────────────────────────────────────────────
+f_size_str_to_const(size_str) =>
+    size_str == "Tiny" ? size.tiny :
+      size_str == "Small" ? size.small :
+      size_str == "Normal" ? size.normal :
+      size_str == "Large" ? size.large :
+      size_str == "Huge" ? size.huge : size.auto
+
+getStyle(string style) =>
+    style == "Solid" ? line.style_solid :
+      style == "Dashed" ? line.style_dashed :
+      style == "Dotted" ? line.style_dotted : line.style_solid
+
+// ───── STORAGE ───────────────────────────────────────────────────────────────
+// Wednesday Lines Storage
+var float[] hiPrice = array.new<float>()
+var float[] loPrice = array.new<float>()
+var int[] eventTimes = array.new<int>()
+var int[] wedRank = array.new<int>() // 1..5
+var string[] dates = array.new<string>()
+
+// Midnight Levels Storage
+var array<midnightLevel> midnightLevels = array.new<midnightLevel>()
+var array<line> midnightHighLines = array.new<line>()
+var array<line> midnightLowLines = array.new<line>()
+var array<label> midnightHighLabels = array.new<label>()
+var array<label> midnightLowLabels = array.new<label>()
+
+// ───── COMMON VARIABLES ──────────────────────────────────────────────────────
+actualLabelSize = f_size_str_to_const(labelSize)
+
+// ───── WEDNESDAY LOGIC ───────────────────────────────────────────────────────
+f_getTargetTime(ts) =>
+    _year = year(ts, "UTC")
+    _month = month(ts, "UTC")
+    _day = dayofmonth(ts, "UTC")
+
+    _targetHour = 20 // Default to 20:30
+    _targetMin = 30
+
+    isPeriod1 = false
+    if _year == 2025 and ((_month > 3 and _month < 11) or (_month == 3 and _day >= 9) or (_month == 11 and _day < 2))
+        isPeriod1 := true
+
+    isPeriod2 = false
+    if (_year == 2025 and (_month > 11 or (_month == 11 and _day >= 3))) or (_year == 2026 and (_month < 3 or (_month == 3 and _day < 8)))
+        isPeriod2 := true
+
+    if isPeriod1
+        _targetHour := 19
+    else if isPeriod2
+        _targetHour := 20
+
+    [_targetHour, _targetMin]
+
+[targetHour, targetMin] = f_getTargetTime(time)
+
+isWednesday = dayofweek(time, TARGET_TIMEZONE) == DAYOFWED
+isTargetTime = hour(time, TARGET_TIMEZONE) == targetHour and minute(time, TARGET_TIMEZONE) == targetMin
+
+if isWednesday and isTargetTime and barstate.isconfirmed
+    currentDay = dayofmonth(time, TARGET_TIMEZONE)
+    currentMonth = month(time, TARGET_TIMEZONE)
+    currentYear = year(time, TARGET_TIMEZONE)
+
+    wedCount = 0
+    for d = 1 to currentDay
+        testTime = timestamp(TARGET_TIMEZONE, currentYear, currentMonth, d, 12, 0)
+        if month(testTime, TARGET_TIMEZONE) == currentMonth and dayofweek(testTime, TARGET_TIMEZONE) == DAYOFWED
+            wedCount += 1
+
+    if wedCount <= 5
+        array.push(hiPrice, high)
+        array.push(loPrice, low)
+        array.push(eventTimes, time)
+        array.push(wedRank, wedCount)
+        dateStr = str.format("{0} {1}", currentDay,
+           currentMonth == 1 ? "Jan" :
+           currentMonth == 2 ? "Feb" :
+           currentMonth == 3 ? "Mar" :
+           currentMonth == 4 ? "Apr" :
+           currentMonth == 5 ? "May" :
+           currentMonth == 6 ? "Jun" :
+           currentMonth == 7 ? "Jul" :
+           currentMonth == 8 ? "Aug" :
+           currentMonth == 9 ? "Sep" :
+           currentMonth == 10 ? "Oct" :
+           currentMonth == 11 ? "Nov" : "Dec")
+        array.push(dates, dateStr)
+
+// ───── MIDNIGHT LEVEL LOGIC ───────────────────────────────────────────────────
+manageAndDrawMidnightLevels() =>
+    y = year(time, TARGET_TIMEZONE)
+    m = month(time, TARGET_TIMEZONE)
+    d = dayofmonth(time, TARGET_TIMEZONE)
+    isNewDayUTC2 = y != y[1] or m != m[1] or d != d[1]
+
+    if isNewDayUTC2
+        if showMidnightLevelsInput
+            midnightHigh = request.security(syminfo.tickerid, "15", high[1], lookahead=barmerge.lookahead_on)
+            midnightLow = request.security(syminfo.tickerid, "15", low[1], lookahead=barmerge.lookahead_on)
+            
+            if not na(midnightHigh) and not na(midnightLow)
+                dayTimestamp = timestamp(TARGET_TIMEZONE, y, m, d, 0, 0)
+                midnightLevels.push(midnightLevel.new(midnightHigh, midnightLow, dayTimestamp))
+
+                if midnightLevels.size() > midnightLookbackDaysInput
+                    midnightLevels.remove(0)
+
+    if not showMidnightLevelsInput and midnightHighLines.size() > 0
+        for l in midnightHighLines
+            l.delete()
+        for l in midnightLowLines
+            l.delete()
+        for l in midnightHighLabels
+            l.delete()
+        for l in midnightLowLabels
+            l.delete()
+        midnightHighLines.clear()
+        midnightLowLines.clear()
+        midnightHighLabels.clear()
+        midnightLowLabels.clear()
+
+    if showMidnightLevelsInput
+        while midnightHighLines.size() > midnightLevels.size()
+            line.delete(midnightHighLines.pop())
+        while midnightLowLines.size() > midnightLevels.size()
+            line.delete(midnightLowLines.pop())
+        while midnightHighLabels.size() > midnightLevels.size()
+            label.delete(midnightHighLabels.pop())
+        while midnightLowLabels.size() > midnightLevels.size()
+            label.delete(midnightLowLabels.pop())
+
+        while midnightHighLines.size() < midnightLevels.size()
+            midnightHighLines.push(line.new(na, na, na, na, xloc=xloc.bar_time))
+        while midnightLowLines.size() < midnightLevels.size()
+            midnightLowLines.push(line.new(na, na, na, na, xloc=xloc.bar_time))
+        while midnightHighLabels.size() < midnightLevels.size()
+            midnightHighLabels.push(label.new(na, na, xloc=xloc.bar_time, color=color(na), style=label.style_label_left, size=actualLabelSize))
+        while midnightLowLabels.size() < midnightLevels.size()
+            midnightLowLabels.push(label.new(na, na, xloc=xloc.bar_time, color=color(na), style=label.style_label_left, size=actualLabelSize))
+
+        if midnightLevels.size() > 0
+            for i = 0 to midnightLevels.size() - 1
+                levelData = midnightLevels.get(i)
+                highLine = midnightHighLines.get(i)
+                lowLine = midnightLowLines.get(i)
+                highLabel = midnightHighLabels.get(i)
+                lowLabel = midnightLowLabels.get(i)
+                
+                x2 = extendRight ? time : levelData.barTime + 24*60*60*1000
+
+                highLine.set_first_point(chart.point.new(levelData.barTime, na, levelData.high))
+                highLine.set_second_point(chart.point.new(x2, na, levelData.high))
+                highLine.set_color(midnightHighColorInput)
+                highLine.set_style(getStyle(midnightHighStyleInput))
+                highLine.set_width(midnightHighWidthInput)
+
+                if labelText
+                    highLabel.set_point(chart.point.new(x2, na, levelData.high))
+                    highLabel.set_text("Midnight High")
+                    highLabel.set_textcolor(midnightHighColorInput)
+                    highLabel.set_size(actualLabelSize)
+
+                lowLine.set_first_point(chart.point.new(levelData.barTime, na, levelData.low))
+                lowLine.set_second_point(chart.point.new(x2, na, levelData.low))
+                lowLine.set_color(midnightLowColorInput)
+                lowLine.set_style(getStyle(midnightLowStyleInput))
+                lowLine.set_width(midnightLowWidthInput)
+
+                if labelText
+                    lowLabel.set_point(chart.point.new(x2, na, levelData.low))
+                    lowLabel.set_text("Midnight Low")
+                    lowLabel.set_textcolor(midnightLowColorInput)
+                    lowLabel.set_size(actualLabelSize)
+
+// ───── EXECUTION & DRAWING ───────────────────────────────────────────────────
+
+// Execute Midnight Level Logic
+manageAndDrawMidnightLevels()
+
+// Execute Wednesday Drawing Logic
+if showWednesdays and barstate.islast and array.size(eventTimes) > 0
+    for i = 0 to array.size(eventTimes) - 1
+        eventTime = array.get(eventTimes, i)
+        hPrice = array.get(hiPrice, i)
+        lPrice = array.get(loPrice, i)
+        wRank = array.get(wedRank, i)
+        dStr = array.get(dates, i)
+
+        show = switch wRank
+            1 => showW1
+            2 => showW2
+            3 => showW3
+            4 => showW4
+            5 => showW5
+            => false
+
+        if show
+            hiCol = switch wRank
+                1 => hiC1
+                2 => hiC2
+                3 => hiC3
+                4 => hiC4
+                5 => hiC5
+                => color.white // Default case
+            loCol = switch wRank
+                1 => loC1
+                2 => loC2
+                3 => loC3
+                4 => loC4
+                5 => loC5
+                => color.white // Default case
+            hiW = switch wRank
+                1 => hiW1
+                2 => hiW2
+                3 => hiW3
+                4 => hiW4
+                5 => hiW5
+                => 1 // Default case
+            loW = switch wRank
+                1 => loW1
+                2 => loW2
+                3 => loW3
+                4 => loW4
+                5 => loW5
+                => 1 // Default case
+            
+            x2_wed = extendRight ? time : eventTime + 24*60*60*1000
+
+            line.new(eventTime, hPrice, x2_wed, hPrice, xloc=xloc.bar_time, color=hiCol, width=hiW, style=line.style_solid)
+            line.new(eventTime, lPrice, x2_wed, lPrice, xloc=xloc.bar_time, color=loCol, width=loW, style=line.style_solid)
+
+            if labelText
+                label.new(x2_wed, hPrice, dStr + " High", xloc=xloc.bar_time, color=hiCol, textcolor=color.white, style=label.style_label_down, size=actualLabelSize, textalign=text.align_left)
+                label.new(x2_wed, lPrice, dStr + " Low", xloc=xloc.bar_time, color=loCol, textcolor=color.white, style=label.style_label_up, size=actualLabelSize, textalign=text.align_left) 

@@ -1,0 +1,525 @@
+//@version=5
+indicator("CRT Bias Scanner v4", "CRT_ScanR", true, max_bars_back = 500, max_lines_count = 500, max_boxes_count = 500, max_labels_count = 500, dynamic_requests=true)
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ║                           GLOBAL SETTINGS                                ║
+// ═══════════════════════════════════════════════════════════════════════════
+
+var string G_INFO = "📌 CRT Bias Scanner Pro v4.0"
+dummy0 = input.bool(true, "═══════════════════════════════════════", group=G_INFO)
+dummy1 = input.bool(true, "Professional Multi-Asset CRT Scanner", group=G_INFO)
+dummy2 = input.bool(true, "═══════════════════════════════════════", group=G_INFO)
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ║                         PERFORMANCE SETTINGS                             ║
+// ═══════════════════════════════════════════════════════════════════════════
+
+var string G_PERFORMANCE = "⚡ Performance & Alerts"
+i_scan_freq = input.int(5, "↻ Scan Frequency", minval=1, maxval=60, step=1, group=G_PERFORMANCE, 
+     tooltip="Minutes between scans. Lower = more frequent updates but higher resource usage")
+i_enable_scan = input.bool(true, "🟢 Scanner Active", group=G_PERFORMANCE)
+i_enable_alerts = input.bool(false, "🔔 Enable Alerts", group=G_PERFORMANCE, 
+     tooltip="Get alerts when assets show strong bias signals")
+i_alert_bull_only = input.bool(false, "↗ Bull Signals Only", group=G_PERFORMANCE)
+i_alert_bear_only = input.bool(false, "↘ Bear Signals Only", group=G_PERFORMANCE)
+i_show_stats = input.bool(true, "📊 Show Statistics", group=G_PERFORMANCE)
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ║                          SYMBOL CONFIGURATION                            ║
+// ═══════════════════════════════════════════════════════════════════════════
+
+var string G_SYMBOLS = "💱 Symbol Configuration"
+symbol_group = input.string("Forex Majors", "Preset Groups", 
+     options=["Forex Majors", "Indices", "Crypto", "Commodities", "Custom"], 
+     group=G_SYMBOLS, tooltip="Quick symbol presets or choose Custom")
+
+// Default symbol inputs
+sym1  = input.symbol("OANDA:EURUSD", "Slot 1", group=G_SYMBOLS)
+sym2  = input.symbol("OANDA:GBPUSD", "Slot 2", group=G_SYMBOLS)
+sym3  = input.symbol("OANDA:USDJPY", "Slot 3", group=G_SYMBOLS)
+sym4  = input.symbol("OANDA:USDCAD", "Slot 4", group=G_SYMBOLS)
+sym5  = input.symbol("OANDA:AUDUSD", "Slot 5", group=G_SYMBOLS)
+sym6  = input.symbol("OANDA:NZDUSD", "Slot 6", group=G_SYMBOLS)
+sym7  = input.symbol("OANDA:USDCHF", "Slot 7", group=G_SYMBOLS)
+sym8  = input.symbol("OANDA:EURJPY", "Slot 8", group=G_SYMBOLS)
+sym9  = input.symbol("OANDA:GBPJPY", "Slot 9", group=G_SYMBOLS)
+sym10 = input.symbol("OANDA:XAUUSD", "Slot 10", group=G_SYMBOLS)
+sym11 = input.symbol("OANDA:XAGUSD", "Slot 11", group=G_SYMBOLS)
+sym12 = input.symbol("OANDA:NAS100USD", "Slot 12", group=G_SYMBOLS)
+sym13 = input.symbol("OANDA:US30USD", "Slot 13", group=G_SYMBOLS)
+sym14 = input.symbol("OANDA:SPX500USD", "Slot 14", group=G_SYMBOLS)
+sym15 = input.symbol("BITSTAMP:BTCUSD", "Slot 15", group=G_SYMBOLS)
+sym16 = input.symbol("BITSTAMP:ETHUSD", "Slot 16", group=G_SYMBOLS)
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ║                         VISUAL CUSTOMIZATION                             ║
+// ═══════════════════════════════════════════════════════════════════════════
+
+var string G_VISUAL = "🎨 Visual Settings"
+i_theme = input.string("Dark Pro", "Color Theme", 
+     options=["Dark Pro", "Light Pro", "Matrix", "Ocean", "Monochrome"], 
+     group=G_VISUAL)
+i_table_pos = input.string("Top Right", "Scanner Position", 
+     options=["Top Right", "Top Left", "Middle Right", "Middle Left", "Bottom Right", "Bottom Left"], 
+     group=G_VISUAL)
+i_table_size = input.string("Normal", "Table Size", 
+     options=["Compact", "Normal", "Large"], group=G_VISUAL)
+i_show_header = input.bool(true, "Show Header", group=G_VISUAL)
+i_show_legend = input.bool(true, "Show Legend", group=G_VISUAL)
+i_compact_mode = input.bool(false, "Compact Mode", group=G_VISUAL, 
+     tooltip="Removes asset names, shows only symbols")
+i_transparency = input.int(10, "Background Transparency", minval=0, maxval=100, group=G_VISUAL)
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ║                          SESSION SETTINGS                                ║
+// ═══════════════════════════════════════════════════════════════════════════
+
+var string G_SESSIONS = "🕐 Trading Sessions"
+show_sessions = input.bool(true, "Show Sessions on Chart", group=G_SESSIONS)
+session1_active = input.bool(true, "🗽 New York", inline="s1", group=G_SESSIONS)
+session1_time = input.session("1300-2200", "", inline="s1", group=G_SESSIONS)
+session1_color = input.color(#ff5d00, "", inline="s1", group=G_SESSIONS)
+
+session2_active = input.bool(true, "🏰 London", inline="s2", group=G_SESSIONS)
+session2_time = input.session("0700-1600", "", inline="s2", group=G_SESSIONS)
+session2_color = input.color(#2157f3, "", inline="s2", group=G_SESSIONS)
+
+session3_active = input.bool(true, "🗾 Tokyo", inline="s3", group=G_SESSIONS)
+session3_time = input.session("0000-0900", "", inline="s3", group=G_SESSIONS)
+session3_color = input.color(#e91e63, "", inline="s3", group=G_SESSIONS)
+
+session4_active = input.bool(true, "🏖 Sydney", inline="s4", group=G_SESSIONS)
+session4_time = input.session("2100-0600", "", inline="s4", group=G_SESSIONS)
+session4_color = input.color(#ffeb3b, "", inline="s4", group=G_SESSIONS)
+
+session_transparency = input.int(92, "Session Box Transparency", minval=0, maxval=100, group=G_SESSIONS)
+show_session_labels = input.bool(true, "Show Session Labels", group=G_SESSIONS)
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ║                         ADVANCED SETTINGS                                ║
+// ═══════════════════════════════════════════════════════════════════════════
+
+var string G_ADVANCED = "⚙️ Advanced Settings"
+use_exchange_tz = input.bool(false, "Use Exchange Timezone", group=G_ADVANCED)
+tz_offset = input.int(0, "UTC Offset (+/-)", minval=-12, maxval=14, group=G_ADVANCED)
+show_daily_dividers = input.bool(false, "Show Daily Dividers", group=G_ADVANCED)
+debug_mode = input.bool(false, "Debug Mode", group=G_ADVANCED, 
+     tooltip="Shows additional technical information")
+
+// Global timeframe and timezone for session visuals
+tf = timeframe.period
+tz = use_exchange_tz ? syminfo.timezone : str.format('UTC{0}{1}', tz_offset >= 0 ? '+' : '-', math.abs(tz_offset))
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ║                           COLOR THEMES                                   ║
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Theme colors setup
+var color color_bg = na
+var color color_header = na
+var color color_text = na
+var color color_bull = na
+var color color_bear = na
+var color color_neutral = na
+var color color_wait = na
+var color color_accent = na
+
+if barstate.isfirst
+    [bg, header, txt, bull, bear, neutral, wait, accent] = switch i_theme
+        "Light Pro" => 
+            [color.new(#ffffff, i_transparency), #1a1a1a, #1a1a1a, 
+             #10b981, #ef4444, #6b7280, #e5e7eb, #3b82f6]
+        "Matrix" => 
+            [color.new(#0d0208, i_transparency), #00ff41, #00ff41, 
+             #00ff41, #ff0040, #39ff14, #0d0208, #00ff41]
+        "Ocean" => 
+            [color.new(#001f3f, i_transparency), #7fdbff, #ffffff, 
+             #2ecc71, #e74c3c, #95a5a6, #001f3f, #3498db]
+        "Monochrome" => 
+            [color.new(#1a1a1a, i_transparency), #ffffff, #ffffff, 
+             #ffffff, #666666, #999999, #333333, #cccccc]
+        => [color.new(#0e1117, i_transparency), #ffffff, #ffffff, 
+             #10b981, #ef4444, #8b92a4, #1e2329, #3b82f6] // Dark Pro (default)
+    
+    color_bg := bg
+    color_header := header
+    color_text := txt
+    color_bull := bull
+    color_bear := bear
+    color_neutral := neutral
+    color_wait := wait
+    color_accent := accent
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ║                           ICONS & EMOJIS                                 ║
+// ═══════════════════════════════════════════════════════════════════════════
+
+var string icon_bull = "⬆"
+var string icon_bear = "⬇"
+var string icon_sandd = "⚡"
+var string icon_wait = "○"
+var string icon_scanning = "◔"
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ║                         CACHE VARIABLES                                  ║
+// ═══════════════════════════════════════════════════════════════════════════
+
+var int last_scan_time = 0
+var array<string> cached_symbols = array.new<string>(16)
+var array<string> cached_icons = array.new<string>(16)
+var array<color> cached_colors = array.new<color>(16)
+var array<float> cached_changes = array.new<float>(16)
+var bool needs_update = true
+var string last_scan_str = ""
+var int bull_count = 0
+var int bear_count = 0
+var int neutral_count = 0
+var int wait_count = 0
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ║                         HELPER FUNCTIONS                                 ║
+// ═══════════════════════════════════════════════════════════════════════════
+
+f_getTablePosition(pos) =>
+    switch pos
+        "Top Right"     => position.top_right
+        "Top Left"      => position.top_left
+        "Middle Right"  => position.middle_right
+        "Middle Left"   => position.middle_left
+        "Bottom Right"  => position.bottom_right
+        "Bottom Left"   => position.bottom_left
+
+f_getTextSize(size_str) =>
+    switch size_str
+        "Compact" => size.small
+        "Large"   => size.large
+        => size.normal
+
+// Clean symbol name function
+f_cleanSymbol(sym) =>
+    cleaned = str.replace_all(sym, "OANDA:", "")
+    cleaned := str.replace_all(cleaned, "BITSTAMP:", "")
+    cleaned := str.replace_all(cleaned, "FX:", "")
+    cleaned := str.replace_all(cleaned, "_PERP", "")
+    cleaned := str.replace_all(cleaned, "USD", "")
+    if str.contains(cleaned, "XAU")
+        cleaned := "GOLD"
+    else if str.contains(cleaned, "XAG")
+        cleaned := "SILVER"
+    else if str.contains(cleaned, "NAS100")
+        cleaned := "NAS100"
+    else if str.contains(cleaned, "US30")
+        cleaned := "DOW30"
+    else if str.contains(cleaned, "SPX500")
+        cleaned := "SP500"
+    else if str.contains(cleaned, "BTC")
+        cleaned := "BTC"
+    else if str.contains(cleaned, "ETH")
+        cleaned := "ETH"
+    cleaned
+
+// Session drawing helper (moved to global scope)
+f_drawSession(session_time, session_color, session_name, is_active) =>
+    if is_active
+        in_session = not na(time(tf, session_time, tz))
+        var box session_box = na
+        var label session_label = na
+        
+        if in_session and not in_session[1]
+            // New session started
+            session_box := box.new(bar_index, high, bar_index, low,
+                 bgcolor=color.new(session_color, session_transparency),
+                 border_color=na)
+            
+            if show_session_labels
+                session_label := label.new(bar_index, high, session_name,
+                     style=label.style_label_down,
+                     color=color.new(color.white, 100),
+                     textcolor=session_color,
+                     size=size.tiny)
+        
+        if in_session
+            box.set_right(session_box, bar_index)
+            box.set_top(session_box, math.max(high, box.get_top(session_box)))
+            box.set_bottom(session_box, math.min(low, box.get_bottom(session_box)))
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ║                         CRT ANALYSIS FUNCTION                            ║
+// ═══════════════════════════════════════════════════════════════════════════
+
+f_processSymbol(symbol_ticker, idx) =>
+    if needs_update
+        // Fetch 4H data with lookback
+        [c1_h, c1_l, c1_c, c2_h, c2_l, c0_c] = request.security(symbol_ticker, "240",  [high[1], low[1], close[1], high[2], low[2], close],      lookahead=barmerge.lookahead_on)
+        
+        // Calculate price change percentage
+        change_pct = ((c0_c - c1_c) / c1_c) * 100
+        
+        // CRT Bias Logic
+        high_sweep = c1_h > c2_h
+        low_sweep = c1_l < c2_l
+        
+        [icon, col, bias_type] = if high_sweep and low_sweep
+            [icon_sandd, color_neutral, "neutral"]
+        else if high_sweep and c1_c <= c2_h
+            [icon_bear, color_bear, "bear"]
+        else if low_sweep and c1_c >= c2_l
+            [icon_bull, color_bull, "bull"]
+        else
+            [icon_wait, color_wait, "wait"]
+        
+        // Cache results
+        symbol_name = i_compact_mode ? f_cleanSymbol(symbol_ticker) : str.tostring(str.replace_all(symbol_ticker, "OANDA:", ""))
+        array.set(cached_symbols, idx, symbol_name)
+        array.set(cached_icons, idx, icon)
+        array.set(cached_colors, idx, col)
+        array.set(cached_changes, idx, change_pct)
+        
+        // Trigger alerts if enabled
+        if i_enable_alerts
+            if bias_type == "bull" and not i_alert_bear_only
+                alert("CRT Bull Signal: " + symbol_name, alert.freq_once_per_bar)
+            else if bias_type == "bear" and not i_alert_bull_only
+                alert("CRT Bear Signal: " + symbol_name, alert.freq_once_per_bar)
+
+        // Return bias so caller can update counters outside
+        bias_type
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ║                         TIME-BASED SCANNING                              ║
+// ═══════════════════════════════════════════════════════════════════════════
+
+f_shouldScan() =>
+    current_time = time
+    time_diff = current_time - last_scan_time
+    scan_interval = i_scan_freq * 60 * 1000
+    time_diff >= scan_interval or last_scan_time == 0
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ║                         TABLE CREATION                                   ║
+// ═══════════════════════════════════════════════════════════════════════════
+
+var table scanner_table = table.new(f_getTablePosition(i_table_pos), 5, 20, 
+     border_width=1, border_color=color_accent)
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ║                         MAIN SCANNER LOGIC                               ║
+// ═══════════════════════════════════════════════════════════════════════════
+
+if barstate.islast and i_enable_scan
+    if f_shouldScan()
+        needs_update := true
+        last_scan_time := time
+        last_scan_str := str.format("{0,date,HH:mm}", last_scan_time)
+        
+        // Reset statistics
+        bull_count := 0
+        bear_count := 0
+        neutral_count := 0
+        wait_count := 0
+        
+        // Process all symbols and update counters from returned bias
+        bt1 = f_processSymbol(sym1, 0)
+        bt2 = f_processSymbol(sym2, 1)
+        bt3 = f_processSymbol(sym3, 2)
+        bt4 = f_processSymbol(sym4, 3)
+        bt5 = f_processSymbol(sym5, 4)
+        bt6 = f_processSymbol(sym6, 5)
+        bt7 = f_processSymbol(sym7, 6)
+        bt8 = f_processSymbol(sym8, 7)
+        bt9 = f_processSymbol(sym9, 8)
+        bt10 = f_processSymbol(sym10, 9)
+        bt11 = f_processSymbol(sym11, 10)
+        bt12 = f_processSymbol(sym12, 11)
+        bt13 = f_processSymbol(sym13, 12)
+        bt14 = f_processSymbol(sym14, 13)
+        bt15 = f_processSymbol(sym15, 14)
+        bt16 = f_processSymbol(sym16, 15)
+
+        // Reset statistics then accumulate based on returned biases
+        bull_count := 0
+        bear_count := 0
+        neutral_count := 0
+        wait_count := 0
+
+        // Direct accumulation without nested function definition
+        bull_count    := bull_count    + (bt1  == "bull"    ? 1 : 0)
+        bear_count    := bear_count    + (bt1  == "bear"    ? 1 : 0)
+        neutral_count := neutral_count + (bt1  == "neutral" ? 1 : 0)
+        wait_count    := wait_count    + (bt1  == "wait"    ? 1 : 0)
+
+        bull_count    := bull_count    + (bt2  == "bull"    ? 1 : 0)
+        bear_count    := bear_count    + (bt2  == "bear"    ? 1 : 0)
+        neutral_count := neutral_count + (bt2  == "neutral" ? 1 : 0)
+        wait_count    := wait_count    + (bt2  == "wait"    ? 1 : 0)
+
+        bull_count    := bull_count    + (bt3  == "bull"    ? 1 : 0)
+        bear_count    := bear_count    + (bt3  == "bear"    ? 1 : 0)
+        neutral_count := neutral_count + (bt3  == "neutral" ? 1 : 0)
+        wait_count    := wait_count    + (bt3  == "wait"    ? 1 : 0)
+
+        bull_count    := bull_count    + (bt4  == "bull"    ? 1 : 0)
+        bear_count    := bear_count    + (bt4  == "bear"    ? 1 : 0)
+        neutral_count := neutral_count + (bt4  == "neutral" ? 1 : 0)
+        wait_count    := wait_count    + (bt4  == "wait"    ? 1 : 0)
+
+        bull_count    := bull_count    + (bt5  == "bull"    ? 1 : 0)
+        bear_count    := bear_count    + (bt5  == "bear"    ? 1 : 0)
+        neutral_count := neutral_count + (bt5  == "neutral" ? 1 : 0)
+        wait_count    := wait_count    + (bt5  == "wait"    ? 1 : 0)
+
+        bull_count    := bull_count    + (bt6  == "bull"    ? 1 : 0)
+        bear_count    := bear_count    + (bt6  == "bear"    ? 1 : 0)
+        neutral_count := neutral_count + (bt6  == "neutral" ? 1 : 0)
+        wait_count    := wait_count    + (bt6  == "wait"    ? 1 : 0)
+
+        bull_count    := bull_count    + (bt7  == "bull"    ? 1 : 0)
+        bear_count    := bear_count    + (bt7  == "bear"    ? 1 : 0)
+        neutral_count := neutral_count + (bt7  == "neutral" ? 1 : 0)
+        wait_count    := wait_count    + (bt7  == "wait"    ? 1 : 0)
+
+        bull_count    := bull_count    + (bt8  == "bull"    ? 1 : 0)
+        bear_count    := bear_count    + (bt8  == "bear"    ? 1 : 0)
+        neutral_count := neutral_count + (bt8  == "neutral" ? 1 : 0)
+        wait_count    := wait_count    + (bt8  == "wait"    ? 1 : 0)
+
+        bull_count    := bull_count    + (bt9  == "bull"    ? 1 : 0)
+        bear_count    := bear_count    + (bt9  == "bear"    ? 1 : 0)
+        neutral_count := neutral_count + (bt9  == "neutral" ? 1 : 0)
+        wait_count    := wait_count    + (bt9  == "wait"    ? 1 : 0)
+
+        bull_count    := bull_count    + (bt10 == "bull"    ? 1 : 0)
+        bear_count    := bear_count    + (bt10 == "bear"    ? 1 : 0)
+        neutral_count := neutral_count + (bt10 == "neutral" ? 1 : 0)
+        wait_count    := wait_count    + (bt10 == "wait"    ? 1 : 0)
+
+        bull_count    := bull_count    + (bt11 == "bull"    ? 1 : 0)
+        bear_count    := bear_count    + (bt11 == "bear"    ? 1 : 0)
+        neutral_count := neutral_count + (bt11 == "neutral" ? 1 : 0)
+        wait_count    := wait_count    + (bt11 == "wait"    ? 1 : 0)
+
+        bull_count    := bull_count    + (bt12 == "bull"    ? 1 : 0)
+        bear_count    := bear_count    + (bt12 == "bear"    ? 1 : 0)
+        neutral_count := neutral_count + (bt12 == "neutral" ? 1 : 0)
+        wait_count    := wait_count    + (bt12 == "wait"    ? 1 : 0)
+
+        bull_count    := bull_count    + (bt13 == "bull"    ? 1 : 0)
+        bear_count    := bear_count    + (bt13 == "bear"    ? 1 : 0)
+        neutral_count := neutral_count + (bt13 == "neutral" ? 1 : 0)
+        wait_count    := wait_count    + (bt13 == "wait"    ? 1 : 0)
+
+        bull_count    := bull_count    + (bt14 == "bull"    ? 1 : 0)
+        bear_count    := bear_count    + (bt14 == "bear"    ? 1 : 0)
+        neutral_count := neutral_count + (bt14 == "neutral" ? 1 : 0)
+        wait_count    := wait_count    + (bt14 == "wait"    ? 1 : 0)
+
+        bull_count    := bull_count    + (bt15 == "bull"    ? 1 : 0)
+        bear_count    := bear_count    + (bt15 == "bear"    ? 1 : 0)
+        neutral_count := neutral_count + (bt15 == "neutral" ? 1 : 0)
+        wait_count    := wait_count    + (bt15 == "wait"    ? 1 : 0)
+
+        bull_count    := bull_count    + (bt16 == "bull"    ? 1 : 0)
+        bear_count    := bear_count    + (bt16 == "bear"    ? 1 : 0)
+        neutral_count := neutral_count + (bt16 == "neutral" ? 1 : 0)
+        wait_count    := wait_count    + (bt16 == "wait"    ? 1 : 0)
+        
+        needs_update := false
+    
+    // Build table
+    text_size = f_getTextSize(i_table_size)
+    
+    // Clear table
+    table.clear(scanner_table, 0, 0, 4, 19)
+    
+    current_row = 0
+    
+    // Header
+    if i_show_header
+        table.cell(scanner_table, 0, current_row, "CRT BIAS SCANNER PRO", bgcolor=color_bg, text_color=color_accent, text_size=text_size)
+        table.merge_cells(scanner_table, 0, current_row, 4, current_row)
+        current_row := current_row + 1
+        
+        // Scan status
+        scan_status = i_enable_scan ? "🟢 ACTIVE" : "🔴 INACTIVE"
+        table.cell(scanner_table, 0, current_row, scan_status + " | " + last_scan_str, bgcolor=color_bg, text_color=color_text, text_size=size.tiny)
+        table.merge_cells(scanner_table, 0, current_row, 4, current_row)
+        current_row := current_row + 1
+    
+    // Column headers
+    table.cell(scanner_table, 0, current_row, "Symbol", bgcolor=color_accent, text_color=color_bg, text_size=text_size)
+    table.cell(scanner_table, 1, current_row, "Bias", bgcolor=color_accent, text_color=color_bg, text_size=text_size)
+    table.cell(scanner_table, 2, current_row, "Symbol", bgcolor=color_accent, text_color=color_bg, text_size=text_size)
+    table.cell(scanner_table, 3, current_row, "Bias", bgcolor=color_accent, text_color=color_bg, text_size=text_size)
+    table.cell(scanner_table, 4, current_row, "%Δ", bgcolor=color_accent, text_color=color_bg, text_size=text_size)
+    current_row := current_row + 1
+    
+    // Display cached results in two columns
+    for i = 0 to 7
+        // Left column
+        left_idx = i
+        table.cell(scanner_table, 0, current_row + i, array.get(cached_symbols, left_idx), bgcolor=color_bg, text_color=color_text, text_size=text_size)
+        table.cell(scanner_table, 1, current_row + i, array.get(cached_icons, left_idx), bgcolor=array.get(cached_colors, left_idx), text_color=color_bg, text_size=text_size)
+        
+        // Right column
+        right_idx = i + 8
+        table.cell(scanner_table, 2, current_row + i, array.get(cached_symbols, right_idx), bgcolor=color_bg, text_color=color_text, text_size=text_size)
+        table.cell(scanner_table, 3, current_row + i, array.get(cached_icons, right_idx), bgcolor=array.get(cached_colors, right_idx), text_color=color_bg, text_size=text_size)
+        
+        // Change percentage
+        change_val = array.get(cached_changes, right_idx)
+        change_str = str.tostring(change_val, "#.##") + "%"
+        change_color = change_val > 0 ? color_bull : change_val < 0 ? color_bear : color_neutral
+        table.cell(scanner_table, 4, current_row + i, change_str, bgcolor=color_bg, text_color=change_color, text_size=size.tiny)
+    
+    current_row := current_row + 8
+    
+    // Statistics footer
+    if i_show_stats
+        stats_str = "↗ " + str.tostring(bull_count) + " | ↘ " + str.tostring(bear_count) + " | ⚡ " + str.tostring(neutral_count) + " | ○ " + str.tostring(wait_count)
+        table.cell(scanner_table, 0, current_row, stats_str, bgcolor=color_bg, text_color=color_text, text_size=size.tiny)
+        table.merge_cells(scanner_table, 0, current_row, 4, current_row)
+        current_row := current_row + 1
+    
+    // Legend
+    if i_show_legend
+        table.cell(scanner_table, 0, current_row, "⬆ Bull | ⬇ Bear | ⚡ S&D | ○ Wait", bgcolor=color_bg, text_color=color_neutral, text_size=size.tiny)
+        table.merge_cells(scanner_table, 0, current_row, 4, current_row)
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ║                         SESSION VISUALIZATION                            ║
+// ═══════════════════════════════════════════════════════════════════════════
+
+if show_sessions
+    // Draw each session
+    f_drawSession(session1_time, session1_color, "New York", session1_active)
+    f_drawSession(session2_time, session2_color, "London", session2_active)
+    f_drawSession(session3_time, session3_color, "Tokyo", session3_active)
+    f_drawSession(session4_time, session4_color, "Sydney", session4_active)
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ║                         DAILY DIVIDERS                                   ║
+// ═══════════════════════════════════════════════════════════════════════════
+
+if show_daily_dividers and dayofweek != dayofweek[1]
+    line.new(bar_index, high * 1.01, bar_index, low * 0.99,
+         color=color_neutral, style=line.style_dashed, width=1, extend=extend.both)
+    
+    day_names = array.from("", "SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT")
+    label.new(bar_index, high * 1.02, array.get(day_names, dayofweek),
+         style=label.style_label_down, color=color.new(color.white, 100),
+         textcolor=color_neutral, size=size.tiny)
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ║                         DEBUG INFORMATION                                ║
+// ═══════════════════════════════════════════════════════════════════════════
+
+if debug_mode and barstate.islast
+    debug_str = "TF: " + timeframe.period + " | Bars: " + str.tostring(bar_index) + "\nNext Scan: " + str.tostring(i_scan_freq - ((time - last_scan_time) / 60000), "#") + " min"
+    
+    label.new(bar_index, low * 0.98, debug_str,
+         style=label.style_label_up, color=color_bg,
+         textcolor=color_text, size=size.tiny)
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ║                           END OF SCRIPT                                  ║
+// ═══════════════════════════════════════════════════════════════════════════

@@ -1,0 +1,540 @@
+# Pine Script v5 Development Rules for CURSOR
+## Complete Edition - v2.0
+
+---
+
+## 🚨 CRITICAL: Pine Script Type System Constraints
+
+### 1. Simple vs Series Types
+**RULE**: `request.security()` REQUIRES its symbol parameter to be a "simple string" type.
+
+- ✅ **CORRECT**: Variables from `input.symbol()` are simple strings
+- ❌ **WRONG**: Array elements via `array.get()` return series strings
+- ❌ **WRONG**: Any computed or concatenated strings in loops
+
+```pinescript
+// ✅ CORRECT - Simple string from input
+sym1 = input.symbol("OANDA:EURUSD", "Asset 1")
+data = request.security(sym1, "240", close)  // Works!
+
+// ❌ WRONG - Array element is series string
+symbols = array.from(sym1, sym2, sym3)
+data = request.security(array.get(symbols, 0), "240", close)  // ERROR!
+```
+
+### 2. Working with Multiple Symbols
+**RULE**: When processing multiple symbols with `request.security()`:
+- Define each symbol as an individual input variable
+- Call `request.security()` with each variable explicitly
+- Can create arrays for OTHER purposes, but NOT for security requests
+
+```pinescript
+// ✅ CORRECT Pattern
+sym1 = input.symbol("EURUSD", "Symbol 1")
+sym2 = input.symbol("GBPUSD", "Symbol 2")
+sym3 = input.symbol("USDJPY", "Symbol 3")
+
+// Process individually
+f_process(sym1, 0)
+f_process(sym2, 1)
+f_process(sym3, 2)
+
+// ❌ WRONG Pattern
+symbols = array.from(sym1, sym2, sym3)
+for i = 0 to 2
+    f_process(array.get(symbols, i), i)  // Will fail!
+```
+
+---
+
+## ⚡ Performance Optimization Rules
+
+### 3. Dynamic Requests
+**RULE**: Always use `dynamic_requests=true` when using multiple `request.security()` calls.
+
+```pinescript
+indicator("My Indicator", overlay=true, dynamic_requests=true)
+```
+
+### 4. Caching Security Data
+**RULE**: Implement time-based caching for multiple symbol scanners:
+
+```pinescript
+// Performance variables
+var int last_scan_time = 0
+var array<string> cached_data = array.new<string>(16)
+var bool needs_update = true
+
+// Check if scan needed
+f_shouldScan() =>
+    time_diff = time - last_scan_time
+    scan_interval = scan_freq_minutes * 60 * 1000
+    time_diff >= scan_interval or last_scan_time == 0
+```
+
+---
+
+## 🚫 Reserved Keywords & Variable Naming
+
+### 5. Reserved Keywords to NEVER Use
+**RULE**: These words are reserved and cannot be used as variable or field names:
+
+❌ **NEVER USE**:
+- `text` → use `labelObj`, `textContent`, `displayText`
+- `line` → use `lineObj`, `trendline`, `level`
+- `box` → use `boxObj`, `visual`, `container`
+- `label` → use `labelObj`, `marker`, `annotation`
+- `table` → use `tableObj`, `grid`, `display`
+- `color` → use `colorVal`, `shade`, `tint`
+- `range` → use `show_range`, `price_range`
+- `time` → use `time_val`, `bar_time`
+- `volume` → use `vol`, `volume_data`
+- `open`, `high`, `low`, `close` → use prefixes like `prev_high`, `session_low`
+
+```pinescript
+// ❌ WRONG
+type MyType
+    label text      // ERROR: 'text' is reserved
+    box box         // ERROR: 'box' is reserved
+    color color     // ERROR: 'color' is reserved
+
+// ✅ CORRECT
+type MyType
+    label labelObj
+    box boxObj
+    color colorVal
+```
+
+---
+
+## 📦 Custom Types Best Practices
+
+### 6. Type Definition Rules
+**RULE**: When defining custom types, follow these patterns:
+
+```pinescript
+// ✅ CORRECT Type Definition
+type SessionConfig
+    bool show
+    string name
+    string session_time  // Not 'time'
+    color col            // Not 'color'
+    bool show_range      // Not 'range'
+    float high_val       // Not 'high'
+    float low_val        // Not 'low'
+    box boxObj          // Not 'box'
+    label labelObj      // Not 'label' or 'text'
+    line lineObj        // Not 'line'
+```
+
+### 7. Type Constructor Formatting
+**RULE**: Type constructors MUST have all parameters on ONE line:
+
+```pinescript
+// ❌ WRONG - Multi-line constructor
+MyType.new(
+    param1, param2,
+    param3, param4)
+
+// ✅ CORRECT - Single line
+MyType.new(param1, param2, param3, param4)
+
+// ✅ CORRECT - If you must break lines, keep it clean
+obj = MyType.new(param1, param2, param3, param4, param5, param6)
+```
+
+---
+
+## 🔄 Switch Statement Rules
+
+### 8. Switch Statement Syntax
+**RULE**: Default case in switch statements has specific requirements:
+
+```pinescript
+// ✅ CORRECT Switch Statement
+result = switch condition
+    "Option1" => value1
+    "Option2" => value2
+    "Option3" => value3
+    => defaultValue  // Single '=>' for default, must be last
+
+// ❌ WRONG - Double arrow in default
+result = switch condition
+    "Option1" => value1
+    => => defaultValue  // ERROR!
+```
+
+---
+
+## 🔁 Loop and Iteration Rules
+
+### 9. For Loop Variable Naming
+**RULE**: Use unique iterator names to avoid variable shadowing:
+
+```pinescript
+// ✅ CORRECT - Unique iterator names
+for i_outer = 0 to 10
+    for i_inner = 0 to 5
+        value_outer = array.get(arr1, i_outer)
+        value_inner = array.get(arr2, i_inner)
+
+// ✅ GOOD Practice - Descriptive iterators
+for i_session = 0 to array.size(sessions) - 1
+    session_item = array.get(sessions, i_session)
+    for i_data = 0 to array.size(dataPoints) - 1
+        data_item = array.get(dataPoints, i_data)
+```
+
+### 10. Array Iteration Best Practices
+**RULE**: When iterating arrays in nested contexts:
+- Suffix iterator variables: `_iter`, `_idx`, `_loop`
+- Suffix retrieved values: `_item`, `_val`, `_elem`
+
+---
+
+## 🎯 Security Request Patterns
+
+### 11. Multiple Data Points
+**RULE**: Use tuples to fetch multiple values in one security request:
+
+```pinescript
+// ✅ EFFICIENT - One request for multiple values
+[h1, l1, c1, h2, l2] = request.security(symbol, "240", 
+    [high[1], low[1], close[1], high[2], low[2]], 
+    lookahead=barmerge.lookahead_on)
+
+// ❌ INEFFICIENT - Multiple requests
+h1 = request.security(symbol, "240", high[1])
+l1 = request.security(symbol, "240", low[1])
+c1 = request.security(symbol, "240", close[1])
+```
+
+---
+
+## 📊 Table Management
+
+### 12. Table Operations
+**RULE**: Clear and rebuild tables efficiently:
+
+```pinescript
+// Clear only the cells you need
+if barstate.islast
+    table.clear(my_table, 0, 0, 3, 9)  // Clear specific range
+    // Rebuild content
+```
+
+---
+
+## 📝 Function Definition Rules
+
+### 13. Function Declaration Location
+**RULE**: Functions MUST be defined at the script's root level, NOT inside conditional blocks:
+
+```pinescript
+// ❌ WRONG - Function defined inside if block
+if condition
+    myFunction(x) =>
+        x * 2
+    result = myFunction(5)
+
+// ✅ CORRECT - Function defined at root level
+myFunction(x) =>
+    x * 2
+
+if condition
+    result = myFunction(5)
+```
+
+### 14. Function Return Patterns
+**RULE**: Avoid bare `return` statements:
+
+```pinescript
+// ❌ WRONG
+myFunction() =>
+    if condition
+        return
+    doSomething()
+
+// ✅ CORRECT - Use conditional wrapping
+myFunction() =>
+    if not condition
+        doSomething()
+```
+
+### 15. Function Scope Rules
+**RULE**: All function definitions must be:
+- At the script's top level (not nested)
+- Outside of any `if`, `for`, `while` blocks
+- Defined before they are called
+- Named with unique identifiers
+
+---
+
+## 🎨 Drawing Objects Management
+
+### 16. Label and Box Management
+**RULE**: When storing drawing objects in types:
+
+```pinescript
+// Cleanup pattern
+if array.size(myArray) > maxSize
+    removed = array.pop(myArray)
+    box.delete(removed.boxObj)      // Delete box first
+    label.delete(removed.labelObj)   // Then delete label
+    line.delete(removed.lineObj)     // Then delete line
+```
+
+### 17. Drawing Object Limits
+**RULE**: Set appropriate limits in indicator declaration:
+
+```pinescript
+indicator("My Indicator", overlay=true, 
+    max_lines_count=500, 
+    max_boxes_count=500, 
+    max_labels_count=500)
+```
+
+---
+
+## 📞 Function Call Formatting
+
+### 18. Multi-line Function Calls
+**RULE**: Function calls should follow these patterns:
+
+```pinescript
+// ✅ Method 1: Complete single line
+box.new(left=bar_index, top=high, right=bar_index+10, bottom=low, bgcolor=color.blue, border_color=color.red)
+
+// ✅ Method 2: All parameters on same line (even if long)
+sessionBox = box.new(left=data.startBar, top=data.highPrice, right=data.endBar, bottom=data.lowPrice, bgcolor=mainColor, border_color=color.new(sess.zoneColor, 50), border_width=1)
+
+// ❌ AVOID: Breaking between parameter name and value
+box.new(left=
+    bar_index, top=high)
+```
+
+---
+
+## 🏗️ Code Structure Best Practices
+
+### 19. Script Organization Pattern
+**RULE**: Follow this structure for Pine Script files:
+
+```pinescript
+//@version=5
+indicator(...)
+
+// ═══════════════════════════════════════
+// ║         1. CONSTANTS & INPUTS        ║
+// ═══════════════════════════════════════
+// All input.* declarations
+
+// ═══════════════════════════════════════
+// ║       2. TYPE DEFINITIONS            ║
+// ═══════════════════════════════════════
+// All custom type definitions
+
+// ═══════════════════════════════════════
+// ║       3. GLOBAL VARIABLES            ║
+// ═══════════════════════════════════════
+// All var declarations
+
+// ═══════════════════════════════════════
+// ║       4. HELPER FUNCTIONS            ║
+// ═══════════════════════════════════════
+// ALL function definitions at root level
+
+// ═══════════════════════════════════════
+// ║         5. MAIN LOGIC                ║
+// ═══════════════════════════════════════
+// Conditional execution using functions
+
+// ═══════════════════════════════════════
+// ║       6. DRAWING/OUTPUT              ║
+// ═══════════════════════════════════════
+// Table updates, plots, alerts
+```
+
+---
+
+## 🔍 Array Management
+
+### 20. Array Initialization
+**RULE**: Initialize arrays properly based on use case:
+
+```pinescript
+// For caching data between bars
+var array<string> cached_symbols = array.new<string>(16)
+var array<color> cached_colors = array.new<color>(16)
+
+// For temporary processing (recreated each bar)
+temp_values = array.new<float>(0)
+```
+
+### 21. Array Size Management
+**RULE**: Always check size before popping:
+
+```pinescript
+if array.size(myArray) > maxSize
+    removed = array.pop(myArray)
+    // Clean up any associated objects
+```
+
+---
+
+## 🕐 Session Handling
+
+### 22. Session Time Detection
+**RULE**: Use proper pattern for session detection:
+
+```pinescript
+// Reliable session detection
+is_session = math.sign(nz(time(timeframe.period, session_string, timezone)))
+
+// Check session change
+if is_session > is_session[1]  // Session just started
+    // Initialize session variables
+```
+
+---
+
+## ⚠️ Error Prevention
+
+### 23. Null Checks
+**RULE**: Always use `nz()` for potentially null values:
+
+```pinescript
+// Safe null handling
+safe_value = nz(some_calculation, 0)  // Default to 0 if null
+is_active = nz(time(timeframe.period, session)) != 0
+```
+
+### 24. Division by Zero
+**RULE**: Always guard against division by zero:
+
+```pinescript
+// Safe division
+result = denominator != 0 ? numerator / denominator : 0
+```
+
+---
+
+## 🐛 Debugging Guidelines
+
+### 25. Type Error Resolution
+**When getting type errors with `request.security()`:**
+1. Check if symbol is from `input.symbol()` directly
+2. Ensure not using array elements
+3. Verify not using computed/concatenated strings
+4. Check for proper `dynamic_requests=true` flag
+
+### 26. Common Error Messages & Solutions
+
+| Error | Cause | Solution |
+|-------|-------|----------|
+| "Cannot call 'request.security' with 'series string'" | Symbol isn't simple string | Use input.symbol() directly |
+| "Cannot use 'text' as identifier" | Reserved keyword | Rename to labelObj |
+| "Syntax error at input '=>'" | Switch statement issue | Fix default case syntax |
+| "Too many securities in script" | Missing flag | Add `dynamic_requests=true` |
+| "Undeclared identifier" | Variable shadowing | Use unique iterator names |
+| "Invalid type constructor" | Multi-line constructor | Put all params on one line |
+
+---
+
+## ✅ Pre-Publication Checklist
+
+Before submitting Pine Script code:
+
+**Type System**
+- [ ] All `request.security()` calls use simple string symbols
+- [ ] No array.get() used for security symbols
+- [ ] `dynamic_requests=true` set if using multiple securities
+
+**Reserved Keywords**
+- [ ] No reserved keywords used as variable names
+- [ ] All type fields use safe names (labelObj, not text)
+- [ ] No shadowing of built-in variables
+
+**Functions**
+- [ ] All functions defined at root level
+- [ ] No functions inside conditional blocks
+- [ ] No bare return statements
+
+**Formatting**
+- [ ] Type constructors on single lines
+- [ ] Switch statements have proper default case
+- [ ] Function calls properly formatted
+
+**Arrays & Tables**
+- [ ] Proper array initialization with var
+- [ ] Size checks before array.pop()
+- [ ] Table operations optimized
+
+**Drawing Objects**
+- [ ] Max limits set for boxes/lines/labels
+- [ ] Proper cleanup when removing objects
+- [ ] Objects deleted before array removal
+
+**Error Handling**
+- [ ] Null checks with `nz()` where needed
+- [ ] Division by zero protection
+- [ ] Proper session detection pattern
+
+---
+
+## 🚀 Performance Best Practices
+
+### Conditional Processing
+**Only process heavy calculations when necessary:**
+```pinescript
+if barstate.islast and condition
+    // Heavy processing here
+```
+
+### Variable Persistence
+**Use `var` for values that should persist:**
+```pinescript
+var float session_high = na  // Persists between bars
+regular_var = high           // Recalculated each bar
+```
+
+### Resource Management
+**Clean up old objects:**
+```pinescript
+if array.size(boxes) > lookbackDays
+    box.delete(array.shift(boxes))
+    label.delete(array.shift(labels))
+```
+
+---
+
+## 📋 Quick Reference Card
+
+### Must Remember:
+1. **request.security()** needs simple strings (from input.symbol)
+2. **Functions** at root level only
+3. **Type constructors** on one line
+4. **Reserved words** are forbidden
+5. **Switch default** uses single `=>`
+6. **For loops** need unique iterators
+7. **Arrays** can't be used for security symbols
+8. **Cleanup** objects before removing from arrays
+
+### Quick Fixes:
+- `text` → `labelObj`
+- `=> =>` → `=>`
+- Multi-line constructor → Single line
+- Function in if block → Move to root
+- `array.get()` for symbol → Individual variables
+
+---
+
+## 📝 Version History
+- v2.0: Complete rewrite with lessons from CRT Scanner and SMC Suite
+- v1.0: Initial rules from CRT Scanner debugging
+
+---
+
+*Last Updated: 2024*
+*Pine Script Version: v5*
+*TradingView Compatible*
