@@ -1,0 +1,270 @@
+//@version=5
+indicator("CRT Bias Scanner v3.4 Optimized", "CRT_ScanR_Opt", true, max_bars_back = 500, max_lines_count = 500, max_boxes_count = 500, max_labels_count = 500, dynamic_requests=true)
+
+// --- PERFORMANCE SETTINGS ---
+var string G_PERFORMANCE = "⚡ Performance Settings"
+i_scan_freq = input.int(1, "Scan Frequency (minutes)", minval=1, maxval=60, group=G_PERFORMANCE, 
+     tooltip="How often to scan all symbols. Higher values = better performance")
+i_enable_scan = input.bool(true, "Enable Scanner", group=G_PERFORMANCE)
+i_show_last_scan = input.bool(true, "Show Last Scan Time", group=G_PERFORMANCE)
+
+// --- INPUTS ---
+var string G_ASSETS = "📊 Assets Configuration"
+// Using individual inputs to keep symbols as simple strings
+sym1  = input.symbol("OANDA:EURUSD", "Asset 1", group=G_ASSETS)
+sym2  = input.symbol("OANDA:GBPUSD", "Asset 2", group=G_ASSETS)
+sym3  = input.symbol("OANDA:USDJPY", "Asset 3", group=G_ASSETS)
+sym4  = input.symbol("OANDA:USDCAD", "Asset 4", group=G_ASSETS)
+sym5  = input.symbol("OANDA:AUDUSD", "Asset 5", group=G_ASSETS)
+sym6  = input.symbol("OANDA:XAUUSD", "Asset 6", group=G_ASSETS)
+sym7  = input.symbol("OANDA:USDCHF", "Asset 7", group=G_ASSETS)
+sym8  = input.symbol("TVC:DXY", "Asset 8", group=G_ASSETS)
+sym9  = input.symbol("OANDA:NAS100USD", "Asset 9", group=G_ASSETS)
+sym10 = input.symbol("OANDA:US30USD", "Asset 10", group=G_ASSETS)
+sym11 = input.symbol("COMEX:GC1!", "Asset 11", group=G_ASSETS)
+sym12 = input.symbol("NYMEX:CL1!", "Asset 12", group=G_ASSETS)
+sym13 = input.symbol("BITSTAMP:BTCUSD", "Asset 13", group=G_ASSETS)
+sym14 = input.symbol("BITSTAMP:ETHUSD", "Asset 14", group=G_ASSETS)
+sym15 = input.symbol("OANDA:EURJPY", "Asset 15", group=G_ASSETS)
+sym16 = input.symbol("OANDA:GBPJPY", "Asset 16", group=G_ASSETS)
+
+// Keep an array for any auxiliary access if needed
+asset_inputs = array.from(sym1, sym2, sym3, sym4, sym5, sym6, sym7, sym8, sym9, sym10, sym11, sym12, sym13, sym14, sym15, sym16)
+
+var string G_LAYOUT = "🎨 Visual Theme & Layout"
+i_theme = input.string("Dark", "Theme", options=["Dark", "Light", "Blueprint"], group=G_LAYOUT)
+i_table_pos = input.string("Top Right", "Table Position", 
+     options=["Top Right", "Top Left", "Middle Right", "Middle Left", "Bottom Right", "Bottom Left"], group=G_LAYOUT)
+
+// --- SESSION INPUTS (Consolidated) ---
+type SessionConfig
+    bool show
+    string name
+    string time
+    color col
+    bool show_range
+    bool trendline
+    bool mean
+    bool vwap
+    bool maxmin
+
+var string G_SESSIONS = "🕐 Trading Sessions"
+var sessions = array.from(    SessionConfig.new(        input.bool(true, "NY", inline="s1", group=G_SESSIONS),        input.string("New York", "", inline="s1", group=G_SESSIONS),        input.session("1300-2200", "", inline="s1", group=G_SESSIONS),        input.color(#ff5d00, "", inline="s1", group=G_SESSIONS),        true, false, false, false, false),    SessionConfig.new(        input.bool(true, "LDN", inline="s2", group=G_SESSIONS),        input.string("London", "", inline="s2", group=G_SESSIONS),        input.session("0700-1600", "", inline="s2", group=G_SESSIONS),        input.color(#2157f3, "", inline="s2", group=G_SESSIONS),        true, false, false, false, false),   SessionConfig.new(       input.bool(true, "TYO", inline="s3", group=G_SESSIONS),        input.string("Tokyo", "", inline="s3", group=G_SESSIONS),        input.session("0000-0900", "", inline="s3", group=G_SESSIONS),        input.color(#e91e63, "", inline="s3", group=G_SESSIONS),        true, false, false, false, false),    SessionConfig.new(        input.bool(true, "SYD", inline="s4", group=G_SESSIONS),        input.string("Sydney", "", inline="s4", group=G_SESSIONS),        input.session("2100-0600", "", inline="s4", group=G_SESSIONS),        input.color(#ffeb3b, "", inline="s4", group=G_SESSIONS),        true, false, false, false, false))
+
+// --- OTHER SETTINGS ---
+var string G_MISC = "⚙️ Miscellaneous"
+tz_incr = input.int(0, "UTC (+/-)", group=G_MISC)
+use_exchange = input.bool(false, "Use Exchange Timezone", group=G_MISC)
+bg_transp = input.float(90, "Range Area Transparency", group=G_MISC)
+show_outline = input.bool(true, "Range Outline", group=G_MISC)
+show_txt = input.bool(true, "Range Label", group=G_MISC)
+show_day_div = input.bool(true, "Show Daily Divider", group=G_MISC)
+
+// --- COLOR THEME ---
+var color color_bg = na
+var color color_header = na
+var color color_text = na
+var color color_bull = na
+var color color_bear = na
+var color color_neutral = na
+var color color_wait = na
+
+if barstate.isfirst
+    [bg, header, txt, bull, bear, neutral, wait] = switch i_theme
+        "Light" => 
+            [#e0e3ebCC, #000000FF, #000000FF, #26a69aFF, #ef5350FF, #434651FF, #e0e3ebCC]
+        "Blueprint" => 
+            [#2a3449CC, #f7c975FF, #f7c975FF, #00BCD4FF, #E91E63FF, #9E9E9EFF, #2a3449CC]
+        => // Dark (default)
+            [#1e222dCC, #FFFFFFD9, #FFFFFFFF, #26a69aFF, #ef5350FF, #868b9cFF, #1e222dCC]
+    
+    color_bg := bg
+    color_header := header
+    color_text := txt
+    color_bull := bull
+    color_bear := bear
+    color_neutral := neutral
+    color_wait := wait
+
+// --- ICONS ---
+var string icon_bull = "▲"
+var string icon_bear = "▼"
+var string icon_sandd = "↔"
+var string icon_wait = "—"
+
+// --- PERFORMANCE VARIABLES ---
+var int last_scan_time = 0
+var array<string> cached_symbols = array.new<string>(16)
+var array<string> cached_icons = array.new<string>(16)
+var array<color> cached_colors = array.new<color>(16)
+var bool needs_update = true
+var string last_scan_str = ""
+
+// --- TABLE SETUP ---
+f_getTablePosition(pos) =>
+    switch pos
+        "Top Right"     => position.top_right
+        "Top Left"      => position.top_left
+        "Middle Right"  => position.middle_right
+        "Middle Left"   => position.middle_left
+        "Bottom Right"  => position.bottom_right
+        "Bottom Left"   => position.bottom_left
+
+var table results_table = table.new(f_getTablePosition(i_table_pos), 4, 10, 
+     border_width=1, border_color=color_header)
+
+// --- OPTIMIZED SYMBOL PROCESSING ---
+f_processSymbol(symbol_ticker, idx) =>
+    // Only fetch data if we need to update
+    if needs_update
+        [c1_h, c1_l, c1_c, c2_h, c2_l] = request.security(symbol_ticker, "240",             [high[1], low[1], close[1], high[2], low[2]], lookahead=barmerge.lookahead_on)
+        
+        // CRT Logic
+        high_sweep = c1_h > c2_h
+        low_sweep = c1_l < c2_l
+        
+        [icon, col] = if high_sweep and low_sweep
+            [icon_sandd, color_neutral]
+        else if high_sweep and c1_c <= c2_h
+            [icon_bear, color_bear]
+        else if low_sweep and c1_c >= c2_l
+            [icon_bull, color_bull]
+        else
+            [icon_wait, color_wait]
+        
+        // Cache results
+        symbol_name = str.replace_all(str.replace_all(symbol_ticker, "FX:", ""), "_PERP", "")
+        array.set(cached_symbols, idx, symbol_name)
+        array.set(cached_icons, idx, icon)
+        array.set(cached_colors, idx, col)
+
+// --- TIME-BASED SCANNING LOGIC ---
+f_shouldScan() =>
+    current_time = time
+    time_diff = current_time - last_scan_time
+    scan_interval = i_scan_freq * 60 * 1000 // Convert minutes to milliseconds
+    time_diff >= scan_interval or last_scan_time == 0
+
+// --- MAIN SCANNER LOGIC ---
+if barstate.islast and i_enable_scan
+    if f_shouldScan()
+        needs_update := true
+        last_scan_time := time
+        
+        // Update timestamp
+        last_scan_str := str.format("{0,date,HH:mm:ss}", last_scan_time)
+        
+        // Process all symbols explicitly to keep symbol parameter as a simple string
+        f_processSymbol(sym1, 0)
+        f_processSymbol(sym2, 1)
+        f_processSymbol(sym3, 2)
+        f_processSymbol(sym4, 3)
+        f_processSymbol(sym5, 4)
+        f_processSymbol(sym6, 5)
+        f_processSymbol(sym7, 6)
+        f_processSymbol(sym8, 7)
+        f_processSymbol(sym9, 8)
+        f_processSymbol(sym10, 9)
+        f_processSymbol(sym11, 10)
+        f_processSymbol(sym12, 11)
+        f_processSymbol(sym13, 12)
+        f_processSymbol(sym14, 13)
+        f_processSymbol(sym15, 14)
+        f_processSymbol(sym16, 15)
+        
+        needs_update := false
+    
+    // Update table (always refresh display even if data is cached)
+    table.clear(results_table, 0, 0, 3, 9)
+    
+    // Headers
+    table.cell(results_table, 0, 0, "Asset", text_halign=text.align_center, 
+         bgcolor=color_bg, text_color=color_header)
+    table.merge_cells(results_table, 0, 0, 1, 0)
+    table.cell(results_table, 2, 0, "Asset", text_halign=text.align_center, 
+         bgcolor=color_bg, text_color=color_header)
+    table.merge_cells(results_table, 2, 0, 3, 0)
+    
+    // Display cached results
+    for i = 0 to 15
+        row = (i % 8) + 1
+        col = i < 8 ? 0 : 2
+        
+        table.cell(results_table, col, row, array.get(cached_symbols, i), 
+             text_halign=text.align_left, bgcolor=array.get(cached_colors, i), 
+             text_color=color_text)
+        table.cell(results_table, col + 1, row, array.get(cached_icons, i), 
+             text_halign=text.align_center, bgcolor=array.get(cached_colors, i), 
+             text_color=color_text, text_size=size.normal)
+    
+    // Show last scan time
+    if i_show_last_scan and last_scan_str != ""
+        table.cell(results_table, 0, 9, "Last Scan: " + last_scan_str, 
+             text_halign=text.align_center, bgcolor=color_bg, 
+             text_color=color_header, text_size=size.tiny)
+        table.merge_cells(results_table, 0, 9, 3, 9)
+
+// --- SESSION RANGE FUNCTION (Optimized) ---
+f_drawSessionRange(session_on, session_config) =>
+    var int t = 0
+    var float max_price = high
+    var float min_price = low
+    var box bx = na
+    var label lbl = na
+    
+    if session_config.show and session_config.show_range
+        if session_on > session_on[1]
+            t := time
+            max_price := high
+            min_price := low
+            
+            box.delete(bx)
+            label.delete(lbl)
+            
+            bx := box.new(bar_index, max_price, bar_index, min_price,
+                 bgcolor=color.new(session_config.col, bg_transp),
+                 border_color=show_outline ? session_config.col : na,
+                 border_style=line.style_dotted)
+            
+            if show_txt
+                lbl := label.new(t, max_price, session_config.name,
+                     xloc=xloc.bar_time, textcolor=session_config.col,
+                     style=label.style_label_down,
+                     color=color.new(color.white, 100), size=size.tiny)
+        
+        if session_on != 0 and session_on == session_on[1]
+            max_price := math.max(high, max_price)
+            min_price := math.min(low, min_price)
+            
+            box.set_top(bx, max_price)
+            box.set_rightbottom(bx, bar_index, min_price)
+            
+            if show_txt
+                label.set_xy(lbl, int(math.avg(t, time)), max_price)
+
+// --- SESSION TIME CALCULATION ---
+tf = timeframe.period
+var tz = use_exchange ? syminfo.timezone :     str.format('UTC{0}{1}', tz_incr >= 0 ? '+' : '-', math.abs(tz_incr))
+
+// Draw session ranges
+for i = 0 to 3
+    session_config = array.get(sessions, i)
+    is_session = math.sign(nz(time(tf, session_config.time, tz)))
+    f_drawSessionRange(is_session, session_config)
+
+// --- DAILY DIVIDER ---
+if dayofweek != dayofweek[1] and show_day_div
+    line.new(bar_index, close + syminfo.mintick, bar_index, close - syminfo.mintick,
+         color=color.gray, extend=extend.both, style=line.style_dashed)
+    
+    day_name = switch dayofweek
+        1 => "Sunday"
+        2 => "Monday"
+        3 => "Tuesday"
+        4 => "Wednesday"
+        5 => "Thursday"
+        6 => "Friday"
+        7 => "Saturday"
+    
+    label.new(bar_index, high, day_name, style=label.style_label_down,
+         color=color.new(color.white, 100), textcolor=color.gray, size=size.tiny)

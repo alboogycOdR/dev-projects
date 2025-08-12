@@ -1,0 +1,658 @@
+//@version=5
+indicator("Professional ORB + ICT System v3.0", shorttitle="ORB ICT Pro", overlay=true, 
+         max_lines_count=500, max_labels_count=500, max_boxes_count=500)
+
+//═══════════════════════════════════════════════════════════════════════════════
+// INPUTS - ORGANIZED BY CATEGORY
+//═══════════════════════════════════════════════════════════════════════════════
+
+// Historical Display
+showHist = input.bool(true, "Show Historical Data", group="Historical Display", 
+                      tooltip="Displays all data from previous sessions")
+
+// Opening Range Configuration
+orTF = input.timeframe("30", "Time Period", group="Opening Range", 
+                       tooltip="Sets the length of time for determining Opening Range")
+sessionType = input.string("New York", "Session Type", 
+                          options=["New York", "London", "Tokyo", "Custom"], group="Opening Range")
+customSession = input.session("0930-1000", "Custom Session", group="Opening Range")
+timezone = input.string("America/New_York", "Timezone", group="Opening Range",                        options=["America/New_York", "Europe/London", "Asia/Tokyo"])
+
+// Advanced ORB Analysis
+useRangeAnalysis = input.bool(true, "Enable Range Analysis", group="Advanced Analysis")
+useATRFilter = input.bool(true, "ATR Range Classification", group="Advanced Analysis")
+narrowRangeATR = input.float(0.5, "Narrow Range (% of ATR)", minval=0.1, maxval=1.0, group="Advanced Analysis")
+wideRangeATR = input.float(1.5, "Wide Range (% of ATR)", minval=1.0, maxval=3.0, group="Advanced Analysis")
+showRangeStats = input.bool(true, "Show Range Statistics", group="Advanced Analysis")
+
+// Relative Volume Analysis
+useRVol = input.bool(true, "Enable Relative Volume", group="Volume Analysis")
+rvolThreshold = input.float(2.0, "RVol Threshold", minval=1.0, maxval=5.0, group="Volume Analysis")
+rvolLookback = input.int(20, "RVol Lookback Days", minval=5, maxval=50, group="Volume Analysis")
+showVolumeProfile = input.bool(true, "Show Volume Profile", group="Volume Analysis")
+
+// ICT Concepts
+showICT = input.bool(true, "Enable ICT Concepts", group="ICT/SMC")
+showLiquidityGrabs = input.bool(true, "Liquidity Grabs", group="ICT/SMC")
+showFVG = input.bool(true, "Fair Value Gaps", group="ICT/SMC")
+showOrderBlocks = input.bool(true, "Order Blocks", group="ICT/SMC")
+showMSS = input.bool(true, "Market Structure Shifts", group="ICT/SMC")
+fvgMinSize = input.float(0.3, "FVG Min Size (ATR)", minval=0.1, maxval=1.0, group="ICT/SMC")
+
+// Market Structure
+useHTFBias = input.bool(true, "Use Higher Timeframe Bias", group="Market Structure")
+htfTimeframe = input.timeframe("240", "HTF for Bias", group="Market Structure")
+showPrevDayLevels = input.bool(true, "Previous Day Levels", group="Market Structure")
+showPremarket = input.bool(true, "Premarket Levels", group="Market Structure")
+bosLookback = input.int(10, "BOS Lookback", minval=5, maxval=20, group="Market Structure")
+
+// Breakout Signals
+sigTog = input.bool(true, "Show Breakout Signals", group="Breakout Signals")
+entryMethod = input.string("Pullback", "Entry Method", 
+                          options=["Immediate", "Pullback", "Both"], group="Breakout Signals")
+useBias = input.bool(true, "Use Directional Bias", group="Breakout Signals",
+                     tooltip="Filters signals based on HTF trend and range analysis")
+requireVolume = input.bool(true, "Require Volume Confirmation", group="Breakout Signals")
+volumeMultiplier = input.float(1.5, "Volume Spike Multiplier", minval=1.2, maxval=3.0, group="Breakout Signals")
+
+// Targets
+tTog = input.bool(true, "Show Targets", group="Targets")
+tPer = input.float(50, "Target % of Range", minval=1, group="Targets") * 0.01
+targetMethod = input.string("Range Based", "Target Method", 
+                           options=["Range Based", "ATR Based", "Structure Based"], group="Targets")
+showRiskReward = input.bool(true, "Show R:R Levels", group="Targets")
+tDispType = input.string("Adaptive", "Target Display", 
+                         options=["Adaptive", "Extended"], group="Targets")
+
+// Risk Management Display
+showStopLoss = input.bool(true, "Show Stop Loss Levels", group="Risk Management")
+stopMethod = input.string("Structure", "Stop Loss Method", 
+                         options=["Range", "Structure", "ATR", "Hybrid"], group="Risk Management")
+atrMultiplier = input.float(1.5, "ATR Stop Multiplier", minval=0.5, maxval=3.0, group="Risk Management")
+showPositionSize = input.bool(true, "Show Position Size Info", group="Risk Management")
+riskPercent = input.float(1.0, "Risk % per Trade", minval=0.1, maxval=5.0, group="Risk Management")
+
+// Dashboard
+showDashboard = input.bool(true, "Show Dashboard", group="Dashboard")
+dashLocation = input.string("Top Right", "Dashboard Location", 
+                           options=["Top Right", "Top Left", "Bottom Right", "Bottom Left"], group="Dashboard")
+
+// Visual Style
+upColor = input.color(#089981, "Bullish Color", group="Style")
+downColor = input.color(#f23645, "Bearish Color", group="Style")
+neutralColor = input.color(#787b86, "Neutral Color", group="Style")
+orbBoxColor = input.color(color.new(color.gray, 80), "OR Box Color", group="Style")
+orbLineColor = input.color(#787b86, "OR Line Color", group="Style")
+fvgColor = input.color(color.new(color.yellow, 85), "FVG Color", group="Style")
+obColor = input.color(color.new(color.purple, 85), "Order Block Color", group="Style")
+txtSize = input.string("small", "Text Size", 
+                       options=["tiny", "small", "normal", "large"], group="Style")
+lineStyle = input.string("Solid", "Line Style", 
+                         options=["Solid", "Dashed", "Dotted"], group="Style")
+
+//═══════════════════════════════════════════════════════════════════════════════
+// TYPE DEFINITIONS
+//═══════════════════════════════════════════════════════════════════════════════
+
+type Target
+    line ln
+    label lab
+    float price
+    int level
+
+type Signal
+    label lab
+    string direction
+    float price
+    int bar
+
+type Level
+    line ln
+    label lab
+    float price
+    string name
+
+//═══════════════════════════════════════════════════════════════════════════════
+// VARIABLES
+//═══════════════════════════════════════════════════════════════════════════════
+
+// Arrays for storing objects
+var array<Target> upTargets = array.new<Target>()
+var array<Target> downTargets = array.new<Target>()
+var array<Signal> signals = array.new<Signal>()
+var array<box> fvgBoxes = array.new<box>()
+var array<box> orderBlocks = array.new<box>()
+var array<Level> keyLevels = array.new<Level>()
+
+// Opening Range variables
+var bool orSession = false
+var bool orComplete = false
+var float orHigh = na
+var float orLow = na
+var float orMid = na
+var float orWidth = na
+var box orBox = na
+var Level orHighLevel = Level.new(na, na, na, "ORH")
+var Level orLowLevel = Level.new(na, na, na, "ORL")
+var line orMidLine = na
+
+// Range analysis
+var string rangeType = "Normal"
+var float rangeATRRatio = 0
+
+// Market structure
+var float lastSwingHigh = na
+var float lastSwingLow = na
+var int htfTrend = 0
+var bool bosDetected = false
+var string bosDirection = "None"
+
+// Liquidity grab tracking
+var bool liquidityGrabBull = false
+var bool liquidityGrabBear = false
+var float liquidityLevel = na
+
+// Trade management
+var float entryPrice = na
+var float stopLoss = na
+var float target1 = na
+var float target2 = na
+var float target3 = na
+var bool inPosition = false
+
+// Volume tracking
+var float avgVolume = 0
+var float currentRVol = 1.0
+
+// Statistics
+var int totalSignals = 0
+var int winningSignals = 0
+
+//═══════════════════════════════════════════════════════════════════════════════
+// FUNCTIONS
+//═══════════════════════════════════════════════════════════════════════════════
+
+// Get line style
+getLineStyle(style) =>
+    style == "Solid" ? line.style_solid :    style == "Dashed" ? line.style_dashed :    line.style_dotted
+// Get text size
+getTextSize(size) =>
+    size == "tiny" ? size.tiny :    size == "small" ? size.small :    size == "normal" ? size.normal :    size.large
+
+// Get dashboard position
+getDashPosition(location) =>
+    location == "Top Right" ? position.top_right :    location == "Top Left" ? position.top_left :    location == "Bottom Right" ? position.bottom_right :    position.bottom_left
+
+// Session detection
+isInSession() =>
+    inSession = false
+    if sessionType == "New York"
+        inSession := not na(time(timeframe.period, "0930-1600", "America/New_York"))
+    else if sessionType == "London"
+        inSession := not na(time(timeframe.period, "0800-1630", "Europe/London"))
+    else if sessionType == "Tokyo"
+        inSession := not na(time(timeframe.period, "0900-1500", "Asia/Tokyo"))
+    else
+        inSession := not na(time(timeframe.period, customSession, timezone))
+    inSession
+
+// Calculate Relative Volume
+calcRVol() =>
+    avgVol = ta.sma(volume, 20)
+    rvol = avgVol > 0 ? volume / avgVol : 1.0
+    rvol
+
+// Clear previous session objects
+clearSession() =>
+    if not showHist
+        for target in upTargets
+            target.ln.delete()
+            target.lab.delete()
+        for target in downTargets
+            target.ln.delete()
+            target.lab.delete()
+        for sig in signals
+            sig.lab.delete()
+        for fvg in fvgBoxes
+            box.delete(fvg)
+        for ob in orderBlocks
+            box.delete(ob)
+        if not na(orBox)
+            box.delete(orBox)
+        if not na(orHighLevel.ln)
+            orHighLevel.ln.delete()
+            orHighLevel.lab.delete()
+        if not na(orLowLevel.ln)
+            orLowLevel.ln.delete()
+            orLowLevel.lab.delete()
+        if not na(orMidLine)
+            line.delete(orMidLine)
+    
+    array.clear(upTargets)
+    array.clear(downTargets)
+    array.clear(signals)
+    array.clear(fvgBoxes)
+    array.clear(orderBlocks)
+
+//═══════════════════════════════════════════════════════════════════════════════
+// CALCULATIONS
+//═══════════════════════════════════════════════════════════════════════════════
+
+// ATR calculations
+atr = ta.atr(14)
+dailyATR = request.security(syminfo.tickerid, "D", ta.atr(14))
+
+// Previous day levels
+prevDayHigh = request.security(syminfo.tickerid, "D", high[1], lookahead=barmerge.lookahead_on)
+prevDayLow = request.security(syminfo.tickerid, "D", low[1], lookahead=barmerge.lookahead_on)
+prevDayClose = request.security(syminfo.tickerid, "D", close[1], lookahead=barmerge.lookahead_on)
+
+// HTF trend analysis
+htfClose = request.security(syminfo.tickerid, htfTimeframe, close)
+htfHigh = request.security(syminfo.tickerid, htfTimeframe, high)
+htfLow = request.security(syminfo.tickerid, htfTimeframe, low)
+htfTrend := htfClose > htfClose[1] and htfLow > htfLow[1] ? 1 :            htfClose < htfClose[1] and htfHigh < htfHigh[1] ? -1 : 0
+
+// Volume analysis
+avgVolume := ta.sma(volume, 20)
+currentRVol := useRVol ? calcRVol() : 1.0
+
+// Market structure - swing points
+swingHighBar = ta.pivothigh(high, bosLookback, bosLookback)
+swingLowBar = ta.pivotlow(low, bosLookback, bosLookback)
+
+if not na(swingHighBar)
+    lastSwingHigh := swingHighBar
+if not na(swingLowBar)
+    lastSwingLow := swingLowBar
+
+// Session management
+currentlyInSession = isInSession()
+sessionStart = currentlyInSession and not currentlyInSession[1]
+sessionEnd = currentlyInSession[1] and not currentlyInSession
+
+// OR period detection
+orTimeChange = timeframe.change(orTF)
+if sessionType == "Custom"
+    orSession := not na(time(timeframe.period, customSession, timezone))
+else
+    if sessionStart
+        orSession := true
+    else if not sessionStart and orTimeChange
+        orSession := false
+
+orStart = orSession and not orSession[1]
+orEnd = orSession[1] and not orSession
+
+//═══════════════════════════════════════════════════════════════════════════════
+// OPENING RANGE FORMATION
+//═══════════════════════════════════════════════════════════════════════════════
+
+// Initialize OR on start
+if orStart
+    clearSession()
+    orHigh := high
+    orLow := low
+    orComplete := false
+    orBox := box.new(bar_index, high, bar_index, low,                     bgcolor=orbBoxColor, border_width=0)
+
+// Update OR during formation
+if orSession and not orComplete
+    if high > orHigh
+        orHigh := high
+    if low < orLow
+        orLow := low
+    if not na(orBox)
+        box.set_top(orBox, orHigh)
+        box.set_bottom(orBox, orLow)
+        box.set_right(orBox, bar_index)
+
+// Complete OR formation
+if orEnd and not orComplete
+    orComplete := true
+    orMid := (orHigh + orLow) / 2
+    orWidth := orHigh - orLow
+    
+    // Create OR levels
+    orHighLevel := Level.new(        line.new(bar_index, orHigh, bar_index, orHigh, color=orbLineColor, style=getLineStyle(lineStyle)),        label.new(bar_index, orHigh, "ORH", style=label.style_label_left,                  color=color.new(color.white, 100), textcolor=orbLineColor, size=getTextSize(txtSize)),        orHigh, "ORH")
+    
+    orLowLevel := Level.new(        line.new(bar_index, orLow, bar_index, orLow, color=orbLineColor, style=getLineStyle(lineStyle)),        label.new(bar_index, orLow, "ORL", style=label.style_label_left,                 color=color.new(color.white, 100), textcolor=orbLineColor, size=getTextSize(txtSize)),        orLow, "ORL")
+    
+    orMidLine := line.new(bar_index, orMid, bar_index, orMid, 
+                         color=orbLineColor, style=line.style_dashed)
+    
+    // Range analysis
+    if useATRFilter and dailyATR > 0
+        rangeATRRatio := orWidth / dailyATR
+        rangeType := rangeATRRatio < narrowRangeATR ? "Narrow" :                    rangeATRRatio > wideRangeATR ? "Wide" : "Normal"// Extend OR levels
+if orComplete and not orSession
+    if not na(orHighLevel.ln)
+        orHighLevel.ln.set_x2(bar_index)
+        orHighLevel.lab.set_x(bar_index)
+    if not na(orLowLevel.ln)
+        orLowLevel.ln.set_x2(bar_index)
+        orLowLevel.lab.set_x(bar_index)
+    if not na(orMidLine)
+        orMidLine.set_x2(bar_index)
+
+//═══════════════════════════════════════════════════════════════════════════════
+// ICT CONCEPTS
+//═══════════════════════════════════════════════════════════════════════════════
+
+// Fair Value Gap detection
+if showFVG and showICT and bar_index > 2
+    // Bullish FVG
+    if low > high[2] and (low - high[2]) > fvgMinSize * atr
+        fvgBox = box.new(bar_index - 2, high[2], bar_index, low,                        bgcolor=fvgColor, border_color=color.new(upColor, 50))
+        array.push(fvgBoxes, fvgBox)
+        if array.size(fvgBoxes) > 5
+            box.delete(array.shift(fvgBoxes))
+    
+    // Bearish FVG
+    else if high < low[2] and (low[2] - high) > fvgMinSize * atr
+        fvgBox = box.new(bar_index - 2, high, bar_index, low[2],                        bgcolor=fvgColor, border_color=color.new(downColor, 50))
+        array.push(fvgBoxes, fvgBox)
+        if array.size(fvgBoxes) > 5
+            box.delete(array.shift(fvgBoxes))
+
+// Extend FVG boxes
+if array.size(fvgBoxes) > 0
+    for i = 0 to math.min(array.size(fvgBoxes) - 1, 4)
+        box.set_right(array.get(fvgBoxes, i), bar_index)
+
+// Order Block detection
+if showOrderBlocks and showICT and bar_index > 3
+    // Bullish order block
+    if close > open and close[1] < open[1] and close > high[1]
+        ob = box.new(bar_index - 1, high[1], bar_index, low[1],                    bgcolor=obColor, border_color=color.new(upColor, 50))
+        array.push(orderBlocks, ob)
+        if array.size(orderBlocks) > 3
+            box.delete(array.shift(orderBlocks))
+    
+    // Bearish order block
+    else if close < open and close[1] > open[1] and close < low[1]
+        ob = box.new(bar_index - 1, high[1], bar_index, low[1],                    bgcolor=obColor, border_color=color.new(downColor, 50))
+        array.push(orderBlocks, ob)
+        if array.size(orderBlocks) > 3
+            box.delete(array.shift(orderBlocks))
+
+// Liquidity Grab detection
+if showLiquidityGrabs and showICT and orComplete
+    // Bullish liquidity grab
+    if low < orLow and close > orLow
+        liquidityGrabBull := true
+        liquidityGrabBear := false
+        liquidityLevel := low
+        label.new(bar_index, low, "LG", style=label.style_label_up,
+                 color=color.new(upColor, 80), textcolor=color.white, size=getTextSize(txtSize))
+    
+    // Bearish liquidity grab
+    else if high > orHigh and close < orHigh
+        liquidityGrabBear := true
+        liquidityGrabBull := false
+        liquidityLevel := high
+        label.new(bar_index, high, "LG", style=label.style_label_down,
+                 color=color.new(downColor, 80), textcolor=color.white, size=getTextSize(txtSize))
+
+// Market Structure Shift detection
+if showMSS and showICT and orComplete
+    // Bullish MSS
+    if close > lastSwingHigh and not na(lastSwingHigh)
+        bosDetected := true
+        bosDirection := "Bullish"
+        label.new(bar_index, high, "MSS↑", style=label.style_label_up,
+                 color=color.new(upColor, 80), textcolor=color.white, size=getTextSize(txtSize))
+    
+    // Bearish MSS
+    else if close < lastSwingLow and not na(lastSwingLow)
+        bosDetected := true
+        bosDirection := "Bearish"
+        label.new(bar_index, low, "MSS↓", style=label.style_label_down,
+                 color=color.new(downColor, 80), textcolor=color.white, size=getTextSize(txtSize))
+
+//═══════════════════════════════════════════════════════════════════════════════
+// BREAKOUT DETECTION AND SIGNALS
+//═══════════════════════════════════════════════════════════════════════════════
+
+var bool breakoutLong = false
+var bool breakoutShort = false
+var float breakoutLevel = na
+
+if orComplete and not orSession
+    // Volume confirmation
+    volumeSpike = requireVolume ? volume > avgVolume * volumeMultiplier : true
+    rvolConfirmed = not useRVol or currentRVol >= rvolThreshold
+    
+    // Long breakout
+    if close > orHigh and not breakoutLong
+        if volumeSpike and rvolConfirmed
+            // Check bias filters
+            biasOK = not useBias or (htfTrend >= 0 and rangeType != "Wide")
+            
+            if biasOK
+                breakoutLong := true
+                breakoutShort := false
+                breakoutLevel := orHigh
+                
+                if sigTog
+                    sig = Signal.new(                        label.new(bar_index, low, "▲", style=label.style_label_up,                                 color=color.new(color.white, 100), textcolor=upColor, size=getTextSize(txtSize)),                        "Long", close, bar_index)
+                    array.push(signals, sig)
+                    totalSignals += 1
+    
+    // Short breakout
+    else if close < orLow and not breakoutShort
+        if volumeSpike and rvolConfirmed
+            // Check bias filters
+            biasOK = not useBias or (htfTrend <= 0 and rangeType != "Wide")
+            
+            if biasOK
+                breakoutShort := true
+                breakoutLong := false
+                breakoutLevel := orLow
+                
+                if sigTog
+                    sig = Signal.new(                        label.new(bar_index, high, "▼", style=label.style_label_down,                                 color=color.new(color.white, 100), textcolor=downColor, size=getTextSize(txtSize)),                        "Short", close, bar_index)
+                    array.push(signals, sig)
+                    totalSignals += 1
+
+// Reset on new session
+if sessionStart
+    breakoutLong := false
+    breakoutShort := false
+    liquidityGrabBull := false
+    liquidityGrabBear := false
+    bosDetected := false
+
+//═══════════════════════════════════════════════════════════════════════════════
+// TARGETS CALCULATION
+//═══════════════════════════════════════════════════════════════════════════════
+
+if tTog and orComplete and not orSession
+    targetDistance = 0.0
+    
+    if targetMethod == "Range Based"
+        targetDistance := orWidth * tPer
+    else if targetMethod == "ATR Based"
+        targetDistance := atr
+    else if targetMethod == "Structure Based"
+        targetDistance := math.abs(orHigh - lastSwingHigh)
+    
+    // Generate up targets
+    if breakoutLong and array.size(upTargets) == 0
+        for i = 1 to 3
+            targetPrice = orHigh + (targetDistance * i)
+            target = Target.new(                line.new(bar_index, targetPrice, bar_index + 1, targetPrice,                        color=upColor, style=getLineStyle(lineStyle)),                label.new(bar_index, targetPrice, "T" + str.tostring(i),                         style=label.style_label_left, color=color.new(color.white, 100),                         textcolor=upColor, size=getTextSize(txtSize)),                targetPrice, i)
+            array.push(upTargets, target)
+    
+    // Generate down targets
+    if breakoutShort and array.size(downTargets) == 0
+        for i = 1 to 3
+            targetPrice = orLow - (targetDistance * i)
+            target = Target.new(                line.new(bar_index, targetPrice, bar_index + 1, targetPrice,                        color=downColor, style=getLineStyle(lineStyle)),                label.new(bar_index, targetPrice, "T" + str.tostring(i),                         style=label.style_label_left, color=color.new(color.white, 100),                         textcolor=downColor, size=getTextSize(txtSize)),                targetPrice, i)
+            array.push(downTargets, target)
+
+// Update target lines
+if tDispType == "Extended"
+    for target in upTargets
+        target.ln.set_x2(bar_index)
+        target.lab.set_x(bar_index)
+    for target in downTargets
+        target.ln.set_x2(bar_index)
+        target.lab.set_x(bar_index)
+
+//═══════════════════════════════════════════════════════════════════════════════
+// RISK MANAGEMENT VISUALIZATION
+//═══════════════════════════════════════════════════════════════════════════════
+
+if showStopLoss and orComplete and (breakoutLong or breakoutShort)
+    // Calculate stop loss
+    if breakoutLong
+        stopLoss := switch stopMethod
+            "Range" => orLow
+            "Structure" => na(lastSwingLow) ? orLow : lastSwingLow
+            "ATR" => close - (atr * atrMultiplier)
+            "Hybrid" => math.max(orLow, na(lastSwingLow) ? orLow : lastSwingLow)
+            => orLow
+        
+        if barstate.islast
+            line.new(bar_index - 10, stopLoss, bar_index, stopLoss,                    color=color.new(downColor, 50), style=line.style_dashed)
+            label.new(bar_index, stopLoss, "SL", style=label.style_label_left,
+                     color=color.new(color.white, 100), textcolor=downColor, size=getTextSize(txtSize))
+    
+    else if breakoutShort
+        stopLoss := switch stopMethod
+            "Range" => orHigh
+            "Structure" => na(lastSwingHigh) ? orHigh : lastSwingHigh
+            "ATR" => close + (atr * atrMultiplier)
+            "Hybrid" => math.min(orHigh, na(lastSwingHigh) ? orHigh : lastSwingHigh)
+            => orHigh
+        
+        if barstate.islast
+            line.new(bar_index - 10, stopLoss, bar_index, stopLoss,                    color=color.new(downColor, 50), style=line.style_dashed)
+            label.new(bar_index, stopLoss, "SL", style=label.style_label_left,                     color=color.new(color.white, 100), textcolor=downColor, size=getTextSize(txtSize))
+
+//═══════════════════════════════════════════════════════════════════════════════
+// DASHBOARD
+//═══════════════════════════════════════════════════════════════════════════════
+
+if showDashboard
+    var table dashboard = table.new(getDashPosition(dashLocation), 2, 15,
+                                   bgcolor=color.new(color.black, 85),
+                                   border_color=color.gray, border_width=1)
+    
+    if barstate.islast
+        row = 0
+        
+        // Header
+        table.cell(dashboard, 0, row, "ORB + ICT System", text_color=color.white, text_size=size.normal)
+        table.cell(dashboard, 1, row, "", text_color=color.white, text_size=size.normal)
+        row += 1
+        
+        // Session Info
+        sessionText = sessionType == "Custom" ? "Custom" : sessionType
+        table.cell(dashboard, 0, row, "Session", text_color=color.gray, text_size=size.small)
+        table.cell(dashboard, 1, row, sessionText, text_color=color.yellow, text_size=size.small)
+        row += 1
+        
+        // OR Duration
+        table.cell(dashboard, 0, row, "OR Period", text_color=color.gray, text_size=size.small)
+        table.cell(dashboard, 1, row, orTF + " min", text_color=color.aqua, text_size=size.small)
+        row += 1
+        
+        // OR High
+        table.cell(dashboard, 0, row, "OR High", text_color=color.gray, text_size=size.small)
+        table.cell(dashboard, 1, row, str.tostring(orHigh, "#.##"), text_color=upColor, text_size=size.small)
+        row += 1
+        
+        // OR Low
+        table.cell(dashboard, 0, row, "OR Low", text_color=color.gray, text_size=size.small)
+        table.cell(dashboard, 1, row, str.tostring(orLow, "#.##"), text_color=downColor, text_size=size.small)
+        row += 1
+        
+        // OR Width
+        table.cell(dashboard, 0, row, "OR Width", text_color=color.gray, text_size=size.small)
+        table.cell(dashboard, 1, row, str.tostring(orWidth, "#.##"), text_color=color.blue, text_size=size.small)
+        row += 1
+        
+        // Range Type
+        if useRangeAnalysis
+            table.cell(dashboard, 0, row, "Range Type", text_color=color.gray, text_size=size.small)
+            rangeColor = rangeType == "Narrow" ? upColor : rangeType == "Wide" ? downColor : neutralColor
+            table.cell(dashboard, 1, row, rangeType, text_color=rangeColor, text_size=size.small)
+            row += 1
+            
+            // ATR Ratio
+            table.cell(dashboard, 0, row, "Range/ATR", text_color=color.gray, text_size=size.small)
+            table.cell(dashboard, 1, row, str.tostring(rangeATRRatio, "#.##"), text_color=color.purple, text_size=size.small)
+            row += 1
+        
+        // Relative Volume
+        if useRVol
+            table.cell(dashboard, 0, row, "RVol", text_color=color.gray, text_size=size.small)
+            rvolColor = currentRVol >= rvolThreshold ? upColor : downColor
+            table.cell(dashboard, 1, row, str.tostring(currentRVol, "#.#") + "x", text_color=rvolColor, text_size=size.small)
+            row += 1
+        
+        // HTF Trend
+        if useHTFBias
+            table.cell(dashboard, 0, row, "HTF Trend", text_color=color.gray, text_size=size.small)
+            trendText = htfTrend == 1 ? "↑ Bull" : htfTrend == -1 ? "↓ Bear" : "→ Neutral"
+            trendColor = htfTrend == 1 ? upColor : htfTrend == -1 ? downColor : neutralColor
+            table.cell(dashboard, 1, row, trendText, text_color=trendColor, text_size=size.small)
+            row += 1
+        
+        // Breakout Status
+        table.cell(dashboard, 0, row, "Breakout", text_color=color.gray, text_size=size.small)
+        breakText = breakoutLong ? "Long" : breakoutShort ? "Short" : "None"
+        breakColor = breakoutLong ? upColor : breakoutShort ? downColor : neutralColor
+        table.cell(dashboard, 1, row, breakText, text_color=breakColor, text_size=size.small)
+        row += 1
+        
+        // ICT Status
+        if showICT
+            table.cell(dashboard, 0, row, "ICT Signal", text_color=color.gray, text_size=size.small)
+            ictText = liquidityGrabBull ? "Bull LG" : liquidityGrabBear ? "Bear LG" : bosDetected ? bosDirection + " MSS" : "None"
+            ictColor = (liquidityGrabBull or bosDirection == "Bullish") ? upColor : 
+                      (liquidityGrabBear or bosDirection == "Bearish") ? downColor : neutralColor
+            table.cell(dashboard, 1, row, ictText, text_color=ictColor, text_size=size.small)
+            row += 1
+        
+        // Previous Day Levels
+        if showPrevDayLevels
+            table.cell(dashboard, 0, row, "Prev High", text_color=color.gray, text_size=size.small)
+            table.cell(dashboard, 1, row, str.tostring(prevDayHigh, "#.##"), text_color=color.purple, text_size=size.small)
+            row += 1
+            
+            table.cell(dashboard, 0, row, "Prev Low", text_color=color.gray, text_size=size.small)
+            table.cell(dashboard, 1, row, str.tostring(prevDayLow, "#.##"), text_color=color.purple, text_size=size.small)
+            row += 1
+        
+        // Position Size Calculator
+        if showPositionSize and (breakoutLong or breakoutShort)
+            risk = breakoutLong ? close - stopLoss : stopLoss - close
+            posSize = risk > 0 ? (10000 * (riskPercent / 100)) / risk : 0
+            
+            table.cell(dashboard, 0, row, "Pos Size", text_color=color.gray, text_size=size.small)
+            table.cell(dashboard, 1, row, str.tostring(posSize, "#"), text_color=color.orange, text_size=size.small)
+
+//═══════════════════════════════════════════════════════════════════════════════
+// PLOTTING
+//═══════════════════════════════════════════════════════════════════════════════
+
+// Previous day levels
+plot(showPrevDayLevels ? prevDayHigh : na, "Prev Day High", color=color.new(color.purple, 70), style=plot.style_circles, linewidth=1)
+plot(showPrevDayLevels ? prevDayLow : na, "Prev Day Low", color=color.new(color.purple, 70), style=plot.style_circles, linewidth=1)
+
+// Background coloring
+bgcolor(orSession ? color.new(color.blue, 95) : na, title="OR Period")
+bgcolor(currentlyInSession and not orSession ? color.new(color.gray, 98) : na, title="Session")
+
+// Alerts
+alertcondition(breakoutLong, "Long Breakout", "ORB Long Breakout Signal")
+alertcondition(breakoutShort, "Short Breakout", "ORB Short Breakout Signal")
+alertcondition(liquidityGrabBull, "Bullish Liquidity Grab", "Bullish Liquidity Grab Detected")
+alertcondition(liquidityGrabBear, "Bearish Liquidity Grab", "Bearish Liquidity Grab Detected")
+alertcondition(bosDetected and bosDirection == "Bullish", "Bullish MSS", "Bullish Market Structure Shift")
+alertcondition(bosDetected and bosDirection == "Bearish", "Bearish MSS", "Bearish Market Structure Shift")
+alertcondition(rangeType == "Narrow", "Narrow Range", "Narrow Range Detected - Potential Explosive Move")
+alertcondition(currentRVol >= rvolThreshold, "High RVol", "High Relative Volume Detected")

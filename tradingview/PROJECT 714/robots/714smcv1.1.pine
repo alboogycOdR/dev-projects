@@ -1,0 +1,388 @@
+//@version=5
+strategy("NY SMC Suite Strategy v1.1", "SMC Robot",          overlay=true,         initial_capital=10000,         default_qty_type=strategy.percent_of_equity,         default_qty_value=2,         commission_type=strategy.commission.percent,         commission_value=0.1,         pyramiding=2,         max_bars_back=500,         max_boxes_count=500,             max_labels_count=500,              max_lines_count=500,              dynamic_requests=true,             process_orders_on_close=true)
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ║                    NY SMC SUITE STRATEGY v1.1                            ║
+// ║                Rules-Compliant Trading Robot                             ║
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ║                         STRATEGY CONFIGURATION                           ║
+// ═══════════════════════════════════════════════════════════════════════════
+
+var string G_STRATEGY = "🤖 Strategy Settings"
+strategy_mode = input.string("Conservative", "Trading Mode", 
+     options=["Conservative", "Moderate", "Aggressive"], group=G_STRATEGY,
+     tooltip="Conservative: High probability, fewer trades | Aggressive: More opportunities")
+
+trade_sessions = input.string("All Sessions", "Active During",
+     options=["714AM Only", "NY Open Only", "714PM Only", "All Sessions"], group=G_STRATEGY)
+
+// Entry Requirements
+require_killzone = input.bool(true, "Require Active Killzone", group=G_STRATEGY)
+require_ob = input.bool(true, "Require Order Block", group=G_STRATEGY)
+require_fvg = input.bool(false, "Require Fair Value Gap", group=G_STRATEGY)
+require_structure = input.bool(true, "Require Structure Alignment", group=G_STRATEGY)
+
+min_confluence = input.int(3, "Minimum Confluence Points", minval=1, maxval=5, group=G_STRATEGY,
+     tooltip="Points: Killzone=1, OB=2, FVG=1, Structure=1")
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ║                         RISK MANAGEMENT                                  ║
+// ═══════════════════════════════════════════════════════════════════════════
+
+var string G_RISK = "💰 Risk & Money Management"
+account_risk_pct = input.float(1.0, "Risk Per Trade %", minval=0.1, maxval=5, step=0.1, group=G_RISK)
+max_daily_loss = input.float(3.0, "Max Daily Loss %", minval=1, maxval=10, step=0.5, group=G_RISK)
+use_be_stop = input.bool(true, "Move to Breakeven", group=G_RISK)
+be_trigger_rr = input.float(1.0, "BE Trigger (R:R)", minval=0.5, maxval=3, step=0.1, group=G_RISK)
+
+// Stop Loss Methods
+sl_method = input.string("Structure", "Stop Loss Method",
+     options=["Fixed %", "ATR", "Structure", "Order Block"], group=G_RISK)
+fixed_sl_pct = input.float(1.5, "Fixed SL %", minval=0.5, maxval=5, step=0.1, group=G_RISK)
+atr_sl_mult = input.float(2.0, "ATR Multiplier", minval=1, maxval=5, step=0.1, group=G_RISK)
+
+// Take Profit Strategy
+tp_method = input.string("Multiple", "Take Profit Method",
+     options=["Fixed R:R", "FVG", "Liquidity", "Multiple"], group=G_RISK)
+tp_rr_ratio = input.float(3.0, "TP Risk:Reward", minval=1, maxval=10, step=0.5, group=G_RISK)
+partial_tp1 = input.float(1.5, "Partial TP1 (R:R)", minval=0.5, maxval=5, step=0.1, group=G_RISK)
+partial_tp1_pct = input.int(50, "TP1 Close %", minval=10, maxval=90, step=10, group=G_RISK)
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ║                         KILLZONE DEFINITIONS                             ║
+// ═══════════════════════════════════════════════════════════════════════════
+
+var string G_SESSIONS = "🕐 Killzone Configuration"
+show_killzones = input.bool(true, "Show Killzone Boxes", group=G_SESSIONS)
+kz_714am_color = input.color(color.new(#00BCD4, 85), "714AM Color", group=G_SESSIONS)
+kz_nyopen_color = input.color(color.new(#4CAF50, 85), "NY Open Color", group=G_SESSIONS)
+kz_714pm_color = input.color(color.new(#FF9800, 85), "714PM Color", group=G_SESSIONS)
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ║                    TYPE DEFINITIONS (RULE 6)                             ║
+// ═══════════════════════════════════════════════════════════════════════════
+
+// RULE 5 & 6: Avoiding reserved keywords in type fields
+type OrderBlock
+    float top_level        // Not 'top' alone
+    float bottom_level     // Not 'bottom' alone
+    int bar_idx           // Not 'bar_index'
+    bool is_bullish
+    bool is_mitigated
+
+type FairValueGap
+    float top_level        // Not 'top' alone
+    float bottom_level     // Not 'bottom' alone
+    int bar_idx           // Not 'bar_index'
+    bool is_bullish
+    bool is_filled
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ║                     GLOBAL VARIABLES (RULE 19)                           ║
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Timezone
+tz = "America/New_York"
+
+// RULE 20: Proper array initialization with var
+var array<OrderBlock> orderBlocks = array.new<OrderBlock>()
+var array<FairValueGap> fairValueGaps = array.new<FairValueGap>()
+var float daily_pnl = 0.0
+var int last_day = 0
+var bool market_bullish = na
+var float sl_price = na
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ║                    HELPER FUNCTIONS (RULE 13)                            ║
+// ═══════════════════════════════════════════════════════════════════════════
+
+// RULE 13: All functions defined at root level
+
+// Session time checks
+is714AM() =>
+    hour(time, tz) >= 1 and hour(time, tz) < 4 and not (hour(time, tz) == 3 and minute(time, tz) >= 30)
+
+isNYOpen() =>
+    hour(time, tz) >= 7 and hour(time, tz) < 9
+
+is714PM() =>
+    hour(time, tz) >= 10 and hour(time, tz) < 12
+
+isInKillzone() =>
+    is714AM() or isNYOpen() or is714PM()
+
+// Order Block Detection
+detectOrderBlock() =>
+    // Bullish Order Block
+    if close[1] < open[1] and close > open and close > high[1]
+        // RULE 7: Type constructor on one line
+        ob = OrderBlock.new(high[1], low[1], bar_index[1], true, false)
+        array.unshift(orderBlocks, ob)
+        // RULE 21: Check size before operations
+        if array.size(orderBlocks) > 10
+            array.pop(orderBlocks)
+    
+    // Bearish Order Block
+    if close[1] > open[1] and close < open and close < low[1]
+        // RULE 7: Type constructor on one line
+        ob = OrderBlock.new(high[1], low[1], bar_index[1], false, false)
+        array.unshift(orderBlocks, ob)
+        if array.size(orderBlocks) > 10
+            array.pop(orderBlocks)
+
+// Fair Value Gap Detection
+detectFairValueGap() =>
+    // Bullish FVG
+    if low > high[2] and close > open
+        // RULE 7: Type constructor on one line
+        fvg = FairValueGap.new(low, high[2], bar_index, true, false)
+        array.unshift(fairValueGaps, fvg)
+        if array.size(fairValueGaps) > 10
+            array.pop(fairValueGaps)
+    
+    // Bearish FVG
+    if high < low[2] and close < open
+        // RULE 7: Type constructor on one line
+        fvg = FairValueGap.new(low[2], high, bar_index, false, false)
+        array.unshift(fairValueGaps, fvg)
+        if array.size(fairValueGaps) > 10
+            array.pop(fairValueGaps)
+
+// Market Structure Analysis
+detectStructure() =>
+    len = 20
+    highestHigh = ta.highest(high, len)
+    lowestLow = ta.lowest(low, len)
+    
+    bullish_bos = close > highestHigh[1]
+    bearish_bos = close < lowestLow[1]
+    
+    if bullish_bos
+        true
+    else if bearish_bos
+        false
+    else
+        nz(market_bullish, true)  // Keep previous value if no new signal
+
+// Check trading session filter
+canTradeSession() =>
+    if trade_sessions == "714AM Only"
+        is714AM()
+    else if trade_sessions == "NY Open Only"
+        isNYOpen()
+    else if trade_sessions == "714PM Only"
+        is714PM()
+    else
+        true
+
+// Confluence Calculation
+calculateConfluence(is_long) =>
+    confluence = 0
+    
+    // Killzone active
+    if isInKillzone()
+        confluence += 1
+    
+    // Order Block present
+    has_ob = false
+    if array.size(orderBlocks) > 0
+        // RULE 9: Unique iterator names
+        for i_ob = 0 to math.min(array.size(orderBlocks) - 1, 4)
+            ob = array.get(orderBlocks, i_ob)
+            if not ob.is_mitigated
+                if (is_long and ob.is_bullish and low <= ob.top_level and high >= ob.bottom_level) or (not is_long and not ob.is_bullish and high >= ob.bottom_level and low <= ob.top_level)
+                    has_ob := true
+                    break
+    if has_ob
+        confluence += 2
+    
+    // FVG present
+    has_fvg = false
+    if array.size(fairValueGaps) > 0
+        // RULE 9: Unique iterator names
+        for i_fvg = 0 to math.min(array.size(fairValueGaps) - 1, 4)
+            fvg = array.get(fairValueGaps, i_fvg)
+            if not fvg.is_filled
+                if (is_long and fvg.is_bullish) or (not is_long and not fvg.is_bullish)
+                    has_fvg := true
+                    break
+    if has_fvg
+        confluence += 1
+    
+    // Market structure alignment
+    struct_bullish = detectStructure()
+    if (is_long and struct_bullish) or (not is_long and not struct_bullish)
+        confluence += 1
+    
+    confluence
+
+// Calculate stop loss distance
+calculateStopLoss(is_long) =>
+    sl_distance = 0.0
+    
+    if sl_method == "Fixed %"
+        sl_distance := close * fixed_sl_pct / 100
+    else if sl_method == "ATR"
+        sl_distance := ta.atr(14) * atr_sl_mult
+    else if sl_method == "Structure"
+        sl_distance := is_long ? (close - ta.lowest(low, 10)) : (ta.highest(high, 10) - close)
+    else if sl_method == "Order Block" and array.size(orderBlocks) > 0
+        // Use nearest order block
+        ob = array.get(orderBlocks, 0)
+        sl_distance := is_long ? (close - ob.bottom_level) : (ob.top_level - close)
+    
+    math.max(sl_distance, close * 0.5 / 100)  // Minimum 0.5% stop
+
+// Position size based on risk
+calculatePositionSize(sl_distance) =>
+    // RULE 24: Division by zero protection
+    risk_amount = strategy.equity * account_risk_pct / 100
+    position_value = sl_distance != 0 ? (risk_amount / sl_distance * close) : strategy.equity * 0.01
+    position_value / close
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ║                         MAIN LOGIC                                       ║
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Run detections
+detectOrderBlock()
+detectFairValueGap()
+
+// Entry signals
+long_confluence = calculateConfluence(true)
+short_confluence = calculateConfluence(false)
+
+// Track daily loss
+if dayofmonth != last_day
+    daily_pnl := 0.0
+    last_day := dayofmonth
+
+daily_pnl := daily_pnl + strategy.netprofit
+can_trade_today = daily_pnl > -(strategy.equity * max_daily_loss / 100)
+
+long_entry = strategy.position_size == 0 and canTradeSession() and (not require_killzone or isInKillzone()) and long_confluence >= min_confluence and close > open and can_trade_today
+
+short_entry = strategy.position_size == 0 and canTradeSession() and (not require_killzone or isInKillzone()) and short_confluence >= min_confluence and close < open and can_trade_today
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ║                         TRADE EXECUTION                                  ║
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Long Entry
+if long_entry
+    sl_distance = calculateStopLoss(true)
+    position_size = calculatePositionSize(sl_distance)
+    
+    sl_price := close - sl_distance
+    tp1_price = close + (sl_distance * partial_tp1)
+    tp2_price = close + (sl_distance * tp_rr_ratio)
+    
+    strategy.entry("SMC Long", strategy.long, qty=position_size)
+    strategy.exit("Long TP1", "SMC Long", qty_percent=partial_tp1_pct, limit=tp1_price, stop=sl_price)
+    strategy.exit("Long TP2", "SMC Long", limit=tp2_price, stop=sl_price)
+
+// Short Entry
+if short_entry
+    sl_distance = calculateStopLoss(false)
+    position_size = calculatePositionSize(sl_distance)
+    
+    sl_price := close + sl_distance
+    tp1_price = close - (sl_distance * partial_tp1)
+    tp2_price = close - (sl_distance * tp_rr_ratio)
+    
+    strategy.entry("SMC Short", strategy.short, qty=position_size)
+    strategy.exit("Short TP1", "SMC Short", qty_percent=partial_tp1_pct, limit=tp1_price, stop=sl_price)
+    strategy.exit("Short TP2", "SMC Short", limit=tp2_price, stop=sl_price)
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ║                         TRADE MANAGEMENT                                 ║
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Breakeven Management
+if use_be_stop and strategy.position_size != 0
+    entry_price = strategy.position_avg_price
+    current_profit = strategy.position_size > 0 ? (close - entry_price) : (entry_price - close)
+    
+    sl_dist = math.abs(entry_price - (strategy.position_size > 0 ? sl_price : sl_price))
+    
+    if current_profit >= sl_dist * be_trigger_rr
+        strategy.exit("BE Stop", strategy.position_size > 0 ? "SMC Long" : "SMC Short", stop=entry_price)
+
+// Structure-based Exit
+market_structure = detectStructure()
+market_bullish := market_structure  // Update global variable
+structure_exit_long = strategy.position_size > 0 and not market_structure
+structure_exit_short = strategy.position_size < 0 and market_structure
+
+if structure_exit_long
+    strategy.close("SMC Long", comment="Structure Change")
+
+if structure_exit_short
+    strategy.close("SMC Short", comment="Structure Change")
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ║                         VISUAL FEEDBACK                                  ║
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Killzone Visualization
+bgcolor(show_killzones and is714AM() ? kz_714am_color : na, title="714AM Zone")
+bgcolor(show_killzones and isNYOpen() ? kz_nyopen_color : na, title="NY Open Zone")
+bgcolor(show_killzones and is714PM() ? kz_714pm_color : na, title="714PM Zone")
+
+// Entry Markers
+plotshape(long_entry, "Long Entry", shape.triangleup, location.belowbar, color.green, size=size.normal)
+plotshape(short_entry, "Short Entry", shape.triangledown, location.abovebar, color.red, size=size.normal)
+
+// Draw Order Blocks
+if array.size(orderBlocks) > 0
+    // RULE 9: Unique iterator names
+    for i_draw = 0 to math.min(array.size(orderBlocks) - 1, 5)
+        ob = array.get(orderBlocks, i_draw)
+        if not ob.is_mitigated and bar_index - ob.bar_idx < 100
+            // RULE 18: Function call on one line
+            box.new(ob.bar_idx, ob.top_level, bar_index, ob.bottom_level, bgcolor=color.new(ob.is_bullish ? color.green : color.red, 90), border_color=ob.is_bullish ? color.green : color.red)
+
+// Strategy Dashboard - RULE 12: Efficient table management
+var table strategyTable = table.new(position.top_left, 2, 8)
+
+if barstate.islast
+    // RULE 12: Clear specific range
+    table.clear(strategyTable, 0, 0, 1, 7)
+    
+    table.cell(strategyTable, 0, 0, "SMC STRATEGY", bgcolor=color.new(color.blue, 80), text_color=color.white)
+    table.merge_cells(strategyTable, 0, 0, 1, 0)
+    
+    table.cell(strategyTable, 0, 1, "Mode:", text_color=color.white, text_size=size.small)
+    table.cell(strategyTable, 1, 1, strategy_mode, text_color=color.yellow, text_size=size.small)
+    
+    table.cell(strategyTable, 0, 2, "Session:", text_color=color.white, text_size=size.small)
+    current_session = is714AM() ? "714AM" : isNYOpen() ? "NY Open" : is714PM() ? "714PM" : "None"
+    table.cell(strategyTable, 1, 2, current_session, text_color=color.cyan, text_size=size.small)
+    
+    table.cell(strategyTable, 0, 3, "Position:", text_color=color.white, text_size=size.small)
+    pos_text = strategy.position_size > 0 ? "LONG" : strategy.position_size < 0 ? "SHORT" : "FLAT"
+    pos_color = strategy.position_size > 0 ? color.green : strategy.position_size < 0 ? color.red : color.gray
+    table.cell(strategyTable, 1, 3, pos_text, text_color=pos_color, text_size=size.small)
+    
+    table.cell(strategyTable, 0, 4, "Daily P&L:", text_color=color.white, text_size=size.small)
+    pnl_color = daily_pnl > 0 ? color.green : daily_pnl < 0 ? color.red : color.gray
+    table.cell(strategyTable, 1, 4, str.tostring(daily_pnl, "#.##"), text_color=pnl_color, text_size=size.small)
+    
+    table.cell(strategyTable, 0, 5, "Can Trade:", text_color=color.white, text_size=size.small)
+    trade_status = can_trade_today ? "YES" : "NO (Max Loss)"
+    trade_color = can_trade_today ? color.green : color.red
+    table.cell(strategyTable, 1, 5, trade_status, text_color=trade_color, text_size=size.small)
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ║                         ALERT CONDITIONS                                 ║
+// ═══════════════════════════════════════════════════════════════════════════
+
+alertcondition(long_entry, "SMC Long Entry", "SMC Strategy: Long Entry Signal")
+alertcondition(short_entry, "SMC Short Entry", "SMC Strategy: Short Entry Signal")
+alertcondition(structure_exit_long or structure_exit_short, "SMC Structure Exit", "SMC Strategy: Structure-based Exit")
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ║                         END OF STRATEGY                                  ║
+// ═══════════════════════════════════════════════════════════════════════════

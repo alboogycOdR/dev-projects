@@ -1,0 +1,138 @@
+
+//@version=5
+strategy("ORB + ICT Hybrid Strategy", overlay=true)
+
+// Input for session times
+string ny_orb_start_time = input.string("0930", "New York ORB Start Time (HHMM)", group="Session Times")
+string ny_orb_end_time = input.string("0945", "New York ORB End Time (HHMM)", group="Session Times")
+string london_orb_start_time = input.string("0300", "London ORB Start Time (HHMM)", group="Session Times")
+string london_orb_end_time = input.string("0315", "London ORB End Time (HHMM)", group="Session Times")
+
+// Get session data
+var float orb_high_val = na
+var float orb_low_val = na
+var int orb_start_bar_index = -1
+
+// Function to check if current bar is within a specific time range (HHMM format)
+is_time_in_range(string start_hhmm, string end_hhmm) =>
+    start_hour = int(str.tonumber(str.substring(start_hhmm, 0, 2)))
+    start_minute = int(str.tonumber(str.substring(start_hhmm, 2, 4)))
+    end_hour = int(str.tonumber(str.substring(end_hhmm, 0, 2)))
+    end_minute = int(str.tonumber(str.substring(end_hhmm, 2, 4)))
+
+    current_hour = hour(time)
+    current_minute = minute(time)
+
+    in_range = false
+    if current_hour > start_hour and current_hour < end_hour
+        in_range := true
+    else if current_hour == start_hour and current_minute >= start_minute
+        in_range := true
+    else if current_hour == end_hour and current_minute <= end_minute
+        in_range := true
+    in_range
+
+// Determine if current bar is within NY or London ORB session
+bool in_ny_orb_session = is_time_in_range(ny_orb_start_time, ny_orb_end_time)
+bool in_london_orb_session = is_time_in_range(london_orb_start_time, london_orb_end_time)
+
+// Calculate ORB high/low and start bar index for the current session
+var bool orb_calculated_today = false
+
+if (in_ny_orb_session or in_london_orb_session) and not orb_calculated_today
+    if barstate.isfirst
+        orb_high_val := high
+        orb_low_val := low
+        orb_start_bar_index := bar_index
+    else
+        orb_high_val := math.max(orb_high_val, high)
+        orb_low_val := math.min(orb_low_val, low)
+    orb_calculated_today := true
+else if not (in_ny_orb_session or in_london_orb_session)
+    orb_calculated_today := false // Reset for next day
+
+// Liquidity Grab / False Breakout Detection
+var float prev_orb_high = na
+var float prev_orb_low = na
+
+// Store previous day\'s ORB values once the session ends
+if not in_ny_orb_session and not in_london_orb_session and not na(orb_high_val[1]) and not na(orb_low_val[1]) and barstate.islast and not orb_calculated_today[1]
+    prev_orb_high := orb_high_val[1]
+    prev_orb_low := orb_low_val[1]
+
+bool is_liquidity_grab_bullish = false
+bool is_liquidity_grab_bearish = false
+
+if not na(prev_orb_high) and not na(prev_orb_low)
+    // Bullish liquidity grab: price breaks below ORB low then reverses back inside
+    if low < prev_orb_low and close > prev_orb_low
+        is_liquidity_grab_bullish := true
+
+    // Bearish liquidity grab: price breaks above ORB high then reverses back inside
+    if high > prev_orb_high and close < prev_orb_high
+        is_liquidity_grab_bearish := true
+
+// Market Structure Shift (MSS) Detection
+bool is_mss_bullish = false
+bool is_mss_bearish = false
+
+// Simplified MSS: price breaks above a recent high after a bearish liquidity grab
+if is_liquidity_grab_bearish
+    if high > high[1] and high[1] > high[2] // Simple higher high
+        is_mss_bullish := true
+
+// Simplified MSS: price breaks below a recent low after a bullish liquidity grab
+if is_liquidity_grab_bullish
+    if low < low[1] and low[1] < low[2] // Simple lower low
+        is_mss_bearish := true
+
+// Fair Value Gap (FVG) Detection
+bool is_bullish_fvg = false
+bool is_bearish_fvg = false
+
+// Bullish FVG: high[2] < low[0]
+if high[2] < low[0]
+    is_bullish_fvg := true
+
+// Bearish FVG: low[2] > high[0]
+if low[2] > high[0]
+    is_bearish_fvg := true
+
+// Entry Logic
+bool long_condition = is_liquidity_grab_bullish and is_mss_bullish and is_bullish_fvg
+bool short_condition = is_liquidity_grab_bearish and is_mss_bearish and is_bearish_fvg
+
+if strategy.position_size == 0
+    if long_condition
+        // Entry on FVG tap (simplified: assuming current close is the tap)
+        // In a real scenario, you\'d check if price enters the FVG zone
+        float entry_price = close
+        sl_price := prev_orb_low // SL below liquidity sweep
+        float risk = entry_price - sl_price
+        tp_price := entry_price + (risk * rr_ratio)
+        strategy.entry("Long", strategy.long, comment="Long Entry")
+        strategy.exit("Exit Long", from_entry="Long", stop=sl_price, limit=tp_price)
+
+    if short_condition
+        // Entry on FVG tap (simplified: assuming current close is the tap)
+        // In a real scenario, you\'d check if price enters the FVG zone
+        float entry_price = close
+        sl_price := prev_orb_high // SL above liquidity sweep
+        float risk = sl_price - entry_price
+        tp_price := entry_price - (risk * rr_ratio)
+        strategy.entry("Short", strategy.short, comment="Short Entry")
+        strategy.exit("Exit Short", from_entry="Short", stop=sl_price, limit=tp_price)
+
+
+// Alerts and Webhooks
+string webhook_url = input.string("", "Webhook URL", group="Alerts & Webhooks", tooltip="Enter your webhook URL here for automated alerts.")
+
+if long_condition
+    alert("ORB+ICT Long Entry: Price = " + str.tostring(close, "#.##") + ", SL = " + str.tostring(sl_price, "#.##") + ", TP = " + str.tostring(tp_price, "#.##"), alert.freq_once_per_bar_close, webhook_url)
+
+if short_condition
+    alert("ORB+ICT Short Entry: Price = " + str.tostring(close, "#.##") + ", SL = " + str.tostring(sl_price, "#.##") + ", TP = " + str.tostring(tp_price, "#.##"), alert.freq_once_per_bar_close, webhook_url)
+
+
+
+

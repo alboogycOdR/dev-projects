@@ -1,0 +1,226 @@
+//@version=5
+strategy(title="Liquidity Sweep + Market Structure Shift", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=1, initial_capital=10000, currency=currency.USD, pyramiding=1, dynamic_requests=true)
+// ======================
+// User inputs (tuneable)
+// ======================
+base_tf      = input.timeframe(title="Base timeframe for swings", defval="60")        // 1H by default (60 minutes)
+confirm_tf   = input.timeframe(title="Confirm timeframe (sweep detection)", defval="1")  // 1 minute by default
+swing_lookback = input.int(title="Swing lookback (bars on base TF)", defval=24, minval=3)
+structure_lookback = input.int(title="Minor structure lookback (bars on confirm TF)", defval=5, minval=1)
+zone_margin_pct = input.float(title="Zone margin % (e.g. 0.15% = 0.0015)", defval=0.0015, step=0.0001)
+sweep_buffer_pct = input.float(title="Sweep buffer % (how far beyond zone counts as sweep)", defval=0.0015, step=0.0001)
+rejection_candles = input.int(title="Rejection window (candles on confirm TF)", defval=2, minval=1)
+stop_buffer_pct = input.float(title="Stop buffer beyond sweep extreme (pct)", defval=0.0008, step=0.0001)
+use_volume_filter = input.bool(title="Require volume spike on sweep?", defval=false)
+volume_multiplier = input.float(title="Volume multiplier (if used)", defval=2.0, step=0.1)
+use_mark_price = input.bool(title="Use mark price for SL placement (where supported)", defval=false)
+alert_secret = input.string(title="Webhook secret (included in payload for middleware verification)", defval="")
+
+// Backtest / Execution options
+entry_type_limit = input.bool(title="Use limit entry (try get better price) else market", defval=false)
+limit_offset_ticks = input.float(title="Limit offset (ticks) from last close if using limit entry", defval=0.0)
+qty_percent = input.float(title="Order size: percent of equity per trade", defval=1.0, minval=0.01, maxval=50)
+
+// Apply qty percent to strategy settings (note: TradingView reads these from strategy() dialog; we expose here for clarity)
+// strategy() default qty is set above. You can also change via the strategy UI.
+
+// ======================
+// Helpers
+// ======================
+// fetch higher/lower timeframe candles using request.security (tuple destructuring)
+[htf_high, htf_low, htf_close] = request.security(syminfo.tickerid, base_tf, [high, low, close])
+
+// extract series
+swing_high = ta.highest(htf_high, swing_lookback)
+swing_low  = ta.lowest(htf_low, swing_lookback)
+
+// For confirm TF we will use the native chart timeframe's data if confirm_tf == timeframe.period, else request.security
+confirm_high = request.security(syminfo.tickerid, confirm_tf, high)
+confirm_low  = request.security(syminfo.tickerid, confirm_tf, low)
+confirm_close = request.security(syminfo.tickerid, confirm_tf, close)
+confirm_vol = request.security(syminfo.tickerid, confirm_tf, volume)
+
+// compute zones
+high_zone_upper = swing_high * (1 + zone_margin_pct)
+high_zone_lower = swing_high
+low_zone_lower = swing_low * (1 - zone_margin_pct)
+low_zone_upper = swing_low
+
+// Recent extremes on confirm TF (lookback equal to rejection window + a little extra)
+confirm_bars_check = math.max(rejection_candles + 2, structure_lookback + 2)
+recent_confirm_high = ta.highest(confirm_high, confirm_bars_check)
+recent_confirm_low  = ta.lowest(confirm_low, confirm_bars_check)
+
+// Volume metrics for optional filtering
+vol_mean = ta.sma(confirm_vol, math.max(5, confirm_bars_check))
+vol_is_spike = confirm_vol > (vol_mean * volume_multiplier)
+
+// ======================
+// Sweep detection
+// ======================
+// A sweep occurs when any confirm candle high exceeds high_zone_upper OR low below low_zone_lower
+sweep_high_detected = false
+sweep_low_detected = false
+float sweep_high_wick = na
+float sweep_low_wick = na
+
+// Detect sweep using aggregated values (avoids variable indexing)
+agg_high_in_window = ta.highest(confirm_high, confirm_bars_check)
+agg_low_in_window  = ta.lowest(confirm_low, confirm_bars_check)
+agg_vol_in_window  = ta.highest(confirm_vol, confirm_bars_check)
+
+sweep_high_detected := agg_high_in_window > high_zone_upper and ((not use_volume_filter) or (agg_vol_in_window > vol_mean * volume_multiplier))
+sweep_low_detected  := agg_low_in_window < low_zone_lower and ((not use_volume_filter) or (agg_vol_in_window > vol_mean * volume_multiplier))
+
+sweep_high_wick := sweep_high_detected ? agg_high_in_window : na
+sweep_low_wick  := sweep_low_detected  ? agg_low_in_window  : na
+
+// Rejection: within rejection_candles after sweep, a close must occur back inside the prior range (base swing level)
+rejection_after_high = false
+rejection_after_low = false
+
+if sweep_high_detected
+    // Within the last N closes, at least one close back inside the swing level
+    rejection_after_high := ta.lowest(confirm_close, rejection_candles) < swing_high
+
+if sweep_low_detected
+    rejection_after_low := ta.highest(confirm_close, rejection_candles) > swing_low
+
+// Structure confirmation: detect minor structure break opposite the sweep
+structure_confirm_short = false
+structure_confirm_long = false
+
+// For short (after high sweep) require a break of a recent minor low (close below recent minor low)
+minor_low = ta.lowest(confirm_low, structure_lookback)
+minor_high = ta.highest(confirm_high, structure_lookback)
+last_confirm_close = confirm_close
+prev_confirm_close = confirm_close[1]
+
+if sweep_high_detected and rejection_after_high
+    // require last_confirm_close < minor_low or last close < prev candle low
+    if last_confirm_close < minor_low or last_confirm_close < confirm_low[1]
+        structure_confirm_short := true
+
+if sweep_low_detected and rejection_after_low
+    if last_confirm_close > minor_high or last_confirm_close > confirm_high[1]
+        structure_confirm_long := true
+
+// Final entry signals
+enter_short = sweep_high_detected and rejection_after_high and structure_confirm_short
+enter_long  = sweep_low_detected and rejection_after_low and structure_confirm_long
+
+// ======================
+// Stop and TP calculation
+// ======================
+entry_price = last_confirm_close
+// stop just beyond the extreme wick plus a small buffer
+stop_short = (sweep_high_wick != na) ? (sweep_high_wick * (1 + stop_buffer_pct)) : na
+stop_long  = (sweep_low_wick != na) ? (sweep_low_wick * (1 - stop_buffer_pct)) : na
+
+// Take profit default: opposite swing level (nearest liquidity pool)
+tp_short = swing_low
+tp_long  = swing_high
+
+// Optionally calculate R:R and adjust TP if desired (not enforced here)
+
+// ======================
+// Execute or backtest entries (use strategy.* functions so TradingView backtester can evaluate)
+// ======================
+// Only enter if not already in position
+can_enter_long = enter_long and strategy.position_size == 0
+can_enter_short = enter_short and strategy.position_size == 0
+
+if (can_enter_long)
+    // place market or limit entry
+    if entry_type_limit
+        lim_price = entry_price - limit_offset_ticks * syminfo.mintick
+        strategy.entry("Long_LS", strategy.long, comment="LS_LONG", limit=lim_price)
+    else
+        strategy.entry("Long_LS", strategy.long, comment="LS_LONG")
+    // place stop & tp via strategy.exit
+    strategy.exit("Exit_Long", from_entry="Long_LS", stop=stop_long, limit=tp_long)
+
+if (can_enter_short)
+    if entry_type_limit
+        lim_price = entry_price + limit_offset_ticks * syminfo.mintick
+        strategy.entry("Short_LS", strategy.short, comment="LS_SHORT", limit=lim_price)
+    else
+        strategy.entry("Short_LS", strategy.short, comment="LS_SHORT")
+    strategy.exit("Exit_Short", from_entry="Short_LS", stop=stop_short, limit=tp_short)
+
+// ======================
+// Plotting and visual aids
+// ======================
+plot(swing_high, title="Swing High (base TF)", color=color.red, linewidth=2)
+plot(swing_low, title="Swing Low (base TF)", color=color.green, linewidth=2)
+
+// zones
+plot(high_zone_upper, title="High zone upper", color=color.red, style=plot.style_linebr)
+plot(low_zone_lower, title="Low zone lower", color=color.green, style=plot.style_linebr)
+
+// Mark sweep wicks
+plotshape(sweep_high_detected, title="High Sweep", location=location.abovebar, color=color.orange, style=shape.triangledown, size=size.small)
+plotshape(sweep_low_detected, title="Low Sweep", location=location.belowbar, color=color.blue, style=shape.triangleup, size=size.small)
+
+// Mark entries
+plotshape(can_enter_long, title="Enter Long", location=location.belowbar, color=color.green, style=shape.labelup, text="LONG")
+plotshape(can_enter_short, title="Enter Short", location=location.abovebar, color=color.red, style=shape.labeldown, text="SHORT")
+
+// Plot stop & tp levels on chart for the current candidate
+plot(can_enter_long ? stop_long : na, title="Stop Long", color=color.red, linewidth=2, style=plot.style_line)
+plot(can_enter_long ? tp_long : na, title="TP Long", color=color.green, linewidth=2, style=plot.style_line)
+plot(can_enter_short ? stop_short : na, title="Stop Short", color=color.red, linewidth=2, style=plot.style_line)
+plot(can_enter_short ? tp_short : na, title="TP Short", color=color.green, linewidth=2, style=plot.style_line)
+
+// ======================
+// Alert payloads (JSON), alert() triggers, and alertcondition selectors
+// ======================
+payload_long  = '{' + '"symbol":"' + syminfo.ticker + '",' + '"strategy":"liquidity_sweep_v1",' + '"secret":"' + alert_secret + '",' + '"timestamp":' + str.tostring(timenow) + ',' + '"side":"BUY"'  + ',' + '"entry_price":' + str.tostring(entry_price) + ',' + '"stop":' + str.tostring(stop_long)  + ',' + '"tp":' + str.tostring(tp_long)  + '}'
+payload_short = '{' + '"symbol":"' + syminfo.ticker + '",' + '"strategy":"liquidity_sweep_v1",' + '"secret":"' + alert_secret + '",' + '"timestamp":' + str.tostring(timenow) + ',' + '"side":"SELL"' + ',' + '"entry_price":' + str.tostring(entry_price) + ',' + '"stop":' + str.tostring(stop_short) + ',' + '"tp":' + str.tostring(tp_short) + '}'
+
+// Use alert() for dynamic webhook payloads. In the UI, set condition to "Any alert() function call".
+if can_enter_long
+    alert(payload_long, alert.freq_once_per_bar_close)
+if can_enter_short
+    alert(payload_short, alert.freq_once_per_bar_close)
+
+// Define selectable alert conditions with constant messages (required by Pine)
+alertcondition(can_enter_long,  title="LS Enter Long Alert",  message="LS Enter Long")
+alertcondition(can_enter_short, title="LS Enter Short Alert", message="LS Enter Short")
+
+// Also create human-readable labels for the alert messages (helpful in Testing)
+var label infoLabel = na
+if (can_enter_long)
+    label.delete(infoLabel)
+    infoLabel := label.new(bar_index, high, text = "LS LONG: entry=" + str.tostring(entry_price) + " stop=" + str.tostring(stop_long) + " tp=" + str.tostring(tp_long), style=label.style_label_up, color=color.green, textcolor=color.white)
+if (can_enter_short)
+    label.delete(infoLabel)
+    infoLabel := label.new(bar_index, low, text = "LS SHORT: entry=" + str.tostring(entry_price) + " stop=" + str.tostring(stop_short) + " tp=" + str.tostring(tp_short), style=label.style_label_down, color=color.red, textcolor=color.white)
+
+// End of script
+/*
+✅ What your script covers well:
+Multiple Timeframes: Uses request.security to get higher timeframe swings and confirm timeframe candles.
+
+Key Levels (Part A): Calculates swing highs/lows with margin zones to define liquidity zones.
+
+Sweep Detection: Detects price "sweeps" beyond liquidity zones with optional volume spike filtering.
+
+Rejection Logic: Confirms fast rejection within a configurable candle window.
+
+Structure Shift Confirmation: Checks minor structure breaks on the confirm timeframe to validate entries.
+
+Entry Rules: Conditional long and short entries based on combined sweep, rejection, and structure shift.
+
+Stops & Take Profit: Stop losses placed beyond sweep extremes with buffer, TP set at opposite swing levels.
+
+Order Types: Supports market or limit entries with configurable offset.
+
+Alerts & Webhook Payloads: Sends detailed JSON payloads for both long and short signals including stops and TP.
+
+Visual Aids: Plots key zones, sweep signals, entries, stops, and take profits with clear labels.
+
+Backtest Ready: Uses strategy.entry and strategy.exit to allow TradingView backtesting.
+
+User Inputs: Almost all parameters are tunable via input() for flexibility.
+*/

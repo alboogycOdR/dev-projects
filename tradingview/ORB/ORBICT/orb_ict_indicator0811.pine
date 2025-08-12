@@ -1,0 +1,139 @@
+
+//@version=5
+indicator("ORB + ICT Hybrid Indicator", overlay=true)
+
+// Input for session times
+string ny_orb_start_time = input.string("0930", "New York ORB Start Time (HHMM)", group="Session Times")
+string ny_orb_end_time = input.string("0945", "New York ORB End Time (HHMM)", group="Session Times")
+string london_orb_start_time = input.string("0300", "London ORB Start Time (HHMM)", group="Session Times")
+string london_orb_end_time = input.string("0315", "London ORB End Time (HHMM)", group="Session Times")
+
+// Get session data
+var float orb_high_val = na
+var float orb_low_val = na
+var int orb_start_bar_index = na
+
+// Function to check if current bar is within a specific time range (HHMM format)
+is_time_in_range(string start_hhmm, string end_hhmm) =>
+    start_hour = int(str.tonumber(str.substring(start_hhmm, 0, 2)))
+    start_minute = int(str.tonumber(str.substring(start_hhmm, 2, 4)))
+    end_hour = int(str.tonumber(str.substring(end_hhmm, 0, 2)))
+    end_minute = int(str.tonumber(str.substring(end_hhmm, 2, 4)))
+
+    current_hour = hour(time)
+    current_minute = minute(time)
+
+    in_range = false
+    if current_hour > start_hour and current_hour < end_hour
+        in_range := true
+    else if current_hour == start_hour and current_minute >= start_minute
+        in_range := true
+    else if current_hour == end_hour and current_minute <= end_minute
+        in_range := true
+    in_range
+
+// Determine if current bar is within NY or London ORB session
+bool in_ny_orb_session = is_time_in_range(ny_orb_start_time, ny_orb_end_time)
+bool in_london_orb_session = is_time_in_range(london_orb_start_time, london_orb_end_time)
+
+// Calculate ORB high/low and start bar index for the current session
+var bool orb_calculated_today = false
+
+if (in_ny_orb_session or in_london_orb_session) and not orb_calculated_today
+    if barstate.isfirst
+        orb_high_val := high
+        orb_low_val := low
+        orb_start_bar_index := bar_index
+    else
+        orb_high_val := math.max(orb_high_val, high)
+        orb_low_val := math.min(orb_low_val, low)
+    orb_calculated_today := true
+else if not (in_ny_orb_session or in_london_orb_session)
+    orb_calculated_today := false // Reset for next day
+
+// Plot ORB box
+if not na(orb_high_val) and not na(orb_low_val) and not na(orb_start_bar_index)
+    box.new(orb_start_bar_index, orb_high_val, bar_index, orb_low_val, border_color=color.blue, bgcolor=color.new(color.blue, 80), xloc=xloc.bar_index)
+
+
+// Liquidity Grab / False Breakout Detection
+var float prev_orb_high = na
+var float prev_orb_low = na
+
+// Store previous day's ORB values once the session ends
+if not in_ny_orb_session and not in_london_orb_session and not na(orb_high_val[1]) and not na(orb_low_val[1]) and barstate.islast and not orb_calculated_today[1]
+    prev_orb_high := orb_high_val[1]
+    prev_orb_low := orb_low_val[1]
+
+bool is_liquidity_grab_bullish = false
+bool is_liquidity_grab_bearish = false
+
+if not na(prev_orb_high) and not na(prev_orb_low)
+    // Bullish liquidity grab: price breaks below ORB low then reverses back inside
+    if low < prev_orb_low and close > prev_orb_low
+        is_liquidity_grab_bullish := true
+        label.new(bar_index, low, "LG (B)", color=color.green, style=label.style_label_up)
+
+    // Bearish liquidity grab: price breaks above ORB high then reverses back inside
+    if high > prev_orb_high and close < prev_orb_high
+        is_liquidity_grab_bearish := true
+        label.new(bar_index, high, "LG (B)", color=color.red, style=label.style_label_down)
+
+
+// Market Structure Shift (MSS) Detection
+// This is a simplified MSS detection. A more robust implementation would involve swing highs/lows and confirmation.
+
+bool is_mss_bullish = false
+bool is_mss_bearish = false
+
+// Simplified MSS: price breaks above a recent high after a bearish liquidity grab
+if is_liquidity_grab_bearish
+    // Look for a break of structure to the upside after a bearish liquidity grab
+    // This is a very basic example, a real MSS would involve swing points
+    if high > high[1] and high[1] > high[2] // Simple higher high
+        is_mss_bullish := true
+        label.new(bar_index, high, "MSS (B)", color=color.lime, style=label.style_label_down)
+
+// Simplified MSS: price breaks below a recent low after a bullish liquidity grab
+if is_liquidity_grab_bullish
+    // Look for a break of structure to the downside after a bullish liquidity grab
+    // This is a very basic example, a real MSS would involve swing points
+    if low < low[1] and low[1] < low[2] // Simple lower low
+        is_mss_bearish := true
+        label.new(bar_index, low, "MSS (B)", color=color.red, style=label.style_label_up)
+
+
+// Fair Value Gap (FVG) Detection
+// FVG is a 3-candle pattern where the high of the first candle is lower than the low of the third candle (bullish FVG)
+// or the low of the first candle is higher than the high of the third candle (bearish FVG).
+
+bool is_bullish_fvg = false
+bool is_bearish_fvg = false
+
+// Bullish FVG: high[2] < low[0]
+if high[2] < low[0]
+    is_bullish_fvg := true
+    // Draw bullish FVG rectangle
+    box.new(bar_index[2], high[2], bar_index, low[0], border_color=color.green, bgcolor=color.new(color.green, 90))
+
+// Bearish FVG: low[2] > high[0]
+if low[2] > high[0]
+    is_bearish_fvg := true
+    // Draw bearish FVG rectangle
+    box.new(bar_index[2], low[2], bar_index, high[0], border_color=color.red, bgcolor=color.new(color.red, 90))
+
+
+// Dashboard for key information
+var string dashboard_text = ""
+
+if barstate.islast
+    dashboard_text := "ORB High: " + str.tostring(orb_high_val, "#.##") + "\n" +
+                      "ORB Low: " + str.tostring(orb_low_val, "#.##") + "\n" +
+                      "NY Session: " + str.tostring(in_ny_orb_session) + "\n" +
+                      "London Session: " + str.tostring(in_london_orb_session)
+
+    label.new(x=bar_index, y=high, text=dashboard_text, xloc=xloc.bar_index, yloc=yloc.price, style=label.style_label_down, color=color.gray, textcolor=color.white, size=size.small)
+
+
+
+

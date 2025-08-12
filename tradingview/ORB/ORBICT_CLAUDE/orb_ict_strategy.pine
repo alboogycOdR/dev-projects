@@ -1,0 +1,624 @@
+//@version=5
+strategy("Advanced ORB + ICT Strategy v2.0", overlay=true, 
+         initial_capital=10000, default_qty_type=strategy.percent_of_equity, 
+         default_qty_value=10, commission_type=strategy.commission.percent, 
+         commission_value=0.1, max_boxes_count=500, max_labels_count=500,
+         pyramiding=3, calc_on_every_tick=false)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// STRATEGY PROFILES (BLUEPRINTS)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+strategyProfile = input.string("Balanced Day Trader", "Strategy Profile", 
+                              options=["Aggressive Scalper", "Balanced Day Trader", "Conservative Swing", "Custom"],
+                              group="Profile")
+
+// Apply profile presets
+applyProfile = input.bool(true, "Apply Profile Presets", group="Profile")
+
+// Profile-based defaults
+orbMinutes = applyProfile and strategyProfile == "Aggressive Scalper" ? 5 :
+            applyProfile and strategyProfile == "Balanced Day Trader" ? 30 :
+            applyProfile and strategyProfile == "Conservative Swing" ? 60 :
+            input.int(30, "ORB Duration (minutes)", minval=5, maxval=60, group="Session")
+
+riskPerTrade = applyProfile and strategyProfile == "Aggressive Scalper" ? 1.0 :
+              applyProfile and strategyProfile == "Balanced Day Trader" ? 0.75 :
+              applyProfile and strategyProfile == "Conservative Swing" ? 0.5 :
+              input.float(1.0, "Risk Per Trade (%)", minval=0.1, maxval=5.0, group="Risk Management")
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// INPUTS - COMPREHENSIVE SETTINGS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// Backtest Period
+startDate = input.time(timestamp("2024-01-01"), "Start Date", group="Backtest")
+endDate = input.time(timestamp("2025-12-31"), "End Date", group="Backtest")
+inDateRange = time >= startDate and time <= endDate
+
+// Session Settings
+sessionType = input.string("New York", "Session", options=["New York", "London", "Tokyo", "Custom"], group="Session")
+customSession = input.session("0930-1600", "Custom Session", group="Session")
+maxTradesPerDay = input.int(2, "Max Trades Per Day", minval=1, maxval=5, group="Session")
+tradeOnlyWithTrend = input.bool(true, "Trade Only With HTF Trend", group="Session")
+
+// Universe Selection (for stocks)
+useUniverseFilter = input.bool(true, "Use Universe Filter", group="Universe")
+minPrice = input.float(5.0, "Min Stock Price", minval=1.0, group="Universe")
+maxPrice = input.float(500.0, "Max Stock Price", minval=10.0, group="Universe")
+minGap = input.float(2.0, "Min Gap %", minval=0.0, group="Universe")
+
+// Advanced Filters
+useRVol = input.bool(true, "Require Relative Volume", group="Filters")
+rvolThreshold = input.float(2.0, "RVol Minimum", minval=1.0, maxval=5.0, group="Filters")
+useATRFilter = input.bool(true, "Use ATR Range Filter", group="Filters")
+narrowRangeMax = input.float(0.5, "Narrow Range (% of ATR)", minval=0.1, maxval=1.0, group="Filters")
+wideRangeMin = input.float(1.5, "Wide Range (% of ATR)", minval=1.0, maxval=3.0, group="Filters")
+avoidWideRange = input.bool(true, "Avoid Wide Ranges", group="Filters")
+
+// Entry Methods
+entryMethod = input.string("Pullback", "Entry Method", 
+                          options=["Immediate", "Pullback", "Structure Retest"], group="Entry")
+waitForClose = input.bool(true, "Wait for Candle Close", group="Entry")
+requireBOS = input.bool(true, "Require Break of Structure", group="Entry")
+requireVolumeSpike = input.bool(true, "Require Volume Spike", group="Entry")
+volumeSpikeMultiplier = input.float(1.5, "Volume Spike Multiplier", minval=1.2, maxval=3.0, group="Entry")
+
+// ICT Integration
+useLiquidityGrabs = input.bool(true, "Trade Liquidity Grabs", group="ICT")
+useFVG = input.bool(true, "Use Fair Value Gaps", group="ICT")
+useOrderBlocks = input.bool(true, "Use Order Blocks", group="ICT")
+reversalAfterLiqGrab = input.bool(true, "Reversal After Liq Grab", group="ICT")
+
+// Stop Loss Methods
+stopMethod = input.string("Structure", "Stop Loss Method", 
+                         options=["Range", "Structure", "ATR", "Hybrid"], group="Risk Management")
+atrMultiplier = input.float(1.5, "ATR Stop Multiplier", minval=0.5, maxval=3.0, group="Risk Management")
+moveToBreakeven = input.bool(true, "Move to Breakeven", group="Risk Management")
+breakevenAt = input.float(1.0, "Move to BE at R:R", minval=0.5, maxval=2.0, group="Risk Management")
+
+// Profit Taking
+targetMethod = input.string("Structure", "Target Method", 
+                           options=["Fixed RR", "Structure", "Previous Day", "Hybrid"], group="Targets")
+fixedRR = input.float(2.0, "Fixed R:R Target", minval=1.0, maxval=5.0, group="Targets")
+useScaling = input.bool(true, "Scale Out Positions", group="Targets")
+scale1Percent = input.float(33, "Scale 1 Percent", minval=10, maxval=50, group="Targets")
+scale1RR = input.float(1.0, "Scale 1 at R:R", minval=0.5, maxval=2.0, group="Targets")
+scale2Percent = input.float(33, "Scale 2 Percent", minval=10, maxval=50, group="Targets")
+scale2RR = input.float(2.0, "Scale 2 at R:R", minval=1.5, maxval=4.0, group="Targets")
+useTrailingStop = input.bool(true, "Trail Final Position", group="Targets")
+
+// Market Structure
+htfTimeframe = input.timeframe("240", "HTF for Bias", group="Market Structure")
+usePrevDayLevels = input.bool(true, "Use Previous Day Levels", group="Market Structure")
+usePremarketLevels = input.bool(true, "Use Premarket Levels", group="Market Structure")
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// VARIABLES AND STATE MANAGEMENT
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ORB Variables
+var float orbHigh = na
+var float orbLow = na
+var int orbStartBar = na
+var box orbBox = na
+var bool orbComplete = false
+var float orbWidth = na
+var string rangeType = "Normal"
+
+// Trade Management
+var int dailyTradeCount = 0
+var bool inPosition = false
+var float entryPrice = na
+var float stopLoss = na
+var float target1 = na
+var float target2 = na
+var float target3 = na
+var bool scale1Taken = false
+var bool scale2Taken = false
+var bool movedToBreakeven = false
+
+// Breakout Tracking
+var bool breakoutLong = false
+var bool breakoutShort = false
+var float breakoutLevel = na
+var bool volumeConfirmed = false
+
+// ICT Variables
+var bool liquidityGrabBull = false
+var bool liquidityGrabBear = false
+var float liquidityLevel = na
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// HELPER FUNCTIONS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+getSessionString() =>
+    switch sessionType
+        "New York" => "0930-1600:1234567"
+        "London" => "0300-1200:1234567"
+        "Tokyo" => "0000-0900:1234567"
+        => customSession
+
+isInSession() =>
+    sessionString = getSessionString()
+    timeZone = sessionType == "Tokyo" ? "Asia/Tokyo" : sessionType == "London" ? "Europe/London" : "America/New_York"
+    time(timeframe.period, sessionString, timeZone) != 0
+
+isORBPeriod() =>
+    sessionString = getSessionString()
+    timeZone = sessionType == "Tokyo" ? "Asia/Tokyo" : sessionType == "London" ? "Europe/London" : "America/New_York"
+    sessionStart = time(timeframe.period, sessionString, timeZone)
+    if not na(sessionStart)
+        timeSinceStart = (time - sessionStart) / 60000
+        timeSinceStart <= orbMinutes
+    else
+        false
+
+resetDailyVariables() =>
+    if dayofweek != dayofweek[1]
+        dailyTradeCount := 0
+        breakoutLong := false
+        breakoutShort := false
+        liquidityGrabBull := false
+        liquidityGrabBear := false
+        volumeConfirmed := false
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// RELATIVE VOLUME CALCULATION
+// ═══════════════════════════════════════════════════════════════════════════════
+
+calculateRVol() =>
+    // Simplified RVol calculation
+    avgVolume = ta.sma(volume, 20)
+    currentRVol = avgVolume > 0 ? volume / avgVolume : 1.0
+    currentRVol
+
+rvol = calculateRVol()
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// KEY LEVELS CALCULATION
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// Previous day levels
+prevDayHigh = request.security(syminfo.tickerid, "D", high[1], lookahead=barmerge.lookahead_on)
+prevDayLow = request.security(syminfo.tickerid, "D", low[1], lookahead=barmerge.lookahead_on)
+prevDayClose = request.security(syminfo.tickerid, "D", close[1], lookahead=barmerge.lookahead_on)
+
+// ATR Calculations
+atr = ta.atr(14)
+dailyATR = request.security(syminfo.tickerid, "D", ta.atr(14))
+
+// Higher timeframe trend
+htfClose = request.security(syminfo.tickerid, htfTimeframe, close)
+htfHigh = request.security(syminfo.tickerid, htfTimeframe, high)
+htfLow = request.security(syminfo.tickerid, htfTimeframe, low)
+htfTrend = htfClose > htfClose[1] and htfLow > htfLow[1] ? 1 :
+           htfClose < htfClose[1] and htfHigh < htfHigh[1] ? -1 : 0
+
+// Market structure - swing points
+swingHighBar = ta.pivothigh(high, 10, 10)
+swingLowBar = ta.pivotlow(low, 10, 10)
+var float lastSwingHigh = na
+var float lastSwingLow = na
+
+if not na(swingHighBar)
+    lastSwingHigh := swingHighBar
+if not na(swingLowBar)
+    lastSwingLow := swingLowBar
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ORB FORMATION AND ANALYSIS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// Reset daily variables
+resetDailyVariables()
+
+// Detect new session
+if isInSession() and not isInSession()[1]
+    orbHigh := high
+    orbLow := low
+    orbStartBar := bar_index
+    orbComplete := false
+    if not na(orbBox)
+        box.delete(orbBox)
+    orbBox := box.new(bar_index, high, bar_index + 1, low, 
+                     border_color=color.blue, bgcolor=color.new(color.blue, 80), 
+                     border_width=2)
+
+// Update ORB during formation
+if isORBPeriod() and not orbComplete
+    orbHigh := math.max(orbHigh, high)
+    orbLow := math.min(orbLow, low)
+    if not na(orbBox)
+        box.set_top(orbBox, orbHigh)
+        box.set_bottom(orbBox, orbLow)
+        box.set_right(orbBox, bar_index)
+
+// Complete ORB and analyze
+if not isORBPeriod() and isORBPeriod()[1]
+    orbComplete := true
+    orbWidth := orbHigh - orbLow
+    
+    // Classify range type based on ATR
+    if useATRFilter and dailyATR > 0
+        rangeRatio = orbWidth / dailyATR
+        rangeType := rangeRatio < narrowRangeMax ? "Narrow" :
+                    rangeRatio > wideRangeMin ? "Wide" : "Normal"
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// BREAKOUT DETECTION WITH VALIDATION
+// ═══════════════════════════════════════════════════════════════════════════════
+
+if orbComplete and not inPosition
+    // Volume validation
+    avgVolume = ta.sma(volume, 20)
+    volumeSpike = volume > avgVolume * volumeSpikeMultiplier
+    rvolValid = not useRVol or rvol >= rvolThreshold
+    
+    // Check for valid breakout
+    candleClosed = not waitForClose or barstate.isconfirmed
+    
+    // Long breakout
+    if close > orbHigh and not breakoutLong
+        if candleClosed and (not requireVolumeSpike or volumeSpike) and rvolValid
+            // Check HTF alignment
+            trendAligned = not tradeOnlyWithTrend or htfTrend >= 0
+            
+            // Check range type
+            rangeValid = not avoidWideRange or rangeType != "Wide"
+            
+            if trendAligned and rangeValid
+                breakoutLong := true
+                breakoutShort := false
+                breakoutLevel := orbHigh
+                volumeConfirmed := true
+                
+                // Check for BOS
+                if requireBOS and not na(lastSwingHigh) and close > lastSwingHigh
+                    label.new(bar_index, high, "BOS↑", color=color.green, 
+                             style=label.style_label_up, size=size.small)
+    
+    // Short breakout
+    else if close < orbLow and not breakoutShort
+        if candleClosed and (not requireVolumeSpike or volumeSpike) and rvolValid
+            // Check HTF alignment
+            trendAligned = not tradeOnlyWithTrend or htfTrend <= 0
+            
+            // Check range type
+            rangeValid = not avoidWideRange or rangeType != "Wide"
+            
+            if trendAligned and rangeValid
+                breakoutShort := true
+                breakoutLong := false
+                breakoutLevel := orbLow
+                volumeConfirmed := true
+                
+                // Check for BOS
+                if requireBOS and not na(lastSwingLow) and close < lastSwingLow
+                    label.new(bar_index, low, "BOS↓", color=color.red, 
+                             style=label.style_label_down, size=size.small)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// LIQUIDITY GRAB DETECTION (ICT)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+if orbComplete and useLiquidityGrabs and not inPosition
+    // Bullish liquidity grab
+    if low < orbLow and close > orbLow and not liquidityGrabBull
+        liquidityGrabBull := true
+        liquidityGrabBear := false
+        liquidityLevel := low
+        
+        if reversalAfterLiqGrab
+            breakoutLong := true
+            breakoutShort := false
+            volumeConfirmed := true
+    
+    // Bearish liquidity grab
+    else if high > orbHigh and close < orbHigh and not liquidityGrabBear
+        liquidityGrabBear := true
+        liquidityGrabBull := false
+        liquidityLevel := high
+        
+        if reversalAfterLiqGrab
+            breakoutShort := true
+            breakoutLong := false
+            volumeConfirmed := true
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ENTRY EXECUTION
+// ═══════════════════════════════════════════════════════════════════════════════
+
+canTrade = inDateRange and not inPosition and dailyTradeCount < maxTradesPerDay
+
+if canTrade and volumeConfirmed and orbComplete
+    
+    executeEntry = false
+    
+    // Determine entry timing based on method
+    if entryMethod == "Immediate"
+        executeEntry := true
+    
+    else if entryMethod == "Pullback"
+        // Wait for pullback to ORB level
+        if breakoutLong and low <= orbHigh * 1.001 and close > orbHigh
+            executeEntry := true
+        else if breakoutShort and high >= orbLow * 0.999 and close < orbLow
+            executeEntry := true
+    
+    else if entryMethod == "Structure Retest"
+        // Wait for retest of structure
+        if breakoutLong and low <= lastSwingHigh and close > lastSwingHigh
+            executeEntry := true
+        else if breakoutShort and high >= lastSwingLow and close < lastSwingLow
+            executeEntry := true
+    
+    // Execute trade
+    if executeEntry
+        if breakoutLong
+            // Calculate position details
+            entryPrice := close
+            
+            // Calculate stop loss
+            stopLoss := switch stopMethod
+                "Range" => orbLow
+                "Structure" => na(lastSwingLow) ? orbLow : lastSwingLow
+                "ATR" => close - (atr * atrMultiplier)
+                "Hybrid" => math.max(orbLow, na(lastSwingLow) ? orbLow : lastSwingLow)
+                => orbLow
+            
+            // Calculate targets
+            risk = entryPrice - stopLoss
+            
+            if targetMethod == "Fixed RR"
+                target1 := entryPrice + (risk * scale1RR)
+                target2 := entryPrice + (risk * scale2RR)
+                target3 := entryPrice + (risk * fixedRR)
+            else if targetMethod == "Structure"
+                target1 := entryPrice + (risk * scale1RR)
+                target2 := na(prevDayHigh) ? entryPrice + (risk * 2) : prevDayHigh
+                target3 := na(prevDayHigh) ? entryPrice + (risk * 3) : prevDayHigh * 1.01
+            else if targetMethod == "Previous Day"
+                target1 := prevDayHigh
+                target2 := prevDayHigh * 1.005
+                target3 := prevDayHigh * 1.01
+            else  // Hybrid
+                target1 := entryPrice + (risk * scale1RR)
+                target2 := math.min(entryPrice + (risk * scale2RR), prevDayHigh)
+                target3 := prevDayHigh
+            
+            // Calculate position size
+            accountRisk = strategy.equity * (riskPerTrade / 100)
+            positionSize = accountRisk / risk
+            
+            // Enter position
+            strategy.entry("Long", strategy.long, qty=positionSize)
+            
+            // Set exits
+            if useScaling
+                strategy.exit("Long TP1", "Long", qty_percent=scale1Percent, 
+                             limit=target1, stop=stopLoss)
+                strategy.exit("Long TP2", "Long", qty_percent=scale2Percent, 
+                             limit=target2, stop=stopLoss)
+                strategy.exit("Long TP3", "Long", limit=target3, stop=stopLoss)
+            else
+                strategy.exit("Long Exit", "Long", limit=target3, stop=stopLoss)
+            
+            inPosition := true
+            dailyTradeCount += 1
+            scale1Taken := false
+            scale2Taken := false
+            movedToBreakeven := false
+            
+            label.new(bar_index, low, "LONG\n" + str.tostring(entryPrice, "#.##"), 
+                     color=color.green, style=label.style_label_up, 
+                     textcolor=color.white, size=size.normal)
+        
+        else if breakoutShort
+            // Calculate position details
+            entryPrice := close
+            
+            // Calculate stop loss
+            stopLoss := switch stopMethod
+                "Range" => orbHigh
+                "Structure" => na(lastSwingHigh) ? orbHigh : lastSwingHigh
+                "ATR" => close + (atr * atrMultiplier)
+                "Hybrid" => math.min(orbHigh, na(lastSwingHigh) ? orbHigh : lastSwingHigh)
+                => orbHigh
+            
+            // Calculate targets
+            risk = stopLoss - entryPrice
+            
+            if targetMethod == "Fixed RR"
+                target1 := entryPrice - (risk * scale1RR)
+                target2 := entryPrice - (risk * scale2RR)
+                target3 := entryPrice - (risk * fixedRR)
+            else if targetMethod == "Structure"
+                target1 := entryPrice - (risk * scale1RR)
+                target2 := na(prevDayLow) ? entryPrice - (risk * 2) : prevDayLow
+                target3 := na(prevDayLow) ? entryPrice - (risk * 3) : prevDayLow * 0.99
+            else if targetMethod == "Previous Day"
+                target1 := prevDayLow
+                target2 := prevDayLow * 0.995
+                target3 := prevDayLow * 0.99
+            else  // Hybrid
+                target1 := entryPrice - (risk * scale1RR)
+                target2 := math.max(entryPrice - (risk * scale2RR), prevDayLow)
+                target3 := prevDayLow
+            
+            // Calculate position size
+            accountRisk = strategy.equity * (riskPerTrade / 100)
+            positionSize = accountRisk / risk
+            
+            // Enter position
+            strategy.entry("Short", strategy.short, qty=positionSize)
+            
+            // Set exits
+            if useScaling
+                strategy.exit("Short TP1", "Short", qty_percent=scale1Percent, 
+                             limit=target1, stop=stopLoss)
+                strategy.exit("Short TP2", "Short", qty_percent=scale2Percent, 
+                             limit=target2, stop=stopLoss)
+                strategy.exit("Short TP3", "Short", limit=target3, stop=stopLoss)
+            else
+                strategy.exit("Short Exit", "Short", limit=target3, stop=stopLoss)
+            
+            inPosition := true
+            dailyTradeCount += 1
+            scale1Taken := false
+            scale2Taken := false
+            movedToBreakeven := false
+            
+            label.new(bar_index, high, "SHORT\n" + str.tostring(entryPrice, "#.##"), 
+                     color=color.red, style=label.style_label_down, 
+                     textcolor=color.white, size=size.normal)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// POSITION MANAGEMENT
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// Check if position closed
+if strategy.position_size == 0 and inPosition
+    inPosition := false
+    entryPrice := na
+    stopLoss := na
+    target1 := na
+    target2 := na
+    target3 := na
+
+// Move to breakeven logic
+if moveToBreakeven and inPosition and not movedToBreakeven
+    if strategy.position_size > 0  // Long
+        profitInR = (high - entryPrice) / (entryPrice - stopLoss)
+        if profitInR >= breakevenAt
+            strategy.exit("Long BE", "Long", stop=entryPrice + (entryPrice * 0.0001))
+            movedToBreakeven := true
+    
+    else if strategy.position_size < 0  // Short
+        profitInR = (entryPrice - low) / (stopLoss - entryPrice)
+        if profitInR >= breakevenAt
+            strategy.exit("Short BE", "Short", stop=entryPrice - (entryPrice * 0.0001))
+            movedToBreakeven := true
+
+// Trailing stop for final portion
+if useTrailingStop and inPosition and scale2Taken
+    if strategy.position_size > 0  // Long
+        // Trail below most recent swing low
+        if not na(lastSwingLow) and lastSwingLow > stopLoss
+            strategy.exit("Long Trail", "Long", stop=lastSwingLow)
+    
+    else if strategy.position_size < 0  // Short
+        // Trail above most recent swing high
+        if not na(lastSwingHigh) and lastSwingHigh < stopLoss
+            strategy.exit("Short Trail", "Short", stop=lastSwingHigh)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// DASHBOARD DISPLAY
+// ═══════════════════════════════════════════════════════════════════════════════
+
+var table dashboard = table.new(position.top_right, 2, 14, 
+                               bgcolor=color.new(color.black, 85),
+                               border_color=color.gray, border_width=1)
+
+if barstate.islast
+    // Profile
+    table.cell(dashboard, 0, 0, "Profile", text_color=color.white, text_size=size.small)
+    table.cell(dashboard, 1, 0, strategyProfile, text_color=color.yellow, text_size=size.small)
+    
+    // Session
+    table.cell(dashboard, 0, 1, "Session", text_color=color.white, text_size=size.small)
+    table.cell(dashboard, 1, 1, sessionType + " (" + str.tostring(orbMinutes) + "m)", 
+              text_color=color.aqua, text_size=size.small)
+    
+    // ORB Range
+    table.cell(dashboard, 0, 2, "ORB Range", text_color=color.white, text_size=size.small)
+    table.cell(dashboard, 1, 2, str.tostring(orbWidth, "#.##"), text_color=color.blue, text_size=size.small)
+    
+    // Range Type
+    table.cell(dashboard, 0, 3, "Range Type", text_color=color.white, text_size=size.small)
+    rangeColor = rangeType == "Narrow" ? color.green : rangeType == "Wide" ? color.red : color.gray
+    table.cell(dashboard, 1, 3, rangeType, text_color=rangeColor, text_size=size.small)
+    
+    // RVol
+    table.cell(dashboard, 0, 4, "RVol", text_color=color.white, text_size=size.small)
+    rvolColor = rvol >= rvolThreshold ? color.green : color.red
+    table.cell(dashboard, 1, 4, str.tostring(rvol, "#.#") + "x", text_color=rvolColor, text_size=size.small)
+    
+    // HTF Trend
+    table.cell(dashboard, 0, 5, "HTF Trend", text_color=color.white, text_size=size.small)
+    trendText = htfTrend == 1 ? "↑ Bull" : htfTrend == -1 ? "↓ Bear" : "→ Neutral"
+    trendColor = htfTrend == 1 ? color.green : htfTrend == -1 ? color.red : color.gray
+    table.cell(dashboard, 1, 5, trendText, text_color=trendColor, text_size=size.small)
+    
+    // Daily Trades
+    table.cell(dashboard, 0, 6, "Trades Today", text_color=color.white, text_size=size.small)
+    table.cell(dashboard, 1, 6, str.tostring(dailyTradeCount) + "/" + str.tostring(maxTradesPerDay), 
+              text_color=color.orange, text_size=size.small)
+    
+    // Position
+    table.cell(dashboard, 0, 7, "Position", text_color=color.white, text_size=size.small)
+    posText = strategy.position_size > 0 ? "Long" : strategy.position_size < 0 ? "Short" : "None"
+    posColor = strategy.position_size > 0 ? color.green : strategy.position_size < 0 ? color.red : color.gray
+    table.cell(dashboard, 1, 7, posText, text_color=posColor, text_size=size.small)
+    
+    // Win Rate
+    wins = strategy.wintrades
+    losses = strategy.losstrades
+    totalTrades = wins + losses
+    winRate = totalTrades > 0 ? (wins / totalTrades) * 100 : 0
+    
+    table.cell(dashboard, 0, 8, "Win Rate", text_color=color.white, text_size=size.small)
+    wrColor = winRate >= 60 ? color.green : winRate >= 40 ? color.yellow : color.red
+    table.cell(dashboard, 1, 8, str.tostring(winRate, "#.#") + "%", text_color=wrColor, text_size=size.small)
+    
+    // Profit Factor
+    profitFactor = strategy.grossprofit / math.max(strategy.grossloss, 1)
+    table.cell(dashboard, 0, 9, "Profit Factor", text_color=color.white, text_size=size.small)
+    pfColor = profitFactor >= 1.5 ? color.green : profitFactor >= 1.0 ? color.yellow : color.red
+    table.cell(dashboard, 1, 9, str.tostring(profitFactor, "#.##"), text_color=pfColor, text_size=size.small)
+    
+    // Net P&L
+    table.cell(dashboard, 0, 10, "Net P&L", text_color=color.white, text_size=size.small)
+    plColor = strategy.netprofit > 0 ? color.green : strategy.netprofit < 0 ? color.red : color.gray
+    table.cell(dashboard, 1, 10, str.tostring(strategy.netprofit, "#.##"), text_color=plColor, text_size=size.small)
+    
+    // Max Drawdown
+    maxDD = strategy.max_drawdown
+    table.cell(dashboard, 0, 11, "Max DD", text_color=color.white, text_size=size.small)
+    table.cell(dashboard, 1, 11, str.tostring(maxDD, "#.##"), text_color=color.red, text_size=size.small)
+    
+    // Total Trades
+    table.cell(dashboard, 0, 12, "Total Trades", text_color=color.white, text_size=size.small)
+    table.cell(dashboard, 1, 12, str.tostring(totalTrades), text_color=color.white, text_size=size.small)
+    
+    // Risk:Reward
+    avgWin = totalTrades > 0 ? strategy.grossprofit / math.max(wins, 1) : 0
+    avgLoss = totalTrades > 0 ? strategy.grossloss / math.max(losses, 1) : 0
+    actualRR = avgLoss > 0 ? avgWin / avgLoss : 0
+    
+    table.cell(dashboard, 0, 13, "Avg R:R", text_color=color.white, text_size=size.small)
+    table.cell(dashboard, 1, 13, str.tostring(actualRR, "#.##"), text_color=color.purple, text_size=size.small)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// PLOTTING
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ORB levels
+plot(orbComplete ? orbHigh : na, "ORB High", color=color.new(color.blue, 50), linewidth=2)
+plot(orbComplete ? orbLow : na, "ORB Low", color=color.new(color.blue, 50), linewidth=2)
+
+// Previous day levels
+plot(usePrevDayLevels ? prevDayHigh : na, "Prev High", color=color.new(color.purple, 70), style=plot.style_circles)
+plot(usePrevDayLevels ? prevDayLow : na, "Prev Low", color=color.new(color.purple, 70), style=plot.style_circles)
+
+// Entry and stops when in position
+plot(inPosition ? entryPrice : na, "Entry", color=color.white, linewidth=2)
+plot(inPosition ? stopLoss : na, "Stop", color=color.red, linewidth=1, style=plot.style_linebr)
+plot(inPosition ? target1 : na, "Target 1", color=color.new(color.green, 70), linewidth=1, style=plot.style_linebr)
+plot(inPosition ? target2 : na, "Target 2", color=color.new(color.green, 50), linewidth=1, style=plot.style_linebr)
+plot(inPosition ? target3 : na, "Target 3", color=color.new(color.green, 30), linewidth=1, style=plot.style_linebr)
+
+// Session background
+bgcolor(isInSession() ? color.new(color.gray, 95) : na)
+bgcolor(isORBPeriod() ? color.new(color.blue, 95) : na)

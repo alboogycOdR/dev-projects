@@ -1,0 +1,120 @@
+//@version=6
+indicator(     title       = "CRT All-Models Visual Suite v6",     shorttitle       = "CRT-ALL v6",     overlay          = true,     max_boxes_count  = 500,     max_labels_count = 500,   max_lines_count  = 500,  max_bars_back    = 2000)
+
+// █▀▀▀▀▀▀▀▀▀▀  CONFIG █▀▀▀▀▀▀▀▀▀▀
+showBoxes  = input.bool(true,  "Draw CRT Boxes")
+showLabels = input.bool(true,  "Draw Sweep / MSS / FVG Labels")
+lookback   = input.int(120,    "Max Boxes to Keep", minval = 10)
+swingLen   = input.int(5,      "Swing Pivot Length", minval = 1)
+ny_tz      = "America/New_York"
+
+// █▀▀▀▀▀▀▀▀▀▀  MODEL DEFINITION █▀▀▀▀▀▀▀▀▀▀
+type crtModel
+    string name
+    string tf
+    int    hourNY
+
+models = array.new<crtModel>()
+models.push(crtModel.new("Asia 1H",          "60", 1))
+models.push(crtModel.new("London AM 1H",     "60", 5))
+models.push(crtModel.new("NY AM 1H",         "60", 9))
+models.push(crtModel.new("London Open 4H",   "240", 0))
+models.push(crtModel.new("London Close 4H",  "240", 4))
+models.push(crtModel.new("NY Open 4H",       "240", 8))
+
+// █▀▀▀▀▀▀▀▀▀▀  UTILS █▀▀▀▀▀▀▀▀▀▀
+var box[]   boxes  = array.new<box>()
+var label[] labels = array.new<label>()
+
+f_cleanup() =>   // keep chart clean
+    while array.size(boxes) > lookback
+        box.delete(array.shift(boxes))
+    while array.size(labels) > lookback
+        label.delete(array.shift(labels))
+
+f_color(bool bull) => bull ? color.new(color.green, 80) : color.new(color.red, 80)
+
+// █▀▀▀▀▀▀▀▀▀▀  RANGE DETECTION █▀▀▀▀▀▀▀▀▀▀
+for m in models
+    [t, h, l] = request.security(
+         syminfo.tickerid,
+         m.tf,
+         [time, high, low],
+         lookahead = barmerge.lookahead_off)
+
+    // trigger on the FIRST bar of a NEW CRT candle
+    if ta.change(t) != 0 and hour(t[1], ny_tz) == m.hourNY
+        float top    = h[1]
+        float bottom = l[1]
+        int   idx    = bar_index
+
+        if showBoxes
+            b = box.new(
+                 idx, top, idx + 1, bottom,
+                 border_color = color.gray,
+                 bgcolor      = color.new(color.gray, 90),
+                 extend       = extend.right)
+            box.delete(b)      // immediate delete to avoid repaint
+            array.push(boxes, b)
+
+        if showLabels
+            array.push(labels,
+                 label.new(idx, top, text = m.name + " CRT High", style = label.style_label_down, color = color.gray, size = size.tiny))
+            array.push(labels,
+                 label.new(idx, bottom, text = m.name + " CRT Low", style = label.style_label_up, color = color.gray, size = size.tiny))
+
+// █▀▀▀▀▀▀▀▀▀▀  SWEEP / MSS / FVG LOGIC █▀▀▀▀▀▀▀▀▀▀
+var float[] crtHighs = array.new<float>()
+var float[] crtLows  = array.new<float>()
+var int[]   crtIdx   = array.new<int>()
+var string[] crtName = array.new<string>()
+
+if barstate.isconfirmed
+    // store every new CRT range
+    for m in models
+        [t, h, l] = request.security(syminfo.tickerid, m.tf, [time, high, low], lookahead = barmerge.lookahead_off)
+        if ta.change(t) != 0 and hour(t[1], ny_tz) == m.hourNY
+            array.push(crtIdx,   bar_index)
+            array.push(crtHighs, h[1])
+            array.push(crtLows,  l[1])
+            array.push(crtName,  m.name)
+
+// Scan every bar for open CRT ranges
+if array.size(crtHighs) > 0
+    for i = 0 to array.size(crtHighs) - 1
+        ch = array.get(crtHighs, i)
+        cl = array.get(crtLows,  i)
+        cx = array.get(crtIdx,   i)
+
+        // Bullish sweep (price < low)
+        if low < cl and high >= cl and not na(ch)
+            // MSS = close above last swing high
+            sw = ta.pivothigh(high, swingLen, swingLen)
+            if close > sw and not na(sw)
+                // Bullish FVG
+                if high[2] < low
+                    float fvg_top    = low
+                    float fvg_bottom = high[2]
+                    if showLabels
+                        label.new(bar_index, low,
+                             "BUY " + array.get(crtName, i) + "\nFVG " + str.tostring(fvg_top),
+                             style = label.style_label_up,
+                             color = color.new(color.green, 0))
+
+        // Bearish sweep (price > high)
+        if high > ch and low <= ch and not na(ch)
+            sw = ta.pivotlow(low, swingLen, swingLen)
+            if close < sw and not na(sw)
+                // Bearish FVG
+                if low[2] > high
+                    float fvg_top    = low[2]
+                    float fvg_bottom = high
+                    if showLabels
+                        label.new(bar_index, high,
+                             "SELL " + array.get(crtName, i) + "\nFVG " + str.tostring(fvg_bottom),
+                             style = label.style_label_down,
+                             color = color.new(color.red, 0))
+
+// █▀▀▀▀▀▀▀▀▀▀  HOUSEKEEPING █▀▀▀▀▀▀▀▀▀▀
+if barstate.isconfirmed
+    f_cleanup()
