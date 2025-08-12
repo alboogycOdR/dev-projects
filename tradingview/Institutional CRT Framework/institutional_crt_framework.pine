@@ -1,0 +1,479 @@
+//@version=6
+indicator("Institutional CRT Framework", overlay=true, max_labels_count=500, max_lines_count=500, dynamic_requests=true)
+
+// =======================
+// === USER INPUTS =======
+// =======================
+
+// Model toggles
+show_2_candle      = input.bool(true,  "Show 2-Candle (Rejection)")
+show_3_candle      = input.bool(true,  "Show 3-Candle (Classic)")
+show_inside_bar    = input.bool(true,  "Show Inside Bar (Consolidation)")
+show_outside_bar   = input.bool(true,  "Show Outside Bar (Seek & Destroy)")
+
+// Time filter
+use_time_filter    = input.bool(false, "Use time filter")
+session_to_scan    = input.string("London", "Session to scan", options=["London","New York","Asia"])
+sess_hours = session_to_scan == "London" ? "07:00-16:00" : session_to_scan == "New York" ? "12:00-21:00" : "00:00-09:00"
+
+// Premium/Discount filter (simple PD array)
+use_pd_array_filter = input.bool(false, "Use Premium/Discount filter")
+pd_array_lookback   = input.int(100, "PD lookback (bars)", minval=10, maxval=2000)
+pd_tolerance_pct    = input.float(0.0, "PD tolerance (%) - extra padding", step=0.1)
+
+// Theme and colors
+i_theme = input.string("Dark", "Theme", options=["Dark","Light","Blueprint"])
+theme_is_dark = (i_theme == "Dark")
+
+col_rejection_bull = input.color(color.new(color.green, 0), "2C Bull Box")
+col_rejection_bear = input.color(color.new(color.red, 0), "2C Bear Box")
+col_3c_box         = input.color(color.new(color.orange, 80), "3C Box")
+col_inside_fill    = input.color(color.new(color.blue, 85), "Inside Bars Fill")
+col_outside_box    = input.color(color.new(color.purple, 80), "Outside Box")
+label_text_color   = input.color(color.white, "Label Text Color")
+
+// Alerts & Webhook
+enable_alerts      = input.bool(true, "Enable alerts (master)")
+alert_on_2c        = input.bool(true, "Alerts on 2-Candle")
+alert_on_3c        = input.bool(true, "Alerts on 3-Candle")
+alert_on_inside    = input.bool(true, "Alerts on Inside Bar")
+alert_on_outside   = input.bool(true, "Alerts on Outside Bar")
+webhook_url_input  = input.string("", "Webhook URL (note: set webhook in TradingView alert dialog too)")
+custom_alert_json  = input.string('{"ticker":"{{ticker}}","pattern":"{{pattern}}","side":"{{side}}","price":{{price}},"time":"{{time}}"}', "Custom alert JSON (placeholders)")
+
+// Scanner symbols (up to 16). Empty string means skip.
+sym1  = input.symbol("", "Scanner Symbol 1")
+sym2  = input.symbol("", "Scanner Symbol 2")
+sym3  = input.symbol("", "Scanner Symbol 3")
+sym4  = input.symbol("", "Scanner Symbol 4")
+sym5  = input.symbol("", "Scanner Symbol 5")
+sym6  = input.symbol("", "Scanner Symbol 6")
+sym7  = input.symbol("", "Scanner Symbol 7")
+sym8  = input.symbol("", "Scanner Symbol 8")
+sym9  = input.symbol("", "Scanner Symbol 9")
+sym10 = input.symbol("", "Scanner Symbol 10")
+sym11 = input.symbol("", "Scanner Symbol 11")
+sym12 = input.symbol("", "Scanner Symbol 12")
+sym13 = input.symbol("", "Scanner Symbol 13")
+sym14 = input.symbol("", "Scanner Symbol 14")
+sym15 = input.symbol("", "Scanner Symbol 15")
+sym16 = input.symbol("", "Scanner Symbol 16")
+
+scanner_symbols = array.from(sym1,sym2,sym3,sym4,sym5,sym6,sym7,sym8,sym9,sym10,sym11,sym12,sym13,sym14,sym15,sym16)
+
+// =======================
+// === HELPERS ===========
+// =======================
+is_in_session() =>
+    if not use_time_filter
+        true
+    else
+        na(time(timeframe.period, sess_hours)) == false
+
+pd_array_range_ok(sideBull, lookback) =>
+    if not use_pd_array_filter
+        true
+    else
+        hh = ta.highest(high, lookback)
+        ll = ta.lowest(low, lookback)
+        mid = (hh + ll) / 2.0
+        pad = (hh - ll) * (pd_tolerance_pct / 100.0)
+        if sideBull
+            // bullish allowed when close in discount (below mid)
+            close <= (mid - pad)
+        else
+            // bearish allowed when close in premium (above mid)
+            close >= (mid + pad)
+
+// pattern labeling helper
+make_alert_message(sym, patternName, side, price) =>
+    t = str.format("{0,date,yyyy-MM-dd HH:mm:ss}", time)
+    msg = custom_alert_json
+    msg := str.replace(msg, "{{ticker}}", sym)
+    msg := str.replace(msg, "{{pattern}}", patternName)
+    msg := str.replace(msg, "{{price}}", str.tostring(price))
+    msg := str.replace(msg, "{{time}}", t)
+    msg := str.replace(msg, "{{side}}", side)
+    msg
+
+// =======================
+// === PATTERN LOGIC ====
+// =======================
+
+// 2-Candle (Rejection) detection
+// Candle[1] sweeps Candle[2] high/low, then Candle[1] closes back inside Candle[2] range.
+// We'll interpret indexes: Candle[0] current, Candle[1] previous, Candle[2] prev2
+is_2c_bull = false
+is_2c_bear = false
+if bar_index >= 2
+    // Bullish variation: previous bar (1) sweeps high of bar(2) then closes back inside bar(2)'s body/range
+    cond_bull_sweep = high[1] > high[2] and close[1] <= high[2] and close[1] >= low[2]
+    // Bearish variation: previous bar sweeps low of bar(2) then closes back inside
+    cond_bear_sweep = low[1] < low[2] and close[1] >= low[2] and close[1] <= high[2]
+    is_2c_bull := cond_bull_sweep
+    is_2c_bear := cond_bear_sweep
+
+// 3-Candle Classic (A M D)
+// Candle[2] sets range (mother). Candle[1] sweeps and closes back inside Candle[2]. Candle[0] confirms expansion away.
+is_3c_bull = false
+is_3c_bear = false
+if bar_index >= 2
+    base_high = high[2]
+    base_low  = low[2]
+    sweep_up = high[1] > base_high and close[1] <= base_high and close[1] >= base_low
+    sweep_down = low[1] < base_low and close[1] >= base_low and close[1] <= base_high
+    // Confirmation: current bar (0) expands away in the sweep direction
+    confirm_up = close > high[1] and close > base_high
+    confirm_down = close < low[1] and close < base_low
+    is_3c_bull := sweep_up and confirm_up
+    is_3c_bear := sweep_down and confirm_down
+
+// Inside Bar (Mother + one or more inside bars + breakout sweep)
+is_inside_bull = false
+is_inside_bear = false
+int   mother_index = na
+float mother_high_value = na
+float mother_low_value  = na
+// Identify a mother bar: previous bar that has at least one inside follower then breakout
+// We'll detect patterns where there is a mother at i, some inside bars at i-1..i-n, and the current bar sweeps mother high/low
+inside_detected = false
+// Simple approach: lookback up to 8 bars for a mother followed by inside bars and current breakout
+for i = 1 to 8
+    if bar_index >= i + 1
+        candidate_mother_high = high[i]
+        candidate_mother_low  = low[i]
+        // Are all bars between i-1 .. 1 inside the mother?
+        inside_chain = true
+        for j = i - 1 to 1
+            if not (high[j] <= candidate_mother_high and low[j] >= candidate_mother_low)
+                inside_chain := false
+        // breakout now sweeps
+        if inside_chain
+            // bullish breakout: current sweeps mother high
+            if high > candidate_mother_high
+                is_inside_bull := true
+                mother_index := i
+                mother_high_value := candidate_mother_high
+                mother_low_value := candidate_mother_low
+                break
+            // bearish breakout
+            if low < candidate_mother_low
+                is_inside_bear := true
+                mother_index := i
+                mother_high_value := candidate_mother_high
+                mother_low_value := candidate_mother_low
+                break
+
+// Outside Bar (Seek & Destroy) - a bar that sweeps both previous bar high and low (engulfs)
+is_outside = false
+is_outside_bull = false
+is_outside_bear = false
+if bar_index >= 1
+    if high > high[1] and low < low[1]
+        is_outside := true
+        // Side neutral but we can assign "bullish skew" if close > open
+        is_outside_bull := is_outside and (close > open)
+        is_outside_bear := is_outside and (close < open)
+
+// apply pd filters & session filter
+valid_2c_bull = show_2_candle and is_2c_bull and is_in_session() and pd_array_range_ok(true, pd_array_lookback)
+valid_2c_bear = show_2_candle and is_2c_bear and is_in_session() and pd_array_range_ok(false, pd_array_lookback)
+valid_3c_bull = show_3_candle and is_3c_bull and is_in_session() and pd_array_range_ok(true, pd_array_lookback)
+valid_3c_bear = show_3_candle and is_3c_bear and is_in_session() and pd_array_range_ok(false, pd_array_lookback)
+valid_inside_bull = show_inside_bar and is_inside_bull and is_in_session() and pd_array_range_ok(true, pd_array_lookback)
+valid_inside_bear = show_inside_bar and is_inside_bear and is_in_session() and pd_array_range_ok(false, pd_array_lookback)
+valid_outside = show_outside_bar and is_outside and is_in_session() and pd_array_range_ok(true, pd_array_lookback) // PD neutral, allow through
+
+// =======================
+// === VISUALS ===========
+// =======================
+
+// 2-Candle visual: small label above/below previous bar
+if valid_2c_bull
+    // draw label at previous bar (index 1)
+    label.new(bar_index - 1, high[1], "Rejection\nBull", yloc=yloc.abovebar, style=label.style_label_down, color=col_rejection_bull, textcolor=label_text_color, size=size.small)
+if valid_2c_bear
+    label.new(bar_index - 1, low[1], "Rejection\nBear", yloc=yloc.belowbar, style=label.style_label_up, color=col_rejection_bear, textcolor=label_text_color, size=size.small)
+
+// 3-Candle visual: box around Candle[2] range, and small A/M/D labels
+if valid_3c_bull or valid_3c_bear
+    // draw a box for Candle[2]
+    if barstate.isconfirmed
+        box_3c = box.new(left=bar_index - 2, top=high[2], right=bar_index, bottom=low[2], border_width=1, bgcolor=col_3c_box)
+        // A at bar_index-2, M at -1, D current
+        label.new(bar_index - 2, high[2], "A", yloc=yloc.abovebar, color=color.new(color.black,0), textcolor=label_text_color, size=size.tiny)
+        label.new(bar_index - 1, high[1], "M", yloc=yloc.abovebar, color=color.new(color.black,0), textcolor=label_text_color, size=size.tiny)
+        label.new(bar_index,    close,   "D", yloc=close>open?yloc.abovebar:yloc.belowbar, color=color.new(color.black,0), textcolor=label_text_color, size=size.tiny)
+
+// Inside bar visual: box around mother & shade inside bars, arrow on breakout
+if (valid_inside_bull or valid_inside_bear) and not na(mother_index)
+    // mother_index is positive steps back
+    mother_left = bar_index - int(mother_index)
+    m_high = mother_high_value
+    m_low  = mother_low_value
+    box_mother = box.new(left=mother_left, top=m_high, right=bar_index, bottom=m_low, border_width=1, bgcolor=color.new(col_inside_fill, 75))
+    // shade inside bars (iterate fixed range and gate by mother_index)
+    for k = 1 to 8
+        if k < mother_index and high[k] <= m_high and low[k] >= m_low
+            line.new(x1=bar_index - k, y1=high[k], x2=bar_index - (k-1), y2=high[k], extend=extend.none, color=color.new(col_inside_fill, 70))
+
+    // arrow on current breakout
+    if valid_inside_bull
+        label.new(bar_index, high, "→ IB Break↑", yloc=yloc.abovebar, style=label.style_label_down, color=color.new(color.green,0), textcolor=label_text_color, size=size.small)
+    if valid_inside_bear
+        label.new(bar_index, low, "→ IB Break↓", yloc=yloc.belowbar, style=label.style_label_up, color=color.new(color.red,0), textcolor=label_text_color, size=size.small)
+
+// Outside bar visual: semi-transparent box and label "S&D"
+if valid_outside
+    b = box.new(left=bar_index, top=high, right=bar_index+1, bottom=low, border_width=1, bgcolor=col_outside_box)
+    label.new(bar_index, (high+low)/2, "S&D", yloc=yloc.price, style=label.style_label_center, color=col_outside_box, textcolor=label_text_color, size=size.small)
+
+// =======================
+// === ALERTS ===========
+// =======================
+
+fire_alert(patternName, side) =>
+    if not enable_alerts
+        na
+    else
+        sym = syminfo.ticker
+        price = close
+        msg = make_alert_message(sym, patternName, side, price)
+        // alert() triggers TradingView alert conditions. Use alert.message to pass JSON. In platform, user must create alert to send webhook.
+        alert(msg, alert.freq_once_per_bar_close)
+
+if valid_2c_bull and alert_on_2c
+    fire_alert("2-Candle Rejection", "bull")
+if valid_2c_bear and alert_on_2c
+    fire_alert("2-Candle Rejection", "bear")
+if valid_3c_bull and alert_on_3c
+    fire_alert("3-Candle Classic", "bull")
+if valid_3c_bear and alert_on_3c
+    fire_alert("3-Candle Classic", "bear")
+if valid_inside_bull and alert_on_inside
+    fire_alert("Inside Bar (Consol.)", "bull")
+if valid_inside_bear and alert_on_inside
+    fire_alert("Inside Bar (Consol.)", "bear")
+if valid_outside and alert_on_outside
+    fire_alert("Outside Bar (S&D)", is_outside_bull ? "bull" : is_outside_bear ? "bear" : "neutral")
+
+// Provide convenience alertconditions for TradingView Alert dialog
+alertcondition(valid_2c_bull,  title="2C Bull Detected")
+alertcondition(valid_2c_bear,  title="2C Bear Detected")
+alertcondition(valid_3c_bull,  title="3C Bull Detected")
+alertcondition(valid_3c_bear,  title="3C Bear Detected")
+alertcondition(valid_inside_bull, title="Inside Bull Detected")
+alertcondition(valid_inside_bear, title="Inside Bear Detected")
+alertcondition(valid_outside,    title="Outside Detected")
+
+// =======================
+// === SCANNER DASHBOARD ==
+// =======================
+
+// helper to run detection on another symbol/timeframe using request.security
+get_pattern_for_symbol(sym) =>
+    // fetch minimal history via security and compute simplified flags locally
+
+    // use series indexing inside the request.security call by computing booleans on that series.
+    // we create remote expressions by fetching arrays of values. For simplicity, we'll ask for small history via request.security for indicators that return strings.
+    // Build a remote helper series that returns a code string for the last completed bar: "None","2C_BULL","2C_BEAR","3C_BULL","3C_BEAR","INS_BULL","INS_BEAR","OUT"
+    // However, request.security can't execute arbitrary loops remotely in a simple return; so instead we fetch small series and compute in local with request.security for each needed offset.
+    // To keep it practical: check the last 3 bars' OHLC via request.security with offset arguments by using `request.security` with `barmerge.gaps_off` and `lookahead=barmerge.lookahead_off` and then evaluate local logic using array of returned series.
+    // We'll use `request.security` to return high/low arrays and then emulate detection locally using that returned history via `request.security()` with `bar_index`.
+    // Removed invalid placeholder multi-assign; using explicit per-offset requests below.
+
+    // Fallback: we will do minimal scanning: detect if last bar engulfs prior (outside) or simple 2c or 3c based on last 3 bars
+    s_high2  = request.security(sym, timeframe.period, high[2])
+    s_high1  = request.security(sym, timeframe.period, high[1])
+    s_high0  = request.security(sym, timeframe.period, high)
+    s_low2   = request.security(sym, timeframe.period, low[2])
+    s_low1   = request.security(sym, timeframe.period, low[1])
+    s_low0   = request.security(sym, timeframe.period, low)
+    s_close1 = request.security(sym, timeframe.period, close[1])
+    s_close0 = request.security(sym, timeframe.period, close)
+    s_open0  = request.security(sym, timeframe.period, open)
+
+    // simplified detection
+    s_is_outside = (s_high0 > s_high1) and (s_low0 < s_low1)
+    s_is_2c_bull = (s_high1 > s_high2) and (s_close1 <= s_high2) and (s_close1 >= s_low2)
+    s_is_2c_bear = (s_low1 < s_low2) and (s_close1 >= s_low2) and (s_close1 <= s_high2)
+    s_is_3c_bull = s_is_2c_bull and (s_close0 > s_high1) and (s_close0 > s_high2)
+    s_is_3c_bear = s_is_2c_bear and (s_close0 < s_low1) and (s_close0 < s_low2)
+
+    // precedence: 3C > 2C > OUT
+    if s_is_3c_bull
+        ["3-Candle Bullish", color.green]
+    else if s_is_3c_bear
+        ["3-Candle Bearish", color.red]
+    else if s_is_2c_bull
+        ["2-Candle Bullish", color.green]
+    else if s_is_2c_bear
+        ["2-Candle Bearish", color.red]
+    else if s_is_outside
+        ["Outside (S&D)", color.purple]
+    else
+        ["", color.gray]
+
+// Build table
+table_cols = 2
+table_rows = 17 // 1 header row (0) + 16 data rows (1..16)
+tbl = table.new(position.top_right, table_cols, table_rows, border_width=1, frame_color=color.new(color.gray, 95))
+
+// Fill table header
+if barstate.isfirst
+    table.cell(tbl, 0, 0, "Symbol", bgcolor=color.new(color.black, 0), text_color=color.white, text_halign=text.align_center)
+    table.cell(tbl, 1, 0, "Last Pattern", bgcolor=color.new(color.black, 0), text_color=color.white, text_halign=text.align_center)
+
+// Precompute per-symbol patterns (ensure simple strings are passed to request.security)
+pat1_label = ""
+pat1_color = color.gray
+pat2_label = ""
+pat2_color = color.gray
+pat3_label = ""
+pat3_color = color.gray
+pat4_label = ""
+pat4_color = color.gray
+pat5_label = ""
+pat5_color = color.gray
+pat6_label = ""
+pat6_color = color.gray
+pat7_label = ""
+pat7_color = color.gray
+pat8_label = ""
+pat8_color = color.gray
+pat9_label = ""
+pat9_color = color.gray
+pat10_label = ""
+pat10_color = color.gray
+pat11_label = ""
+pat11_color = color.gray
+pat12_label = ""
+pat12_color = color.gray
+pat13_label = ""
+pat13_color = color.gray
+pat14_label = ""
+pat14_color = color.gray
+pat15_label = ""
+pat15_color = color.gray
+pat16_label = ""
+pat16_color = color.gray
+
+if str.length(sym1) > 0
+    [pat1_label, pat1_color] = get_pattern_for_symbol(sym1)
+if str.length(sym2) > 0
+    [pat2_label, pat2_color] = get_pattern_for_symbol(sym2)
+if str.length(sym3) > 0
+    [pat3_label, pat3_color] = get_pattern_for_symbol(sym3)
+if str.length(sym4) > 0
+    [pat4_label, pat4_color] = get_pattern_for_symbol(sym4)
+if str.length(sym5) > 0
+    [pat5_label, pat5_color] = get_pattern_for_symbol(sym5)
+if str.length(sym6) > 0
+    [pat6_label, pat6_color] = get_pattern_for_symbol(sym6)
+if str.length(sym7) > 0
+    [pat7_label, pat7_color] = get_pattern_for_symbol(sym7)
+if str.length(sym8) > 0
+    [pat8_label, pat8_color] = get_pattern_for_symbol(sym8)
+if str.length(sym9) > 0
+    [pat9_label, pat9_color] = get_pattern_for_symbol(sym9)
+if str.length(sym10) > 0
+    [pat10_label, pat10_color] = get_pattern_for_symbol(sym10)
+if str.length(sym11) > 0
+    [pat11_label, pat11_color] = get_pattern_for_symbol(sym11)
+if str.length(sym12) > 0
+    [pat12_label, pat12_color] = get_pattern_for_symbol(sym12)
+if str.length(sym13) > 0
+    [pat13_label, pat13_color] = get_pattern_for_symbol(sym13)
+if str.length(sym14) > 0
+    [pat14_label, pat14_color] = get_pattern_for_symbol(sym14)
+if str.length(sym15) > 0
+    [pat15_label, pat15_color] = get_pattern_for_symbol(sym15)
+if str.length(sym16) > 0
+    [pat16_label, pat16_color] = get_pattern_for_symbol(sym16)
+
+// Populate rows each bar (up to 16)
+row = 1
+for i = 0 to 15
+    symStr = ""
+    pattern_label = ""
+    pattern_color = color.gray
+    if i == 0
+        symStr := sym1
+        pattern_label := pat1_label
+        pattern_color := pat1_color
+    else if i == 1
+        symStr := sym2
+        pattern_label := pat2_label
+        pattern_color := pat2_color
+    else if i == 2
+        symStr := sym3
+        pattern_label := pat3_label
+        pattern_color := pat3_color
+    else if i == 3
+        symStr := sym4
+        pattern_label := pat4_label
+        pattern_color := pat4_color
+    else if i == 4
+        symStr := sym5
+        pattern_label := pat5_label
+        pattern_color := pat5_color
+    else if i == 5
+        symStr := sym6
+        pattern_label := pat6_label
+        pattern_color := pat6_color
+    else if i == 6
+        symStr := sym7
+        pattern_label := pat7_label
+        pattern_color := pat7_color
+    else if i == 7
+        symStr := sym8
+        pattern_label := pat8_label
+        pattern_color := pat8_color
+    else if i == 8
+        symStr := sym9
+        pattern_label := pat9_label
+        pattern_color := pat9_color
+    else if i == 9
+        symStr := sym10
+        pattern_label := pat10_label
+        pattern_color := pat10_color
+    else if i == 10
+        symStr := sym11
+        pattern_label := pat11_label
+        pattern_color := pat11_color
+    else if i == 11
+        symStr := sym12
+        pattern_label := pat12_label
+        pattern_color := pat12_color
+    else if i == 12
+        symStr := sym13
+        pattern_label := pat13_label
+        pattern_color := pat13_color
+    else if i == 13
+        symStr := sym14
+        pattern_label := pat14_label
+        pattern_color := pat14_color
+    else if i == 14
+        symStr := sym15
+        pattern_label := pat15_label
+        pattern_color := pat15_color
+    else if i == 15
+        symStr := sym16
+        pattern_label := pat16_label
+        pattern_color := pat16_color
+
+    if str.length(symStr) > 0
+        table.cell(tbl, 0, row, symStr, text_halign=text.align_left)
+        table.cell(tbl, 1, row, pattern_label, bgcolor=color.new(pattern_color, 0), text_color=color.white, text_halign=text.align_center)
+    else
+        table.cell(tbl, 0, row, "-", text_halign=text.align_left)
+        table.cell(tbl, 1, row, "-", text_halign=text.align_center)
+    row += 1
+
+// =======================
+// === END ===============
+// =======================
+
+// Short usage note (printed in data window)
+plotchar(valid_2c_bull ? 1 : na, title="2C Bull Flag", char='▲', location=location.top, size=size.tiny, color=color.green)
+plotchar(valid_2c_bear ? -1 : na, title="2C Bear Flag", char='▼', location=location.bottom, size=size.tiny, color=color.red)
