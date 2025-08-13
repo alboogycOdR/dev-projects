@@ -1,0 +1,667 @@
+//@version=6
+indicator("Institutional CRT Framework - Time-Anchored Edition", overlay=true, max_labels_count=500, max_lines_count=500, dynamic_requests=true)
+
+// =======================
+// === USER INPUTS =======
+// =======================
+
+// Model toggles
+show_2_candle      = input.bool(true,  "Show 2-Candle (Rejection)", group="Pattern Detection")
+show_3_candle      = input.bool(true,  "Show 3-Candle (Classic)", group="Pattern Detection")
+show_inside_bar    = input.bool(true,  "Show Inside Bar (Consolidation)", group="Pattern Detection")
+show_outside_bar   = input.bool(true,  "Show Outside Bar (Seek & Destroy)", group="Pattern Detection")
+
+// === NEW: TIME-ANCHORED 4H CRT DETECTION ===
+use_time_anchored_4h = input.bool(false, "Enable Time-Anchored 4H CRT", group="Time-Anchored 4H")
+anchor_01_enabled = input.bool(true, "01:00/02:00 AM Anchor", group="Time-Anchored 4H")
+anchor_05_enabled = input.bool(true, "05:00/06:00 AM Anchor", group="Time-Anchored 4H")
+anchor_09_enabled = input.bool(true, "09:00 AM Anchor", group="Time-Anchored 4H")
+
+// Broker 4H schedule selection
+broker_4h_schedule = input.string("Standard", "Broker 4H Schedule",     options=["Standard", "Offset"],    group="Time-Anchored 4H")
+
+// Legacy time filter (kept for compatibility)
+use_time_filter    = input.bool(false, "Use legacy time filter", group="Legacy Filters")
+session_to_scan    = input.string("London", "Session to scan", options=["London","New York","Asia"], group="Legacy Filters")
+sess_hours = session_to_scan == "London" ? "0700-1600" : session_to_scan == "New York" ? "1200-2100" : "0000-0900"
+
+// Premium/Discount filter
+use_pd_array_filter = input.bool(false, "Use Premium/Discount filter", group="Legacy Filters")
+pd_array_lookback   = input.int(100, "PD lookback (bars)", minval=10, maxval=2000, group="Legacy Filters")
+pd_tolerance_pct    = input.float(0.0, "PD tolerance (%) - extra padding", step=0.1, group="Legacy Filters")
+
+// Visual / history controls
+history_days_limit  = input.int(5, "Max history (days)", minval=1, group="Visual Controls")
+max_instances_each  = input.int(200, "Max instances per pattern type", minval=10, group="Visual Controls")
+
+// Theme and colors
+i_theme = input.string("Dark", "Theme", options=["Dark","Light","Blueprint"], group="Visual Theme")
+theme_is_dark = (i_theme == "Dark")
+
+col_rejection_bull = input.color(color.new(color.green, 0), "2C Bull Box", group="Colors")
+col_rejection_bear = input.color(color.new(color.red, 0), "2C Bear Box", group="Colors")
+col_3c_box         = input.color(color.new(color.orange, 80), "3C Box", group="Colors")
+col_inside_fill    = input.color(color.new(color.blue, 85), "Inside Bars Fill", group="Colors")
+col_outside_box    = input.color(color.new(color.purple, 80), "Outside Box", group="Colors")
+label_text_color   = input.color(color.white, "Label Text Color", group="Colors")
+
+// Alerts & Webhook
+enable_alerts      = input.bool(true, "Enable alerts (master)", group="Alerts")
+alert_on_2c        = input.bool(true, "Alerts on 2-Candle", group="Alerts")
+alert_on_3c        = input.bool(true, "Alerts on 3-Candle", group="Alerts")
+alert_on_inside    = input.bool(true, "Alerts on Inside Bar", group="Alerts")
+alert_on_outside   = input.bool(true, "Alerts on Outside Bar", group="Alerts")
+webhook_url_input  = input.string("", "Webhook URL", group="Alerts")
+custom_alert_json  = input.string('{"ticker":"{{ticker}}","pattern":"{{pattern}}","side":"{{side}}","price":{{price}},"time":"{{time}}"}', "Custom alert JSON", group="Alerts")
+
+// Scanner symbols
+sym1  = input.symbol("", "Scanner Symbol 1", group="Scanner")
+sym2  = input.symbol("", "Scanner Symbol 2", group="Scanner")
+sym3  = input.symbol("", "Scanner Symbol 3", group="Scanner")
+sym4  = input.symbol("", "Scanner Symbol 4", group="Scanner")
+sym5  = input.symbol("", "Scanner Symbol 5", group="Scanner")
+sym6  = input.symbol("", "Scanner Symbol 6", group="Scanner")
+sym7  = input.symbol("", "Scanner Symbol 7", group="Scanner")
+sym8  = input.symbol("", "Scanner Symbol 8", group="Scanner")
+sym9  = input.symbol("", "Scanner Symbol 9", group="Scanner")
+sym10 = input.symbol("", "Scanner Symbol 10", group="Scanner")
+sym11 = input.symbol("", "Scanner Symbol 11", group="Scanner")
+sym12 = input.symbol("", "Scanner Symbol 12", group="Scanner")
+sym13 = input.symbol("", "Scanner Symbol 13", group="Scanner")
+sym14 = input.symbol("", "Scanner Symbol 14", group="Scanner")
+sym15 = input.symbol("", "Scanner Symbol 15", group="Scanner")
+sym16 = input.symbol("", "Scanner Symbol 16", group="Scanner")
+
+// Build scanner symbol array for table display only (do not pass array elements to request.security)
+scanner_symbols = array.from(sym1,sym2,sym3,sym4,sym5,sym6,sym7,sym8,sym9,sym10,sym11,sym12,sym13,sym14,sym15,sym16)
+
+// =======================
+// === HELPERS ===========
+// =======================
+
+// Legacy session filter
+is_in_session() =>
+    if not use_time_filter
+        true
+    else
+        na(time(timeframe.period, sess_hours)) == false
+
+// Enhanced time validation for 4H CRT
+is_valid_4h_crt_time() =>
+    if not use_time_anchored_4h
+        true
+    else
+        // Only works on 4H timeframe
+        if timeframe.period != "240"
+            true  // Allow on other timeframes if not using anchoring
+        else
+            current_hour = hour(time)
+            
+            // Simple and correct: anchor start time + 8 hours = D candle start time
+            // This accounts for A(4h) + M(4h) = 8 hours to reach D candle
+            
+            anchor_01_hour = broker_4h_schedule == "Standard" ? 1 : 2
+            anchor_05_hour = broker_4h_schedule == "Standard" ? 5 : 6
+            anchor_09_hour = 9  // Same for both schedules
+            
+            d_hour_01 = (anchor_01_hour + 8) % 24  // 01+8=09 or 02+8=10
+            d_hour_05 = (anchor_05_hour + 8) % 24  // 05+8=13 or 06+8=14  
+            d_hour_09 = (anchor_09_hour + 8) % 24  // 09+8=17
+            
+            valid_01 = anchor_01_enabled and (current_hour == d_hour_01)
+            valid_05 = anchor_05_enabled and (current_hour == d_hour_05)
+            valid_09 = anchor_09_enabled and (current_hour == d_hour_09)
+            
+            valid_01 or valid_05 or valid_09
+
+// Premium/Discount filter
+pd_array_range_ok(sideBull, lookback) =>
+    if not use_pd_array_filter
+        true
+    else
+        hh = ta.highest(high, lookback)
+        ll = ta.lowest(low, lookback)
+        mid = (hh + ll) / 2.0
+        pad = (hh - ll) * (pd_tolerance_pct / 100.0)
+        if sideBull
+            close <= (mid - pad)
+        else
+            close >= (mid + pad)
+
+// Alert helper
+make_alert_message(sym, patternName, side, price) =>
+    t = str.format("{0,date,yyyy-MM-dd HH:mm:ss}", time)
+    msg = custom_alert_json
+    msg := str.replace(msg, "{{ticker}}", sym)
+    msg := str.replace(msg, "{{pattern}}", patternName)
+    msg := str.replace(msg, "{{price}}", str.tostring(price))
+    msg := str.replace(msg, "{{time}}", t)
+    msg := str.replace(msg, "{{side}}", side)
+    msg
+
+// Get anchor info for labeling
+get_anchor_info() =>
+    anchor_info = ""
+    if use_time_anchored_4h and timeframe.period == "240"
+        a_hour = hour(time[2])  // Hour of A candle start
+        
+        anchor_01_hour = broker_4h_schedule == "Standard" ? 1 : 2
+        anchor_05_hour = broker_4h_schedule == "Standard" ? 5 : 6
+        anchor_09_hour = 9
+        
+        if a_hour == anchor_01_hour
+            anchor_info := "(01A)"
+        else if a_hour == anchor_05_hour  
+            anchor_info := "(05A)"
+        else if a_hour == anchor_09_hour
+            anchor_info := "(09A)"
+    anchor_info
+
+ms_per_day = 24 * 60 * 60 * 1000
+
+// =======================
+// === PATTERN LOGIC ====
+// =======================
+
+// 2-Candle detection
+is_2c_bull = false
+is_2c_bear = false
+if bar_index >= 2
+    cond_bull_sweep = high[1] > high[2] and close[1] <= high[2] and close[1] >= low[2]
+    cond_bear_sweep = low[1] < low[2] and close[1] >= low[2] and close[1] <= high[2]
+    is_2c_bull := cond_bull_sweep
+    is_2c_bear := cond_bear_sweep
+
+// 3-Candle detection
+is_3c_bull = false
+is_3c_bear = false
+if bar_index >= 2
+    base_high = high[2]
+    base_low  = low[2]
+    sweep_up = high[1] > base_high and close[1] <= base_high and close[1] >= base_low
+    sweep_down = low[1] < base_low and close[1] >= base_low and close[1] <= base_high
+    confirm_up = close > high[1] and close > base_high
+    confirm_down = close < low[1] and close < base_low
+    is_3c_bull := sweep_up and confirm_up
+    is_3c_bear := sweep_down and confirm_down
+
+// Inside Bar detection
+is_inside_bull = false
+is_inside_bear = false
+int   mother_index = na
+float mother_high_value = na
+float mother_low_value  = na
+for i = 1 to 8
+    if bar_index >= i + 1
+        candidate_mother_high = high[i]
+        candidate_mother_low  = low[i]
+        inside_chain = true
+        for j = i - 1 to 1
+            if not (high[j] <= candidate_mother_high and low[j] >= candidate_mother_low)
+                inside_chain := false
+        if inside_chain
+            if high > candidate_mother_high
+                is_inside_bull := true
+                mother_index := i
+                mother_high_value := candidate_mother_high
+                mother_low_value := candidate_mother_low
+                break
+            if low < candidate_mother_low
+                is_inside_bear := true
+                mother_index := i
+                mother_high_value := candidate_mother_high
+                mother_low_value := candidate_mother_low
+                break
+
+// Outside Bar detection
+is_outside = false
+is_outside_bull = false
+is_outside_bear = false
+if bar_index >= 1
+    if high > high[1] and low < low[1]
+        is_outside := true
+        is_outside_bull := is_outside and (close > open)
+        is_outside_bear := is_outside and (close < open)
+
+// Apply all filters
+valid_2c_bull = show_2_candle and is_2c_bull and is_in_session() and pd_array_range_ok(true, pd_array_lookback)
+valid_2c_bear = show_2_candle and is_2c_bear and is_in_session() and pd_array_range_ok(false, pd_array_lookback)
+valid_3c_bull = show_3_candle and is_3c_bull and is_in_session() and pd_array_range_ok(true, pd_array_lookback) and is_valid_4h_crt_time()
+valid_3c_bear = show_3_candle and is_3c_bear and is_in_session() and pd_array_range_ok(false, pd_array_lookback) and is_valid_4h_crt_time()
+valid_inside_bull = show_inside_bar and is_inside_bull and is_in_session() and pd_array_range_ok(true, pd_array_lookback)
+valid_inside_bear = show_inside_bar and is_inside_bear and is_in_session() and pd_array_range_ok(false, pd_array_lookback)
+valid_outside = show_outside_bar and is_outside and is_in_session() and pd_array_range_ok(true, pd_array_lookback)
+
+// =======================
+// === PERSISTENT STORAGE ===
+// =======================
+
+// 2C arrays
+var box[]   twoC_boxes_bull = array.new_box()
+var label[] twoC_labels_bull = array.new_label()
+var int[]   twoC_ts_bull = array.new_int()
+
+var box[]   twoC_boxes_bear = array.new_box()
+var label[] twoC_labels_bear = array.new_label()
+var int[]   twoC_ts_bear = array.new_int()
+
+// 3C arrays (enhanced for A-M-D)
+var box[]   threeC_boxes = array.new_box()
+var label[] threeC_labels_a = array.new_label()  // A labels
+var label[] threeC_labels_m = array.new_label()  // M labels  
+var label[] threeC_labels_d = array.new_label()  // D labels
+var int[]   threeC_ts = array.new_int()
+
+// Inside arrays
+var box[]   inside_boxes = array.new_box()
+var label[] inside_labels = array.new_label()
+var int[]   inside_ts = array.new_int()
+
+// Outside arrays
+var box[]   outside_boxes = array.new_box()
+var label[] outside_labels = array.new_label()
+var int[]   outside_ts = array.new_int()
+
+// Track last created times
+var int last_twoC_bull_time = na
+var int last_twoC_bear_time = na
+var int last_threeC_time = na
+var int last_inside_time = na
+var int last_outside_time = na
+
+// Enhanced prune function for 3C
+prune_old_3c(boxArr, labelArr_a, labelArr_m, labelArr_d, tsArr, cutoff_ms) =>
+    start_sz = array.size(tsArr)
+    if start_sz > 0
+        for k = 0 to start_sz - 1
+            idx = start_sz - 1 - k
+            t_i = array.get(tsArr, idx)
+            if t_i < cutoff_ms
+                b = array.get(boxArr, idx)
+                la = array.get(labelArr_a, idx)
+                lm = array.get(labelArr_m, idx)
+                ld = array.get(labelArr_d, idx)
+                if not na(b)
+                    box.delete(b)
+                if not na(la)
+                    label.delete(la)
+                if not na(lm)
+                    label.delete(lm)
+                if not na(ld)
+                    label.delete(ld)
+                array.remove(boxArr, idx)
+                array.remove(labelArr_a, idx)
+                array.remove(labelArr_m, idx)
+                array.remove(labelArr_d, idx)
+                array.remove(tsArr, idx)
+
+// Standard prune function
+prune_old(boxArr, labelArr, tsArr, cutoff_ms) =>
+    start_sz = array.size(tsArr)
+    if start_sz > 0
+        for k = 0 to start_sz - 1
+            idx = start_sz - 1 - k
+            t_i = array.get(tsArr, idx)
+            if t_i < cutoff_ms
+                b = array.get(boxArr, idx)
+                l = array.get(labelArr, idx)
+                if not na(b)
+                    box.delete(b)
+                if not na(l)
+                    label.delete(l)
+                array.remove(boxArr, idx)
+                array.remove(labelArr, idx)
+                array.remove(tsArr, idx)
+
+// Enhanced push for 3C
+push_3c_instance(boxArr, labelArr_a, labelArr_m, labelArr_d, tsArr, b, la, lm, ld, t_ms, cap) =>
+    array.push(boxArr, b)
+    array.push(labelArr_a, la)
+    array.push(labelArr_m, lm)
+    array.push(labelArr_d, ld)
+    array.push(tsArr, t_ms)
+    while array.size(tsArr) > cap
+        ob = array.get(boxArr, 0)
+        ola = array.get(labelArr_a, 0)
+        olm = array.get(labelArr_m, 0)
+        old = array.get(labelArr_d, 0)
+        if not na(ob)
+            box.delete(ob)
+        if not na(ola)
+            label.delete(ola)
+        if not na(olm)
+            label.delete(olm)
+        if not na(old)
+            label.delete(old)
+        array.remove(boxArr, 0)
+        array.remove(labelArr_a, 0)
+        array.remove(labelArr_m, 0)
+        array.remove(labelArr_d, 0)
+        array.remove(tsArr, 0)
+
+// Standard push function
+push_instance(boxArr, labelArr, tsArr, b, l, t_ms, cap) =>
+    array.push(boxArr, b)
+    array.push(labelArr, l)
+    array.push(tsArr, t_ms)
+    while array.size(tsArr) > cap
+        ob = array.get(boxArr, 0)
+        ol = array.get(labelArr, 0)
+        if not na(ob)
+            box.delete(ob)
+        if not na(ol)
+            label.delete(ol)
+        array.remove(boxArr, 0)
+        array.remove(labelArr, 0)
+        array.remove(tsArr, 0)
+
+cutoff_time_ms = time - history_days_limit * ms_per_day
+
+// =======================
+// === VISUAL CREATION ===
+// =======================
+
+create_2c_visuals(isBull) =>
+    left_idx = bar_index - 1
+    right_idx = bar_index - 1
+    top_v = isBull ? high[1] + syminfo.mintick * 10 : high[1]
+    bot_v = isBull ? low[1] : low[1] - syminfo.mintick * 10
+    b = box.new(left=left_idx, top=top_v, right=right_idx, bottom=bot_v, xloc=xloc.bar_index, border_width=1, bgcolor = isBull ? color.new(col_rejection_bull, 0) : color.new(col_rejection_bear, 0))
+    lab = label.new(left_idx, isBull ? high[1] : low[1], isBull ? "2C Bull" : "2C Bear", xloc=xloc.bar_index, yloc = isBull ? yloc.abovebar : yloc.belowbar, style=label.style_label_center, textcolor=label_text_color, size=size.small, color = isBull ? col_rejection_bull : col_rejection_bear)
+    if isBull
+        push_instance(twoC_boxes_bull, twoC_labels_bull, twoC_ts_bull, b, lab, time, max_instances_each)
+    else
+        push_instance(twoC_boxes_bear, twoC_labels_bear, twoC_ts_bear, b, lab, time, max_instances_each)
+    time
+
+create_3c_visuals_enhanced(isBull) =>
+    left_idx = bar_index - 2
+    right_idx = bar_index
+    top_v = high[2]
+    bot_v = low[2]
+    b = box.new(left=left_idx, top=top_v, right=right_idx, bottom=bot_v, xloc=xloc.bar_index, border_width=1, bgcolor=color.new(col_3c_box, 60))
+    
+    // Get anchor information
+    anchor_info = get_anchor_info()
+    
+    // Create A-M-D labels
+    lab_a = label.new(bar_index - 2, high[2], "A" + anchor_info, xloc=xloc.bar_index, yloc=yloc.abovebar, style=label.style_label_center, textcolor=label_text_color, size=size.small, color=color.new(color.orange, 0))
+    lab_m = label.new(bar_index - 1, high[1], "M", xloc=xloc.bar_index, yloc=yloc.abovebar, style=label.style_label_center, textcolor=label_text_color, size=size.small, color=color.new(color.orange, 0))
+    lab_d = label.new(bar_index, high, "D", xloc=xloc.bar_index, yloc=yloc.abovebar, style=label.style_label_center, textcolor=label_text_color, size=size.small, color=color.new(color.orange, 0))
+    
+    push_3c_instance(threeC_boxes, threeC_labels_a, threeC_labels_m, threeC_labels_d, threeC_ts, b, lab_a, lab_m, lab_d, time, max_instances_each)
+    time
+
+create_inside_visuals(isBull) =>
+    mother_left = bar_index - int(mother_index)
+    left_idx = mother_left
+    right_idx = bar_index
+    top_v = mother_high_value
+    bot_v = mother_low_value
+    b = box.new(left=left_idx, top=top_v, right=right_idx, bottom=bot_v, xloc=xloc.bar_index, border_width=1, bgcolor=color.new(col_inside_fill, 70))
+    lab = label.new(mother_left, top_v, isBull ? "IB Bull" : "IB Bear", xloc=xloc.bar_index, yloc=isBull ? yloc.abovebar : yloc.belowbar, style=label.style_label_center, textcolor=label_text_color, size=size.small, color = isBull ? color.new(color.green,0) : color.new(color.red,0))
+    push_instance(inside_boxes, inside_labels, inside_ts, b, lab, time, max_instances_each)
+    time
+
+create_outside_visuals(isBull) =>
+    left_idx = bar_index
+    right_idx = bar_index
+    top_v = high
+    bot_v = low
+    b = box.new(left=left_idx, top=top_v, right=right_idx, bottom=bot_v, xloc=xloc.bar_index, border_width=1, bgcolor=color.new(col_outside_box, 60))
+    lab = label.new(bar_index, (high+low)/2, "S&D", xloc=xloc.bar_index, yloc=yloc.price, style=label.style_label_center, textcolor=label_text_color, size=size.small, color=col_outside_box)
+    push_instance(outside_boxes, outside_labels, outside_ts, b, lab, time, max_instances_each)
+    time
+
+// =======================
+// === MAIN EXECUTION ====
+// =======================
+
+if barstate.isconfirmed
+    // Prune old patterns
+    prune_old(twoC_boxes_bull, twoC_labels_bull, twoC_ts_bull, cutoff_time_ms)
+    prune_old(twoC_boxes_bear, twoC_labels_bear, twoC_ts_bear, cutoff_time_ms)
+    prune_old_3c(threeC_boxes, threeC_labels_a, threeC_labels_m, threeC_labels_d, threeC_ts, cutoff_time_ms)
+    prune_old(inside_boxes, inside_labels, inside_ts, cutoff_time_ms)
+    prune_old(outside_boxes, outside_labels, outside_ts, cutoff_time_ms)
+
+    // Create visuals
+    if valid_2c_bull and (na(last_twoC_bull_time) or last_twoC_bull_time != time)
+        last_twoC_bull_time := create_2c_visuals(true)
+    if valid_2c_bear and (na(last_twoC_bear_time) or last_twoC_bear_time != time)
+        last_twoC_bear_time := create_2c_visuals(false)
+
+    if (valid_3c_bull or valid_3c_bear) and (na(last_threeC_time) or last_threeC_time != time)
+        last_threeC_time := create_3c_visuals_enhanced(valid_3c_bull)
+
+    if (valid_inside_bull or valid_inside_bear) and (na(last_inside_time) or last_inside_time != time)
+        last_inside_time := create_inside_visuals(valid_inside_bull)
+
+    if valid_outside and (na(last_outside_time) or last_outside_time != time)
+        last_outside_time := create_outside_visuals(is_outside_bull)
+
+// =======================
+// === ENHANCED ALERTS ===
+// =======================
+
+fire_alert_enhanced(patternName, side) =>
+    if not enable_alerts
+        na
+    else
+        sym = syminfo.ticker
+        price = close
+        anchor_info = ""
+        if use_time_anchored_4h and timeframe.period == "240"
+            a_hour = hour(time[2])
+            anchor_01_hour = broker_4h_schedule == "Standard" ? 1 : 2
+            anchor_05_hour = broker_4h_schedule == "Standard" ? 5 : 6
+            anchor_09_hour = 9
+            
+            if a_hour == anchor_01_hour
+                anchor_info := "[01A]"
+            else if a_hour == anchor_05_hour  
+                anchor_info := "[05A]"
+            else if a_hour == anchor_09_hour
+                anchor_info := "[09A]"
+        
+        enhanced_pattern_name = patternName + anchor_info
+        msg = make_alert_message(sym, enhanced_pattern_name, side, price)
+        alert(msg, alert.freq_once_per_bar_close)
+
+if valid_2c_bull and alert_on_2c
+    fire_alert_enhanced("2-Candle Rejection", "bull")
+if valid_2c_bear and alert_on_2c
+    fire_alert_enhanced("2-Candle Rejection", "bear")
+if valid_3c_bull and alert_on_3c
+    fire_alert_enhanced("3-Candle Classic", "bull")
+if valid_3c_bear and alert_on_3c
+    fire_alert_enhanced("3-Candle Classic", "bear")
+if valid_inside_bull and alert_on_inside
+    fire_alert_enhanced("Inside Bar", "bull")
+if valid_inside_bear and alert_on_inside
+    fire_alert_enhanced("Inside Bar", "bear")
+if valid_outside and alert_on_outside
+    fire_alert_enhanced("Outside Bar", is_outside_bull ? "bull" : is_outside_bear ? "bear" : "neutral")
+
+// Alert conditions
+alertcondition(valid_2c_bull,  title="2C Bull")
+alertcondition(valid_2c_bear,  title="2C Bear")
+alertcondition(valid_3c_bull,  title="3C Bull")
+alertcondition(valid_3c_bear,  title="3C Bear")
+alertcondition(valid_inside_bull, title="Inside Bull")
+alertcondition(valid_inside_bear, title="Inside Bear")
+alertcondition(valid_outside,    title="Outside")
+
+// Time-anchored specific alerts
+alertcondition(valid_3c_bull and use_time_anchored_4h, title="3C Bull Time-Anchored")
+alertcondition(valid_3c_bear and use_time_anchored_4h, title="3C Bear Time-Anchored")
+
+// =======================
+// === SCANNER DASHBOARD ===
+// =======================
+
+get_pattern_for_symbol(sym) =>
+    s_high2  = request.security(sym, timeframe.period, high[2])
+    s_high1  = request.security(sym, timeframe.period, high[1])
+    s_high0  = request.security(sym, timeframe.period, high)
+    s_low2   = request.security(sym, timeframe.period, low[2])
+    s_low1   = request.security(sym, timeframe.period, low[1])
+    s_low0   = request.security(sym, timeframe.period, low)
+    s_close1 = request.security(sym, timeframe.period, close[1])
+    s_close0 = request.security(sym, timeframe.period, close)
+    s_open0  = request.security(sym, timeframe.period, open)
+
+    s_is_outside = (s_high0 > s_high1) and (s_low0 < s_low1)
+    s_is_2c_bull = (s_high1 > s_high2) and (s_close1 <= s_high2) and (s_close1 >= s_low2)
+    s_is_2c_bear = (s_low1 < s_low2) and (s_close1 >= s_low2) and (s_close1 <= s_high2)
+    s_is_3c_bull = s_is_2c_bull and (s_close0 > s_high1) and (s_close0 > s_high2)
+    s_is_3c_bear = s_is_2c_bear and (s_close0 < s_low1) and (s_close0 < s_low2)
+
+    if s_is_3c_bull
+        ["3C Bullish", color.green]
+    else if s_is_3c_bear
+        ["3C Bearish", color.red]
+    else if s_is_2c_bull
+        ["2C Bullish", color.green]
+    else if s_is_2c_bear
+        ["2C Bearish", color.red]
+    else if s_is_outside
+        ["Outside (S&D)", color.purple]
+    else
+        ["", color.gray]
+
+// Scanner table
+table_cols = 2
+table_rows = 17
+tbl = table.new(position.top_right, table_cols, table_rows, border_width=1, frame_color=color.new(color.gray, 95))
+
+if barstate.isfirst
+    table.cell(tbl, 0, 0, "Symbol", bgcolor=color.new(color.black, 0), text_color=color.white, text_halign=text.align_center)
+    table.cell(tbl, 1, 0, "Last Pattern", bgcolor=color.new(color.black, 0), text_color=color.white, text_halign=text.align_center)
+
+// Pattern detection for each symbol
+// Avoid nested collections inside templates: use a user-defined type
+type PatternRow
+    string symbol
+    string label
+    color  bg
+
+var PatternRow[] pattern_results = array.new<PatternRow>()
+if barstate.islast
+    array.clear(pattern_results)
+    // Compute explicitly per input to keep symbols simple strings for request.security
+    if str.length(sym1)  > 0
+        [l1, c1]  = get_pattern_for_symbol(sym1)
+        array.push(pattern_results, PatternRow.new(sym1,  l1, c1))
+    else
+        array.push(pattern_results, PatternRow.new("-",  "-", color.gray))
+    if str.length(sym2)  > 0
+        [l2, c2]  = get_pattern_for_symbol(sym2)
+        array.push(pattern_results, PatternRow.new(sym2,  l2, c2))
+    else
+        array.push(pattern_results, PatternRow.new("-",  "-", color.gray))
+    if str.length(sym3)  > 0
+        [l3, c3]  = get_pattern_for_symbol(sym3)
+        array.push(pattern_results, PatternRow.new(sym3,  l3, c3))
+    else
+        array.push(pattern_results, PatternRow.new("-",  "-", color.gray))
+    if str.length(sym4)  > 0
+        [l4, c4]  = get_pattern_for_symbol(sym4)
+        array.push(pattern_results, PatternRow.new(sym4,  l4, c4))
+    else
+        array.push(pattern_results, PatternRow.new("-",  "-", color.gray))
+    if str.length(sym5)  > 0
+        [l5, c5]  = get_pattern_for_symbol(sym5)
+        array.push(pattern_results, PatternRow.new(sym5,  l5, c5))
+    else
+        array.push(pattern_results, PatternRow.new("-",  "-", color.gray))
+    if str.length(sym6)  > 0
+        [l6, c6]  = get_pattern_for_symbol(sym6)
+        array.push(pattern_results, PatternRow.new(sym6,  l6, c6))
+    else
+        array.push(pattern_results, PatternRow.new("-",  "-", color.gray))
+    if str.length(sym7)  > 0
+        [l7, c7]  = get_pattern_for_symbol(sym7)
+        array.push(pattern_results, PatternRow.new(sym7,  l7, c7))
+    else
+        array.push(pattern_results, PatternRow.new("-",  "-", color.gray))
+    if str.length(sym8)  > 0
+        [l8, c8]  = get_pattern_for_symbol(sym8)
+        array.push(pattern_results, PatternRow.new(sym8,  l8, c8))
+    else
+        array.push(pattern_results, PatternRow.new("-",  "-", color.gray))
+    if str.length(sym9)  > 0
+        [l9, c9]  = get_pattern_for_symbol(sym9)
+        array.push(pattern_results, PatternRow.new(sym9,  l9, c9))
+    else
+        array.push(pattern_results, PatternRow.new("-",  "-", color.gray))
+    if str.length(sym10) > 0
+        [l10, c10]  = get_pattern_for_symbol(sym10)
+        array.push(pattern_results, PatternRow.new(sym10,  l10, c10))
+    else
+        array.push(pattern_results, PatternRow.new("-",  "-", color.gray))
+    if str.length(sym11) > 0
+        [l11, c11]  = get_pattern_for_symbol(sym11)
+        array.push(pattern_results, PatternRow.new(sym11,  l11, c11))
+    else
+        array.push(pattern_results, PatternRow.new("-",  "-", color.gray))
+    if str.length(sym12) > 0
+        [l12, c12]  = get_pattern_for_symbol(sym12)
+        array.push(pattern_results, PatternRow.new(sym12,  l12, c12))
+    else
+        array.push(pattern_results, PatternRow.new("-",  "-", color.gray))
+    if str.length(sym13) > 0
+        [l13, c13]  = get_pattern_for_symbol(sym13)
+        array.push(pattern_results, PatternRow.new(sym13,  l13, c13))
+    else
+        array.push(pattern_results, PatternRow.new("-",  "-", color.gray))
+    if str.length(sym14) > 0
+        [l14, c14]  = get_pattern_for_symbol(sym14)
+        array.push(pattern_results, PatternRow.new(sym14,  l14, c14))
+    else
+        array.push(pattern_results, PatternRow.new("-",  "-", color.gray))
+    if str.length(sym15) > 0
+        [l15, c15]  = get_pattern_for_symbol(sym15)
+        array.push(pattern_results, PatternRow.new(sym15,  l15, c15))
+    else
+        array.push(pattern_results, PatternRow.new("-",  "-", color.gray))
+    if str.length(sym16) > 0
+        [l16, c16]  = get_pattern_for_symbol(sym16)
+        array.push(pattern_results, PatternRow.new(sym16,  l16, c16))
+    else
+        array.push(pattern_results, PatternRow.new("-",  "-", color.gray))
+
+// Populate table
+if barstate.islast
+    for i = 0 to 15
+        row = i + 1
+        if i < array.size(pattern_results)
+            r = array.get(pattern_results, i)
+            table.cell(tbl, 0, row, r.symbol, text_halign=text.align_left)
+            table.cell(tbl, 1, row, r.label, bgcolor=r.bg, text_color=color.white, text_halign=text.align_center)
+
+// Debug plots
+plotchar(valid_2c_bull ? 1 : na, title="2C Bull Flag", char='▲', location=location.top, size=size.tiny, color=color.green)
+plotchar(valid_2c_bear ? -1 : na, title="2C Bear Flag", char='▼', location=location.bottom, size=size.tiny, color=color.red)
+
+// Time-anchored status display
+var label debug_label = na
+if use_time_anchored_4h and timeframe.period == "240" and barstate.islast
+    if not na(debug_label)
+        label.delete(debug_label)
+    
+    // Show when D candles are expected based on anchors + 8 hours
+    anchor_01_hour = broker_4h_schedule == "Standard" ? 1 : 2
+    anchor_05_hour = broker_4h_schedule == "Standard" ? 5 : 6
+    d_01 = str.tostring((anchor_01_hour + 8) % 24)
+    d_05 = str.tostring((anchor_05_hour + 8) % 24) 
+    d_09 = str.tostring((9 + 8) % 24)
+    
+    status_text = "Time-Anchored 4H Active\nBroker: " + broker_4h_schedule + "\nD candles @ " + d_01 + "," + d_05 + "," + d_09 + "\nAnchors: " + 
+                  (anchor_01_enabled ? "01✓ " : "01✗ ") + 
+                  (anchor_05_enabled ? "05✓ " : "05✗ ") + 
+                  (anchor_09_enabled ? "09✓" : "09✗")
+    debug_label := label.new(bar_index, low - (high - low) * 0.1, status_text, 
+                           xloc=xloc.bar_index, yloc=yloc.price, 
+                           style=label.style_label_up, size=size.small, 
+                           color=color.new(color.blue, 80), textcolor=color.white)

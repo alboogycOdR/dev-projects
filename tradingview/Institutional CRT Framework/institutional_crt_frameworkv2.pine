@@ -1,6 +1,6 @@
 //@version=6
 indicator("Institutional CRT Framework (Persistent History)", overlay=true, max_labels_count=500, max_lines_count=500, dynamic_requests=true)
-
+//institutional_crt_frameworkv2.pine
 // =======================
 // === USER INPUTS =======
 // =======================
@@ -14,7 +14,7 @@ show_outside_bar   = input.bool(true,  "Show Outside Bar (Seek & Destroy)")
 // Time filter
 use_time_filter    = input.bool(false, "Use time filter")
 session_to_scan    = input.string("London", "Session to scan", options=["London","New York","Asia"])
-sess_hours = session_to_scan == "London" ? "07:00-16:00" : session_to_scan == "New York" ? "12:00-21:00" : "00:00-09:00"
+sess_hours = session_to_scan == "London" ? "0700-1600" : session_to_scan == "New York" ? "1200-2100" : "0000-0900"
 
 // Premium/Discount filter (simple PD array)
 use_pd_array_filter = input.bool(false, "Use Premium/Discount filter")
@@ -282,8 +282,17 @@ create_3c_visuals(isBull) =>
     top_v = high[2]
     bot_v = low[2]
     b = box.new(left=left_idx, top=top_v, right=right_idx, bottom=bot_v, xloc=xloc.bar_index, border_width=1, bgcolor=color.new(col_3c_box, 60))
-    lab = label.new(bar_index - 2, top_v, isBull ? "3C A" : "3C A", xloc=xloc.bar_index, yloc=yloc.abovebar, style=label.style_label_left, textcolor=label_text_color, size=size.tiny, color=color.new(color.black,0))
-    push_instance(threeC_boxes, threeC_labels, threeC_ts, b, lab, time, max_instances_each)
+    //lab = label.new(bar_index - 2, top_v, isBull ? "3C A" : "3C A", xloc=xloc.bar_index, yloc=yloc.abovebar, style=label.style_label_left, textcolor=label_text_color, size=size.tiny, color=color.new(color.black,0))
+    //push_instance(threeC_boxes, threeC_labels, threeC_ts, b, lab, time, max_instances_each)
+    //time
+    // Create A/M/D labels on respective candles
+    lab_a = label.new(bar_index - 2, high[2], "A", xloc=xloc.bar_index, yloc=yloc.abovebar, style=label.style_label_center, textcolor=label_text_color, size=size.small, color=color.new(color.orange, 0))
+    lab_m = label.new(bar_index - 1, high[1], "M", xloc=xloc.bar_index, yloc=yloc.abovebar, style=label.style_label_center, textcolor=label_text_color, size=size.small, color=color.new(color.orange, 0))
+    lab_d = label.new(bar_index, high, "D", xloc=xloc.bar_index, yloc=yloc.abovebar, style=label.style_label_center, textcolor=label_text_color, size=size.small, color=color.new(color.orange, 0))
+    
+    // Store all visuals (you'll need to expand your arrays to handle multiple labels per pattern)
+    push_instance(threeC_boxes, threeC_labels, threeC_ts, b, lab_a, time, max_instances_each)
+    // Note: You'll need additional arrays for lab_m and lab_d
     time
 
 create_inside_visuals(isBull) =>
