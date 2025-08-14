@@ -1,0 +1,315 @@
+//@version=5
+indicator("Opening Range Indicator - Configurable Time", overlay=true, max_lines_count=500, dynamic_requests=true)
+
+// Input Settings
+lookbackDays = input.int(20, "Number of Historical Days", minval=1, maxval=100)
+
+// Time Configuration
+targetHour = input.int(9, "Capture Hour (0-23)", minval=0, maxval=23, group="Time Settings")
+targetMinute = input.int(30, "Capture Minute (0-59)", minval=0, maxval=59, group="Time Settings")
+
+// Session Settings
+showSessionLevels = input.bool(true, "Show Session Levels", group="Session Settings")
+asianStartHour = input.int(0, "Asian Session Start Hour", minval=0, maxval=23, group="Session Settings")
+asianEndHour = input.int(9, "Asian Session End Hour", minval=0, maxval=23, group="Session Settings")
+londonStartHour = input.int(8, "London Session Start Hour", minval=0, maxval=23, group="Session Settings")
+londonEndHour = input.int(17, "London Session End Hour", minval=0, maxval=23, group="Session Settings")
+
+// Price Level Selection
+priceMode = input.string("High/Low", "Price Level Mode", options=["High/Low", "Open"], group="Price Settings")
+
+// Day of Week Selection
+showMonday = input.bool(true, "Monday", group="Days of Week")
+showTuesday = input.bool(true, "Tuesday", group="Days of Week")
+showWednesday = input.bool(true, "Wednesday", group="Days of Week")
+showThursday = input.bool(true, "Thursday", group="Days of Week")
+showFriday = input.bool(true, "Friday", group="Days of Week")
+showSaturday = input.bool(false, "Saturday", group="Days of Week")
+showSunday = input.bool(false, "Sunday", group="Days of Week")
+
+// Style Settings
+highColor = input.color(color.green, "High Line Color", group="Style")
+lowColor = input.color(color.red, "Low Line Color", group="Style")
+openColor = input.color(color.blue, "Open Line Color", group="Style")
+pdhColor = input.color(color.orange, "PDH Color", group="Style")
+pdlColor = input.color(color.orange, "PDL Color", group="Style")
+asianColor = input.color(color.yellow, "Asian Session Color", group="Style")
+londonColor = input.color(color.purple, "London Session Color", group="Style")
+lineWidth = input.int(1, "Line Width", minval=1, maxval=5, group="Style")
+lineStyle = input.string("Solid", "Line Style", options=["Solid", "Dashed", "Dotted"], group="Style")
+
+// Convert line style to Pine Script format
+getLineStyle() =>
+    lineStyle == "Solid" ? line.style_solid :    lineStyle == "Dashed" ? line.style_dashed :    line.style_dotted
+
+// Check if current day should be tracked
+isDayEnabled() =>
+    dayOfWeek = dayofweek(time)
+    (dayOfWeek == dayofweek.monday and showMonday) or    (dayOfWeek == dayofweek.tuesday and showTuesday) or    (dayOfWeek == dayofweek.wednesday and showWednesday) or    (dayOfWeek == dayofweek.thursday and showThursday) or    (dayOfWeek == dayofweek.friday and showFriday) or    (dayOfWeek == dayofweek.saturday and showSaturday) or    (dayOfWeek == dayofweek.sunday and showSunday)
+
+// Arrays to store lines and values
+var array<line> highLines = array.new<line>()
+var array<line> lowLines = array.new<line>()
+var array<line> openLines = array.new<line>()
+var array<label> highLabels = array.new<label>()
+var array<label> lowLabels = array.new<label>()
+var array<label> openLabels = array.new<label>()
+var array<float> dailyHighs = array.new<float>()
+var array<float> dailyLows = array.new<float>()
+var array<float> dailyOpens = array.new<float>()
+var array<int> dailyTimes = array.new<int>()
+
+// Session tracking variables
+var float pdh = na
+var float pdl = na
+var float asianHigh = na
+var float asianLow = na
+var float londonHigh = na
+var float londonLow = na
+var bool asianComplete = false
+var bool londonComplete = false
+var int currentDay = na
+
+// Session lines and labels
+var line pdhLine = na
+var line pdlLine = na
+var line asianHighLine = na
+var line asianLowLine = na
+var line londonHighLine = na
+var line londonLowLine = na
+var label pdhLabel = na
+var label pdlLabel = na
+var label asianHighLabel = na
+var label asianLowLabel = na
+var label londonHighLabel = na
+var label londonLowLabel = na
+
+// Check if we're in a new day
+isNewDay = ta.change(time("D")) != 0
+
+// Session tracking for current day only
+if showSessionLevels
+    // Track new day and update previous day high/low
+    if isNewDay
+        // Calculate previous day high/low using daily timeframe
+        [prevDayHigh, prevDayLow] = request.security(syminfo.tickerid, "D", [high[1], low[1]], lookahead=barmerge.lookahead_on)
+        pdh := prevDayHigh
+        pdl := prevDayLow
+        
+        // Reset session tracking for new day
+        asianHigh := na
+        asianLow := na
+        londonHigh := na
+        londonLow := na
+        asianComplete := false
+        londonComplete := false
+        currentDay := dayofmonth(time)
+    
+    // Track Asian session
+    currentHour = hour(time)
+    if currentHour >= asianStartHour and currentHour < asianEndHour and not asianComplete and dayofmonth(time) == currentDay
+        if na(asianHigh)
+            asianHigh := high
+            asianLow := low
+        else
+            asianHigh := math.max(asianHigh, high)
+            asianLow := math.min(asianLow, low)
+    
+    // Mark Asian session as complete when we exit the session hours
+    if currentHour >= asianEndHour and not asianComplete and dayofmonth(time) == currentDay
+        asianComplete := true
+    
+    // Track London session
+    if currentHour >= londonStartHour and currentHour < londonEndHour and not londonComplete and dayofmonth(time) == currentDay
+        if na(londonHigh)
+            londonHigh := high
+            londonLow := low
+        else
+            londonHigh := math.max(londonHigh, high)
+            londonLow := math.min(londonLow, low)
+    
+    // Mark London session as complete when we exit the session hours
+    if currentHour >= londonEndHour and not londonComplete and dayofmonth(time) == currentDay
+        londonComplete := true
+    
+    // Clean up old session lines and labels
+    if not na(pdhLine)
+        line.delete(pdhLine)
+        pdhLine := na
+    if not na(pdlLine)
+        line.delete(pdlLine)
+        pdlLine := na
+    if not na(asianHighLine)
+        line.delete(asianHighLine)
+        asianHighLine := na
+    if not na(asianLowLine)
+        line.delete(asianLowLine)
+        asianLowLine := na
+    if not na(londonHighLine)
+        line.delete(londonHighLine)
+        londonHighLine := na
+    if not na(londonLowLine)
+        line.delete(londonLowLine)
+        londonLowLine := na
+    if not na(pdhLabel)
+        label.delete(pdhLabel)
+        pdhLabel := na
+    if not na(pdlLabel)
+        label.delete(pdlLabel)
+        pdlLabel := na
+    if not na(asianHighLabel)
+        label.delete(asianHighLabel)
+        asianHighLabel := na
+    if not na(asianLowLabel)
+        label.delete(asianLowLabel)
+        asianLowLabel := na
+    if not na(londonHighLabel)
+        label.delete(londonHighLabel)
+        londonHighLabel := na
+    if not na(londonLowLabel)
+        label.delete(londonLowLabel)
+        londonLowLabel := na
+    
+    // Draw session levels for current day only
+    if barstate.isconfirmed and dayofmonth(time) == currentDay
+        dayStart = timestamp(year(time), month(time), dayofmonth(time), 0, 0, 0)
+        
+        // Draw PDH/PDL (always available after first day)
+        if not na(pdh) and not na(pdl)
+            pdhLine := line.new(x1=dayStart, y1=pdh, x2=time, y2=pdh, xloc=xloc.bar_time, color=pdhColor, width=lineWidth, style=getLineStyle())
+            pdlLine := line.new(x1=dayStart, y1=pdl, x2=time, y2=pdl, xloc=xloc.bar_time, color=pdlColor, width=lineWidth, style=getLineStyle())
+            
+            if barstate.islast
+                pdhLabel := label.new(x=time, y=pdh, text="PDH: " + str.tostring(pdh, format.mintick), xloc=xloc.bar_time, style=label.style_label_left, color=color.new(pdhColor, 90), textcolor=pdhColor, size=size.small)
+                pdlLabel := label.new(x=time, y=pdl, text="PDL: " + str.tostring(pdl, format.mintick), xloc=xloc.bar_time, style=label.style_label_left, color=color.new(pdlColor, 90), textcolor=pdlColor, size=size.small)
+        
+        // Draw Asian session levels (only after session complete)
+        if asianComplete and not na(asianHigh) and not na(asianLow)
+            asianStart = timestamp(year(time), month(time), dayofmonth(time), asianStartHour, 0, 0)
+            asianHighLine := line.new(x1=asianStart, y1=asianHigh, x2=time, y2=asianHigh, xloc=xloc.bar_time, color=asianColor, width=lineWidth, style=getLineStyle())
+            asianLowLine := line.new(x1=asianStart, y1=asianLow, x2=time, y2=asianLow, xloc=xloc.bar_time, color=asianColor, width=lineWidth, style=getLineStyle())
+            
+            if barstate.islast
+                asianHighLabel := label.new(x=time, y=asianHigh, text="ASN-H: " + str.tostring(asianHigh, format.mintick), xloc=xloc.bar_time, style=label.style_label_left, color=color.new(asianColor, 90), textcolor=asianColor, size=size.small)
+                asianLowLabel := label.new(x=time, y=asianLow, text="ASN-L: " + str.tostring(asianLow, format.mintick), xloc=xloc.bar_time, style=label.style_label_left, color=color.new(asianColor, 90), textcolor=asianColor, size=size.small)
+        
+        // Draw London session levels (only after session complete)
+        if londonComplete and not na(londonHigh) and not na(londonLow)
+            londonStart = timestamp(year(time), month(time), dayofmonth(time), londonStartHour, 0, 0)
+            londonHighLine := line.new(x1=londonStart, y1=londonHigh, x2=time, y2=londonHigh, xloc=xloc.bar_time, color=londonColor, width=lineWidth, style=getLineStyle())
+            londonLowLine := line.new(x1=londonStart, y1=londonLow, x2=time, y2=londonLow, xloc=xloc.bar_time, color=londonColor, width=lineWidth, style=getLineStyle())
+            
+            if barstate.islast
+                londonHighLabel := label.new(x=time, y=londonHigh, text="LON-H: " + str.tostring(londonHigh, format.mintick), xloc=xloc.bar_time, style=label.style_label_left, color=color.new(londonColor, 90), textcolor=londonColor, size=size.small)
+                londonLowLabel := label.new(x=time, y=londonLow, text="LON-L: " + str.tostring(londonLow, format.mintick), xloc=xloc.bar_time, style=label.style_label_left, color=color.new(londonColor, 90), textcolor=londonColor, size=size.small)
+
+// Check if we just closed the target candle
+// Calculate when the target candle closes (15 minutes after it opens)
+targetCandleClosed = false
+if timeframe.period == "15"
+    // On 15-minute chart, check if previous bar was the target candle
+    targetCandleClosed := hour(time[1]) == targetHour and minute(time[1]) == targetMinute and hour(time) == targetHour and minute(time) == (targetMinute + 15) % 60
+else
+    // For other timeframes, check if we just passed the target candle close time
+    closeHour = targetMinute >= 45 ? (targetHour + 1) % 24 : targetHour
+    closeMinute = (targetMinute + 15) % 60
+    targetTime = timestamp(year(time), month(time), dayofmonth(time), closeHour, closeMinute, 0)
+    targetCandleClosed := time >= targetTime and time[1] < targetTime
+
+// Capture the target candle values after it closes
+if targetCandleClosed and isDayEnabled()
+    // For 15-minute chart, use previous bar's values (the closed target candle)
+    // For other timeframes, use current values at close time
+    if priceMode == "Open"
+        capturedOpen = timeframe.period == "15" ? open[1] : open
+        capturedTime = timestamp(year(time), month(time), dayofmonth(time), targetHour, targetMinute, 0)
+        
+        // Store open value
+        array.push(dailyOpens, capturedOpen)
+        array.push(dailyTimes, capturedTime)
+    else
+        capturedHigh = timeframe.period == "15" ? high[1] : high
+        capturedLow = timeframe.period == "15" ? low[1] : low
+        capturedTime = timestamp(year(time), month(time), dayofmonth(time), targetHour, targetMinute, 0)
+        
+        // Store high/low values
+        array.push(dailyHighs, capturedHigh)
+        array.push(dailyLows, capturedLow)
+        array.push(dailyTimes, capturedTime)
+    
+    // Limit array size to lookback days
+    if priceMode == "Open"
+        if array.size(dailyOpens) > lookbackDays
+            array.shift(dailyOpens)
+            array.shift(dailyTimes)
+    else
+        if array.size(dailyHighs) > lookbackDays
+            array.shift(dailyHighs)
+            array.shift(dailyLows)
+            array.shift(dailyTimes)
+
+// Clean up old lines and labels
+while array.size(highLines) > 0
+    line.delete(array.pop(highLines))
+while array.size(lowLines) > 0
+    line.delete(array.pop(lowLines))
+while array.size(openLines) > 0
+    line.delete(array.pop(openLines))
+while array.size(highLabels) > 0
+    label.delete(array.pop(highLabels))
+while array.size(lowLabels) > 0
+    label.delete(array.pop(lowLabels))
+while array.size(openLabels) > 0
+    label.delete(array.pop(openLabels))
+
+// Format time string for labels
+timeString = str.format("{0,number,00}:{1,number,00}", targetHour, targetMinute)
+
+// Draw lines and labels based on price mode
+if priceMode == "Open"
+    // Draw Open price lines
+    if array.size(dailyOpens) > 0
+        for i = 0 to array.size(dailyOpens) - 1
+            openValue = array.get(dailyOpens, i)
+            startTime = array.get(dailyTimes, i)
+            
+            // Draw open line from the captured time to current bar
+            openLine = line.new(x1=startTime, y1=openValue, x2=time, y2=openValue, xloc=xloc.bar_time, color=openColor, width=lineWidth, style=getLineStyle())
+            array.push(openLines, openLine)
+            
+            // Create label for each day's open level
+            if barstate.islast
+                // Format the date for the label
+                dateStr = str.format("{0,date,MM/dd}", startTime)
+                
+                // Open label
+                openLabel = label.new(x=time, y=openValue, text=timeString + " Open " + dateStr + ": " + str.tostring(openValue, format.mintick), xloc=xloc.bar_time, style=label.style_label_left, color=color.new(openColor, 90), textcolor=openColor, size=size.small)
+                array.push(openLabels, openLabel)
+else
+    // Draw High/Low price lines
+    if array.size(dailyHighs) > 0
+        for i = 0 to array.size(dailyHighs) - 1
+            highValue = array.get(dailyHighs, i)
+            lowValue = array.get(dailyLows, i)
+            startTime = array.get(dailyTimes, i)
+            
+            // Draw high line from the captured time to current bar
+            highLine = line.new(x1=startTime, y1=highValue, x2=time, y2=highValue, xloc=xloc.bar_time, color=highColor, width=lineWidth, style=getLineStyle())
+            array.push(highLines, highLine)
+            
+            // Draw low line from the captured time to current bar
+            lowLine = line.new(x1=startTime, y1=lowValue, x2=time, y2=lowValue, xloc=xloc.bar_time, color=lowColor, width=lineWidth, style=getLineStyle())
+            array.push(lowLines, lowLine)
+            
+            // Create labels for each day's levels
+            if barstate.islast
+                // Format the date for the label
+                dateStr = str.format("{0,date,MM/dd}", startTime)
+                
+                // High label
+                highLabel = label.new(x=time, y=highValue, text=timeString + " High " + dateStr + ": " + str.tostring(highValue, format.mintick), xloc=xloc.bar_time, style=label.style_label_left, color=color.new(highColor, 90), textcolor=highColor, size=size.small)
+                array.push(highLabels, highLabel)
+                
+                // Low label
+                lowLabel = label.new(x=time, y=lowValue, text=timeString + " Low " + dateStr + ": " + str.tostring(lowValue, format.mintick), xloc=xloc.bar_time, style=label.style_label_left, color=color.new(lowColor, 90), textcolor=lowColor, size=size.small)
+                array.push(lowLabels, lowLabel)
