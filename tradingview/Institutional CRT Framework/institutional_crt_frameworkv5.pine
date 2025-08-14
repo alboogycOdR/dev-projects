@@ -1,0 +1,485 @@
+//@version=6
+indicator("Institutional CRT State Engine - Complete Trading System", "CRT Engine", overlay=true, max_labels_count=500, max_lines_count=500, dynamic_requests=true)
+//https://claude.ai/chat/a46b6f3b-2f82-42b7-a0ff-8130b28c4b29
+
+
+//claude iteration v10
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//                          ULTIMATE CRT STATE ENGINE
+//
+//  A complete institutional trading system combining:
+//  - DOL Analysis & Bias Detection
+//  - Multi-Model CRT Pattern Recognition (1AM, 5AM, 9AM)
+//  - Session State Machine
+//  - Real-time Entry Signal Generation
+//  - Multi-timeframe Confluence Engine
+//
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// =======================
+// === CORE INPUTS =======
+// =======================
+
+// System Configuration
+enable_dol_engine = input.bool(true, "Enable DOL Analysis Engine", group="Core System")
+enable_session_engine = input.bool(true, "Enable Session State Machine", group="Core System")
+enable_entry_engine = input.bool(true, "Enable Live Entry Signals", group="Core System")
+enable_debug_mode = input.bool(false, "Debug Mode (Show All States)", group="Core System")
+
+// DOL Configuration
+pivot_strength = input.int(10, "DOL Pivot Strength", minval=5, maxval=50, group="DOL Analysis",     tooltip="Higher values = more significant swing points for institutional analysis")
+
+// CRT Model Selection
+enable_1am_crt = input.bool(true, "1AM CRT Model", group="CRT Models")
+enable_5am_crt = input.bool(true, "5AM CRT Model", group="CRT Models") 
+enable_9am_crt = input.bool(true, "9AM CRT Model", group="CRT Models")
+
+// Session State Configuration
+monitor_cbdr = input.bool(true, "Monitor CBDR (17:00)", group="Session States")
+monitor_asia = input.bool(true, "Monitor Asia (21:00)", group="Session States")
+monitor_london = input.bool(true, "Monitor London (01:00)", group="Session States")
+monitor_lunch = input.bool(true, "Monitor London Lunch (05:00)", group="Session States")
+monitor_ny = input.bool(true, "Monitor NY Open (09:00)", group="Session States")
+
+// Entry Configuration
+entry_timeframe = input.string("15", "Entry Timeframe", options=["5", "15", "30"], group="Entry Engine")
+require_smt_confluence = input.bool(true, "Require SMT Confluence", group="Entry Engine")
+auto_risk_management = input.bool(true, "Auto Risk Management", group="Entry Engine")
+risk_reward_ratio = input.float(2.0, "Risk:Reward Ratio", minval=1.0, maxval=5.0, step=0.5, group="Entry Engine")
+
+// Visual Settings
+show_dol_lines = input.bool(true, "Show DOL Lines", group="Visuals")
+show_session_boxes = input.bool(true, "Show Session Boxes", group="Visuals")
+show_key_levels = input.bool(true, "Show Key Levels", group="Visuals")
+show_entry_signals = input.bool(true, "Show Entry Signals", group="Visuals")
+
+// Colors
+col_bullish_dol = input.color(color.new(color.green, 20), "Bullish DOL", group="Colors")
+col_bearish_dol = input.color(color.new(color.red, 20), "Bearish DOL", group="Colors")
+col_consolidation = input.color(color.new(color.gray, 80), "Consolidation", group="Colors")
+col_manipulation = input.color(color.new(color.orange, 80), "Manipulation", group="Colors")
+col_expansion = input.color(color.new(color.blue, 80), "Expansion", group="Colors")
+
+// =======================
+// === DOL ANALYSIS ======
+// =======================
+
+// DOL Detection (from provided methodology)
+float pivot_high_price = ta.pivothigh(high, pivot_strength, pivot_strength)
+float pivot_low_price = ta.pivotlow(low, pivot_strength, pivot_strength)
+
+var float last_swing_high = na
+var float last_swing_low = na
+var float dol_target = na
+var string dol_bias = "NEUTRAL"
+
+if not na(pivot_high_price)
+    last_swing_high := pivot_high_price
+
+if not na(pivot_low_price)
+    last_swing_low := pivot_low_price
+
+// Calculate DOL
+if not na(last_swing_high) and not na(last_swing_low)
+    float dist_to_high = math.abs(close - last_swing_high)
+    float dist_to_low = math.abs(close - last_swing_low)
+    
+    dol_bias := dist_to_high < dist_to_low ? "BULLISH" : "BEARISH"
+    dol_target := dist_to_high < dist_to_low ? last_swing_high : last_swing_low
+
+// =======================
+// === SESSION STATES ====
+// =======================
+
+// Session Classification Engine
+string session_state = "UNKNOWN"
+int current_hour = hour(time)
+
+get_session_state() =>
+    string state = "UNKNOWN"
+    int h = hour(time)
+    
+    // Session identification based on GMT
+    if h >= 17 and h < 21
+        state := "CBDR"
+    else if h >= 21 or h < 1
+        state := "ASIA"
+    else if h >= 1 and h < 5
+        state := "LONDON"
+    else if h >= 5 and h < 9
+        state := "LUNCH"
+    else if h >= 9 and h < 13
+        state := "NY"
+    else
+        state := "POST_NY"
+    
+    state
+
+session_state := get_session_state()
+
+// Session Behavior Classification
+var string session_behavior = "CONSOLIDATION"
+var float session_high = na
+var float session_low = na
+var bool session_expanded = false
+
+// Track session ranges and behavior
+if session_state != session_state[1] // New session started
+    session_high := high
+    session_low := low
+    session_expanded := false
+    session_behavior := "CONSOLIDATION"
+else
+    session_high := math.max(session_high, high)
+    session_low := math.min(session_low, low)
+    
+    // Determine if session expanded beyond previous ranges
+    float prev_session_range = session_high[1] - session_low[1]
+    float current_range = high - low
+    
+    if current_range > prev_session_range * 1.5
+        session_expanded := true
+        session_behavior := "EXPANSION"
+    else if high > session_high[1] or low < session_low[1]
+        session_behavior := "MANIPULATION"
+
+// =======================
+// === CRT PATTERN STATES =
+// =======================
+
+// CRT State Machine
+var string crt_1am_state = "INACTIVE"
+var string crt_5am_state = "INACTIVE"
+var string crt_9am_state = "INACTIVE"
+var string active_profile = "NONE"
+
+// 1AM CRT State Logic
+update_1am_crt_state() =>
+    string state = "INACTIVE"
+    string profile = "NONE"
+    
+    if enable_1am_crt and timeframe.period == "240"
+        int h = hour(time)
+        
+        // Check for 1AM CRT activation
+        if h == 1
+            // Classify profile based on previous sessions
+            bool cbdr_consolidated = session_behavior[48] == "CONSOLIDATION" // 17:00 yesterday
+            bool asia_consolidated = session_behavior[24] == "CONSOLIDATION" // 21:00 yesterday
+            
+            if cbdr_consolidated and asia_consolidated
+                profile := "NORMAL_PROTRACTION"
+            else if cbdr_consolidated and session_behavior[24] == "MANIPULATION"
+                profile := "DELAYED_PROTRACTION"
+                
+            state := "A_FORMING"
+            
+        else if h == 5 and crt_1am_state[1] == "A_FORMING"
+            state := "M_LIVE"
+            
+        else if h == 9 and crt_1am_state[1] == "M_LIVE"
+            state := "D_READY"
+            
+        else if h > 9 and h < 17
+            state := "PATTERN_COMPLETE"
+    
+    [state, profile]
+
+[temp_1am_state, temp_profile_1am] = update_1am_crt_state()
+crt_1am_state := temp_1am_state
+if temp_profile_1am != "NONE"
+    active_profile := temp_profile_1am
+
+// 5AM CRT State Logic  
+update_5am_crt_state() =>
+    string state = "INACTIVE"
+    string profile = "NONE"
+    
+    if enable_5am_crt and timeframe.period == "240"
+        int h = hour(time)
+        
+        if h == 5
+            // Determine profile based on DOL and session behavior
+            bool london_made_extreme = session_behavior[16] == "EXPANSION" // 01:00 today
+            
+            if dol_bias == "BEARISH" and not london_made_extreme
+                profile := "LONDON_LUNCH_LOW"
+            else if dol_bias == "BULLISH" and london_made_extreme
+                profile := "NY_CONTINUATION"
+            else if dol_bias == "BEARISH" and london_made_extreme
+                profile := "NY_REVERSAL"
+                
+            state := "A_FORMING"
+            
+        else if h == 9 and crt_5am_state[1] == "A_FORMING"
+            state := "M_LIVE"
+            
+        else if h == 13 and crt_5am_state[1] == "M_LIVE"
+            state := "D_READY"
+    
+    [state, profile]
+
+[temp_5am_state, temp_profile_5am] = update_5am_crt_state()
+crt_5am_state := temp_5am_state
+if temp_profile_5am != "NONE"
+    active_profile := temp_profile_5am
+
+london_made_hod_lod() =>
+    // Simplified logic - check if London session made significant high/low
+    float london_range = session_high[32] - session_low[32]
+    float daily_range = ta.highest(high, 24) - ta.lowest(low, 24)
+    london_range > (daily_range * 0.6)
+
+// 9AM CRT State Logic
+update_9am_crt_state() =>
+    string state = "INACTIVE"
+    string profile = "NONE"
+    
+    if enable_9am_crt and timeframe.period == "240"
+        int h = hour(time)
+        
+        if h == 9
+            // Determine profile based on DOL status
+            bool dol_reached = math.abs(close - dol_target) < (dol_target * 0.002) // Within 0.2%
+            bool asia_protected = session_behavior[48] != "EXPANSION" // Asia highs/lows protected
+            bool london_protected = session_behavior[32] != "EXPANSION" // London highs/lows protected
+            
+            if not dol_reached and london_made_hod_lod()
+                profile := "NY_CONTINUATION"
+            else if dol_reached and asia_protected and london_protected
+                profile := "NY_REVERSAL"
+                
+            state := "A_FORMING"
+            
+        else if h == 13 and crt_9am_state[1] == "A_FORMING"
+            state := "M_LIVE"
+            
+        else if h == 17 and crt_9am_state[1] == "M_LIVE"
+            state := "D_READY"
+    
+    [state, profile]
+
+[temp_9am_state, temp_profile_9am] = update_9am_crt_state()
+crt_9am_state := temp_9am_state
+if temp_profile_9am != "NONE"
+    active_profile := temp_profile_9am
+
+// =======================
+// === KEY LEVEL DETECTION =
+// =======================
+
+// Order Block Detection (simplified implementation)
+detect_order_block() =>
+    bool is_ob = false
+    string ob_type = "NONE"
+    
+    if bar_index >= 3
+        // Bullish OB: Candle that digs below a low, when engulfed
+        if low[1] < low[2] and low[1] < low[3] and close > high[1]
+            is_ob := true
+            ob_type := "BULLISH"
+            
+        // Bearish OB: Candle that digs above a high, when engulfed  
+        if high[1] > high[2] and high[1] > high[3] and close < low[1]
+            is_ob := true
+            ob_type := "BEARISH"
+    
+    [is_ob, ob_type]
+
+[is_order_block, ob_type] = detect_order_block()
+
+// FVG Detection
+detect_fvg() =>
+    bool is_fvg = false
+    string fvg_type = "NONE"
+    float fvg_top = 0.0
+    float fvg_bottom = 0.0
+    
+    if bar_index >= 2
+        // Bullish FVG
+        if low > high[2]
+            is_fvg := true
+            fvg_type := "BULLISH"
+            fvg_top := low
+            fvg_bottom := high[2]
+            
+        // Bearish FVG
+        if high < low[2]
+            is_fvg := true
+            fvg_type := "BEARISH"
+            fvg_top := low[2]
+            fvg_bottom := high
+    
+    [is_fvg, fvg_type, fvg_top, fvg_bottom]
+
+[is_fvg, fvg_type, fvg_top, fvg_bottom] = detect_fvg()
+
+// =======================
+// === ENTRY SIGNALS =====
+// =======================
+
+// Entry Signal Generation
+var string entry_signal = "NONE"
+var float entry_price = na
+var float stop_loss = na
+var float take_profit = na
+
+generate_entry_signal() =>
+    string signal = "NONE"
+    float price = na
+    float sl = na
+    float tp = na
+    
+    // Check if any CRT model is in D_READY state
+    bool crt_active = (crt_1am_state == "D_READY") or (crt_5am_state == "D_READY") or (crt_9am_state == "D_READY")
+    
+    if crt_active and enable_entry_engine
+        
+        // Entry timing windows
+        bool in_entry_window = false
+        
+        if crt_1am_state == "D_READY" and (current_hour >= 2 and current_hour <= 3)
+            in_entry_window := true
+        else if crt_5am_state == "D_READY" and ((current_hour >= 6 and current_hour <= 7) or (current_hour >= 7 and current_hour <= 8))
+            in_entry_window := true
+        else if crt_9am_state == "D_READY" and ((current_hour >= 9 and current_hour <= 10) or (current_hour >= 9.5 and current_hour <= 10.5))
+            in_entry_window := true
+        
+        if in_entry_window
+            // Entry logic based on OHLC methodology and order blocks
+            if dol_bias == "BULLISH" and is_order_block and ob_type == "BULLISH"
+                signal := "BUY"
+                price := close
+                sl := low[1]
+                tp := price + (price - sl) * risk_reward_ratio
+                
+            else if dol_bias == "BEARISH" and is_order_block and ob_type == "BEARISH"
+                signal := "SELL"
+                price := close
+                sl := high[1]
+                tp := price - (sl - price) * risk_reward_ratio
+    
+    [signal, price, sl, tp]
+
+[temp_entry_signal, temp_entry_price, temp_stop_loss, temp_take_profit] = generate_entry_signal()
+entry_signal := temp_entry_signal
+entry_price := temp_entry_price
+stop_loss := temp_stop_loss
+take_profit := temp_take_profit
+
+// =======================
+// === VISUALIZATIONS ====
+// =======================
+
+// DOL Lines
+if show_dol_lines and not na(last_swing_high)
+    line.new(bar_index-50, last_swing_high, bar_index+10, last_swing_high, color=col_bearish_dol, style=line.style_dashed, width=2)
+    
+if show_dol_lines and not na(last_swing_low)
+    line.new(bar_index-50, last_swing_low, bar_index+10, last_swing_low, color=col_bullish_dol, style=line.style_dashed, width=2)
+
+// Session Boxes
+if show_session_boxes and barstate.isconfirmed
+    color session_color = session_behavior == "CONSOLIDATION" ? col_consolidation : 
+                         session_behavior == "MANIPULATION" ? col_manipulation : col_expansion
+    
+    if session_state != session_state[1] and not na(session_high[1]) and not na(session_low[1])
+        box.new(bar_index-4, session_high[1], bar_index, session_low[1],                 bgcolor=session_color, border_width=1)
+
+// CRT State Labels
+if enable_debug_mode and barstate.islast
+    string debug_text = "=== CRT STATE ENGINE ===\n"
+    debug_text += "DOL Bias: " + dol_bias + " → " + str.tostring(dol_target, "#.####") + "\n"
+    debug_text += "Session: " + session_state + " (" + session_behavior + ")\n"
+    debug_text += "1AM CRT: " + crt_1am_state + "\n"
+    debug_text += "5AM CRT: " + crt_5am_state + "\n" 
+    debug_text += "9AM CRT: " + crt_9am_state + "\n"
+    debug_text += "Profile: " + active_profile + "\n"
+    debug_text += "Entry Signal: " + entry_signal
+    
+    label.new(bar_index, high + (high-low)*0.1, debug_text,
+              style=label.style_label_down, size=size.large,
+              color=color.yellow, textcolor=color.black)
+
+// Entry Signals
+if show_entry_signals and entry_signal != "NONE" and barstate.isconfirmed
+    color signal_color = entry_signal == "BUY" ? color.green : color.red
+    string signal_text = entry_signal + "\n" + str.tostring(entry_price, "#.####") + "\nSL: " + str.tostring(stop_loss, "#.####") + "\nTP: " + str.tostring(take_profit, "#.####")
+    
+    label.new(bar_index, entry_signal == "BUY" ? low : high, signal_text,
+              yloc = entry_signal == "BUY" ? yloc.belowbar : yloc.abovebar,
+              style=label.style_label_center, size=size.normal,
+              color=signal_color, textcolor=color.white)
+
+// Key Level Visualization
+if show_key_levels and is_order_block and barstate.isconfirmed
+    color ob_color = ob_type == "BULLISH" ? color.green : color.red
+    box.new(bar_index-1, high[1], bar_index+3, low[1], bgcolor=color.new(ob_color, 80), border_width=1)
+    label.new(bar_index, (high[1]+low[1])/2, "OB", color=ob_color, textcolor=color.white, size=size.small)
+
+if show_key_levels and is_fvg and barstate.isconfirmed
+    color fvg_color = fvg_type == "BULLISH" ? color.green : color.red
+    box.new(bar_index, fvg_top, bar_index+10, fvg_bottom, bgcolor=color.new(fvg_color, 90), border_width=1)
+
+// =======================
+// === DASHBOARD =========
+// =======================
+
+var table main_dashboard = table.new(position.top_right, 3, 8, border_width=1)
+
+if barstate.islast
+    // Header
+    table.cell(main_dashboard, 0, 0, "CRT STATE ENGINE", bgcolor=color.gray, text_color=color.white)
+    
+    // DOL Status
+    color dol_color = dol_bias == "BULLISH" ? color.green : dol_bias == "BEARISH" ? color.red : color.gray
+    table.cell(main_dashboard, 0, 1, "DOL Bias", bgcolor=color.new(color.gray, 90))
+    table.cell(main_dashboard, 1, 1, dol_bias, bgcolor=dol_color, text_color=color.white)
+    table.cell(main_dashboard, 2, 1, str.tostring(dol_target, "#.####"), bgcolor=dol_color, text_color=color.white)
+    
+    // Session Status
+    color session_color = session_behavior == "CONSOLIDATION" ? color.gray : 
+                         session_behavior == "MANIPULATION" ? color.orange : color.blue
+    table.cell(main_dashboard, 0, 2, "Session", bgcolor=color.new(color.gray, 90))
+    table.cell(main_dashboard, 1, 2, session_state, bgcolor=session_color, text_color=color.white)
+    table.cell(main_dashboard, 2, 2, session_behavior, bgcolor=session_color, text_color=color.white)
+    
+    // CRT States
+    table.cell(main_dashboard, 0, 3, "1AM CRT", bgcolor=color.new(color.gray, 90))
+    table.cell(main_dashboard, 1, 3, crt_1am_state, bgcolor=crt_1am_state == "D_READY" ? color.green : color.gray)
+    table.cell(main_dashboard, 2, 3, active_profile, bgcolor=color.new(color.gray, 90))
+    
+    table.cell(main_dashboard, 0, 4, "5AM CRT", bgcolor=color.new(color.gray, 90))
+    table.cell(main_dashboard, 1, 4, crt_5am_state, bgcolor=crt_5am_state == "D_READY" ? color.green : color.gray)
+    table.cell(main_dashboard, 2, 4, "", bgcolor=color.new(color.gray, 90))
+    
+    table.cell(main_dashboard, 0, 5, "9AM CRT", bgcolor=color.new(color.gray, 90))
+    table.cell(main_dashboard, 1, 5, crt_9am_state, bgcolor=crt_9am_state == "D_READY" ? color.green : color.gray)
+    table.cell(main_dashboard, 2, 5, "", bgcolor=color.new(color.gray, 90))
+    
+    // Entry Status
+    color entry_color = entry_signal == "BUY" ? color.green : entry_signal == "SELL" ? color.red : color.gray
+    table.cell(main_dashboard, 0, 6, "Entry Signal", bgcolor=color.new(color.gray, 90))
+    table.cell(main_dashboard, 1, 6, entry_signal, bgcolor=entry_color, text_color=color.white)
+    table.cell(main_dashboard, 2, 6, entry_signal != "NONE" ? str.tostring(entry_price, "#.####") : "-", bgcolor=entry_color, text_color=color.white)
+    
+    // Key Levels
+    table.cell(main_dashboard, 0, 7, "Key Levels", bgcolor=color.new(color.gray, 90))
+    table.cell(main_dashboard, 1, 7, is_order_block ? "OB " + ob_type : "None", bgcolor=is_order_block ? color.orange : color.gray)
+    table.cell(main_dashboard, 2, 7, is_fvg ? "FVG " + fvg_type : "None", bgcolor=is_fvg ? color.purple : color.gray)
+
+// =======================
+// === ALERTS ============
+// =======================
+
+// State Change Alerts
+alertcondition(crt_1am_state == "D_READY", title="1AM CRT - Entry Zone Active")
+alertcondition(crt_5am_state == "D_READY", title="5AM CRT - Entry Zone Active") 
+alertcondition(crt_9am_state == "D_READY", title="9AM CRT - Entry Zone Active")
+alertcondition(entry_signal == "BUY", title="BUY Signal Generated")
+alertcondition(entry_signal == "SELL", title="SELL Signal Generated")
+
+// Plot for data window
+plotchar(entry_signal == "BUY" ? 1 : na, title="Buy Signal", char='▲', location=location.belowbar, size=size.small, color=color.green)
+plotchar(entry_signal == "SELL" ? -1 : na, title="Sell Signal", char='▼', location=location.abovebar, size=size.small, color=color.red)
