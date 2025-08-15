@@ -1,7 +1,8 @@
 //@version=6
-indicator("Institutional CRT State Engine - Complete Trading System", "CRT Engine", overlay=true, max_labels_count=500, max_lines_count=500, dynamic_requests=true)
+indicator("CRT State Enginev5", "CrtStateEng", overlay=true, max_labels_count=500, max_lines_count=500, dynamic_requests=true)
 //https://claude.ai/chat/a46b6f3b-2f82-42b7-a0ff-8130b28c4b29
 
+//tradingview\Institutional CRT Framework\institutional_crt_frameworkv5.pine
 
 //claude iteration v10
 
