@@ -1,25 +1,59 @@
 //@version=5
 indicator(title="NY SMC Suite Pro v2.2", shorttitle="SMC Pro v2.2", overlay=true, 
-         max_boxes_count=500, max_labels_count=500, max_lines_count=500)
+          max_boxes_count=500, max_labels_count=500, max_lines_count=500)
 
-// ═══════════════════════════════════════════════════════════════════════════
-// ║                    NY SMC SUITE PRO v2.2 - INPUTS                       ║
-// ═══════════════════════════════════════════════════════════════════════════
+// -----------------------------------------------------------------------------
+// |                               VERSION HISTORY                               |
+// -----------------------------------------------------------------------------
+// v2.2 - CISD Integration
+//      * Added professional CISD (Change in State of Delivery) detection
+//      * Classic and Liquidity Sweep detection methods
+//      * Enhanced market structure analysis
+//      * CISD integrated into confluence scoring
+//      * Professional CISD visualization and alerts
+//
+// v2.1 - Dynamic Order Block Extension
+//      * Order blocks now extend dynamically until mitigated
+//      * Enhanced mitigation detection with visual feedback
+//      * Improved performance with box.set_right() updates
+//
+// v2.0 - Professional Trading System
+//      * Complete rewrite with type definitions
+//      * Professional UI with multiple themes
+//      * Statistics dashboard with confluence scoring
+//      * Advanced SMC detection algorithms
+//      * Market structure analysis (BOS/CHoCH)
+//      * Risk management tools
 
-// ── QUICK SETUP ───────────────────────────────────────────────────────────
-var string G_SETUP = "⚡ Quick Setup"
+// -----------------------------------------------------------------------------
+// |                         NY SMC SUITE PRO v2.2                               |
+// |                       Professional Trading System                           |
+// -----------------------------------------------------------------------------
+
+// -----------------------------------------------------------------------------
+// |                           PROFESSIONAL INPUTS                             |
+// -----------------------------------------------------------------------------
+ 
+// ------ Header Information ------
+var string G_INFO = "📊 NY SMC Suite Pro v2.1"
+dummy0 = input.bool(true, "═══════════════════════════════════════", group=G_INFO)
+dummy1 = input.bool(true, "Professional Smart Money Concepts Suite", group=G_INFO)
+dummy2 = input.bool(true, "═══════════════════════════════════════", group=G_INFO)
+
+// ------ Quick Setup Presets ------
+var string G_PRESETS = "⚡ Quick Setup Presets"
 preset_mode = input.string("Custom", "Trading Style Preset", 
      options=["Scalper", "Day Trader", "Swing Trader", "Position Trader", "Custom"],
-     group=G_SETUP, 
+     group=G_PRESETS, 
      tooltip="Quick configuration based on trading style")
 
-// ── SESSION CONFIGURATION ──────────────────────────────────────────────────
-var string G_SESSIONS = "🕐 Trading Sessions"
+// ------ Session Configuration ------
+var string G_SESSIONS = "🕐 Killzone Sessions"
 show_sessions = input.bool(true, "Show All Sessions", group=G_SESSIONS)
 lookbackDays = input.int(5, "History Days", minval=1, maxval=30, group=G_SESSIONS,
      tooltip="Number of days to display historical sessions")
 
-// Session Toggles
+// Individual session toggles
 show_714am = input.bool(true, "🌙 714AM (1:00-3:30 AM)", inline="s1", group=G_SESSIONS)
 color_714am = input.color(#00BCD4, "", inline="s1", group=G_SESSIONS)
 
@@ -29,61 +63,10 @@ color_nyopen = input.color(#4CAF50, "", inline="s2", group=G_SESSIONS)
 show_714pm = input.bool(true, "☀️ 714 Afternoon (10:00-12:00 PM)", inline="s3", group=G_SESSIONS)
 color_714pm = input.color(#FF9800, "", inline="s3", group=G_SESSIONS)
 
-// Session Display Options
 session_transparency = input.int(85, "Session Transparency", minval=0, maxval=100, group=G_SESSIONS)
 show_session_stats = input.bool(true, "Show Session Statistics", group=G_SESSIONS)
 
-// ── SMC DETECTION SETTINGS ─────────────────────────────────────────────────
-var string G_SMC = "🎯 Smart Money Concepts"
-smc_timeframe = input.timeframe("15", "SMC Analysis Timeframe", group=G_SMC)
-smc_sensitivity = input.string("Balanced", "Detection Sensitivity",
-     options=["Conservative", "Balanced", "Aggressive"],
-     group=G_SMC,
-     tooltip="Affects how strictly SMC patterns are identified")
-
-// Order Blocks
-show_ob = input.bool(true, "📦 Order Blocks", inline="ob", group=G_SMC)
-ob_count = input.int(10, "Max Count", minval=1, maxval=50, inline="ob", group=G_SMC)
-ob_mitigation_type = input.string("Touch", "Mitigation Type",
-     options=["Touch", "Close", "50% Fill"],
-     group=G_SMC)
-
-// Fair Value Gaps
-show_fvg = input.bool(true, "🔳 Fair Value Gaps", inline="fvg", group=G_SMC)
-fvg_count = input.int(10, "Max Count", minval=1, maxval=50, inline="fvg", group=G_SMC)
-fvg_min_size = input.float(0.1, "Min Size %", minval=0.01, maxval=5, step=0.01, group=G_SMC)
-
-// Liquidity Pools
-show_liquidity = input.bool(true, "💧 Liquidity Pools", inline="liq", group=G_SMC)
-liquidity_strength = input.int(3, "Strength", minval=1, maxval=5, inline="liq", group=G_SMC)
-
-// Market Structure
-show_structure = input.bool(true, "📈 Market Structure", inline="ms", group=G_SMC)
-structure_breaks = input.bool(true, "BOS/CHoCH", inline="ms", group=G_SMC)
-
-// ── CISD ENGINE ───────────────────────────────────────────────────────────
-var string G_CISD = "📈 CISD (Change in State of Delivery)"
-show_cisd = input.bool(false, "Enable CISD Detection", group=G_CISD)
-cisd_method = input.string("Classic", "Detection Method", 
-     options=["Classic", "Liquidity Sweep"], 
-     group=G_CISD)
-cisd_length = input.int(10, "Swing Length", minval=1, group=G_CISD)
-cisd_minSeq = input.int(0, "Min Duration", minval=0, group=G_CISD)
-cisd_maxSeq = input.int(100, "Max Validity", minval=1, maxval=1000, group=G_CISD)
-
-// CISD Colors
-cisd_color_bull = input.color(#089981, "Bullish Color", group=G_CISD)
-cisd_color_bear = input.color(#f23645, "Bearish Color", group=G_CISD)
-cisd_color_sweep = input.color(#787b8684, "Sweep Color", group=G_CISD)
-
-// ── RISK MANAGEMENT ───────────────────────────────────────────────────────
-var string G_RISK = "⚠️ Risk Management"
-show_atr_levels = input.bool(true, "ATR-Based Targets", group=G_RISK)
-atr_multiplier = input.float(1.5, "ATR Multiplier", minval=0.5, maxval=5, step=0.1, group=G_RISK)
-show_risk_reward = input.bool(true, "Risk:Reward Zones", group=G_RISK)
-default_rr_ratio = input.float(2.0, "Default R:R Ratio", minval=1, maxval=10, step=0.5, group=G_RISK)
-
-// ── VISUAL THEME ──────────────────────────────────────────────────────────
+// ------ Visual Theme ------
 var string G_THEME = "🎨 Visual Theme"
 color_theme = input.string("Dark Pro", "Color Theme", 
      options=["Dark Pro", "Light Pro", "Matrix", "Ocean", "Monochrome", "Custom"],
@@ -94,52 +77,82 @@ ui_mode = input.string("Professional", "UI Mode",
      group=G_THEME,
      tooltip="Controls the amount of visual information displayed")
 
-// Dashboard Settings
 show_dashboard = input.bool(true, "Show Statistics Dashboard", group=G_THEME)
 dashboard_position = input.string("Top Right", "Dashboard Position",
      options=["Top Left", "Top Right", "Bottom Left", "Bottom Right"],
      group=G_THEME)
 
-// Typography Settings
+// ------ Typography ------
 var string G_TEXT = "🅰️ Typography"
-label_size_input = input.string("small", "Label Size", 
-     options=["tiny", "small", "normal", "large"], 
-     group=G_TEXT)
-price_label_size_input = input.string("tiny", "Price Label Size", 
-     options=["tiny", "small", "normal", "large"], 
-     group=G_TEXT)
-dash_header_size_input = input.string("normal", "Dashboard Header Size", 
-     options=["tiny", "small", "normal", "large"], 
-     group=G_TEXT)
-dash_body_size_input = input.string("small", "Dashboard Body Size", 
-     options=["tiny", "small", "normal", "large"], 
-     group=G_TEXT)
-dash_factors_size_input = input.string("tiny", "Dashboard Factors Size", 
-     options=["tiny", "small", "normal", "large"], 
-     group=G_TEXT)
+label_size_input = input.string("small", "Label Size", options=["tiny", "small", "normal", "large"], group=G_TEXT)
+price_label_size_input = input.string("tiny", "Price Label Size", options=["tiny", "small", "normal", "large"], group=G_TEXT)
+dash_header_size_input = input.string("normal", "Dashboard Header Size", options=["tiny", "small", "normal", "large"], group=G_TEXT)
+dash_body_size_input = input.string("small", "Dashboard Body Size", options=["tiny", "small", "normal", "large"], group=G_TEXT)
+dash_factors_size_input = input.string("tiny", "Dashboard Factors Size", options=["tiny", "small", "normal", "large"], group=G_TEXT)
 
-// ── ADVANCED FEATURES ─────────────────────────────────────────────────────
+// ------ SMC Detection Settings ------
+var string G_SMC = "🎯 Smart Money Concepts"
+smc_timeframe = input.timeframe("15", "SMC Analysis Timeframe", group=G_SMC)
+smc_sensitivity = input.string("Balanced", "Detection Sensitivity",
+     options=["Conservative", "Balanced", "Aggressive"],
+     group=G_SMC,
+     tooltip="Affects how strictly SMC patterns are identified")
+
+// Order Blocks
+show_ob = input.bool(true, "📦 Order Blocks", inline="ob", group=G_SMC)
+ob_count = input.int(10, "Max", minval=1, maxval=50, inline="ob", group=G_SMC)
+ob_mitigation_type = input.string("Touch", "Mitigation",
+     options=["Touch", "Close", "50% Fill"],
+     group=G_SMC)
+
+// Fair Value Gaps
+show_fvg = input.bool(true, "🔳 Fair Value Gaps", inline="fvg", group=G_SMC)
+fvg_count = input.int(10, "Max", minval=1, maxval=50, inline="fvg", group=G_SMC)
+fvg_min_size = input.float(0.1, "Min Size %", minval=0.01, maxval=5, step=0.01, group=G_SMC)
+
+// Liquidity Pools
+show_liquidity = input.bool(true, "💧 Liquidity Pools", inline="liq", group=G_SMC)
+liquidity_strength = input.int(3, "Strength", minval=1, maxval=5, inline="liq", group=G_SMC)
+
+// Market Structure
+show_structure = input.bool(true, "📈 Market Structure", inline="ms", group=G_SMC)
+structure_breaks = input.bool(true, "BOS/CHoCH", inline="ms", group=G_SMC)
+
+// ------ Advanced Features ------
 var string G_ADVANCED = "🔧 Advanced Features"
 show_volume_profile = input.bool(false, "Volume Profile", group=G_ADVANCED)
 show_delta_analysis = input.bool(false, "Delta Analysis", group=G_ADVANCED)
 show_correlation = input.bool(false, "Session Correlation", group=G_ADVANCED)
 multi_timeframe = input.bool(false, "Multi-Timeframe Confluence", group=G_ADVANCED)
 
-// ── ALERT SYSTEM ──────────────────────────────────────────────────────────
+// ------ Risk Management ------
+var string G_RISK = "⚠️ Risk Management"
+show_atr_levels = input.bool(true, "ATR-Based Targets", group=G_RISK)
+atr_multiplier = input.float(1.5, "ATR Multiplier", minval=0.5, maxval=5, step=0.1, group=G_RISK)
+show_risk_reward = input.bool(true, "Risk:Reward Zones", group=G_RISK)
+default_rr_ratio = input.float(2.0, "Default R:R", minval=1, maxval=10, step=0.5, group=G_RISK)
+
+// ── CISD ─ Change in State of Delivery --------------------------
+var string G_CISD = "📈 CISD"
+show_cisd           = input.bool(false, "Show CISD", group=G_CISD)
+cisd_method         = input.string("Classic", "Detection Method", options=["Classic","Liquidity Sweep"], group=G_CISD)
+cisd_length         = input.int(10, "Swing Length", minval=1, group=G_CISD)
+cisd_minSeq         = input.int(0,  "Min Duration", minval=0, group=G_CISD)
+cisd_maxSeq         = input.int(100,"Max Validity", minval=1, maxval=1000, group=G_CISD)
+cisd_color_bull     = input.color(#089981, "Bullish", group=G_CISD)
+cisd_color_bear     = input.color(#f23645, "Bearish", group=G_CISD)
+cisd_color_sweep    = input.color(#787b8684, "Sweep", group=G_CISD)
+
+// ------ Alerts Configuration ------
 var string G_ALERTS = "🔔 Alert System"
 enable_alerts = input.bool(true, "Master Alert Switch", group=G_ALERTS)
-
-// SMC Alerts
 alert_ob_formation = input.bool(true, "Order Block Formation", group=G_ALERTS)
 alert_fvg_formation = input.bool(true, "FVG Formation", group=G_ALERTS)
 alert_liquidity_sweep = input.bool(true, "Liquidity Sweep", group=G_ALERTS)
 alert_structure_break = input.bool(true, "Structure Break", group=G_ALERTS)
-
-// Session & Confluence Alerts
 alert_session_open = input.bool(false, "Session Open", group=G_ALERTS)
 alert_confluence = input.bool(true, "High Confluence Setup", group=G_ALERTS)
 alert_cisd = input.bool(true, "CISD Trigger", group=G_ALERTS)
-
 // ═══════════════════════════════════════════════════════════════════════════
 // ║                         COLOR THEME ENGINE                               ║
 // ═══════════════════════════════════════════════════════════════════════════
