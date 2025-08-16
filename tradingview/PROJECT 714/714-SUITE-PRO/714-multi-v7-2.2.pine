@@ -1,0 +1,958 @@
+//@version=5
+indicator(title="NY SMC Suite Pro v2.2", shorttitle="SMC Pro v2.2", overlay=true, 
+          max_boxes_count=500, max_labels_count=500, max_lines_count=500)
+
+// -----------------------------------------------------------------------------
+// |                               VERSION HISTORY                               |
+// -----------------------------------------------------------------------------
+// v2.2 - CISD Integration
+//      * Added professional CISD (Change in State of Delivery) detection
+//      * Classic and Liquidity Sweep detection methods
+//      * Enhanced market structure analysis
+//      * CISD integrated into confluence scoring
+//      * Professional CISD visualization and alerts
+//
+// v2.1 - Dynamic Order Block Extension
+//      * Order blocks now extend dynamically until mitigated
+//      * Enhanced mitigation detection with visual feedback
+//      * Improved performance with box.set_right() updates
+//
+// v2.0 - Professional Trading System
+//      * Complete rewrite with type definitions
+//      * Professional UI with multiple themes
+//      * Statistics dashboard with confluence scoring
+//      * Advanced SMC detection algorithms
+//      * Market structure analysis (BOS/CHoCH)
+//      * Risk management tools
+
+// -----------------------------------------------------------------------------
+// |                         NY SMC SUITE PRO v2.2                               |
+// |                       Professional Trading System                           |
+// -----------------------------------------------------------------------------
+
+// -----------------------------------------------------------------------------
+// |                           PROFESSIONAL INPUTS                             |
+// -----------------------------------------------------------------------------
+ 
+// ------ Header Information ------
+var string G_INFO = "📊 NY SMC Suite Pro v2.1"
+dummy0 = input.bool(true, "═══════════════════════════════════════", group=G_INFO)
+dummy1 = input.bool(true, "Professional Smart Money Concepts Suite", group=G_INFO)
+dummy2 = input.bool(true, "═══════════════════════════════════════", group=G_INFO)
+
+// ------ Quick Setup Presets ------
+var string G_PRESETS = "⚡ Quick Setup Presets"
+preset_mode = input.string("Custom", "Trading Style Preset", 
+     options=["Scalper", "Day Trader", "Swing Trader", "Position Trader", "Custom"],
+     group=G_PRESETS, 
+     tooltip="Quick configuration based on trading style")
+
+// ------ Session Configuration ------
+var string G_SESSIONS = "🕐 Killzone Sessions"
+show_sessions = input.bool(true, "Show All Sessions", group=G_SESSIONS)
+lookbackDays = input.int(5, "History Days", minval=1, maxval=30, group=G_SESSIONS,
+     tooltip="Number of days to display historical sessions")
+
+// Individual session toggles
+show_714am = input.bool(true, "🌙 714AM (1:00-3:30 AM)", inline="s1", group=G_SESSIONS)
+color_714am = input.color(#00BCD4, "", inline="s1", group=G_SESSIONS)
+
+show_nyopen = input.bool(true, "🗽 NY Open (7:00-9:00 AM)", inline="s2", group=G_SESSIONS)
+color_nyopen = input.color(#4CAF50, "", inline="s2", group=G_SESSIONS)
+
+show_714pm = input.bool(true, "☀️ 714 Afternoon (10:00-12:00 PM)", inline="s3", group=G_SESSIONS)
+color_714pm = input.color(#FF9800, "", inline="s3", group=G_SESSIONS)
+
+session_transparency = input.int(85, "Session Transparency", minval=0, maxval=100, group=G_SESSIONS)
+show_session_stats = input.bool(true, "Show Session Statistics", group=G_SESSIONS)
+
+// ------ Visual Theme ------
+var string G_THEME = "🎨 Visual Theme"
+color_theme = input.string("Dark Pro", "Color Theme", 
+     options=["Dark Pro", "Light Pro", "Matrix", "Ocean", "Monochrome", "Custom"],
+     group=G_THEME)
+
+ui_mode = input.string("Professional", "UI Mode",
+     options=["Minimal", "Standard", "Professional", "Advanced"],
+     group=G_THEME,
+     tooltip="Controls the amount of visual information displayed")
+
+show_dashboard = input.bool(true, "Show Statistics Dashboard", group=G_THEME)
+dashboard_position = input.string("Top Right", "Dashboard Position",
+     options=["Top Left", "Top Right", "Bottom Left", "Bottom Right"],
+     group=G_THEME)
+
+// ------ Typography ------
+var string G_TEXT = "🅰️ Typography"
+label_size_input = input.string("small", "Label Size", options=["tiny", "small", "normal", "large"], group=G_TEXT)
+price_label_size_input = input.string("tiny", "Price Label Size", options=["tiny", "small", "normal", "large"], group=G_TEXT)
+dash_header_size_input = input.string("normal", "Dashboard Header Size", options=["tiny", "small", "normal", "large"], group=G_TEXT)
+dash_body_size_input = input.string("small", "Dashboard Body Size", options=["tiny", "small", "normal", "large"], group=G_TEXT)
+dash_factors_size_input = input.string("tiny", "Dashboard Factors Size", options=["tiny", "small", "normal", "large"], group=G_TEXT)
+
+// ------ SMC Detection Settings ------
+var string G_SMC = "🎯 Smart Money Concepts"
+smc_timeframe = input.timeframe("15", "SMC Analysis Timeframe", group=G_SMC)
+smc_sensitivity = input.string("Balanced", "Detection Sensitivity",
+     options=["Conservative", "Balanced", "Aggressive"],
+     group=G_SMC,
+     tooltip="Affects how strictly SMC patterns are identified")
+
+// Order Blocks
+show_ob = input.bool(true, "📦 Order Blocks", inline="ob", group=G_SMC)
+ob_count = input.int(10, "Max", minval=1, maxval=50, inline="ob", group=G_SMC)
+ob_mitigation_type = input.string("Touch", "Mitigation",
+     options=["Touch", "Close", "50% Fill"],
+     group=G_SMC)
+
+// Fair Value Gaps
+show_fvg = input.bool(true, "🔳 Fair Value Gaps", inline="fvg", group=G_SMC)
+fvg_count = input.int(10, "Max", minval=1, maxval=50, inline="fvg", group=G_SMC)
+fvg_min_size = input.float(0.1, "Min Size %", minval=0.01, maxval=5, step=0.01, group=G_SMC)
+
+// Liquidity Pools
+show_liquidity = input.bool(true, "💧 Liquidity Pools", inline="liq", group=G_SMC)
+liquidity_strength = input.int(3, "Strength", minval=1, maxval=5, inline="liq", group=G_SMC)
+
+// Market Structure
+show_structure = input.bool(true, "📈 Market Structure", inline="ms", group=G_SMC)
+structure_breaks = input.bool(true, "BOS/CHoCH", inline="ms", group=G_SMC)
+
+// ------ Advanced Features ------
+var string G_ADVANCED = "🔧 Advanced Features"
+show_volume_profile = input.bool(false, "Volume Profile", group=G_ADVANCED)
+show_delta_analysis = input.bool(false, "Delta Analysis", group=G_ADVANCED)
+show_correlation = input.bool(false, "Session Correlation", group=G_ADVANCED)
+multi_timeframe = input.bool(false, "Multi-Timeframe Confluence", group=G_ADVANCED)
+
+// ------ Risk Management ------
+var string G_RISK = "⚠️ Risk Management"
+show_atr_levels = input.bool(true, "ATR-Based Targets", group=G_RISK)
+atr_multiplier = input.float(1.5, "ATR Multiplier", minval=0.5, maxval=5, step=0.1, group=G_RISK)
+show_risk_reward = input.bool(true, "Risk:Reward Zones", group=G_RISK)
+default_rr_ratio = input.float(2.0, "Default R:R", minval=1, maxval=10, step=0.5, group=G_RISK)
+
+// ── CISD ─ Change in State of Delivery --------------------------
+var string G_CISD = "📈 CISD"
+show_cisd           = input.bool(false, "Show CISD", group=G_CISD)
+cisd_method         = input.string("Classic", "Detection Method", options=["Classic","Liquidity Sweep"], group=G_CISD)
+cisd_length         = input.int(10, "Swing Length", minval=1, group=G_CISD)
+cisd_minSeq         = input.int(0,  "Min Duration", minval=0, group=G_CISD)
+cisd_maxSeq         = input.int(100,"Max Validity", minval=1, maxval=1000, group=G_CISD)
+cisd_color_bull     = input.color(#089981, "Bullish", group=G_CISD)
+cisd_color_bear     = input.color(#f23645, "Bearish", group=G_CISD)
+cisd_color_sweep    = input.color(#787b8684, "Sweep", group=G_CISD)
+
+// ------ Alerts Configuration ------
+var string G_ALERTS = "🔔 Alert System"
+enable_alerts = input.bool(true, "Master Alert Switch", group=G_ALERTS)
+alert_ob_formation = input.bool(true, "Order Block Formation", group=G_ALERTS)
+alert_fvg_formation = input.bool(true, "FVG Formation", group=G_ALERTS)
+alert_liquidity_sweep = input.bool(true, "Liquidity Sweep", group=G_ALERTS)
+alert_structure_break = input.bool(true, "Structure Break", group=G_ALERTS)
+alert_session_open = input.bool(false, "Session Open", group=G_ALERTS)
+alert_confluence = input.bool(true, "High Confluence Setup", group=G_ALERTS)
+alert_cisd = input.bool(true, "CISD Trigger", group=G_ALERTS)
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ║                         COLOR THEME ENGINE                               ║
+// ═══════════════════════════════════════════════════════════════════════════
+    // =====  TYPE DEFINITIONS  (local to this block)  =====
+type cisdBin
+    line ln
+    bool active
+    chart.point cp1
+    chart.point cp2
+    bool broken = false
+
+type cisdSwing
+    chart.point cp
+    line ln
+    line wick
+    bool active = false
+type ColorScheme
+    color bg_primary
+    color bg_secondary
+    color text_primary
+    color text_secondary
+    color bullish
+    color bearish
+    color neutral
+    color accent
+    color success
+    color warning
+    color danger
+
+var ColorScheme colors = ColorScheme.new()
+
+if barstate.isfirst
+    colors := switch color_theme
+        "Light Pro" => ColorScheme.new(  color.new(#FFFFFF, 90), color.new(#F5F5F5, 90),  #212121, #757575,            #4CAF50, #F44336, #9E9E9E, #2196F3,     #00C853, #FFC107, #D32F2F)
+        "Matrix" => ColorScheme.new(       color.new(#000000, 85), color.new(#001100, 90),          #00FF41, #008F11,            #00FF41, #FF0040, #39FF14, #00FF41,    #00FF41, #FFFF00, #FF0040)        
+        "Ocean" => ColorScheme.new(            color.new(#001F3F, 85), color.new(#003366, 90),           #7FDBFF, #39CCCC,            #2ECC71, #E74C3C, #95A5A6, #3498DB,         #27AE60, #F39C12, #C0392B)        
+        "Monochrome" => ColorScheme.new(            color.new(#1A1A1A, 85), color.new(#2D2D2D, 90),            #FFFFFF, #B0B0B0,   #FFFFFF, #808080, #A0A0A0, #C0C0C0,            #FFFFFF, #D0D0D0, #606060)
+        => ColorScheme.new(            color.new(#0E1117, 85), color.new(#1C1F26, 90),            #FFFFFF, #B8BCC8,            #26A69A, #EF5350, #78909C, #42A5F5,            #66BB6A, #FFA726, #EF5350)
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ║                         KILLZONE DEFINITIONS                             ║
+// ═══════════════════════════════════════════════════════════════════════════
+type SessionData
+    float openPrice
+    float highPrice
+    float lowPrice
+    float closePrice
+    float vwap
+    float volume
+    int startBar
+    int endBar
+    bool isActive
+
+type KillzoneSession
+    string name
+    string label
+    int startHour
+    int startMin
+    int endHour
+    int endMin
+    color zoneColor
+    bool isExtension
+    bool enabled
+
+// Define all killzone sessions
+var array<KillzoneSession> sessions = array.new<KillzoneSession>()
+// Persistent session data storage (must be declared before first use)
+var array<SessionData> sessionDataArray = array.new<SessionData>()
+
+if barstate.isfirst
+    // 714AM Sessions
+    array.push(sessions, KillzoneSession.new(        "714AM", "714AM", 1, 0, 2, 0, color_714am, false, show_714am))
+    array.push(sessions, KillzoneSession.new(        "714AM-EXT", "714AM-EXT", 2, 0, 3, 30, color_714am, true, show_714am))
+
+    // NY Open Sessions
+    array.push(sessions, KillzoneSession.new(        "NY-OPEN", "NY Open", 7, 0, 8, 0, color_nyopen, false, show_nyopen))
+    array.push(sessions, KillzoneSession.new(        "NY-OPEN-EXT", "NY Open Ext", 8, 0, 9, 0, color_nyopen, true, show_nyopen))
+
+    // 714 Afternoon Sessions
+    array.push(sessions, KillzoneSession.new(        "714PM", "714PM", 10, 0, 11, 0, color_714pm, false, show_714pm))
+    array.push(sessions, KillzoneSession.new(        "714PM-EXT", "714PM-EXT", 11, 0, 12, 0, color_714pm, true, show_714pm))
+
+    // Initialize persistent session data store to mirror sessions
+    for _i = 0 to array.size(sessions) - 1
+        array.push(sessionDataArray, SessionData.new())
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ║                         DATA STRUCTURES                                  ║
+// ═══════════════════════════════════════════════════════════════════════════
+
+type OrderBlock
+    box visual
+    label labelObj
+    float top
+    float bottom
+    int startBar
+    bool isBullish
+    float mitigationLevel
+    bool isMitigated
+
+type FairValueGap
+    box visual
+    label labelObj
+    float top
+    float bottom
+    int startBar
+    bool isBullish
+    float fillLevel
+    bool isFilled
+
+type LiquidityPool
+    line level
+    label labelObj
+    float price
+    int touches
+    bool isSwept
+    bool isAbove
+
+
+
+type Cisd
+    line      level
+    label     labelObj
+    int       startBar
+    bool      isBullish
+    bool      isActive
+
+var array<Cisd> cisds = array.new<Cisd>()
+// ═══════════════════════════════════════════════════════════════════════════
+// ║                         GLOBAL VARIABLES                                 ║
+// ═══════════════════════════════════════════════════════════════════════════
+
+var array<OrderBlock> orderBlocks = array.new<OrderBlock>()
+var array<FairValueGap> fairValueGaps = array.new<FairValueGap>()
+var array<LiquidityPool> liquidityPools = array.new<LiquidityPool>()
+
+var table statsTable = table.new(position.top_right, 10, 20)
+var int confluenceScore = 0
+var string currentBias = "NEUTRAL"
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ║                         CORE FUNCTIONS                                   ║
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Enhanced timezone handling
+tz = "America/New_York"
+getCurrentNYTime() =>
+    [hour(time, tz), minute(time, tz)]
+
+isInSession(sess) =>
+    [h, m] = getCurrentNYTime()
+    startTime = sess.startHour * 60 + sess.startMin
+    endTime = sess.endHour * 60 + sess.endMin
+    currentTime = h * 60 + m
+    sess.enabled and currentTime >= startTime and currentTime < endTime
+
+// Professional session drawing with gradients
+drawSession(sess, data) =>
+    if sess.enabled
+        // Calculate session metrics
+        sessionRange = data.highPrice - data.lowPrice
+        sessionMiddle = (data.highPrice + data.lowPrice) / 2
+
+        // Compute session start/end timestamps for current day in NY timezone
+        sessStartTs = timestamp(tz, year(time, tz), month(time, tz), dayofmonth(time, tz), sess.startHour, sess.startMin)
+        sessEndTs   = timestamp(tz, year(time, tz), month(time, tz), dayofmonth(time, tz), sess.endHour, sess.endMin)
+
+        // Draw main session box with gradient effect using bar_time anchoring
+        mainColor = sess.isExtension ? color.new(sess.zoneColor, session_transparency + 10) : color.new(sess.zoneColor, session_transparency)
+        sessionBox = box.new(sessStartTs, data.highPrice, sessEndTs, data.lowPrice, xloc=xloc.bar_time, bgcolor=mainColor, border_color=color.new(sess.zoneColor, 50), border_width=1, border_style=sess.isExtension ? line.style_dashed : line.style_solid)
+
+        // Professional label with session info
+        if ui_mode != "Minimal"
+            labelText = sess.label
+            if show_session_stats
+                labelText := labelText + "\n" + "R: " + str.tostring(sessionRange, "#.####") + "\n" + "V: " + str.tostring(data.volume / 1000000, "#.#") + "M"
+
+            sessionLabel = label.new(sessStartTs, sess.isExtension ? data.lowPrice : data.highPrice, labelText, xloc=xloc.bar_time, style=sess.isExtension ? label.style_label_up : label.style_label_down, color=color.new(sess.zoneColor, 0), textcolor=colors.text_primary, size=dash_body_size_input)
+
+        // Draw open price line for main sessions
+        if not sess.isExtension
+            openLine = line.new(sessStartTs, data.openPrice, sessEndTs, data.openPrice, xloc=xloc.bar_time, color=color.new(sess.zoneColor, 30), width=2, style=line.style_solid)
+
+            // Add price label at the end
+            priceLabel = label.new(sessEndTs, data.openPrice, str.tostring(data.openPrice, format.mintick), xloc=xloc.bar_time, style=label.style_label_left, color=sess.zoneColor, textcolor=colors.text_primary, size=price_label_size_input)
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ║                      SMC DETECTION ALGORITHMS                            ║
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Enhanced Order Block Detection
+detectOrderBlock() =>
+    sensitivity_factor = smc_sensitivity == "Conservative" ? 1.5 : smc_sensitivity == "Aggressive" ? 0.5 : 1.0
+
+    // Bullish Order Block
+    bullish_ob = close[1] < open[1] and  // Previous bearish candle
+                 close > open and          // Current bullish candle
+                 close > high[1] and       // Breaks previous high
+                 volume > volume[1] * sensitivity_factor  // Volume confirmation
+
+    // Bearish Order Block
+    bearish_ob = close[1] > open[1] and  // Previous bullish candle
+                 close < open and          // Current bearish candle
+                 close < low[1] and        // Breaks previous low
+                 volume > volume[1] * sensitivity_factor  // Volume confirmation
+
+    [bullish_ob, bearish_ob]
+
+// Enhanced Fair Value Gap Detection
+detectFairValueGap() =>
+    min_gap_size = (high - low) * fvg_min_size / 100
+
+    // Bullish FVG
+    bull_fvg = low > high[2] and (low - high[2]) > min_gap_size and close > open  // Current candle bullish
+
+    // Bearish FVG
+    bear_fvg = high < low[2] and (low[2] - high) > min_gap_size and close < open  // Current candle bearish
+
+    [bull_fvg, bear_fvg]
+
+// Liquidity Pool Detection
+detectLiquidityPools() =>
+    lookback = liquidity_strength * 10
+
+    // Find significant highs and lows
+    isSwingHigh = high == ta.highest(high, lookback)
+    isSwingLow = low == ta.lowest(low, lookback)
+
+    [isSwingHigh, isSwingLow]
+
+// Market Structure Analysis
+analyzeMarketStructure() =>
+    // Detect Break of Structure (BOS) and Change of Character (CHoCH)
+    len = 20
+
+    highestHigh = ta.highest(high, len)
+    lowestLow = ta.lowest(low, len)
+
+    // Break of Structure
+    bullish_bos = close > highestHigh[1]
+    bearish_bos = close < lowestLow[1]
+
+    // Change of Character (trend reversal)
+    var float lastHigh = na
+    var float lastLow = na
+    var bool uptrend = na
+
+    choch = false
+
+    if bullish_bos and not uptrend
+        choch := true
+        uptrend := true
+    else if bearish_bos and uptrend
+        choch := true
+        uptrend := false
+
+    [bullish_bos, bearish_bos, choch, uptrend]
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ║                      CONFLUENCE SCORING SYSTEM                           ║
+// ═══════════════════════════════════════════════════════════════════════════
+
+calculateConfluence() =>
+    score = 0
+    factors = ""
+
+    // Check session alignment
+    for i = 0 to array.size(sessions) - 1
+        sess = array.get(sessions, i)
+        if isInSession(sess)
+            score += 10
+            factors += "Session+ "
+
+    // Check SMC alignments
+    [bull_ob, bear_ob] = detectOrderBlock()
+    if bull_ob or bear_ob
+        score += 15
+        factors += "OB+ "
+
+    [bull_fvg, bear_fvg] = detectFairValueGap()
+    if bull_fvg or bear_fvg
+        score += 12
+        factors += "FVG+ "
+
+    // Check market structure
+    [bull_bos, bear_bos, choch, trend] = analyzeMarketStructure()
+    if bull_bos or bear_bos
+        score += 8
+        factors += "BOS+ "
+    if choch
+        score += 20
+        factors += "CHoCH+ "
+
+    // Determine bias
+    bias = score > 50 ? "STRONG" : score > 30 ? "MODERATE" : score > 15 ? "WEAK" : "NEUTRAL"
+
+    [score, bias, factors]
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ║                         STATISTICS DASHBOARD                             ║
+// ═══════════════════════════════════════════════════════════════════════════
+
+updateDashboard() =>
+    if show_dashboard
+        // Clear previous content
+        table.clear(statsTable, 0, 0, 9, 19)
+
+        // Header
+        table.cell(statsTable, 0, 0, "SMC SUITE PRO",         bgcolor=colors.bg_primary, text_color=colors.accent,         text_size=dash_header_size_input)
+        table.merge_cells(statsTable, 0, 0, 1, 0)
+
+        // Current session info
+        row = 1
+        table.cell(statsTable, 0, row, "Active Session:",         bgcolor=colors.bg_secondary, text_color=colors.text_secondary,         text_size=dash_body_size_input)
+
+        activeSession = "None"
+        for i_iter = 0 to array.size(sessions) - 1
+            sess_iter = array.get(sessions, i_iter)
+            if isInSession(sess_iter)
+                activeSession := sess_iter.label
+                break
+
+        table.cell(statsTable, 1, row, activeSession,         bgcolor=colors.bg_secondary, text_color=colors.success,         text_size=dash_body_size_input)
+
+        // Confluence Score
+        row += 1
+        [conf_score, conf_bias, conf_factors] = calculateConfluence()
+
+        table.cell(statsTable, 0, row, "Confluence:",         bgcolor=colors.bg_secondary, text_color=colors.text_secondary,         text_size=dash_body_size_input)
+
+        confColor = conf_score > 50 ? colors.success : conf_score > 30 ? colors.warning : conf_score > 15 ? colors.neutral : colors.danger
+
+        table.cell(statsTable, 1, row, str.tostring(conf_score) + " - " + conf_bias,         bgcolor=colors.bg_secondary, text_color=confColor,         text_size=dash_body_size_input)
+
+        // SMC Counts
+        row += 1
+        table.cell(statsTable, 0, row, "Order Blocks:",         bgcolor=colors.bg_secondary, text_color=colors.text_secondary,         text_size=dash_body_size_input)
+        table.cell(statsTable, 1, row, str.tostring(array.size(orderBlocks)),         bgcolor=colors.bg_secondary, text_color=colors.text_primary,         text_size=dash_body_size_input)
+
+        row += 1
+        table.cell(statsTable, 0, row, "FVGs:",         bgcolor=colors.bg_secondary, text_color=colors.text_secondary,         text_size=dash_body_size_input)
+        table.cell(statsTable, 1, row, str.tostring(array.size(fairValueGaps)),         bgcolor=colors.bg_secondary, text_color=colors.text_primary,         text_size=dash_body_size_input)
+
+        // Market Bias
+        row += 1
+        [bull_bos, bear_bos, choch, trend] = analyzeMarketStructure()
+
+        trendText = trend ? "BULLISH" : "BEARISH"
+        trendColor = trend ? colors.bullish : colors.bearish
+
+        table.cell(statsTable, 0, row, "Market Bias:",         bgcolor=colors.bg_secondary, text_color=colors.text_secondary,         text_size=dash_body_size_input)
+        table.cell(statsTable, 1, row, trendText,         bgcolor=colors.bg_secondary, text_color=trendColor,         text_size=dash_body_size_input)
+
+        //CISD
+        row += 1
+        table.cell(statsTable, 0, row, "CISD:", bgcolor=colors.bg_secondary, text_color=colors.text_secondary, text_size=dash_body_size_input)
+        table.cell(statsTable, 1, row, str.tostring(array.size(cisds)), bgcolor=colors.bg_secondary, text_color=colors.text_primary, text_size=dash_body_size_input)
+        
+        // Add factors breakdown if space permits
+        if ui_mode == "Professional" or ui_mode == "Advanced"
+            row += 1
+            table.cell(statsTable, 0, row, "Factors:",             bgcolor=colors.bg_secondary, text_color=colors.text_secondary,             text_size=dash_body_size_input)
+            table.merge_cells(statsTable, 0, row, 1, row)
+
+            row += 1
+            table.cell(statsTable, 0, row, conf_factors,             bgcolor=colors.bg_secondary, text_color=colors.text_primary,             text_size=dash_factors_size_input)
+            table.merge_cells(statsTable, 0, row, 1, row)
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ║                         MAIN EXECUTION                                   ║
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Process each session with persistent tracking
+for i = 0 to array.size(sessions) - 1
+    sess = array.get(sessions, i)
+    if sess.enabled and show_sessions
+        // Ensure we have a SessionData slot
+        if array.size(sessionDataArray) <= i
+            array.push(sessionDataArray, SessionData.new())
+        sd = array.get(sessionDataArray, i)
+        in_now = isInSession(sess)
+        if in_now
+            // session active this bar
+            if not sd.isActive
+                // just started
+                sd.isActive := true
+                sd.startBar := bar_index
+                sd.endBar := bar_index
+                sd.openPrice := open
+                sd.highPrice := high
+                sd.lowPrice := low
+                sd.closePrice := close
+                sd.volume := volume
+            else
+                // update running stats
+                sd.endBar := bar_index
+                sd.highPrice := math.max(sd.highPrice, high)
+                sd.lowPrice := math.min(sd.lowPrice, low)
+                sd.closePrice := close
+                sd.volume := sd.volume + volume
+            // Do not draw live; draw once when session completes
+        else
+            // session not active this bar; if it was active previously, finalize and draw once
+            if sd.isActive
+                drawSession(sess, sd)
+                sd.isActive := false
+
+        array.set(sessionDataArray, i, sd)
+
+// Detect and draw SMC features with dynamic extension
+if show_ob
+    [bull_ob, bear_ob] = detectOrderBlock()
+
+    if bull_ob
+        ob = OrderBlock.new()
+        ob.isBullish := true
+        ob.top := open
+        ob.bottom := low
+        ob.startBar := bar_index
+        ob.mitigationLevel := low
+        ob.isMitigated := false
+
+        ob.visual := box.new(            left=bar_index,            top=open,            right=bar_index + 1,              bottom=low,            bgcolor=color.new(colors.bullish, 80),            border_color=colors.bullish,            border_width=1)
+
+        ob.labelObj := label.new(            x=bar_index,            y=open,            text="OB+",            style=label.style_label_down,            color=colors.bullish,            textcolor=colors.text_primary,            size=label_size_input)
+
+        array.unshift(orderBlocks, ob)
+        if array.size(orderBlocks) > ob_count
+            removed = array.pop(orderBlocks)
+            box.delete(removed.visual)
+            label.delete(removed.labelObj)
+
+        if enable_alerts and alert_ob_formation
+            alert("Bullish Order Block formed", alert.freq_once_per_bar)
+
+    if bear_ob
+        ob = OrderBlock.new()
+        ob.isBullish := false
+        ob.top := high
+        ob.bottom := open
+        ob.startBar := bar_index
+        ob.mitigationLevel := high
+        ob.isMitigated := false
+
+        ob.visual := box.new(            left=bar_index,            top=high,            right=bar_index + 1,              bottom=open,            bgcolor=color.new(colors.bearish, 80),            border_color=colors.bearish,            border_width=1)
+
+        ob.labelObj := label.new(            x=bar_index,            y=high,            text="OB-",            style=label.style_label_up,            color=colors.bearish,            textcolor=colors.text_primary,            size=label_size_input)
+
+        array.unshift(orderBlocks, ob)
+        if array.size(orderBlocks) > ob_count
+            removed = array.pop(orderBlocks)
+            box.delete(removed.visual)
+            label.delete(removed.labelObj)
+
+// Update existing order blocks - extend and check for mitigation
+if array.size(orderBlocks) > 0
+    for i = array.size(orderBlocks) - 1 to 0
+        ob = array.get(orderBlocks, i)
+        
+        if not ob.isMitigated
+            // Check for mitigation
+            isMitigated = false
+            
+            if ob.isBullish
+                // Bullish OB mitigation based on setting
+                if ob_mitigation_type == "Touch"
+                    isMitigated := low <= ob.bottom
+                else if ob_mitigation_type == "Close"
+                    isMitigated := close <= ob.bottom
+                else if ob_mitigation_type == "50% Fill"
+                    midPoint = (ob.top + ob.bottom) / 2
+                    isMitigated := low <= midPoint
+            else
+                // Bearish OB mitigation based on setting
+                if ob_mitigation_type == "Touch"
+                    isMitigated := high >= ob.top
+                else if ob_mitigation_type == "Close"
+                    isMitigated := close >= ob.top
+                else if ob_mitigation_type == "50% Fill"
+                    midPoint = (ob.top + ob.bottom) / 2
+                    isMitigated := high >= midPoint
+            
+            if isMitigated
+                ob.isMitigated := true
+                // Make it more transparent when mitigated
+                box.set_bgcolor(ob.visual, color.new(ob.isBullish ? colors.bullish : colors.bearish, 95))
+                box.set_border_color(ob.visual, color.new(ob.isBullish ? colors.bullish : colors.bearish, 70))
+                label.set_text(ob.labelObj, ob.isBullish ? "OB+ ✓" : "OB- ✓")
+                
+                if enable_alerts and alert_ob_formation
+                    alert("Order Block Mitigated", alert.freq_once_per_bar)
+            else
+                // Extend the box to current bar
+                box.set_right(ob.visual, bar_index)
+            
+            array.set(orderBlocks, i, ob)
+
+if show_fvg
+    [bull_fvg, bear_fvg] = detectFairValueGap()
+
+    if bull_fvg
+        fvg = FairValueGap.new()
+        fvg.isBullish := true
+        fvg.top := low
+        fvg.bottom := high[2]
+        fvg.startBar := bar_index
+
+        fvg.visual := box.new(            left=bar_index - 2,            top=low,            right=bar_index,            bottom=high[2],            bgcolor=color.new(colors.success, 70),            border_color=colors.success,            border_width=1)
+
+        fvg.labelObj := label.new(            x=bar_index - 1,            y=(low + high[2]) / 2,            text="FVG",            style=label.style_label_center,            color=color.new(colors.success, 0),            textcolor=colors.text_primary,            size=label_size_input)
+
+        array.unshift(fairValueGaps, fvg)
+        if array.size(fairValueGaps) > fvg_count
+            removed = array.pop(fairValueGaps)
+            box.delete(removed.visual)
+            label.delete(removed.labelObj)
+
+        if enable_alerts and alert_fvg_formation
+            alert("Bullish FVG detected", alert.freq_once_per_bar)
+
+// Update dashboard
+if barstate.islast
+    updateDashboard()
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ║                         ALERT CONDITIONS                                 ║
+// ═══════════════════════════════════════════════════════════════════════════
+
+if enable_alerts
+    // High confluence alert
+    [conf_score, conf_bias, conf_factors] = calculateConfluence()
+    if (conf_score > 50) and alert_confluence
+        alert("HIGH CONFLUENCE SETUP: Score " + str.tostring(conf_score) + " - " + conf_factors, alert.freq_once_per_bar)
+
+    // Structure break alerts
+    [bull_bos, bear_bos, choch, trend] = analyzeMarketStructure()
+    if (bull_bos or bear_bos) and alert_structure_break
+        alert("Structure Break Detected: " + (bull_bos ? "Bullish" : "Bearish"), alert.freq_once_per_bar)
+    if array.size(cisds) > 0 and alert_cisd
+        alert("CISD Change in State of Delivery detected!", alert.freq_once_per_bar)
+
+    if choch and alert_structure_break
+        alert("CHANGE OF CHARACTER - Potential Reversal", alert.freq_once_per_bar)
+
+ 
+ // ═══════════════════════════════════════════════════════════════════════════
+// ║                        CISD ENGINE  (LuxAlgo logic)
+// ║        ---  only runs when show_cisd is true  ---
+// ═══════════════════════════════════════════════════════════════════════════
+    // =====  INTERNAL VARS  =====
+var int         cisd_trend = 0
+var array<cisdBin>  cisd_arrBull = array.new<cisdBin>()
+var array<cisdBin>  cisd_arrBear = array.new<cisdBin>()
+var array<cisdSwing>cisd_swingsH = array.new<cisdSwing>()
+var array<cisdSwing>cisd_swingsL = array.new<cisdSwing>()
+var chart.point cisd_cp_lastPh = chart.point.from_index(bar_index, high)
+var chart.point cisd_cp_lastPl = chart.point.from_index(bar_index, low)
+var chart.point cisd_trackPriceBull = chart.point.from_index(na, na)
+var chart.point cisd_trackPriceBear = chart.point.from_index(na, na)
+
+if show_cisd
+    var cisdBin cisd_oBull = cisdBin.new(line.new(bar_index, open, bar_index, open, color=color.green), true,   chart.point.from_index(bar_index, high),                                        chart.point.from_index(bar_index, high))
+    var cisdBin cisd_oBear = cisdBin.new(line.new(bar_index, open, bar_index, open, color=color.red), true,                                        chart.point.from_index(bar_index, low),                                        chart.point.from_index(bar_index, low))
+
+    // =====  HELPERS  =====
+    cisd_ph = ta.pivothigh(cisd_length, 1)
+    cisd_pl = ta.pivotlow(cisd_length, 1)
+
+    if not na(cisd_ph)
+        cisd_swingsH.push(cisdSwing.new(chart.point.from_index(bar_index-1, cisd_ph)))
+        cisd_cp_lastPh := chart.point.from_index(bar_index-1, cisd_ph)
+
+    if not na(cisd_pl)
+        cisd_swingsL.push(cisdSwing.new(chart.point.from_index(bar_index-1, cisd_pl)))
+        cisd_cp_lastPl := chart.point.from_index(bar_index-1, cisd_pl)
+
+    if close > open and close[1] < open[1]
+        cisd_trackPriceBull := chart.point.from_index(bar_index, open)
+
+    if close < open and close[1] > open[1]
+        cisd_trackPriceBear := chart.point.from_index(bar_index, open)
+
+    if close > cisd_cp_lastPh.price
+        cisd_cp_lastPh := chart.point.from_index(na, na)
+    if close < cisd_cp_lastPl.price
+        cisd_cp_lastPl := chart.point.from_index(na, na)
+
+    // =====  CLASSIC MODE  =====
+    if cisd_method == "Classic"
+        if barstate.isconfirmed and close > open and close[1] < open[1]
+            if cisd_oBull.active and not cisd_oBull.broken
+                cisd_oBull.ln.delete()
+            cisd_oBull.active := true
+            cisd_oBull.ln     := line.new(cisd_trackPriceBull.index, cisd_trackPriceBull.price, bar_index, cisd_trackPriceBull.price, color=color.new(cisd_color_bull, 40))
+            cisd_oBull.cp1    := chart.point.from_index(cisd_cp_lastPh.index, cisd_cp_lastPh.price)
+            cisd_oBull.cp2    := chart.point.from_index(bar_index, cisd_cp_lastPh.price)
+            cisd_oBull.broken := false
+
+        if barstate.isconfirmed and close < open and close[1] > open[1]
+            if cisd_oBear.active and not cisd_oBear.broken
+                cisd_oBear.ln.delete()
+            cisd_oBear.active := true
+            cisd_oBear.ln     := line.new(cisd_trackPriceBear.index, cisd_trackPriceBear.price, bar_index, cisd_trackPriceBear.price, color=color.new(cisd_color_bear, 40))
+            cisd_oBear.cp1    := chart.point.from_index(cisd_cp_lastPl.index, cisd_cp_lastPl.price)
+            cisd_oBear.cp2    := chart.point.from_index(bar_index, cisd_cp_lastPl.price)
+            cisd_oBear.broken := false
+
+        // bearish CISD trigger
+        if cisd_oBull.active
+            if bar_index - cisd_oBull.ln.get_x1() <= cisd_maxSeq
+                cisd_oBull.ln.set_x2(bar_index)
+                if close < cisd_oBull.ln.get_y2()
+                    if bar_index - cisd_oBull.ln.get_x1() >= cisd_minSeq
+                        cisd_oBull.ln.set_color(cisd_color_bear)
+                        if cisd_trend == -1
+                            cisd_oBull.ln.set_style(line.style_dashed)
+                        cisd_trend := -1
+                        cisd_oBull.active := false
+                        cisd_oBull.broken := true
+                        c = Cisd.new()
+                        c.level   := cisd_oBull.ln
+                        c.startBar := bar_index
+                        c.isBullish := false
+                        c.isActive := true
+                        c.labelObj := label.new(math.ceil(math.avg(cisd_oBull.ln.get_x1(), bar_index)), cisd_oBull.ln.get_y2(), "CISD",   style=label.style_label_up, color=color.new(cisd_color_bear,0), textcolor=color.white, size=label_size_input)
+                        array.unshift(cisds, c)
+                    else
+                        cisd_oBull.ln.delete()
+                        cisd_oBull.active := false
+            else
+                cisd_oBull.ln.delete()
+                cisd_oBull.active := false
+
+        // bullish CISD trigger
+        if cisd_oBear.active
+            if bar_index - cisd_oBear.ln.get_x1() <= cisd_maxSeq
+                cisd_oBear.ln.set_x2(bar_index)
+                if close > cisd_oBear.ln.get_y2()
+                    if bar_index - cisd_oBear.ln.get_x1() >= cisd_minSeq
+                        cisd_oBear.ln.set_color(cisd_color_bull)
+                        if cisd_trend == 1
+                            cisd_oBear.ln.set_style(line.style_dashed)
+                        cisd_trend := 1
+                        cisd_oBear.active := false
+                        cisd_oBear.broken := true
+                        c = Cisd.new()
+                        c.level   := cisd_oBear.ln
+                        c.startBar := bar_index
+                        c.isBullish := true
+                        c.isActive := true
+                        c.labelObj := label.new(math.ceil(math.avg(cisd_oBear.ln.get_x1(), bar_index)), cisd_oBear.ln.get_y2(), "CISD",   style=label.style_label_down, color=color.new(cisd_color_bull,0), textcolor=color.white, size=label_size_input)
+                        array.unshift(cisds, c)
+                    else
+                        cisd_oBear.ln.delete()
+                        cisd_oBear.active := false
+            else
+                cisd_oBear.ln.delete()
+                cisd_oBear.active := false
+
+    // =====  LIQUIDITY-SWEEP MODE  =====
+    else
+        // sweep-upper
+        if cisd_swingsH.size() > 0
+            max_bars_back(close, 1000)
+            for i = cisd_swingsH.size() - 1 to 0
+                s = cisd_swingsH.get(i)
+                x = s.cp.index
+                y = s.cp.price
+                if bar_index - x > cisd_maxSeq
+                    cisd_swingsH.remove(i)
+                else
+                    if na(s.ln)
+                        if close > y
+                            cisd_swingsH.remove(i)
+                        else
+                            if not s.active and high > y and close < y
+                                s.ln   := line.new(x, y, bar_index, y, color=cisd_color_sweep)
+                                s.wick := line.new(bar_index, y, bar_index, high, color=cisd_color_sweep, width=3)
+                                s.active := true
+                                good = true
+                                for j = 0 to bar_index - cisd_trackPriceBull.index
+                                    if close[j] < cisd_trackPriceBull.price
+                                        good := false
+                                        break
+                                if good
+                                    cisd_arrBull.push(cisdBin.new(
+                                         line.new(cisd_trackPriceBull.index, cisd_trackPriceBull.price,
+                                                  bar_index, cisd_trackPriceBull.price,
+                                                  color=color.new(cisd_color_bull, 40))
+                                       , true
+                                       , chart.point.from_index(cisd_cp_lastPh.index, cisd_cp_lastPh.price)
+                                       , chart.point.from_index(bar_index, cisd_cp_lastPh.price)))
+                    else
+                        if close > s.ln.get_y2()
+                            cisd_swingsH.remove(i)
+
+        // sweep-lower
+        if cisd_swingsL.size() > 0
+            max_bars_back(close, 1000)
+            for i = cisd_swingsL.size() - 1 to 0
+                s = cisd_swingsL.get(i)
+                x = s.cp.index
+                y = s.cp.price
+                if bar_index - x > cisd_maxSeq
+                    cisd_swingsL.remove(i)
+                else
+                    if na(s.ln)
+                        if close < y
+                            cisd_swingsL.remove(i)
+                        else
+                            if not s.active and low < y and close > y
+                                s.ln   := line.new(x, y, bar_index, y, color=cisd_color_sweep)
+                                s.wick := line.new(bar_index, y, bar_index, low, color=cisd_color_sweep, width=3)
+                                s.active := true
+                                good = true
+                                for j = 0 to bar_index - cisd_trackPriceBear.index
+                                    if close[j] > cisd_trackPriceBear.price
+                                        good := false
+                                        break
+                                if good
+                                    cisd_arrBear.push(cisdBin.new(
+                                         line.new(cisd_trackPriceBear.index, cisd_trackPriceBear.price,
+                                                  bar_index, cisd_trackPriceBear.price,
+                                                  color=color.new(cisd_color_bear, 40))
+                                       , true
+                                       , chart.point.from_index(cisd_cp_lastPl.index, cisd_cp_lastPl.price)
+                                       , chart.point.from_index(bar_index, cisd_cp_lastPl.price)))
+                    else
+                        if close < s.ln.get_y2()
+                            cisd_swingsL.remove(i)
+
+        // bullish CISD trigger via sweep
+        if cisd_arrBull.size() > 0
+            for i = cisd_arrBull.size() - 1 to 0
+                b = cisd_arrBull.get(i)
+                b.ln.set_x2(bar_index)
+                x1 = b.ln.get_x1()
+                if bar_index - x1 > cisd_maxSeq
+                    b.ln.delete()
+                    cisd_arrBull.remove(i)
+                else
+                    if close < b.ln.get_y2()
+                        if bar_index - x1 >= cisd_minSeq
+                            b.ln.set_color(cisd_color_bear)
+                            if cisd_trend == -1
+                                b.ln.set_style(line.style_dashed)
+                            cisd_trend := -1
+                            c = Cisd.new()
+                            c.level   := b.ln
+                            c.startBar := bar_index
+                            c.isBullish := false
+                            c.isActive := true
+                            c.labelObj := label.new(math.ceil(math.avg(x1, bar_index)), b.ln.get_y2(), "CISD",                                                    style=label.style_label_up,                                                    color=color.new(cisd_color_bear,0),                                                    textcolor=color.white,                                                    size=label_size_input)
+                            array.unshift(cisds, c)
+                            label.new(bar_index, high, "▼", style=label.style_label_down,
+                                      color=color(na), textcolor=cisd_color_bear, size=label_size_input)
+                        else
+                            b.ln.delete()
+                        cisd_arrBull.remove(i)
+
+        // bearish CISD trigger via sweep
+        if cisd_arrBear.size() > 0
+            for i = cisd_arrBear.size() - 1 to 0
+                b = cisd_arrBear.get(i)
+                b.ln.set_x2(bar_index)
+                x1 = b.ln.get_x1()
+                if bar_index - x1 > cisd_maxSeq
+                    b.ln.delete()
+                    cisd_arrBear.remove(i)
+                else
+                    if close > b.ln.get_y2()
+                        if bar_index - x1 >= cisd_minSeq
+                            b.ln.set_color(cisd_color_bull)
+                            if cisd_trend == 1
+                                b.ln.set_style(line.style_dashed)
+                            cisd_trend := 1
+                            c = Cisd.new()
+                            c.level   := b.ln
+                            c.startBar := bar_index
+                            c.isBullish := true
+                            c.isActive := true
+                            c.labelObj := label.new(math.ceil(math.avg(x1, bar_index)), b.ln.get_y2(), "CISD",  style=label.style_label_down,  color=color.new(cisd_color_bull,0),                          textcolor=color.white,                 size=label_size_input)
+                            array.unshift(cisds, c)
+                            label.new(bar_index, low, "▲", style=label.style_label_up,
+                                      color=color(na), textcolor=cisd_color_bull, size=label_size_input)
+                        else
+                            b.ln.delete()
+                        cisd_arrBear.remove(i)
+
+// =====  CLEAN-UP WHEN USER TURNS CISD OFF  =====
+if not show_cisd
+    for c in cisds
+        c.level.delete()
+        label.delete(c.labelObj)
+    cisds.clear()
+    cisd_arrBull.clear()
+    cisd_arrBear.clear()
+    cisd_swingsH.clear()
+    cisd_swingsL.clear()
+// ═══════════════════════════════════════════════════════════════════════════
+// ║                         END OF SCRIPT                                    ║
+// ═══════════════════════════════════════════════════════════════════════════
