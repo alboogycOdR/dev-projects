@@ -1,0 +1,76 @@
+//@version=5
+// -----------------------------------------------------------------------------
+// Indicator: Gold Centered Key Zones
+// Version:   v3.0
+// Author:    Gemini
+//
+// Description:
+// As per the latest specification, this indicator draws a horizontal dotted line
+// at each key level. It also draws a single rectangular zone centered on the
+// key level, extending a configurable amount above and below. This creates
+// clear, distinct zones of interest around major price points.
+//
+// Current Time: Sunday, 17 August 2025, Cape Town, South Africa
+// -----------------------------------------------------------------------------
+
+indicator("Gold Centered Key Zones", "GCKZ v3.0", overlay=true)
+
+// == SECTION 1: USER INPUTS ==
+// User-configurable settings for the levels and their appearance.
+
+group_levels = "Level Configuration"
+startLevel = input.int(3300, "Start Key Level", group=group_levels, tooltip="The first key price level to draw.")
+endLevel = input.int(3500, "End Key Level", group=group_levels, tooltip="The last key price level to draw.")
+keyLevelSpacing = input.int(10, "Key Level Spacing", group=group_levels, tooltip="The price distance between each key level (e.g., 10 for levels like 3330, 3340, etc.).")
+zoneHeight = input.float(1.0, "Zone Offset (Height)", group=group_levels, tooltip="Determines the zone height. The zone extends this amount *above* and *below* the key level line.")
+
+group_visuals = "Visual Settings"
+lineColor = input.color(color.new(color.white, 25), "Key Level Line Color", group=group_visuals)
+zoneColor = input.color(color.new(color.blue, 85), "Zone Color", group=group_visuals)
+
+
+// == SECTION 2: DRAWING LEVELS AND ZONES ==
+// This logic draws the lines and boxes only on the chart's last bar for performance,
+// using the 'extend' parameter to span the entire chart history and future.
+if keyLevelSpacing > 0 and barstate.islast
+    // A 'for' loop iterates through each price level from the start to the end.
+    for level = startLevel to endLevel by keyLevelSpacing
+        // 1. Draw the horizontal dotted line at the key level.
+        line.new(x1=bar_index, y1=level, x2=bar_index + 1, y2=level,
+                 color=lineColor, style=line.style_dotted, width=1, extend=extend.both)
+
+        // 2. Define the top and bottom of the rectangle based on the Zone Height setting.
+        float zoneTop = level + zoneHeight
+        float zoneBottom = level - zoneHeight
+
+        // 3. Draw the rectangle (zone) centered on the key level.
+        box.new(left=bar_index, top=zoneTop, right=bar_index + 1, bottom=zoneBottom,                border_color=na, bgcolor=zoneColor, extend=extend.both)
+
+
+// == SECTION 3: ALERT CONDITIONS ==
+// Defines alerts for when the price enters or exits any of the defined zones.
+
+// Helper function to check if a price is inside any of the defined zones.
+f_isInZone(price) =>
+    bool inZone = false
+    if keyLevelSpacing > 0
+        // Find the nearest key level to the current price
+        float nearestLevel = math.round((price - startLevel) / keyLevelSpacing) * keyLevelSpacing + startLevel
+        // Check if the price is within the zone boundaries of that nearest level
+        if price >= (nearestLevel - zoneHeight) and price <= (nearestLevel + zoneHeight)
+            inZone := true
+    inZone
+
+// Determine the state for the current and previous bar.
+bool isCurrentlyInZone = f_isInZone(close)
+bool wasPreviouslyInZone = f_isInZone(close[1])
+
+// Define the precise conditions for entering or exiting a zone.
+bool enteredZone = isCurrentlyInZone and not wasPreviouslyInZone
+bool exitedZone = not isCurrentlyInZone and wasPreviouslyInZone
+
+// Alert for when the price ENTERS any zone.
+alertcondition(     condition=enteredZone,     title="Price Entered Key Zone",     message="{{ticker}} has entered a key price zone.")
+
+// Alert for when the price EXITS any zone.
+alertcondition(     condition=exitedZone,     title="Price Exited Key Zone",     message="{{ticker}} has exited a key price zone.")
