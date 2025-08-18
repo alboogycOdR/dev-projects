@@ -3,8 +3,12 @@ indicator("CRT State Enginev5", "CrtStateEng", overlay=true, max_labels_count=50
 //https://claude.ai/chat/a46b6f3b-2f82-42b7-a0ff-8130b28c4b29
 
 //tradingview\Institutional CRT Framework\institutional_crt_frameworkv5.pine
-
 //claude iteration v10
+
+
+//next
+//      continue on google ai studio on 18-08-2025
+//https://aistudio.google.com/prompts/1keodvdbaDNkUWMF918-FVqAcByYhaDtl
 
 // ═══════════════════════════════════════════════════════════════════════════════
 //                          ULTIMATE CRT STATE ENGINE
