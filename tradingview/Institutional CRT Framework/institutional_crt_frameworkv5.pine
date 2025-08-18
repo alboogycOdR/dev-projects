@@ -6,9 +6,10 @@ indicator("CRT State Enginev5", "CrtStateEng", overlay=true, max_labels_count=50
 //claude iteration v10
 
 
-//next
-//      continue on google ai studio on 18-08-2025
-//https://aistudio.google.com/prompts/1keodvdbaDNkUWMF918-FVqAcByYhaDtl
+//next iteration v6.
+//       
+//https://aistudio.google.com/prompts/1keodvdbaDNkUWMF918-FVqAcByYhaDtl       18-08-2025
+//https://claude.ai/chat/861bfc9d-ba90-44cd-800b-013f4bd9fc32       18-08-2025
 
 // ═══════════════════════════════════════════════════════════════════════════════
 //                          ULTIMATE CRT STATE ENGINE
