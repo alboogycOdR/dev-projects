@@ -1,17 +1,17 @@
 //@version=5
-indicator("CRT State Engine v9.0 - OPTIMIZED ORDER BLOCKS", "CRT-v9.0", overlay=true, max_labels_count=200, max_lines_count=200, max_boxes_count=50, dynamic_requests=true)
+indicator("CRT State Engine v9.0 - LUXALGO SMC ORDER BLOCKS", "CRT-v9.0-LUXALGO", overlay=true, max_labels_count=200, max_lines_count=200, max_boxes_count=50, dynamic_requests=true)
 
 // ═══════════════════════════════════════════════════════════════════════════════
-//                     CRT STATE ENGINE v9.0 - OPTIMIZED EDITION
-//                    FIXED ORDER BLOCK SYSTEM WITH OBJECT POOLING
+//                     CRT STATE ENGINE v9.0 - LUXALGO SMC EDITION
+//                    SUPERIOR ORDER BLOCK SYSTEM WITH LUXALGO SMC
 // 
-//  V9.0 INCLUDES:
-//  ✓ FIXED: Complete order block drawing system with proper initialization
-//  ✓ NEW: Object pooling system for optimal memory management
-//  ✓ FIXED: Unmitigated order blocks now properly extend into the future
-//  ✓ OPTIMIZED: Reduced max_boxes_count from 500 to 50 for better performance
-//  ✓ ENHANCED: Smart cleanup system prevents memory leaks
-//  ✓ All previous features from v8.1 maintained
+//  V9.0 LUXALGO INCLUDES:
+//  ✓ INTEGRATED: Complete LuxAlgo SMC order block detection system
+//  ✓ SUPERIOR: Advanced leg detection and structure analysis
+//  ✓ ENHANCED: Internal and swing order block management
+//  ✓ OPTIMIZED: LuxAlgo CISD (Change in Structure Direction) detection
+//  ✓ PROFESSIONAL: Market structure analysis with strength calculation
+//  ✓ All previous CRT features maintained with superior order block detection
 //
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -29,14 +29,12 @@ type MarketStructure
     bool brokenStructure
     int trendBars
 
+// LUXALGO ORDER BLOCK TYPE - SUPERIOR TO PREVIOUS IMPLEMENTATION
 type OrderBlock
-    float top
-    float bottom
-    string obType
-    int barIndex
-    bool isMitigated
-    box box_id
-    label label_id
+    float barHigh
+    float barLow
+    int barTime    
+    int bias
 
 type bin 
     line ln
@@ -162,6 +160,20 @@ risk_reward_ratio = input.float(2.0, "Risk:Reward Ratio (for Fixed R:R)", minval
 min_entry_score = input.int(60, "Minimum Entry Score (0-100)", minval=0, maxval=100, step=5, group="5. Entry Engine")
 
 // ╔═══════════════════════════════════════════════════════════════════════════════
+// 6. LUXALGO ORDER BLOCK SETTINGS
+// ╚═══════════════════════════════════════════════════════════════════════════════
+showInternalOrderBlocksInput = input.bool(true, "Internal Order Blocks", group="6. LuxAlgo Order Blocks", tooltip="Display internal order blocks on the chart")
+internalOrderBlocksSizeInput = input.int(5, "Internal OB Count", minval=1, maxval=20, group="6. LuxAlgo Order Blocks")
+showSwingOrderBlocksInput = input.bool(true, "Swing Order Blocks", group="6. LuxAlgo Order Blocks", tooltip="Display swing order blocks on the chart")
+swingOrderBlocksSizeInput = input.int(5, "Swing OB Count", minval=1, maxval=20, group="6. LuxAlgo Order Blocks")
+orderBlockFilterInput = input.string("Atr", "Order Block Filter", options=["Atr", "Cumulative Mean Range"], group="6. LuxAlgo Order Blocks", tooltip="Method used to filter out volatile order blocks")
+orderBlockMitigationInput = input.string("High/Low", "Order Block Mitigation", options=["Close", "High/Low"], group="6. LuxAlgo Order Blocks", tooltip="Select what values to use for order block mitigation")
+internalBullishOrderBlockColor = input.color(color.new(#3179f5, 80), "Internal Bullish OB", group="6. LuxAlgo Order Blocks")
+internalBearishOrderBlockColor = input.color(color.new(#f77c80, 80), "Internal Bearish OB", group="6. LuxAlgo Order Blocks")
+swingBullishOrderBlockColor = input.color(color.new(#1848cc, 80), "Swing Bullish OB", group="6. LuxAlgo Order Blocks")
+swingBearishOrderBlockColor = input.color(color.new(#b22833, 80), "Swing Bearish OB", group="6. LuxAlgo Order Blocks")
+
+// ╔═══════════════════════════════════════════════════════════════════════════════
 // 7. VISUAL & THEME
 // ╚═══════════════════════════════════════════════════════════════════════════════
 dashboard_theme = input.string("Professional Dark", "Dashboard Theme", options=["Professional Dark", "Professional Light", "Trading Dark", "Trading Light", "Minimal Dark", "Minimal Light"], group="7. Visual & Theme")
@@ -199,33 +211,74 @@ max_daily_loss_pct = input.float(3.0, "Max Daily Loss (%)", minval=1.0, maxval=1
 max_concurrent_trades = input.int(3, "Max Concurrent Trades", minval=1, maxval=10, group="9. Risk Management")
 
 // =======================
-// === INITIALIZE OBJECTS & CISD VARIABLES ===
+// === INITIALIZE OBJECTS & LUXALGO VARIABLES ===
 // =======================
 
 var MarketStructure ms = MarketStructure.new(na, na, na, na, "NEUTRAL", 0, false, 0)
 var array<LiquidityPool> liquidityPools = array.new<LiquidityPool>()
 var RiskManager rm = RiskManager.new(10000, 100, 300, 0, 3, 0, 0, true)
 var PerformanceTracker pt = PerformanceTracker.new(0, 0, 0, 0, 0, 0, 0, 0, array.new<float>())
-var array<OrderBlock> orderBlocks = array.new<OrderBlock>()
 
-// NEW: Object pooling for boxes and labels
-var array<box> reusable_boxes = array.new<box>()
-var array<label> reusable_labels = array.new<label>()
+// LUXALGO ORDER BLOCK SYSTEM VARIABLES
+var array<OrderBlock> swingOrderBlocks = array.new<OrderBlock>()
+var array<OrderBlock> internalOrderBlocks = array.new<OrderBlock>()
+var array<box> swingOrderBlocksBoxes = array.new<box>()
+var array<box> internalOrderBlocksBoxes = array.new<box>()
 
-// CISD Module Variables
-var array<bin>  arrBull        = array.new<bin>() 
-var array<bin>  arrBear        = array.new<bin>() 
-var array<swing>swingsH        = array.new<swing>() 
-var array<swing>swingsL        = array.new<swing>() 
-var chart.point cp_lastPh      = chart.point.from_index(bar_index , high) 
-var chart.point cp_lastPl      = chart.point.from_index(bar_index , low ) 
-var chart.point trackPriceBull = chart.point.from_index(na,  na )
-var chart.point trackPriceBear = chart.point.from_index(na,  na )
+// LUXALGO CISD Module Variables
+var array<bin> arrBull = array.new<bin>() 
+var array<bin> arrBear = array.new<bin>() 
+var array<swing> swingsH = array.new<swing>() 
+var array<swing> swingsL = array.new<swing>() 
+var chart.point cp_lastPh = chart.point.from_index(bar_index, high) 
+var chart.point cp_lastPl = chart.point.from_index(bar_index, low) 
+var chart.point trackPriceBull = chart.point.from_index(na, na)
+var chart.point trackPriceBear = chart.point.from_index(na, na)
 var bin oBull = bin.new(line.new(na,na,na,na), false, na, na, false)
 var bin oBear = bin.new(line.new(na,na,na,na), false, na, na, false)
 
+// LUXALGO DATA STORAGE ARRAYS
+var array<float> parsedHighs = array.new<float>()
+var array<float> parsedLows = array.new<float>()
+var array<float> highs = array.new<float>()
+var array<float> lows = array.new<float>()
+var array<int> times = array.new<int>()
+
+// LUXALGO CONSTANTS
+BULLISH_LEG = 1
+BEARISH_LEG = 0
+BULLISH = +1
+BEARISH = -1
+
 if barstate.isfirst
-    rm.accountBalance := account_balance, rm.riskPerTrade := account_balance * (risk_per_trade_pct / 100), rm.maxDailyLoss := account_balance * (max_daily_loss_pct / 100), rm.maxConcurrentTrades := max_concurrent_trades
+    rm.accountBalance := account_balance
+    rm.riskPerTrade := account_balance * (risk_per_trade_pct / 100)
+    rm.maxDailyLoss := account_balance * (max_daily_loss_pct / 100)
+    rm.maxConcurrentTrades := max_concurrent_trades
+    
+    // Initialize LuxAlgo order block boxes
+    if showSwingOrderBlocksInput
+        for index = 1 to swingOrderBlocksSizeInput
+            swingOrderBlocksBoxes.push(box.new(na,na,na,na,xloc = xloc.bar_time,extend = extend.right))
+    if showInternalOrderBlocksInput
+        for index = 1 to internalOrderBlocksSizeInput
+            internalOrderBlocksBoxes.push(box.new(na,na,na,na,xloc = xloc.bar_time,extend = extend.right))
+
+// LUXALGO ORDER BLOCK VARIABLES
+bearishOrderBlockMitigationSource = orderBlockMitigationInput == "Close" ? close : high
+bullishOrderBlockMitigationSource = orderBlockMitigationInput == "Close" ? close : low
+atrMeasure = ta.atr(200)
+volatilityMeasure = orderBlockFilterInput == "Atr" ? atrMeasure : ta.cum(ta.tr)/bar_index
+highVolatilityBar = (high - low) >= (2 * volatilityMeasure)
+parsedHigh = highVolatilityBar ? low : high
+parsedLow = highVolatilityBar ? high : low
+
+// Store current values into the arrays at each bar
+parsedHighs.push(parsedHigh)
+parsedLows.push(parsedLow)
+highs.push(high)
+lows.push(low)
+times.push(time)
 
 // =======================
 // === TIMEZONE & THEME FUNCTIONS ===
@@ -565,133 +618,8 @@ if not na(cp_lastPh.price) and not na(cp_lastPl.price)
         ms.strength := math.max(0, math.min(100, ms.strength))
 
 // =======================
-// === OPTIMIZED ORDER BLOCK SYSTEM WITH OBJECT POOLING ===
+// === LUXALGO ORDER BLOCK SYSTEM ===
 // =======================
-
-get_or_create_box() =>
-    if array.size(reusable_boxes) > 0
-        existing_box = array.pop(reusable_boxes)
-        existing_box
-    else
-        box.new(na, na, na, na)
-
-get_or_create_label() =>
-    if array.size(reusable_labels) > 0
-        existing_label = array.pop(reusable_labels)
-        existing_label
-    else
-        label.new(na, na, "")
-
-return_box_to_pool(box box_to_return) =>
-    if not na(box_to_return) and array.size(reusable_boxes) < 10
-        array.push(reusable_boxes, box_to_return)
-
-return_label_to_pool(label label_to_return) =>
-    if not na(label_to_return) and array.size(reusable_labels) < 10
-        array.push(reusable_labels, label_to_return)
-
-detect_order_block() =>
-    bool is_order_block = false, string ob_type = "NONE"
-    float ob_top = na, float ob_bottom = na
-    if bar_index >= 3
-        if ob_detection_method == "Strict (Cursor)"
-            // Bullish Order Block: Lower low followed by bullish engulfing
-            bool bullish_imbalance = low[1] < low[2] and low[1] < low[3] and close > high[1]
-            bool bullish_structure = close > open and close[1] < open[1]
-            if bullish_imbalance and bullish_structure
-                is_order_block := true, ob_type := "BULLISH", ob_top := high[1], ob_bottom := low[1]
-            
-            // Bearish Order Block: Higher high followed by bearish engulfing
-            bool bearish_imbalance = high[1] > high[2] and high[1] > high[3] and close < low[1]
-            bool bearish_structure = close < open and close[1] > open[1]
-            if bearish_imbalance and bearish_structure
-                is_order_block := true, ob_type := "BEARISH", ob_top := high[1], ob_bottom := low[1]
-        else // Lenient (Claude) - More permissive detection
-            // Bullish Order Block: Any lower low followed by price above the high
-            if low[1] < low[2] and low[1] < low[3] and close > high[1]
-                is_order_block := true, ob_type := "BULLISH", ob_top := high[1], ob_bottom := low[1]
-            
-            // Bearish Order Block: Any higher high followed by price below the low
-            if high[1] > high[2] and high[1] > high[3] and close < low[1]
-                is_order_block := true, ob_type := "BEARISH", ob_top := high[1], ob_bottom := low[1]
-    [is_order_block, ob_type, ob_top, ob_bottom]
-
-manage_order_blocks_optimized() =>
-    [is_order_block, ob_type, ob_top, ob_bottom] = detect_order_block()
-    
-    if is_order_block and show_key_levels and show_order_blocks and is_current_week()
-        // Get or create box and label from pool
-        new_box = get_or_create_box()
-        new_label = get_or_create_label()
-        
-        // Configure box with proper coordinates
-        box.set_lefttop(new_box, bar_index[1], ob_top)
-        box.set_rightbottom(new_box, bar_index + 50, ob_bottom)
-        box.set_bgcolor(new_box, color.new(ob_type == "BULLISH" ? color.green : color.red, 80))
-        box.set_border_width(new_box, 0)
-        
-        // Configure label
-        label.set_xy(new_label, bar_index[1], (ob_top + ob_bottom) / 2)
-        label.set_text(new_label, "OB")
-        label.set_color(new_label, color.new(ob_type == "BULLISH" ? color.green : color.red, 0))
-        label.set_textcolor(new_label, color.white)
-        label.set_style(new_label, label.style_label_center)
-        label.set_size(new_label, size.tiny)
-        
-        array.push(orderBlocks, OrderBlock.new(ob_top, ob_bottom, ob_type, bar_index[1], false, new_box, new_label))
-        
-        // Debug: Show when order block is detected
-        if enable_debug_mode
-            label.new(bar_index, ob_top, "NEW OB: " + ob_type + "\n" + str.tostring(ob_top, "#.####") + " - " + str.tostring(ob_bottom, "#.####"), 
-                style=label.style_label_down, 
-                color=ob_type == "BULLISH" ? color.green : color.red, 
-                textcolor=color.white, 
-                size=size.small)
-    
-    // Process existing order blocks
-    if array.size(orderBlocks) > 0
-        for i = array.size(orderBlocks) - 1 to 0
-            ob = array.get(orderBlocks, i)
-            
-            if not na(ob.box_id)
-                // Check mitigation
-                if not ob.isMitigated
-                    if (ob.obType == "BULLISH" and low <= ob.top) or (ob.obType == "BEARISH" and high >= ob.bottom)
-                        ob.isMitigated := true
-                        box.set_bgcolor(ob.box_id, color.new(color.gray, 90))
-                        label.set_text(ob.label_id, "MIT")
-                        label.set_color(ob.label_id, color.new(color.gray, 0))
-                    else
-                        // Extend unmitigated order blocks into the future
-                        box.set_right(ob.box_id, bar_index + 50)
-                
-                // Clean up old order blocks
-                bars_since_creation = bar_index - ob.barIndex
-                should_remove = false
-                
-                // Remove if too old, mitigated for too long, or not current week
-                if bars_since_creation > 150
-                    should_remove := true
-                else if ob.isMitigated and bars_since_creation > 20
-                    should_remove := true
-                else if not is_current_week()
-                    should_remove := true
-                
-                if should_remove
-                    return_box_to_pool(ob.box_id)
-                    return_label_to_pool(ob.label_id)
-                    array.remove(orderBlocks, i)
-            else
-                array.remove(orderBlocks, i)
-    
-    // Ensure we don't exceed reasonable limits
-    while array.size(orderBlocks) > 15
-        oldest_ob = array.shift(orderBlocks)
-        return_box_to_pool(oldest_ob.box_id)
-        return_label_to_pool(oldest_ob.label_id)
-
-// Call the optimized order block management
-manage_order_blocks_optimized()
 
 detect_fvg() =>
     bool is_fvg = false, string fvg_type = "NONE"
@@ -703,9 +631,6 @@ detect_fvg() =>
             is_fvg := true, fvg_type := "BEARISH", fvg_top := low[2], fvg_bottom := high
     [is_fvg, fvg_type, fvg_top, fvg_bottom]
 [is_fvg, fvg_type, fvg_top, fvg_bottom] = detect_fvg()
-
-// Global detection for dashboard access
-[is_order_block, ob_type, ob_top, ob_bottom] = detect_order_block()
 
 // =======================
 // === ADVANCED MODULES ===
@@ -823,12 +748,19 @@ var float take_profit = na, var float position_size = na, var int entry_score = 
 
 check_unmitigated_ob_reaction(string direction) =>
     bool reaction = false
-    if array.size(orderBlocks) > 0
-        for ob in orderBlocks
-            if not ob.isMitigated and ob.obType == direction
-                if direction == "BULLISH" and low <= ob.top and close > ob.bottom
+    if array.size(swingOrderBlocks) > 0
+        for ob in swingOrderBlocks
+            // Check if order block is unmitigated by comparing current price to order block levels
+            bool is_mitigated = false
+            if ob.bias == BULLISH and bearishOrderBlockMitigationSource > ob.barHigh
+                is_mitigated := true
+            if ob.bias == BEARISH and bullishOrderBlockMitigationSource < ob.barLow
+                is_mitigated := true
+            
+            if not is_mitigated and ob.bias == (direction == "BULLISH" ? BULLISH : BEARISH)
+                if direction == "BULLISH" and low <= ob.barHigh and close > ob.barLow
                     reaction := true
-                if direction == "BEARISH" and high >= ob.bottom and close < ob.top
+                if direction == "BEARISH" and high >= ob.barLow and close < ob.barHigh
                     reaction := true
     reaction
 
@@ -860,7 +792,8 @@ generate_advanced_entry_signal() =>
                 EntryFilter filters = evaluate_entry_filters(trade_direction)
                 score := filters.score
                 if score >= min_entry_score and check_unmitigated_ob_reaction(trade_direction)
-                    signal := trade_direction, price := close, sl := trade_direction == "BUY" ? low[1] - ta.atr(14) * 0.5 : high[1] + ta.atr(14) * 0.5, size := calculate_position_size(price, sl)
+                    atr_value = ta.atr(14)
+                    signal := trade_direction, price := close, sl := trade_direction == "BUY" ? low[1] - atr_value * 0.5 : high[1] + atr_value * 0.5, size := calculate_position_size(price, sl)
                     if tp_calculation_method == "Dynamic (Cursor)"
                         tp := not na(ms.lastHH) and not na(ms.lastLL) ? (trade_direction == "BUY" ? math.min(ms.lastHH, price + (price - sl) * 3) : math.max(ms.lastLL, price - (sl - price) * 3)) : (trade_direction == "BUY" ? price + (price - sl) * 2 : price - (sl - price) * 2)
                     else // Fixed R:R (Claude)
@@ -957,13 +890,18 @@ if show_timezone_info and barstate.islast and is_current_week()
 if enable_debug_mode and barstate.islast and is_current_week()
     // Count unmitigated order blocks manually
     int unmitigated_count = 0
-    if array.size(orderBlocks) > 0
-        for i = 0 to array.size(orderBlocks) - 1
-            ob = array.get(orderBlocks, i)
-            if not ob.isMitigated
+    if array.size(swingOrderBlocks) > 0
+        for i = 0 to array.size(swingOrderBlocks) - 1
+            ob = array.get(swingOrderBlocks, i)
+            bool is_mitigated = false
+            if ob.bias == BULLISH and bearishOrderBlockMitigationSource > ob.barHigh
+                is_mitigated := true
+            if ob.bias == BEARISH and bullishOrderBlockMitigationSource < ob.barLow
+                is_mitigated := true
+            if not is_mitigated
                 unmitigated_count += 1
     
-    string debug_text = "=== CRT STATE ENGINE v9.0 ===\nTimeframe Valid: " + str.tostring(is_valid_timeframe()) + "\nDOL Bias: " + dol_bias + " → " + str.tostring(dol_target, "#.####") + "\nSession: " + session_state + " (" + session_behavior + ")\n9PM CRT: " + crt_9pm_state + " [" + profile_9pm + "]\n1AM CRT: " + crt_1am_state + " [" + profile_1am + "]\n5AM CRT: " + crt_5am_state + " [" + profile_5am + "]\n9AM CRT: " + crt_9am_state + " [" + profile_9am + "]\nActive Profile: " + get_active_profile() + "\nEntry Signal: " + entry_signal + " (Score: " + str.tostring(entry_score) + ")\nMarket Structure: " + ms.trend + " (Strength: " + str.tostring(ms.strength) + "%)\nOrder Blocks: " + str.tostring(array.size(orderBlocks)) + " (Unmitigated: " + str.tostring(unmitigated_count) + ")\nPool Stats: Reusable Boxes=" + str.tostring(array.size(reusable_boxes)) + " Labels=" + str.tostring(array.size(reusable_labels)) + "\nCurrent Time (" + timezone_mode + "): " + str.format("{0,time,HH:mm}", time, timezone_mode)
+    string debug_text = "=== CRT STATE ENGINE v9.0 LUXALGO ===\nTimeframe Valid: " + str.tostring(is_valid_timeframe()) + "\nDOL Bias: " + dol_bias + " → " + str.tostring(dol_target, "#.####") + "\nSession: " + session_state + " (" + session_behavior + ")\n9PM CRT: " + crt_9pm_state + " [" + profile_9pm + "]\n1AM CRT: " + crt_1am_state + " [" + profile_1am + "]\n5AM CRT: " + crt_5am_state + " [" + profile_5am + "]\n9AM CRT: " + crt_9am_state + " [" + profile_9am + "]\nActive Profile: " + get_active_profile() + "\nEntry Signal: " + entry_signal + " (Score: " + str.tostring(entry_score) + ")\nMarket Structure: " + ms.trend + " (Strength: " + str.tostring(ms.strength) + "%)\nLuxAlgo Order Blocks: " + str.tostring(array.size(swingOrderBlocks)) + " Swing, " + str.tostring(array.size(internalOrderBlocks)) + " Internal\nPool Stats: Swing Boxes=" + str.tostring(array.size(swingOrderBlocksBoxes)) + " Internal Boxes=" + str.tostring(array.size(internalOrderBlocksBoxes)) + "\nCurrent Time (" + timezone_mode + "): " + str.format("{0,time,HH:mm}", time, timezone_mode)
     label.new(bar_index, high + (high-low)*0.1, debug_text, style=label.style_label_down, size=size.large, color=color.yellow, textcolor=color.black)
 
 // =======================
@@ -980,9 +918,9 @@ if show_advanced_dashboard
         value_font_size = get_font_size(dashboard_value_size)
 
         // Modern Header
-        table.cell(dashboard, 0, 0, "🚀 CRT ENGINE v9.0", bgcolor=header_bg, text_color=header_text, text_size=header_font_size)
+        table.cell(dashboard, 0, 0, "🚀 CRT ENGINE v9.0 LUXALGO", bgcolor=header_bg, text_color=header_text, text_size=header_font_size)
         table.merge_cells(dashboard, 0, 0, 5, 0)
-        table.cell(dashboard, 0, 1, "Optimized Order Block System", bgcolor=header_bg, text_color=header_text, text_size=label_font_size)
+        table.cell(dashboard, 0, 1, "LuxAlgo SMC Order Block System", bgcolor=header_bg, text_color=header_text, text_size=label_font_size)
         table.merge_cells(dashboard, 0, 1, 5, 1)
 
         // System Status Section
@@ -1088,10 +1026,10 @@ if show_advanced_dashboard
         table.cell(dashboard, 0, 14, "💰 Daily P&L", bgcolor=label_bg, text_color=label_text, text_size=label_font_size)
         table.cell(dashboard, 1, 14, pnl_icon + " " + str.tostring(rm.currentDailyPnL, "#.##"), bgcolor=pnl_bg, text_color=value_text, text_size=value_font_size)
 
-        key_levels_text = is_order_block ? "📦 OB " + ob_type : is_fvg ? "🕳️ FVG " + fvg_type : "⏸️ None"
-        key_levels_bg = is_order_block ? warning_bg : is_fvg ? info_bg : section_bg
+        key_levels_text = is_fvg ? "🕳️ FVG " + fvg_type : "⏸️ None"
+        key_levels_bg = is_fvg ? info_bg : section_bg
         table.cell(dashboard, 2, 14, "🎯 Key Levels", bgcolor=label_bg, text_color=label_text, text_size=label_font_size)
-        table.cell(dashboard, 3, 14, key_levels_text, bgcolor=key_levels_bg, text_color=value_text, text_size=label_font_size)
+        table.cell(dashboard, 3, 14, key_levels_text, bgcolor=key_levels_bg, text_color=value_text, text_size=value_font_size)
         table.merge_cells(dashboard, 3, 14, 5, 14)
 
         // Performance Section
@@ -1117,25 +1055,30 @@ if show_advanced_dashboard
         
         // Count unmitigated order blocks
         int unmitigated_count = 0
-        if array.size(orderBlocks) > 0
-            for i = 0 to array.size(orderBlocks) - 1
-                ob = array.get(orderBlocks, i)
-                if not ob.isMitigated
+        if array.size(swingOrderBlocks) > 0
+            for i = 0 to array.size(swingOrderBlocks) - 1
+                ob = array.get(swingOrderBlocks, i)
+                bool is_mitigated = false
+                if ob.bias == BULLISH and bearishOrderBlockMitigationSource > ob.barHigh
+                    is_mitigated := true
+                if ob.bias == BEARISH and bullishOrderBlockMitigationSource < ob.barLow
+                    is_mitigated := true
+                if not is_mitigated
                     unmitigated_count += 1
         
         table.cell(dashboard, 0, 18, "📊 Total OBs", bgcolor=label_bg, text_color=label_text, text_size=label_font_size)
-        table.cell(dashboard, 1, 18, str.tostring(array.size(orderBlocks)), bgcolor=value_bg, text_color=value_text, text_size=value_font_size)
+        table.cell(dashboard, 1, 18, str.tostring(array.size(swingOrderBlocks)), bgcolor=value_bg, text_color=value_text, text_size=value_font_size)
         table.cell(dashboard, 2, 18, "🔄 Active", bgcolor=label_bg, text_color=label_text, text_size=label_font_size)
         table.cell(dashboard, 3, 18, str.tostring(unmitigated_count), bgcolor=success_bg, text_color=value_text, text_size=value_font_size)
         table.cell(dashboard, 4, 18, "♻️ Pool", bgcolor=label_bg, text_color=label_text, text_size=label_font_size)
-        table.cell(dashboard, 5, 18, str.tostring(array.size(reusable_boxes)) + "/" + str.tostring(array.size(reusable_labels)), bgcolor=info_bg, text_color=value_text, text_size=value_font_size)
+        table.cell(dashboard, 5, 18, str.tostring(array.size(swingOrderBlocksBoxes)) + "/" + str.tostring(array.size(internalOrderBlocksBoxes)), bgcolor=info_bg, text_color=value_text, text_size=value_font_size)
         
         // Footer
         summary_text = "🎯 " + (entry_signal != "NONE" ? "Signal Active" : "No Signal") + " | 📊 " + (crt_9pm_state == "D_READY" or crt_1am_state == "D_READY" or crt_5am_state == "D_READY" or crt_9am_state == "D_READY" ? "CRT Ready" : "CRT Inactive") + " | 🛡️ " + (rm.tradingAllowed ? "Risk Active" : "Risk Halted") + " | 📦 " + str.tostring(unmitigated_count) + " OBs Active"
         table.cell(dashboard, 0, 19, summary_text, bgcolor=label_bg, text_color=label_text, text_size=label_font_size)
         table.merge_cells(dashboard, 0, 19, 5, 19)
         
-        table.cell(dashboard, 0, 20, "v9.0 OPTIMIZED | " + str.format("{0,date,yyyy-MM-dd HH:mm}", time, timezone_mode) + " " + timezone_mode, bgcolor=header_bg, text_color=header_text, text_size=size.tiny)
+        table.cell(dashboard, 0, 20, "v9.0 LUXALGO SMC | " + str.format("{0,date,yyyy-MM-dd HH:mm}", time, timezone_mode) + " " + timezone_mode, bgcolor=header_bg, text_color=header_text, text_size=size.tiny)
         table.merge_cells(dashboard, 0, 20, 5, 20)
 
 // =======================
@@ -1156,17 +1099,309 @@ alertcondition(check_liquidity_sweep("SELL"), title="Bearish Liquidity Sweep", m
 alertcondition(session_state != session_state[1], title="Session Change", message="New Session Started")
 alertcondition(dol_bias != dol_bias[1] and dol_bias != "NEUTRAL", title="DOL Bias Change", message="DOL Bias Changed - Review Trading Plan")
 
-// NEW v9.0 Order Block Alerts
-alertcondition(is_order_block and ob_type == "BULLISH", title="Bullish Order Block Detected", message="New Bullish Order Block formed - Monitor for entry opportunities")
-alertcondition(is_order_block and ob_type == "BEARISH", title="Bearish Order Block Detected", message="New Bearish Order Block formed - Monitor for entry opportunities")
+// NEW v9.0 LuxAlgo Order Block Alerts
+var int prev_swing_ob_count = 0
+var int prev_internal_ob_count = 0
+
+// Update previous counts
+if barstate.isconfirmed
+    prev_swing_ob_count := array.size(swingOrderBlocks)
+    prev_internal_ob_count := array.size(internalOrderBlocks)
+
+alertcondition(not na(swingOrderBlocks) and array.size(swingOrderBlocks) > prev_swing_ob_count, title="LuxAlgo Order Block Detected", message="New LuxAlgo Order Block formed - Monitor for entry opportunities")
+alertcondition(not na(internalOrderBlocks) and array.size(internalOrderBlocks) > prev_internal_ob_count, title="LuxAlgo Internal Order Block Detected", message="New LuxAlgo Internal Order Block formed - Monitor for entry opportunities")
 
 // Periodic cleanup to maintain performance
 if bar_index % 100 == 0  // Run every 100 bars
     // Force cleanup of very old objects to prevent memory issues
-    if array.size(orderBlocks) > 0
-        for i = array.size(orderBlocks) - 1 to 0
-            ob = array.get(orderBlocks, i)
-            if bar_index - ob.barIndex > 300  // Force remove after 300 bars
-                return_box_to_pool(ob.box_id)
-                return_label_to_pool(ob.label_id)
-                array.remove(orderBlocks, i)
+    if array.size(swingOrderBlocks) > 0
+        for i = array.size(swingOrderBlocks) - 1 to 0
+            ob = array.get(swingOrderBlocks, i)
+            if bar_index - ob.barTime > 300  // Force remove after 300 bars
+                array.remove(swingOrderBlocks, i)
+    
+    if array.size(internalOrderBlocks) > 0
+        for i = array.size(internalOrderBlocks) - 1 to 0
+            ob = array.get(internalOrderBlocks, i)
+            if bar_index - ob.barTime > 300  // Force remove after 300 bars
+                array.remove(internalOrderBlocks, i)
+
+// =======================
+// === LUXALGO ORDER BLOCK FUNCTIONS ===
+// =======================
+
+// @function            Get the value of the current leg, it can be 0 (bearish) or 1 (bullish)
+// @returns             int
+leg(int size) =>
+    var leg = 0    
+    newLegHigh = high[size] > ta.highest(size)
+    newLegLow = low[size] < ta.lowest(size)
+    
+    if newLegHigh
+        leg := BEARISH_LEG
+    else if newLegLow
+        leg := BULLISH_LEG
+    leg
+
+// @function            Identify whether the current value is the start of a new leg (swing)
+// @param leg           (int) Current leg value
+// @returns             bool
+startOfNewLeg(int leg) => ta.change(leg) != 0
+
+// @function            Identify whether the current level is the start of a new bearish leg (swing)
+// @param leg           (int) Current leg value
+// @returns             bool
+startOfBearishLeg(int leg) => ta.change(leg) == -1
+
+// @function            Identify whether the current level is the start of a new bullish leg (swing)
+// @param leg           (int) Current leg value
+// @returns             bool
+startOfBullishLeg(int leg) => ta.change(leg) == +1
+
+// @function            delete order blocks
+// @param internal      true for internal order blocks
+// @returns             orderBlock ID
+deleteOrderBlocks(bool internal = false) =>
+    array<OrderBlock> orderBlocks = internal ? internalOrderBlocks : swingOrderBlocks
+
+    for [index, eachOrderBlock] in orderBlocks
+        bool crossedOrderBlock = false
+        
+        if bearishOrderBlockMitigationSource > eachOrderBlock.barHigh and eachOrderBlock.bias == BEARISH
+            crossedOrderBlock := true
+        else if bullishOrderBlockMitigationSource < eachOrderBlock.barLow and eachOrderBlock.bias == BULLISH
+            crossedOrderBlock := true
+        
+        if crossedOrderBlock                    
+            orderBlocks.remove(index)            
+
+// @function            fetch and store order blocks
+// @param p_ivot        base pivot point
+// @param internal      true for internal order blocks
+// @param bias          BULLISH or BEARISH
+// @returns             void
+storeOrderBlock(int barIndex, bool internal = false, int bias) =>
+    if (not internal and showSwingOrderBlocksInput) or (internal and showInternalOrderBlocksInput)
+        array<float> a_rray = na
+        int parsedIndex = na
+
+        if bias == BEARISH
+            a_rray := parsedHighs.slice(barIndex, bar_index)
+            parsedIndex := barIndex + a_rray.indexof(a_rray.max())  
+        else
+            a_rray := parsedLows.slice(barIndex, bar_index)
+            parsedIndex := barIndex + a_rray.indexof(a_rray.min())                        
+
+        OrderBlock o_rderBlock = OrderBlock.new(parsedHighs.get(parsedIndex), parsedLows.get(parsedIndex), times.get(parsedIndex), bias)
+        array<OrderBlock> orderBlocks = internal ? internalOrderBlocks : swingOrderBlocks
+        
+        if orderBlocks.size() >= 100
+            orderBlocks.pop()
+        orderBlocks.unshift(o_rderBlock)
+
+// @function            draw order blocks as boxes
+// @param internal      true for internal order blocks
+// @returns             void
+drawOrderBlocks(bool internal = false) =>        
+    array<OrderBlock> orderBlocks = internal ? internalOrderBlocks : swingOrderBlocks
+    orderBlocksSize = orderBlocks.size()
+
+    if orderBlocksSize > 0        
+        maxOrderBlocks = internal ? internalOrderBlocksSizeInput : swingOrderBlocksSizeInput
+        array<OrderBlock> parsedOrderBlocks = orderBlocks.slice(0, math.min(maxOrderBlocks, orderBlocksSize))
+        array<box> b_oxes = internal ? internalOrderBlocksBoxes : swingOrderBlocksBoxes        
+
+        for [index, eachOrderBlock] in parsedOrderBlocks
+            orderBlockColor = internal ? (eachOrderBlock.bias == BEARISH ? internalBearishOrderBlockColor : internalBullishOrderBlockColor) : (eachOrderBlock.bias == BEARISH ? swingBearishOrderBlockColor : swingBullishOrderBlockColor)
+
+            box b_ox = b_oxes.get(index)
+            b_ox.set_top_left_point(chart.point.new(eachOrderBlock.barTime, na, eachOrderBlock.barHigh))
+            b_ox.set_bottom_right_point(chart.point.new(last_bar_time, na, eachOrderBlock.barLow))        
+            b_ox.set_border_color(internal ? na : orderBlockColor)
+            b_ox.set_bgcolor(orderBlockColor)
+
+// @function            detect and draw structures, also detect and store order blocks
+// @param internal      true for internal structures or order blocks
+// @returns             void
+displayStructure(bool internal = false) =>
+    var bullishBar = true
+    var bearishBar = true
+
+    // Use LuxAlgo structure detection
+    currentLeg = leg(internal ? 5 : 50)  // 5 for internal, 50 for swing
+    newPivot = startOfNewLeg(currentLeg)
+    pivotLow = startOfBullishLeg(currentLeg)
+    pivotHigh = startOfBearishLeg(currentLeg)
+
+    if newPivot
+        if pivotLow
+            // Bullish structure formed
+            if (internal and showInternalOrderBlocksInput) or (not internal and showSwingOrderBlocksInput)
+                storeOrderBlock(bar_index - (internal ? 5 : 50), internal, BULLISH)
+        else
+            // Bearish structure formed
+            if (internal and showInternalOrderBlocksInput) or (not internal and showSwingOrderBlocksInput)
+                storeOrderBlock(bar_index - (internal ? 5 : 50), internal, BEARISH)
+
+// =======================
+// === LUXALGO CISD FUNCTIONS ===
+// =======================
+
+// Pivots for Liquidity Sweep method (using existing ph/pl variables)
+
+if not na(ph) 
+    swingsH.push(swing.new(chart.point.from_index(bar_index-1, ph), na, na, false))
+    cp_lastPh := chart.point.from_index(bar_index-1, ph)
+
+if not na(pl) 
+    swingsL.push(swing.new(chart.point.from_index(bar_index-1, pl), na, na, false))
+    cp_lastPl := chart.point.from_index(bar_index-1, pl)
+
+// Using existing bull/bear variables from CISD module
+
+if bull and bear[1]
+    trackPriceBull := chart.point.from_index(bar_index, open)
+
+if bear and bull[1]
+    trackPriceBear := chart.point.from_index(bar_index, open)
+
+// Reset when last Swing is broken
+if close > cp_lastPh.price
+    cp_lastPh := chart.point.from_index(na, na)
+
+if close < cp_lastPl.price
+    cp_lastPl := chart.point.from_index(na, na)
+
+// Classic Method
+if not sweep and show_cisd      
+    if barstate.isconfirmed and bull and bear[1]
+        if oBull.active and not oBull.broken
+            oBull.ln.delete()
+        oBull.active := true
+        oBull.ln := line.new(trackPriceBull.index, trackPriceBull.price, bar_index, trackPriceBull.price, color=color.new(color.green, 40))
+        oBull.broken := false
+    if barstate.isconfirmed and bear and bull[1] 
+        if oBear.active and not oBear.broken
+            oBear.ln.delete() 
+        oBear.active := true
+        oBear.ln := line.new(trackPriceBear.index, trackPriceBear.price, bar_index, trackPriceBear.price, color=color.new(color.red, 40))
+        oBear.broken := false
+    
+    if oBull.active and bar_index - oBull.ln.get_x1() <= 100
+        oBull.ln.set_x2(bar_index)
+        if close < oBull.ln.get_y2()
+            oBull.ln.set_color(color.red)
+            oBull.active := false
+            oBull.broken := true
+            ms.trend := "BEARISH"
+            ms.brokenStructure := true
+            label.new(math.ceil(math.avg(oBull.ln.get_x1(), bar_index)), oBull.ln.get_y2(), style=label.style_label_up, textcolor=color.red, text='CISD', color=color(na)) 
+    else if oBull.active
+        oBull.active := false
+        oBull.ln.delete()
+
+    if oBear.active and bar_index - oBear.ln.get_x1() <= 100          
+        oBear.ln.set_x2(bar_index)
+        if close > oBear.ln.get_y2()  
+            oBear.ln.set_color(color.green)
+            oBear.active := false
+            oBear.broken := true
+            ms.trend := "BULLISH"
+            ms.brokenStructure := true
+            label.new(math.ceil(math.avg(oBear.ln.get_x1(), bar_index)), oBear.ln.get_y2(), style=label.style_label_down, textcolor=color.green, text='CISD', color=color(na)) 
+    else if oBear.active
+        oBear.active := false
+        oBear.ln.delete()
+
+// Liquidity Sweep Method
+else if show_cisd
+    sweep = cisd_detection_method == 'Liquidity Sweep'
+    
+    if swingsH.size() > 0 
+        for i = swingsH.size() -1 to 0 
+            get = swingsH.get(i)
+            if bar_index - get.cp.index > 100
+                swingsH.remove(i)
+            else if not na(get.ln) and close > get.ln.get_y2()
+                swingsH.remove(i)
+            else if close > get.cp.price
+                swingsH.remove(i)
+            else if not get.active and high > get.cp.price and close < get.cp.price
+                get.ln := line.new(get.cp.index, get.cp.price, bar_index, get.cp.price, color=color.gray)
+                get.wick := line.new(bar_index, get.cp.price, bar_index, high, color=color.gray, width=3)
+                get.active := true
+                arrBull.push(bin.new(line.new(trackPriceBull.index, trackPriceBull.price, bar_index, trackPriceBull.price, color=color.new(color.green, 40)), true, na, na, false))
+    
+    if swingsL.size() > 0 
+        for i = swingsL.size() -1 to 0 
+            get = swingsL.get(i)
+            if bar_index - get.cp.index > 100
+                swingsL.remove(i)
+            else if not na(get.ln) and close < get.ln.get_y2()
+                swingsL.remove(i)
+            else if close < get.cp.price
+                swingsL.remove(i)
+            else if not get.active and low < get.cp.price and close > get.cp.price
+                get.ln := line.new(get.cp.index, get.cp.price, bar_index, get.cp.price, color=color.gray)
+                get.wick := line.new(bar_index, get.cp.price, bar_index, low, color=color.gray, width=3)
+                get.active := true
+                arrBear.push(bin.new(line.new(trackPriceBear.index, trackPriceBear.price, bar_index, trackPriceBear.price, color=color.new(color.red, 40)), true, na, na, false))
+
+    if arrBull.size() > 0 
+        for i = arrBull.size() -1 to 0 
+            get = arrBull.get(i)
+            get.ln.set_x2(bar_index)
+            if bar_index - get.ln.get_x1() > 100
+                get.ln.delete()
+                arrBull.remove(i) 
+            else if close < get.ln.get_y2() 
+                get.ln.set_color(color.red)
+                ms.trend := "BEARISH"
+                ms.brokenStructure := true
+                label.new(math.ceil(math.avg(get.ln.get_x1(), bar_index)), get.ln.get_y2(), style=label.style_label_up, textcolor=color.red, text='CISD', color=color(na))
+                arrBull.remove(i)
+    
+    if arrBear.size() > 0 
+        for i = arrBear.size() -1 to 0 
+            get = arrBear.get(i)
+            get.ln.set_x2(bar_index)
+            if bar_index - get.ln.get_x1() > 100
+                get.ln.delete()
+                arrBear.remove(i) 
+            else if close > get.ln.get_y2() 
+                get.ln.set_color(color.green)
+                ms.trend := "BULLISH"
+                ms.brokenStructure := true
+                label.new(math.ceil(math.avg(get.ln.get_x1(), bar_index)), get.ln.get_y2(), style=label.style_label_down, textcolor=color.green, text='CISD', color=color(na))
+                arrBear.remove(i)
+
+// Update strength
+if not na(cp_lastPh.price) and not na(cp_lastPl.price)
+    range_hl = cp_lastPh.price - cp_lastPl.price
+    if range_hl > 0
+        ms.strength := ms.trend == "BULLISH" ? math.round(((close - cp_lastPl.price) / range_hl) * 100) : math.round(((cp_lastPh.price - close) / range_hl) * 100)
+        ms.strength := math.max(0, math.min(100, ms.strength))
+
+// =======================
+// === LUXALGO ORDER BLOCK EXECUTION ===
+// =======================
+
+// Execute LuxAlgo structure analysis and order block detection
+displayStructure(true)   // Internal order blocks
+displayStructure(false)  // Swing order blocks
+
+// Delete mitigated order blocks
+if showInternalOrderBlocksInput
+    deleteOrderBlocks(true)
+
+if showSwingOrderBlocksInput
+    deleteOrderBlocks()
+
+// Draw order blocks
+if barstate.islastconfirmedhistory or barstate.islast
+    if showInternalOrderBlocksInput        
+        drawOrderBlocks(true)
+        
+    if showSwingOrderBlocksInput        
+        drawOrderBlocks()
+
