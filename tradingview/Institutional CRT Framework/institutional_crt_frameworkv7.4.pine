@@ -1,0 +1,518 @@
+//@version=5
+indicator("CRT State Engine v7.4 [NY TIME FIX]", "CRT-v7.4-NYTime", overlay=true, max_labels_count=500, max_lines_count=500, max_boxes_count=500)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//                     CRT STATE ENGINE V7.4 - NEW YORK TIME FIX
+//                          CRITICAL TIMEZONE CORRECTION
+// 
+//  MAJOR FIX IN V7.4:
+//  ✓ ALL CRT models now use New York time (EST/EDT) as intended
+//  ✓ Automatic DST adjustment for EST/EDT transitions
+//  ✓ Corrected time windows for all models
+//  ✓ Session times aligned with NY market hours
+//  ✓ Debug display shows both NY and GMT times
+//
+//  1AM NY Model = 01:00 New York time (NOT GMT!)
+//  5AM NY Model = 05:00 New York time (NOT GMT!)
+//  9AM NY Model = 09:00 New York time (NOT GMT!)
+//
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// =======================
+// === CRITICAL TIMEZONE CONFIGURATION ===
+// =======================
+
+// Timezone selection - NY Time is now DEFAULT and RECOMMENDED
+timezone_mode = input.string("America/New_York", "🕐 Timezone for CRT Models",     options=["America/New_York", "GMT", "Europe/London"],     group="🚨 CRITICAL TIMEZONE SETTING",    tooltip="CRT models are designed for New York time. Only change if you have specific requirements.")
+
+show_timezone_info = input.bool(true, "Show Timezone Info on Chart", group="🚨 CRITICAL TIMEZONE SETTING",    tooltip="Displays current NY time and GMT time for verification")
+
+// =======================
+// === TIMEZONE FUNCTIONS ===
+// =======================
+
+// Get current hour in selected timezone
+get_tz_hour() =>
+    hour(time, timezone_mode)
+
+// Get current minute in selected timezone
+get_tz_minute() =>
+    minute(time, timezone_mode)
+
+// Get current time in minutes from midnight in selected timezone
+get_tz_minutes() =>
+    get_tz_hour() * 60 + get_tz_minute()
+
+// Check if we're in a specific time window (timezone-aware)
+is_in_tz_window(int start_hour, int start_min, int end_hour, int end_min) =>
+    current_hour = get_tz_hour()
+    current_min = get_tz_minute()
+    current_minutes = current_hour * 60 + current_min
+    start_minutes = start_hour * 60 + start_min
+    end_minutes = end_hour * 60 + end_min
+    
+    if start_minutes <= end_minutes
+        current_minutes >= start_minutes and current_minutes <= end_minutes
+    else  // Handle day wrap
+        current_minutes >= start_minutes or current_minutes <= end_minutes
+
+// Get readable time string for debugging
+get_time_debug_string() =>
+    ny_time = str.format("{0,time,HH:mm}", time, "America/New_York")
+    gmt_time = str.format("{0,time,HH:mm}", time, "GMT")
+    tz_time = str.format("{0,time,HH:mm}", time, timezone_mode)
+    
+    "NY: " + ny_time + " | GMT: " + gmt_time + " | Selected: " + tz_time
+
+// =======================
+// === INPUTS (Groups Reorganized) ===
+// =======================
+
+// CRT Models
+enable_1am_crt = input.bool(true, "1AM NY Model", group="1. CRT Models")
+enable_5am_crt = input.bool(true, "5AM NY Model", group="1. CRT Models")
+enable_9am_crt = input.bool(true, "9AM NY Model", group="1. CRT Models")
+
+// Core System
+enable_dol_engine = input.bool(true, "Enable DOL Analysis", group="2. Core System")
+enable_session_engine = input.bool(true, "Enable Session State Machine", group="2. Core System")
+enable_entry_engine = input.bool(true, "Enable Live Entry Signals", group="2. Core System")
+enable_debug_mode = input.bool(false, "Debug Mode", group="2. Core System")
+pivot_strength = input.int(10, "DOL Pivot Strength", minval=5, maxval=50, group="2. Core System")
+
+// Entry Configuration
+min_entry_score = input.int(60, "Minimum Entry Score", minval=0, maxval=100, group="3. Entry Settings")
+risk_reward_ratio = input.float(2.0, "Risk:Reward Ratio", minval=1.0, maxval=5.0, group="3. Entry Settings")
+
+// Visuals
+show_dol_lines = input.bool(true, "Show DOL Lines", group="4. Visuals")
+show_session_boxes = input.bool(true, "Show Session Boxes", group="4. Visuals")
+show_entry_signals = input.bool(true, "Show Entry Signals", group="4. Visuals")
+show_dashboard = input.bool(true, "Show Dashboard", group="4. Visuals")
+
+// Dashboard Settings
+dashboard_size = input.string("Normal", "Dashboard Size", options=["Small", "Normal", "Large"], group="4. Visuals")
+
+// Dashboard helper functions
+get_dashboard_text_size() =>
+    dashboard_size == "Small" ? size.tiny : 
+    dashboard_size == "Large" ? size.large : 
+    size.normal
+
+// =======================
+// === CORRECTED SESSION STATES (NY TIME) ===
+// =======================
+
+get_session_state_ny() =>
+    h = get_tz_hour()
+    
+    // Sessions in NEW YORK TIME
+    if h >= 13 and h < 17      // 1:00 PM - 5:00 PM NY
+        "CBDR"
+    else if h >= 17 and h < 21  // 5:00 PM - 9:00 PM NY  
+        "ASIA_EARLY"
+    else if h >= 21 or h < 1    // 9:00 PM - 1:00 AM NY
+        "ASIA_LATE"
+    else if h >= 1 and h < 3    // 1:00 AM - 3:00 AM NY (London prep)
+        "LONDON_PREP"
+    else if h >= 3 and h < 7    // 3:00 AM - 7:00 AM NY (London session)
+        "LONDON"
+    else if h >= 7 and h < 9    // 7:00 AM - 9:00 AM NY (Pre-NY)
+        "PRE_NY"
+    else if h >= 9 and h < 13   // 9:00 AM - 1:00 PM NY (NY session)
+        "NY"
+    else
+        "TRANSITION"
+
+session_state = get_session_state_ny()
+
+// =======================
+// === DOL ANALYSIS (Timezone Independent) ===
+// =======================
+
+float pivot_high_price = ta.pivothigh(high, pivot_strength, pivot_strength)
+float pivot_low_price = ta.pivotlow(low, pivot_strength, pivot_strength)
+
+var float last_swing_high = na
+var float last_swing_low = na
+var float dol_target = na
+var string dol_bias = "NEUTRAL"
+
+if not na(pivot_high_price)
+    last_swing_high := pivot_high_price
+
+if not na(pivot_low_price)
+    last_swing_low := pivot_low_price
+
+if not na(last_swing_high) and not na(last_swing_low)
+    float dist_to_high = math.abs(close - last_swing_high)
+    float dist_to_low = math.abs(close - last_swing_low)
+    dol_bias := dist_to_high < dist_to_low ? "BULLISH" : "BEARISH"
+    dol_target := dist_to_high < dist_to_low ? last_swing_high : last_swing_low
+
+// =======================
+// === CORRECTED CRT STATES (NY TIME) ===
+// =======================
+
+var string crt_1am_state = "INACTIVE"
+var string crt_5am_state = "INACTIVE"
+var string crt_9am_state = "INACTIVE"
+var string profile_1am = "NONE"
+var string profile_5am = "NONE"
+var string profile_9am = "NONE"
+
+// 1AM NY MODEL - CORRECTED TIMES
+update_1am_crt_state() =>
+    string state = crt_1am_state
+    string profile = profile_1am
+    
+    if enable_1am_crt
+        h = get_tz_hour()
+        m = get_tz_minute()
+        
+        // A_FORMING: 1:00-1:30 AM NY
+        if h == 1 and m < 30 and crt_1am_state == "INACTIVE"
+            profile := "1AM_NY_MODEL"
+            state := "A_FORMING"
+        
+        // M_LIVE: 5:00-5:30 AM NY (London manipulation)
+        else if h == 5 and m < 30 and crt_1am_state == "A_FORMING"
+            state := "M_LIVE"
+        
+        // D_READY: 9:00-9:30 AM NY (NY open distribution)
+        else if h == 9 and m < 30 and crt_1am_state == "M_LIVE"
+            state := "D_READY"
+        
+        // ENTRY WINDOW: 2:00-3:00 AM NY (Next day during London)
+        // Reset after 13:00 NY (1:00 PM)
+        else if h >= 13 and crt_1am_state == "D_READY"
+            state := "INACTIVE"
+            profile := "NONE"
+    
+    [state, profile]
+
+[new_1am_state, new_1am_profile] = update_1am_crt_state()
+crt_1am_state := new_1am_state
+profile_1am := new_1am_profile
+
+// 5AM NY MODEL - CORRECTED TIMES
+update_5am_crt_state() =>
+    string state = crt_5am_state
+    string profile = profile_5am
+    
+    if enable_5am_crt
+        h = get_tz_hour()
+        m = get_tz_minute()
+        
+        // A_FORMING: 5:00-5:30 AM NY
+        if h == 5 and m < 30 and crt_5am_state == "INACTIVE"
+            profile := "5AM_NY_MODEL"
+            state := "A_FORMING"
+        
+        // M_LIVE: 9:00-9:30 AM NY
+        else if h == 9 and m < 30 and crt_5am_state == "A_FORMING"
+            state := "M_LIVE"
+        
+        // D_READY: 1:00-1:30 PM NY
+        else if h == 13 and m < 30 and crt_5am_state == "M_LIVE"
+            state := "D_READY"
+        
+        // ENTRY WINDOW: 6:00-8:30 AM NY (Next day)
+        // Reset after 17:00 NY (5:00 PM)
+        else if h >= 17 and crt_5am_state == "D_READY"
+            state := "INACTIVE"
+            profile := "NONE"
+    
+    [state, profile]
+
+[new_5am_state, new_5am_profile] = update_5am_crt_state()
+crt_5am_state := new_5am_state
+profile_5am := new_5am_profile
+
+// 9AM NY MODEL - CORRECTED TIMES
+update_9am_crt_state() =>
+    string state = crt_9am_state
+    string profile = profile_9am
+    
+    if enable_9am_crt
+        h = get_tz_hour()
+        m = get_tz_minute()
+        
+        // A_FORMING: 9:00-9:30 AM NY
+        if h == 9 and m < 30 and crt_9am_state == "INACTIVE"
+            profile := "9AM_NY_MODEL"
+            state := "A_FORMING"
+        
+        // M_LIVE: 1:00-1:30 PM NY
+        else if h == 13 and m < 30 and crt_9am_state == "A_FORMING"
+            state := "M_LIVE"
+        
+        // D_READY: 5:00-5:30 PM NY
+        else if h == 17 and m < 30 and crt_9am_state == "M_LIVE"
+            state := "D_READY"
+        
+        // ENTRY WINDOW: 10:00-11:00 AM NY (Next day)
+        // Reset after 21:00 NY (9:00 PM)
+        else if h >= 21 and crt_9am_state == "D_READY"
+            state := "INACTIVE"
+            profile := "NONE"
+    
+    [state, profile]
+
+[new_9am_state, new_9am_profile] = update_9am_crt_state()
+crt_9am_state := new_9am_state
+profile_9am := new_9am_profile
+
+// =======================
+// === ENTRY SIGNALS WITH CORRECTED WINDOWS ===
+// =======================
+
+var string entry_signal = "NONE"
+var float entry_price = na
+var float stop_loss = na
+var float take_profit = na
+var int entry_score = 0
+
+check_entry_conditions() =>
+    h = get_tz_hour()
+    m = get_tz_minute()
+    
+    // Check if we're in any entry window (NY TIME!)
+    in_1am_window = crt_1am_state == "D_READY" and h >= 2 and h < 3  // 2:00-3:00 AM NY
+    in_5am_window = crt_5am_state == "D_READY" and ((h == 6 and m >= 0) or (h == 7) or (h == 8 and m < 30))  // 6:00-8:30 AM NY
+    in_9am_window = crt_9am_state == "D_READY" and h >= 10 and h < 11  // 10:00-11:00 AM NY
+    
+    window_active = in_1am_window or in_5am_window or in_9am_window
+    active_model = in_1am_window ? "1AM" : (in_5am_window ? "5AM" : (in_9am_window ? "9AM" : "NONE"))
+    
+    [window_active, active_model]
+
+[entry_window_active, active_model] = check_entry_conditions()
+
+if entry_window_active and enable_entry_engine
+    // Simple entry logic for testing
+    if dol_bias == "BULLISH"
+        entry_signal := "BUY"
+        entry_price := close
+        stop_loss := low - (ta.atr(14) * 0.5)
+        take_profit := entry_price + ((entry_price - stop_loss) * risk_reward_ratio)
+        entry_score := 75  // Simplified scoring
+    else if dol_bias == "BEARISH"
+        entry_signal := "SELL"
+        entry_price := close
+        stop_loss := high + (ta.atr(14) * 0.5)
+        take_profit := entry_price - ((stop_loss - entry_price) * risk_reward_ratio)
+        entry_score := 75
+else if not entry_window_active
+    entry_signal := "NONE"
+    entry_price := na
+    stop_loss := na
+    take_profit := na
+    entry_score := 0
+
+// =======================
+// === TIMEZONE INFO DISPLAY ===
+// =======================
+
+if show_timezone_info and barstate.islast
+    ny_hour = hour(time, "America/New_York")
+    ny_minute = minute(time, "America/New_York")
+    gmt_hour = hour(time, "GMT")
+    gmt_minute = minute(time, "GMT")
+    
+    info_text = "🕐 TIME INFO\n"
+    info_text += "━━━━━━━━━━━━━\n"
+    info_text += "NY Time: " + str.format("{0,number,00}:{1,number,00}", ny_hour, ny_minute) + "\n"
+    info_text += "GMT Time: " + str.format("{0,number,00}:{1,number,00}", gmt_hour, gmt_minute) + "\n"
+    info_text += "Timezone: " + timezone_mode + "\n"
+    info_text += "Session: " + session_state + "\n"
+    info_text += "━━━━━━━━━━━━━\n"
+    info_text += "1AM: " + crt_1am_state + "\n"
+    info_text += "5AM: " + crt_5am_state + "\n"
+    info_text += "9AM: " + crt_9am_state
+    
+    label.new(bar_index + 5, high, info_text, 
+              style=label.style_label_left, 
+              color=color.new(color.blue, 0),
+              textcolor=color.white,
+              size=size.normal)
+
+// =======================
+// === CORRECTED DASHBOARD ===
+// =======================
+
+if show_dashboard
+    var table dash = table.new(position.top_right, 3, 12, border_width=1)
+    
+    if barstate.islast
+        // Header
+        table.cell(dash, 0, 0, "CRT v7.4 NY TIME", bgcolor=color.blue, text_color=color.white, 
+                  text_size=get_dashboard_text_size())
+        table.merge_cells(dash, 0, 0, 2, 0)
+        
+        // Timezone Display
+        table.cell(dash, 0, 1, "Timezone", bgcolor=color.gray, text_size=get_dashboard_text_size())
+        table.cell(dash, 1, 1, timezone_mode, bgcolor=color.new(color.blue, 50), text_color=color.white, 
+                  text_size=get_dashboard_text_size())
+        table.cell(dash, 2, 1, str.tostring(get_tz_hour()) + ":" + str.format("{0,number,00}", get_tz_minute()), bgcolor=color.gray, 
+                  text_size=get_dashboard_text_size())
+        
+        // Session
+        table.cell(dash, 0, 2, "Session", bgcolor=color.gray, text_size=get_dashboard_text_size())
+        table.cell(dash, 1, 2, session_state, bgcolor=color.new(color.orange, 50), text_color=color.white, 
+                  text_size=get_dashboard_text_size())
+        table.merge_cells(dash, 1, 2, 2, 2)
+        
+        // DOL
+        dol_color = dol_bias == "BULLISH" ? color.green : dol_bias == "BEARISH" ? color.red : color.gray
+        table.cell(dash, 0, 3, "DOL Bias", bgcolor=color.gray, text_size=get_dashboard_text_size())
+        table.cell(dash, 1, 3, dol_bias, bgcolor=dol_color, text_color=color.white, 
+                  text_size=get_dashboard_text_size())
+        table.cell(dash, 2, 3, str.tostring(dol_target, "#.####"), bgcolor=color.gray, 
+                  text_size=get_dashboard_text_size())
+        
+        // CRT States
+        table.cell(dash, 0, 4, "CRT STATES", bgcolor=color.blue, text_color=color.white, 
+                  text_size=get_dashboard_text_size())
+        table.merge_cells(dash, 0, 4, 2, 4)
+        
+        // 1AM
+        state_color_1am = crt_1am_state == "D_READY" ? color.green : 
+                          crt_1am_state == "M_LIVE" ? color.orange : 
+                          crt_1am_state == "A_FORMING" ? color.yellow : color.gray
+        table.cell(dash, 0, 5, "1AM NY", bgcolor=color.gray, text_size=get_dashboard_text_size())
+        table.cell(dash, 1, 5, crt_1am_state, bgcolor=state_color_1am, text_color=color.white, 
+                  text_size=get_dashboard_text_size())
+        table.cell(dash, 2, 5, "Entry: 2-3 AM", bgcolor=color.gray, text_size=get_dashboard_text_size())
+        
+        // 5AM
+        state_color_5am = crt_5am_state == "D_READY" ? color.green : 
+                          crt_5am_state == "M_LIVE" ? color.orange : 
+                          crt_5am_state == "A_FORMING" ? color.yellow : color.gray
+        table.cell(dash, 0, 6, "5AM NY", bgcolor=color.gray, text_size=get_dashboard_text_size())
+        table.cell(dash, 1, 6, crt_5am_state, bgcolor=state_color_5am, text_color=color.white, 
+                  text_size=get_dashboard_text_size())
+        table.cell(dash, 2, 6, "Entry: 6-8:30 AM", bgcolor=color.gray, text_size=get_dashboard_text_size())
+        
+        // 9AM
+        state_color_9am = crt_9am_state == "D_READY" ? color.green : 
+                          crt_9am_state == "M_LIVE" ? color.orange : 
+                          crt_9am_state == "A_FORMING" ? color.yellow : color.gray
+        table.cell(dash, 0, 7, "9AM NY", bgcolor=color.gray, text_size=get_dashboard_text_size())
+        table.cell(dash, 1, 7, crt_9am_state, bgcolor=state_color_9am, text_color=color.white, 
+                  text_size=get_dashboard_text_size())
+        table.cell(dash, 2, 7, "Entry: 10-11 AM", bgcolor=color.gray, text_size=get_dashboard_text_size())
+        
+        // Entry Signal
+        table.cell(dash, 0, 8, "ENTRY", bgcolor=color.blue, text_color=color.white, 
+                  text_size=get_dashboard_text_size())
+        table.merge_cells(dash, 0, 8, 2, 8)
+        
+        signal_color = entry_signal == "BUY" ? color.green : 
+                      entry_signal == "SELL" ? color.red : color.gray
+        table.cell(dash, 0, 9, "Signal", bgcolor=color.gray, text_size=get_dashboard_text_size())
+        table.cell(dash, 1, 9, entry_signal, bgcolor=signal_color, text_color=color.white, 
+                  text_size=get_dashboard_text_size())
+        table.cell(dash, 2, 9, "Score: " + str.tostring(entry_score), bgcolor=color.gray, 
+                  text_size=get_dashboard_text_size())
+        
+        // Active Window
+        window_status = entry_window_active ? "✓ ACTIVE" : "⏸ WAITING"
+        window_color = entry_window_active ? color.green : color.gray
+        table.cell(dash, 0, 10, "Window", bgcolor=color.gray, text_size=get_dashboard_text_size())
+        table.cell(dash, 1, 10, window_status, bgcolor=window_color, text_color=color.white, 
+                  text_size=get_dashboard_text_size())
+        table.cell(dash, 2, 10, active_model, bgcolor=color.gray, text_size=get_dashboard_text_size())
+
+// =======================
+// === VISUALIZATIONS ===
+// =======================
+
+// DOL Lines
+if show_dol_lines
+    if not na(last_swing_high)
+        line.new(bar_index-50, last_swing_high, bar_index+10, last_swing_high, 
+                 color=color.red, style=line.style_dashed, width=2)
+    if not na(last_swing_low)
+        line.new(bar_index-50, last_swing_low, bar_index+10, last_swing_low, 
+                 color=color.green, style=line.style_dashed, width=2)
+
+// Session Boxes (simplified for clarity)
+if show_session_boxes and session_state != session_state[1]
+    session_color = session_state == "NY" ? color.new(color.blue, 80) :
+                   session_state == "LONDON" ? color.new(color.yellow, 80) :
+                   session_state == "ASIA_LATE" ? color.new(color.purple, 80) :
+                   color.new(color.gray, 90)
+    
+    box.new(bar_index-10, high[10], bar_index, low[10],             bgcolor=session_color, border_width=0)
+
+// Entry Signals
+if show_entry_signals and entry_signal != "NONE" and barstate.isconfirmed
+    signal_text = entry_signal + " Signal\n"
+    signal_text += "Model: " + active_model + " NY\n"
+    signal_text += "Entry: " + str.tostring(entry_price, "#.####") + "\n"
+    signal_text += "SL: " + str.tostring(stop_loss, "#.####") + "\n"
+    signal_text += "TP: " + str.tostring(take_profit, "#.####")
+    
+    label.new(bar_index, entry_signal == "BUY" ? low : high, signal_text,
+              yloc = entry_signal == "BUY" ? yloc.belowbar : yloc.abovebar,
+              style = label.style_label_center,
+              color = entry_signal == "BUY" ? color.green : color.red,
+              textcolor = color.white)
+
+// =======================
+// === DEBUG MODE ===
+// =======================
+
+if enable_debug_mode and barstate.islast
+    debug_text = "=== CRT DEBUG (NY TIME) ===\n"
+    debug_text += get_time_debug_string() + "\n"
+    debug_text += "━━━━━━━━━━━━━━━━━━━\n"
+    debug_text += "Session: " + session_state + "\n"
+    debug_text += "DOL: " + dol_bias + " → " + str.tostring(dol_target, "#.####") + "\n"
+    debug_text += "━━━━━━━━━━━━━━━━━━━\n"
+    debug_text += "1AM State: " + crt_1am_state + "\n"
+    debug_text += "5AM State: " + crt_5am_state + "\n"
+    debug_text += "9AM State: " + crt_9am_state + "\n"
+    debug_text += "━━━━━━━━━━━━━━━━━━━\n"
+    debug_text += "Entry Window: " + (entry_window_active ? "ACTIVE" : "INACTIVE") + "\n"
+    debug_text += "Active Model: " + active_model
+    
+    label.new(bar_index, high + (high-low)*0.2, debug_text,
+              style=label.style_label_down,
+              color=color.yellow,
+              textcolor=color.black,
+              size=size.normal)
+
+// =======================
+// === CRITICAL ALERTS ===
+// =======================
+
+// Time-corrected alerts
+alertcondition(crt_1am_state == "D_READY" and crt_1am_state[1] != "D_READY", 
+               title="1AM NY Ready", 
+               message="1AM NY Model Ready - Entry Window: 2:00-3:00 AM NY Time")
+
+alertcondition(crt_5am_state == "D_READY" and crt_5am_state[1] != "D_READY", 
+               title="5AM NY Ready", 
+               message="5AM NY Model Ready - Entry Window: 6:00-8:30 AM NY Time")
+
+alertcondition(crt_9am_state == "D_READY" and crt_9am_state[1] != "D_READY", 
+               title="9AM NY Ready", 
+               message="9AM NY Model Ready - Entry Window: 10:00-11:00 AM NY Time")
+
+alertcondition(entry_signal != "NONE" and entry_signal[1] == "NONE",
+               title="Entry Signal Generated",
+               message="CRT Entry Signal Active - Check Dashboard")
+
+// =======================
+// === VERSION INFO ===
+// =======================
+
+if barstate.islast
+    version_label = label.new(bar_index, low - (high-low)*0.1, 
+                             "CRT v7.4 | NY TIME FIX | " + timezone_mode,
+                             style=label.style_label_up,
+                             color=color.new(color.blue, 70),
+                             textcolor=color.white,
+                             size=size.tiny)

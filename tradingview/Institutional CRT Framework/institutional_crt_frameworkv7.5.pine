@@ -1,0 +1,1033 @@
+//@version=5
+indicator("CRT State Engine v7.5 COMPLETE [NY TIME]", "CRT-v7.5", overlay=true, max_labels_count=500, max_lines_count=500, max_boxes_count=500)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//                     CRT STATE ENGINE V7.5 - COMPLETE EDITION
+//                    FULL V7.3 FEATURES + NY TIMEZONE FIX
+// 
+//  V7.5 COMPLETE INCLUDES:
+//  ✓ NY Time (EST/EDT) for all CRT models
+//  ✓ Selectable Order Block Methods (Strict/Lenient)
+//  ✓ Dynamic vs Fixed Take-Profit Methods
+//  ✓ Complete Market Structure Analysis
+//  ✓ Liquidity Pool Detection
+//  ✓ Volume Profile with POC/VAH/VAL
+//  ✓ Multi-Pair Correlation & SMT
+//  ✓ Risk Management System
+//  ✓ Performance Tracking
+//  ✓ Professional Theme System
+//  ✓ Full Dashboard with all metrics
+//  ✓ All Session State Controls
+//  ✓ Complete Visual Settings
+//
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// =======================
+// === TYPE DEFINITIONS ===
+// =======================
+
+type MarketStructure
+    float lastHH
+    float lastHL
+    float lastLH
+    float lastLL
+    string trend
+    int strength
+    bool brokenStructure
+    int trendBars
+
+type LiquidityPool
+    float price
+    string poolType
+    int touches
+    float volume
+    bool swept
+    int barIndex
+
+type VolumeProfile
+    float poc
+    float vah
+    float val
+    float totalVolume
+    bool bullishImbalance
+    bool bearishImbalance
+
+type CorrelationData
+    string symbol
+    float correlation
+    bool divergence
+    string divergenceType
+    float strength
+
+type EntryFilter
+    bool marketStructureAligned
+    bool liquiditySwept
+    bool volumeConfirmation
+    bool correlationConfirmation
+    bool timeOfDayOptimal
+    int score
+
+type RiskManager
+    float accountBalance
+    float riskPerTrade
+    float maxDailyLoss
+    float currentDailyPnL
+    int maxConcurrentTrades
+    int currentOpenTrades
+    float positionSize
+    bool tradingAllowed
+
+type PerformanceTracker
+    int totalSignals
+    int winningSignals
+    int losingSignals
+    float winRate
+    float avgWin
+    float avgLoss
+    float profitFactor
+    float sharpeRatio
+    array<float> returns
+
+// =======================
+// === COMPLETE INPUT PARAMETERS ===
+// =======================
+
+// ╔═══════════════════════════════════════════════════════════════════════════════
+// 0. TIMEZONE SETTINGS - CRITICAL
+// ╚═══════════════════════════════════════════════════════════════════════════════
+timezone_mode = input.string("America/New_York", "🕐 Timezone for CRT Models", 
+    options=["America/New_York", "GMT", "Europe/London"], 
+    group="0. 🚨 TIMEZONE (CRITICAL)",
+    tooltip="CRT models use New York time. Only change if you have specific requirements.")
+
+show_timezone_info = input.bool(true, "Show Timezone Info on Chart", 
+    group="0. 🚨 TIMEZONE (CRITICAL)",
+    tooltip="Displays current NY time and GMT for verification")
+
+// ╔═══════════════════════════════════════════════════════════════════════════════
+// 1. CRT MODELS
+// ╚═══════════════════════════════════════════════════════════════════════════════
+enable_1am_crt = input.bool(true, "1AM NY Model", group="1. CRT Models")
+enable_5am_crt = input.bool(true, "5AM NY Model", group="1. CRT Models")
+enable_9am_crt = input.bool(true, "9AM NY Model", group="1. CRT Models")
+
+// ╔═══════════════════════════════════════════════════════════════════════════════
+// 2. CORE SYSTEM
+// ╚═══════════════════════════════════════════════════════════════════════════════
+ob_detection_method = input.string("Strict (Cursor)", "Order Block Method", 
+    options=["Strict (Cursor)", "Lenient (Claude)"], 
+    group="2. Core System", 
+    tooltip="Strict: Requires price action + candle structure.\nLenient: Based on price action alone.")
+
+enable_dol_engine = input.bool(true, "Enable DOL Analysis Engine", group="2. Core System")
+pivot_strength = input.int(10, "DOL Pivot Strength", minval=5, maxval=50, group="2. Core System", 
+    tooltip="Higher values = more significant swing points")
+
+enable_session_engine = input.bool(true, "Enable Session State Machine", group="2. Core System")
+enable_entry_engine = input.bool(true, "Enable Live Entry Signals", group="2. Core System")
+enable_debug_mode = input.bool(false, "Debug Mode (Show All States)", group="2. Core System")
+
+// ╔═══════════════════════════════════════════════════════════════════════════════
+// 3. ADVANCED MODULES
+// ╚═══════════════════════════════════════════════════════════════════════════════
+enable_market_structure = input.bool(true, "Enable Market Structure Analysis", group="3. Advanced Modules")
+enable_liquidity_pools = input.bool(true, "Enable Liquidity Pool Detection", group="3. Advanced Modules")
+enable_volume_profile = input.bool(true, "Enable Volume Profile Analysis", group="3. Advanced Modules")
+enable_correlation = input.bool(true, "Enable Multi-Pair Correlation", group="3. Advanced Modules")
+enable_risk_management = input.bool(true, "Enable Risk Management", group="3. Advanced Modules")
+enable_performance_tracking = input.bool(true, "Enable Performance Tracking", group="3. Advanced Modules")
+
+// ╔═══════════════════════════════════════════════════════════════════════════════
+// 4. SESSION STATES
+// ╚═══════════════════════════════════════════════════════════════════════════════
+monitor_cbdr = input.bool(true, "Monitor CBDR (17:00)", group="4. Session States")
+monitor_asia = input.bool(true, "Monitor Asia (21:00)", group="4. Session States")
+monitor_london = input.bool(true, "Monitor London (01:00)", group="4. Session States")
+monitor_lunch = input.bool(true, "Monitor London Lunch (05:00)", group="4. Session States")
+monitor_ny = input.bool(true, "Monitor NY Open (09:00)", group="4. Session States")
+
+// ╔═══════════════════════════════════════════════════════════════════════════════
+// 5. ENTRY ENGINE
+// ╚═══════════════════════════════════════════════════════════════════════════════
+tp_calculation_method = input.string("Dynamic (Cursor)", "Take-Profit Method", 
+    options=["Dynamic (Cursor)", "Fixed R:R (Claude)"], 
+    group="5. Entry Engine", 
+    tooltip="Dynamic: Targets market structure.\nFixed R:R: Uses risk:reward ratio.")
+
+risk_reward_ratio = input.float(2.0, "Risk:Reward Ratio (for Fixed R:R)", 
+    minval=1.0, maxval=5.0, step=0.5, group="5. Entry Engine")
+
+entry_timeframe = input.string("15", "Entry Timeframe", 
+    options=["5", "15", "30"], group="5. Entry Engine")
+
+require_smt_confluence = input.bool(true, "Require SMT Confluence", group="5. Entry Engine")
+auto_risk_management = input.bool(true, "Auto Risk Management", group="5. Entry Engine")
+
+// ╔═══════════════════════════════════════════════════════════════════════════════
+// 6. ENTRY FILTERS
+// ╚═══════════════════════════════════════════════════════════════════════════════
+min_entry_score = input.int(60, "Minimum Entry Score (0-100)", 
+    minval=0, maxval=100, step=5, group="6. Entry Filters")
+
+require_structure_alignment = input.bool(true, "Require Market Structure Alignment", group="6. Entry Filters")
+require_liquidity_sweep = input.bool(false, "Require Liquidity Sweep", group="6. Entry Filters")
+require_volume_confluence = input.bool(true, "Require Volume Confluence", group="6. Entry Filters")
+
+// ╔═══════════════════════════════════════════════════════════════════════════════
+// 7. VISUAL & THEME
+// ╚═══════════════════════════════════════════════════════════════════════════════
+dashboard_theme = input.string("Professional Dark", "Dashboard Theme", 
+    options=["Professional Dark", "Professional Light", "Trading Dark", "Trading Light", "Minimal Dark", "Minimal Light"], 
+    group="7. Visual & Theme", 
+    tooltip="Choose your preferred dashboard theme")
+
+chart_background_dark = input.bool(true, "Chart Background is Dark", 
+    group="7. Visual & Theme", 
+    tooltip="Enable if your chart has dark background")
+
+show_dol_lines = input.bool(true, "Show DOL Lines", group="7. Visual & Theme")
+show_session_boxes = input.bool(true, "Show Session Boxes", group="7. Visual & Theme")
+show_key_levels = input.bool(true, "Show Key Levels", group="7. Visual & Theme")
+show_entry_signals = input.bool(true, "Show Entry Signals", group="7. Visual & Theme")
+show_market_structure = input.bool(true, "Show Market Structure", group="7. Visual & Theme")
+show_liquidity_pools = input.bool(true, "Show Liquidity Pools", group="7. Visual & Theme")
+show_volume_profile = input.bool(true, "Show Volume Profile", group="7. Visual & Theme")
+show_advanced_dashboard = input.bool(true, "Show Advanced Dashboard", group="7. Visual & Theme")
+
+// ╔═══════════════════════════════════════════════════════════════════════════════
+// 8. COLORS
+// ╚═══════════════════════════════════════════════════════════════════════════════
+col_bullish_dol = input.color(color.new(color.green, 20), "Bullish DOL", group="8. Colors")
+col_bearish_dol = input.color(color.new(color.red, 20), "Bearish DOL", group="8. Colors")
+col_consolidation = input.color(color.new(color.gray, 80), "Consolidation", group="8. Colors")
+col_manipulation = input.color(color.new(color.orange, 80), "Manipulation", group="8. Colors")
+col_expansion = input.color(color.new(color.blue, 80), "Expansion", group="8. Colors")
+
+// ╔═══════════════════════════════════════════════════════════════════════════════
+// 9. RISK MANAGEMENT
+// ╚═══════════════════════════════════════════════════════════════════════════════
+account_balance = input.float(10000, "Account Balance", minval=100, group="9. Risk Management")
+risk_per_trade_pct = input.float(1.0, "Risk Per Trade (%)", minval=0.1, maxval=5.0, step=0.1, group="9. Risk Management")
+max_daily_loss_pct = input.float(3.0, "Max Daily Loss (%)", minval=1.0, maxval=10.0, step=0.5, group="9. Risk Management")
+max_concurrent_trades = input.int(3, "Max Concurrent Trades", minval=1, maxval=10, group="9. Risk Management")
+
+// =======================
+// === INITIALIZE OBJECTS ===
+// =======================
+
+var MarketStructure ms = MarketStructure.new(na, na, na, na, "NEUTRAL", 0, false, 0)
+var array<LiquidityPool> liquidityPools = array.new<LiquidityPool>()
+var RiskManager rm = RiskManager.new(10000, 100, 300, 0, 3, 0, 0, true)
+var PerformanceTracker pt = PerformanceTracker.new(0, 0, 0, 0, 0, 0, 0, 0, array.new<float>())
+
+if barstate.isfirst
+    rm.accountBalance := account_balance
+    rm.riskPerTrade := account_balance * (risk_per_trade_pct / 100)
+    rm.maxDailyLoss := account_balance * (max_daily_loss_pct / 100)
+    rm.maxConcurrentTrades := max_concurrent_trades
+    rm.currentOpenTrades := 0
+    rm.currentDailyPnL := 0
+    rm.tradingAllowed := true
+
+// =======================
+// === TIMEZONE FUNCTIONS ===
+// =======================
+
+get_tz_hour() => hour(time, timezone_mode)
+get_tz_minute() => minute(time, timezone_mode)
+get_tz_minutes() => get_tz_hour() * 60 + get_tz_minute()
+
+is_in_tz_window(int start_hour, int start_min, int end_hour, int end_min) =>
+    current_minutes = get_tz_minutes()
+    start_minutes = start_hour * 60 + start_min
+    end_minutes = end_hour * 60 + end_min
+    
+    if start_minutes <= end_minutes
+        current_minutes >= start_minutes and current_minutes <= end_minutes
+    else
+        current_minutes >= start_minutes or current_minutes <= end_minutes
+
+// =======================
+// === THEME SYSTEM ===
+// =======================
+
+get_theme_colors() =>
+    var color header_bg = color.blue
+    var color header_text = color.white
+    var color section_bg = color.gray
+    var color section_text = color.white
+    var color label_bg = color.white
+    var color label_text = color.black
+    var color value_bg = color.blue
+    var color value_text = color.white
+    var color success_bg = color.green
+    var color warning_bg = color.orange
+    var color danger_bg = color.red
+    var color info_bg = color.blue
+    
+    if dashboard_theme == "Professional Dark"
+        header_bg := color.new(color.blue, 0)
+        header_text := color.white
+        section_bg := color.new(color.gray, 80)
+        section_text := color.white
+        label_bg := color.new(color.white, 95)
+        label_text := color.white
+        value_bg := color.new(color.blue, 20)
+        value_text := color.white
+        success_bg := color.new(color.green, 10)
+        warning_bg := color.new(color.orange, 10)
+        danger_bg := color.new(color.red, 10)
+        info_bg := color.new(color.blue, 20)
+    else if dashboard_theme == "Professional Light"
+        header_bg := color.new(color.blue, 0)
+        header_text := color.white
+        section_bg := color.new(color.gray, 40)
+        section_text := color.white
+        label_bg := color.new(color.white, 0)
+        label_text := color.black
+        value_bg := color.new(color.blue, 80)
+        value_text := color.white
+        success_bg := color.new(color.green, 60)
+        warning_bg := color.new(color.orange, 60)
+        danger_bg := color.new(color.red, 60)
+        info_bg := color.new(color.blue, 80)
+    else if dashboard_theme == "Trading Dark"
+        header_bg := color.new(color.purple, 0)
+        header_text := color.white
+        section_bg := color.new(color.gray, 90)
+        section_text := color.white
+        label_bg := color.new(color.gray, 70)
+        label_text := color.white
+        value_bg := color.new(color.purple, 30)
+        value_text := color.white
+        success_bg := color.new(color.green, 20)
+        warning_bg := color.new(color.orange, 20)
+        danger_bg := color.new(color.red, 20)
+        info_bg := color.new(color.purple, 30)
+    else if dashboard_theme == "Trading Light"
+        header_bg := color.new(color.purple, 0)
+        header_text := color.white
+        section_bg := color.new(color.gray, 30)
+        section_text := color.white
+        label_bg := color.new(color.white, 0)
+        label_text := color.black
+        value_bg := color.new(color.purple, 70)
+        value_text := color.white
+        success_bg := color.new(color.green, 70)
+        warning_bg := color.new(color.orange, 70)
+        danger_bg := color.new(color.red, 70)
+        info_bg := color.new(color.purple, 70)
+    else if dashboard_theme == "Minimal Dark"
+        header_bg := color.new(color.gray, 0)
+        header_text := color.white
+        section_bg := color.new(color.gray, 85)
+        section_text := color.white
+        label_bg := color.new(color.gray, 75)
+        label_text := color.white
+        value_bg := color.new(color.gray, 60)
+        value_text := color.white
+        success_bg := color.new(color.green, 30)
+        warning_bg := color.new(color.orange, 30)
+        danger_bg := color.new(color.red, 30)
+        info_bg := color.new(color.gray, 60)
+    else // Minimal Light
+        header_bg := color.new(color.gray, 0)
+        header_text := color.white
+        section_bg := color.new(color.gray, 20)
+        section_text := color.white
+        label_bg := color.new(color.white, 0)
+        label_text := color.black
+        value_bg := color.new(color.gray, 40)
+        value_text := color.black
+        success_bg := color.new(color.green, 80)
+        warning_bg := color.new(color.orange, 80)
+        danger_bg := color.new(color.red, 80)
+        info_bg := color.new(color.gray, 40)
+    
+    [header_bg, header_text, section_bg, section_text, label_bg, label_text, value_bg, value_text, success_bg, warning_bg, danger_bg, info_bg]
+
+// =======================
+// === CORE SYSTEM FUNCTIONS ===
+// =======================
+
+var array<string> session_name_history = array.new<string>(100)
+var array<string> session_behavior_history = array.new<string>(100)
+var array<float> session_high_history = array.new<float>(100)
+var array<float> session_low_history = array.new<float>(100)
+var array<int> session_start_bars = array.new<int>(100)
+
+track_session_history(string current_session, string current_behavior, float current_high, float current_low) =>
+    if array.size(session_name_history) >= 100
+        array.shift(session_name_history)
+        array.shift(session_behavior_history)
+        array.shift(session_high_history)
+        array.shift(session_low_history)
+        array.shift(session_start_bars)
+    
+    array.push(session_name_history, current_session)
+    array.push(session_behavior_history, current_behavior)
+    array.push(session_high_history, current_high)
+    array.push(session_low_history, current_low)
+    array.push(session_start_bars, bar_index)
+
+get_session_behavior_lookback(int sessions_back) =>
+    idx = array.size(session_behavior_history) - 1 - sessions_back
+    result = idx >= 0 and idx < array.size(session_behavior_history) ? array.get(session_behavior_history, idx) : "UNKNOWN"
+    result
+
+get_session_high_lookback(int sessions_back) =>
+    idx = array.size(session_high_history) - 1 - sessions_back
+    result = idx >= 0 and idx < array.size(session_high_history) ? array.get(session_high_history, idx) : high
+    result
+
+get_session_low_lookback(int sessions_back) =>
+    idx = array.size(session_low_history) - 1 - sessions_back
+    result = idx >= 0 and idx < array.size(session_low_history) ? array.get(session_low_history, idx) : low
+    result
+
+get_timeframe_multiplier() =>
+    multiplier = 1.0
+    if timeframe.isminutes
+        multiplier := 240.0 / timeframe.multiplier
+    else if timeframe.isdaily
+        multiplier := 0.1667
+    else if timeframe.isweekly
+        multiplier := 0.0357
+    multiplier
+
+is_valid_timeframe() =>
+    valid = (timeframe.isminutes and (timeframe.multiplier == 15 or timeframe.multiplier == 30 or timeframe.multiplier == 60 or timeframe.multiplier == 240)) or timeframe.isdaily or timeframe.isweekly
+    valid
+
+adjust_lookback_for_timeframe(int base_lookback) =>
+    math.max(1, math.round(base_lookback * get_timeframe_multiplier()))
+
+// =======================
+// === DOL ANALYSIS ===
+// =======================
+
+adjusted_pivot_strength = math.round(pivot_strength * get_timeframe_multiplier())
+adjusted_pivot_strength := math.max(2, math.min(50, adjusted_pivot_strength))
+
+float pivot_high_price = ta.pivothigh(high, adjusted_pivot_strength, adjusted_pivot_strength)
+float pivot_low_price = ta.pivotlow(low, adjusted_pivot_strength, adjusted_pivot_strength)
+
+var float last_swing_high = na
+var float last_swing_low = na
+var float dol_target = na
+var string dol_bias = "NEUTRAL"
+
+if not na(pivot_high_price)
+    last_swing_high := pivot_high_price
+if not na(pivot_low_price)
+    last_swing_low := pivot_low_price
+
+if not na(last_swing_high) and not na(last_swing_low)
+    float dist_to_high = math.abs(close - last_swing_high)
+    float dist_to_low = math.abs(close - last_swing_low)
+    dol_bias := dist_to_high < dist_to_low ? "BULLISH" : "BEARISH"
+    dol_target := dist_to_high < dist_to_low ? last_swing_high : last_swing_low
+
+// =======================
+// === SESSION STATES (NY TIME) ===
+// =======================
+
+get_session_state() =>
+    string state = "UNKNOWN"
+    int h = get_tz_hour()
+    
+    // Sessions in NEW YORK TIME
+    if h >= 13 and h < 17 and monitor_cbdr     // 1:00 PM - 5:00 PM NY
+        state := "CBDR"
+    else if h >= 17 and h < 21 and monitor_asia // 5:00 PM - 9:00 PM NY
+        state := "ASIA"
+    else if h >= 21 or h < 1                    // 9:00 PM - 1:00 AM NY
+        state := "ASIA_LATE"
+    else if h >= 1 and h < 3 and monitor_london // 1:00 AM - 3:00 AM NY
+        state := "LONDON_PREP"
+    else if h >= 3 and h < 5 and monitor_london // 3:00 AM - 5:00 AM NY
+        state := "LONDON"
+    else if h >= 5 and h < 9 and monitor_lunch  // 5:00 AM - 9:00 AM NY
+        state := "LUNCH"
+    else if h >= 9 and h < 13 and monitor_ny    // 9:00 AM - 1:00 PM NY
+        state := "NY"
+    else
+        state := "POST_NY"
+    
+    state
+
+string session_state = get_session_state()
+var string session_behavior = "CONSOLIDATION"
+var float session_high = na
+var float session_low = na
+var string prev_session = ""
+var float prev_session_high = na
+var float prev_session_low = na
+var bool session_expanded = false
+
+if session_state != prev_session
+    if prev_session != ""
+        track_session_history(prev_session, session_behavior, session_high, session_low)
+    prev_session_high := session_high
+    prev_session_low := session_low
+    prev_session := session_state
+    session_high := high
+    session_low := low
+    session_expanded := false
+    session_behavior := "CONSOLIDATION"
+else
+    session_high := math.max(nz(session_high, high), high)
+    session_low := math.min(nz(session_low, low), low)
+    float prev_session_range = nz(prev_session_high - prev_session_low, 0)
+    float current_range = high - low
+    if prev_session_range > 0
+        if current_range > prev_session_range * 1.5
+            session_expanded := true
+            session_behavior := "EXPANSION"
+        else if high > nz(prev_session_high, high) or low < nz(prev_session_low, low)
+            session_behavior := "MANIPULATION"
+
+// =======================
+// === CRT PATTERN STATES (NY TIME) ===
+// =======================
+
+var string crt_1am_state = "INACTIVE"
+var string crt_5am_state = "INACTIVE"
+var string crt_9am_state = "INACTIVE"
+var string profile_1am = "NONE"
+var string profile_5am = "NONE"
+var string profile_9am = "NONE"
+
+get_active_profile() =>
+    result = "NONE"
+    if profile_9am != "NONE" and crt_9am_state != "INACTIVE"
+        result := profile_9am
+    else if profile_5am != "NONE" and crt_5am_state != "INACTIVE"
+        result := profile_5am
+    else if profile_1am != "NONE" and crt_1am_state != "INACTIVE"
+        result := profile_1am
+    result
+
+london_made_hod_lod() =>
+    london_sessions_back = session_state == "NY" ? 1 : session_state == "LUNCH" ? 0 : 2
+    london_high = get_session_high_lookback(london_sessions_back)
+    london_low = get_session_low_lookback(london_sessions_back)
+    daily_high = ta.highest(high, adjust_lookback_for_timeframe(24))
+    daily_low = ta.lowest(low, adjust_lookback_for_timeframe(24))
+    london_range = london_high - london_low
+    daily_range = daily_high - daily_low
+    made_extreme = (london_range > (daily_range * 0.6)) or (london_high >= daily_high * 0.999) or (london_low <= daily_low * 1.001)
+    made_extreme
+
+// 1AM NY MODEL
+update_1am_crt_state() =>
+    string state = crt_1am_state
+    string profile = profile_1am
+    
+    if enable_1am_crt and is_valid_timeframe()
+        h = get_tz_hour()
+        m = get_tz_minute()
+        
+        // A_FORMING: 1:00-1:30 AM NY
+        if h == 1 and m < 30 and crt_1am_state == "INACTIVE"
+            cbdr_behavior = get_session_behavior_lookback(2)
+            asia_behavior = get_session_behavior_lookback(1)
+            profile := cbdr_behavior == "CONSOLIDATION" and asia_behavior == "CONSOLIDATION" ? "NORMAL_PROTRACTION" : 
+                      cbdr_behavior == "CONSOLIDATION" and asia_behavior == "MANIPULATION" ? "DELAYED_PROTRACTION" : "STANDARD"
+            state := "A_FORMING"
+        
+        // M_LIVE: 5:00-5:30 AM NY
+        else if h == 5 and m < 30 and crt_1am_state == "A_FORMING"
+            state := "M_LIVE"
+        
+        // D_READY: 9:00-9:30 AM NY
+        else if h == 9 and m < 30 and crt_1am_state == "M_LIVE"
+            state := "D_READY"
+        
+        // Reset after 13:00 NY
+        else if h >= 13 and crt_1am_state == "D_READY"
+            state := "INACTIVE"
+            profile := "NONE"
+    
+    [state, profile]
+
+[new_1am_state, new_1am_profile] = update_1am_crt_state()
+crt_1am_state := new_1am_state
+profile_1am := new_1am_profile
+
+// 5AM NY MODEL
+update_5am_crt_state() =>
+    string state = crt_5am_state
+    string profile = profile_5am
+    
+    if enable_5am_crt and is_valid_timeframe()
+        h = get_tz_hour()
+        m = get_tz_minute()
+        
+        // A_FORMING: 5:00-5:30 AM NY
+        if h == 5 and m < 30 and crt_5am_state == "INACTIVE"
+            london_behavior = get_session_behavior_lookback(0)
+            london_extreme = london_made_hod_lod()
+            profile := dol_bias == "BEARISH" and not london_extreme ? "LONDON_LUNCH_LOW" : 
+                      dol_bias == "BULLISH" and london_extreme ? "NY_CONTINUATION" : 
+                      dol_bias == "BEARISH" and london_extreme ? "NY_REVERSAL" : "STANDARD"
+            state := "A_FORMING"
+        
+        // M_LIVE: 9:00-9:30 AM NY
+        else if h == 9 and m < 30 and crt_5am_state == "A_FORMING"
+            state := "M_LIVE"
+        
+        // D_READY: 1:00-1:30 PM NY
+        else if h == 13 and m < 30 and crt_5am_state == "M_LIVE"
+            state := "D_READY"
+        
+        // Reset after 17:00 NY
+        else if h >= 17 and crt_5am_state == "D_READY"
+            state := "INACTIVE"
+            profile := "NONE"
+    
+    [state, profile]
+
+[new_5am_state, new_5am_profile] = update_5am_crt_state()
+crt_5am_state := new_5am_state
+profile_5am := new_5am_profile
+
+// 9AM NY MODEL
+update_9am_crt_state() =>
+    string state = crt_9am_state
+    string profile = profile_9am
+    
+    if enable_9am_crt and is_valid_timeframe()
+        h = get_tz_hour()
+        m = get_tz_minute()
+        
+        // A_FORMING: 9:00-9:30 AM NY
+        if h == 9 and m < 30 and crt_9am_state == "INACTIVE"
+            dol_reached = math.abs(close - dol_target) < (dol_target * 0.002)
+            asia_behavior = get_session_behavior_lookback(3)
+            london_behavior = get_session_behavior_lookback(1)
+            asia_protected = asia_behavior != "EXPANSION"
+            london_protected = london_behavior != "EXPANSION"
+            profile := not dol_reached and london_made_hod_lod() ? "NY_CONTINUATION" : 
+                      dol_reached and asia_protected and london_protected ? "NY_REVERSAL" : "STANDARD"
+            state := "A_FORMING"
+        
+        // M_LIVE: 1:00-1:30 PM NY
+        else if h == 13 and m < 30 and crt_9am_state == "A_FORMING"
+            state := "M_LIVE"
+        
+        // D_READY: 5:00-5:30 PM NY
+        else if h == 17 and m < 30 and crt_9am_state == "M_LIVE"
+            state := "D_READY"
+        
+        // Reset after 21:00 NY
+        else if h >= 21 and crt_9am_state == "D_READY"
+            state := "INACTIVE"
+            profile := "NONE"
+    
+    [state, profile]
+
+[new_9am_state, new_9am_profile] = update_9am_crt_state()
+crt_9am_state := new_9am_state
+profile_9am := new_9am_profile
+
+// =======================
+// === KEY LEVEL DETECTION ===
+// =======================
+
+detect_order_block() =>
+    bool is_ob = false
+    string ob_type = "NONE"
+    if bar_index >= 3
+        if ob_detection_method == "Strict (Cursor)"
+            bool bullish_imbalance = low[1] < low[2] and low[1] < low[3] and close > high[1]
+            bool bullish_structure = close > open and close[1] < open[1]
+            if bullish_imbalance and bullish_structure
+                is_ob := true
+                ob_type := "BULLISH"
+            
+            bool bearish_imbalance = high[1] > high[2] and high[1] > high[3] and close < low[1]
+            bool bearish_structure = close < open and close[1] > open[1]
+            if bearish_imbalance and bearish_structure
+                is_ob := true
+                ob_type := "BEARISH"
+        else // Lenient (Claude)
+            if low[1] < low[2] and low[1] < low[3] and close > high[1]
+                is_ob := true
+                ob_type := "BULLISH"
+            if high[1] > high[2] and high[1] > high[3] and close < low[1]
+                is_ob := true
+                ob_type := "BEARISH"
+    [is_ob, ob_type]
+
+[is_order_block, ob_type] = detect_order_block()
+
+detect_fvg() =>
+    bool is_fvg = false
+    string fvg_type = "NONE"
+    float fvg_top = 0.0
+    float fvg_bottom = 0.0
+    if bar_index >= 2
+        if low > high[2]
+            is_fvg := true
+            fvg_type := "BULLISH"
+            fvg_top := low
+            fvg_bottom := high[2]
+        if high < low[2]
+            is_fvg := true
+            fvg_type := "BEARISH"
+            fvg_top := low[2]
+            fvg_bottom := high
+    [is_fvg, fvg_type, fvg_top, fvg_bottom]
+
+[is_fvg, fvg_type, fvg_top, fvg_bottom] = detect_fvg()
+
+// =======================
+// === MARKET STRUCTURE MODULE ===
+// =======================
+
+update_market_structure() =>
+    if enable_market_structure
+        pivotHigh = ta.pivothigh(high, 5, 5)
+        pivotLow = ta.pivotlow(low, 5, 5)
+        
+        if not na(pivotHigh)
+            if na(ms.lastHH) or pivotHigh > nz(ms.lastHH, 0)
+                ms.lastLH := ms.lastHH
+                ms.lastHH := pivotHigh
+                if ms.trend == "BEARISH" and not na(ms.lastLH) and pivotHigh > ms.lastLH
+                    ms.trend := "BULLISH"
+                    ms.brokenStructure := true
+                    ms.trendBars := 0
+            else
+                ms.lastLH := pivotHigh
+        
+        if not na(pivotLow)
+            if na(ms.lastLL) or pivotLow < nz(ms.lastLL, 999999)
+                ms.lastHL := ms.lastLL
+                ms.lastLL := pivotLow
+                if ms.trend == "BULLISH" and not na(ms.lastHL) and pivotLow < ms.lastHL
+                    ms.trend := "BEARISH"
+                    ms.brokenStructure := true
+                    ms.trendBars := 0
+            else
+                ms.lastHL := pivotLow
+        
+        ms.trendBars += 1
+        
+        if not na(ms.lastHH) and not na(ms.lastLL)
+            range_hl = ms.lastHH - ms.lastLL
+            if range_hl > 0
+                if ms.trend == "BULLISH"
+                    ms.strength := math.round(((close - ms.lastLL) / range_hl) * 100)
+                else if ms.trend == "BEARISH"
+                    ms.strength := math.round(((ms.lastHH - close) / range_hl) * 100)
+                ms.strength := math.max(0, math.min(100, ms.strength))
+
+update_market_structure()
+
+// =======================
+// === LIQUIDITY POOL MODULE ===
+// =======================
+
+detect_liquidity_pools() =>
+    if enable_liquidity_pools
+        if high == high[1] and high > ta.highest(high[2], 10)
+            pool = LiquidityPool.new()
+            pool.price := high
+            pool.poolType := "BUYSIDE"
+            pool.touches := 2
+            pool.volume := nz(volume, 0) + nz(volume[1], 0)
+            pool.swept := false
+            pool.barIndex := bar_index
+            array.push(liquidityPools, pool)
+        
+        if low == low[1] and low < ta.lowest(low[2], 10)
+            pool = LiquidityPool.new()
+            pool.price := low
+            pool.poolType := "SELLSIDE"
+            pool.touches := 2
+            pool.volume := nz(volume, 0) + nz(volume[1], 0)
+            pool.swept := false
+            pool.barIndex := bar_index
+            array.push(liquidityPools, pool)
+        
+        if array.size(liquidityPools) > 0
+            for i = array.size(liquidityPools) - 1 to 0
+                pool = array.get(liquidityPools, i)
+                if not pool.swept
+                    if pool.poolType == "BUYSIDE" and high > pool.price
+                        pool.swept := true
+                    else if pool.poolType == "SELLSIDE" and low < pool.price
+                        pool.swept := true
+                if bar_index - pool.barIndex > 50
+                    array.remove(liquidityPools, i)
+
+detect_liquidity_pools()
+
+check_liquidity_sweep(string direction) =>
+    swept = false
+    if array.size(liquidityPools) > 0
+        for pool in liquidityPools
+            if pool.swept and bar_index - pool.barIndex < 5
+                if (direction == "BUY" and pool.poolType == "SELLSIDE") or
+                   (direction == "SELL" and pool.poolType == "BUYSIDE")
+                    swept := true
+                    break
+    swept
+
+// =======================
+// === VOLUME PROFILE MODULE ===
+// =======================
+
+calculate_volume_profile(int lookback) =>
+    vp = VolumeProfile.new(0.0, 0.0, 0.0, 0.0, false, false)
+    
+    if enable_volume_profile
+        highest = ta.highest(high, lookback)
+        lowest = ta.lowest(low, lookback)
+        priceRange = highest - lowest
+        
+        if priceRange > 0 and not na(volume)
+            numBins = 20
+            binSize = priceRange / numBins
+            
+            volumeLevels = array.new<float>(numBins, 0)
+            priceLevels = array.new<float>(numBins, 0)
+            
+            for i = 0 to numBins - 1
+                array.set(priceLevels, i, lowest + (i * binSize))
+            
+            maxBars = math.min(lookback, bar_index + 1)
+            for i = 0 to maxBars - 1
+                if i < bar_index
+                    barMid = (high[i] + low[i]) / 2
+                    binIndex = math.floor((barMid - lowest) / binSize)
+                    binIndex := math.max(0, math.min(numBins - 1, binIndex))
+                    
+                    currentVol = array.get(volumeLevels, binIndex)
+                    array.set(volumeLevels, binIndex, currentVol + nz(volume[i], 0))
+            
+            maxVol = 0.0
+            pocIndex = 0
+            totalVol = 0.0
+            
+            for i = 0 to numBins - 1
+                vol = array.get(volumeLevels, i)
+                totalVol += vol
+                if vol > maxVol
+                    maxVol := vol
+                    pocIndex := i
+            
+            vp.totalVolume := totalVol
+            
+            if totalVol > 0
+                vp.poc := array.get(priceLevels, pocIndex)
+                
+                targetVolume = totalVol * 0.7
+                accumulatedVolume = array.get(volumeLevels, pocIndex)
+                upperIndex = pocIndex
+                lowerIndex = pocIndex
+                
+                while accumulatedVolume < targetVolume and (upperIndex < numBins - 1 or lowerIndex > 0)
+                    upperVol = upperIndex < numBins - 1 ? array.get(volumeLevels, upperIndex + 1) : 0
+                    lowerVol = lowerIndex > 0 ? array.get(volumeLevels, lowerIndex - 1) : 0
+                    
+                    if upperVol > lowerVol and upperIndex < numBins - 1
+                        upperIndex += 1
+                        accumulatedVolume += upperVol
+                    else if lowerIndex > 0
+                        lowerIndex -= 1
+                        accumulatedVolume += lowerVol
+                
+                vp.vah := array.get(priceLevels, math.min(upperIndex, numBins - 1))
+                vp.val := array.get(priceLevels, math.max(lowerIndex, 0))
+                
+                vp.bullishImbalance := close > vp.poc and close > vp.vah
+                vp.bearishImbalance := close < vp.poc and close < vp.val
+            else
+                vp.poc := (highest + lowest) / 2
+                vp.vah := highest
+                vp.val := lowest
+        else
+            vp.poc := close
+            vp.vah := high
+            vp.val := low
+    
+    vp
+
+vp_current = calculate_volume_profile(50)
+
+// =======================
+// === CORRELATION MODULE ===
+// =======================
+
+calculate_correlations() =>
+    var array<CorrelationData> correlations = array.new<CorrelationData>()
+    
+    if enable_correlation
+        array.clear(correlations)
+        
+        correlatedPairs = syminfo.ticker == "EURUSD" ? array.from("GBPUSD", "AUDUSD") :
+                         syminfo.ticker == "GBPUSD" ? array.from("EURUSD", "AUDUSD") :
+                         syminfo.ticker == "USDJPY" ? array.from("USDCHF", "USDCAD") :
+                         array.from("EURUSD", "GBPUSD")
+        
+        for pair in correlatedPairs
+            pairClose = request.security(pair, timeframe.period, close)
+            if not na(pairClose) and not na(pairClose[1]) and pairClose[1] != 0
+                cd = CorrelationData.new()
+                cd.symbol := pair
+                
+                currentChange = close[1] != 0 ? (close - close[1]) / close[1] * 100 : 0
+                pairChange = (pairClose - pairClose[1]) / pairClose[1] * 100
+                
+                cd.correlation := ta.correlation(close, pairClose, 20)
+                
+                if math.abs(cd.correlation) > 0.7
+                    if (currentChange > 0 and pairChange < 0) or (currentChange < 0 and pairChange > 0)
+                        cd.divergence := true
+                        cd.divergenceType := currentChange > 0 ? "BULLISH_SMT" : "BEARISH_SMT"
+                        cd.strength := math.abs(currentChange - pairChange)
+                
+                array.push(correlations, cd)
+    
+    correlations
+
+correlations = calculate_correlations()
+
+check_smt_divergence(string direction) =>
+    has_divergence = false
+    if array.size(correlations) > 0
+        for corr in correlations
+            if corr.divergence and 
+               ((direction == "BUY" and corr.divergenceType == "BULLISH_SMT") or
+                (direction == "SELL" and corr.divergenceType == "BEARISH_SMT"))
+                has_divergence := true
+                break
+    has_divergence
+
+// =======================
+// === ENTRY FILTERS ===
+// =======================
+
+evaluate_entry_filters(string direction) =>
+    ef = EntryFilter.new(false, false, false, false, false, 0)
+    ef.score := 0
+    
+    // Market Structure (20 points)
+    ef.marketStructureAligned := (direction == "BUY" and ms.trend == "BULLISH") or
+                                 (direction == "SELL" and ms.trend == "BEARISH")
+    if ef.marketStructureAligned and require_structure_alignment
+        ef.score += 20
+    else if not require_structure_alignment
+        ef.score += 10
+    
+    // Liquidity Sweep (25 points)
+    ef.liquiditySwept := check_liquidity_sweep(direction)
+    if ef.liquiditySwept and require_liquidity_sweep
+        ef.score += 25
+    else if not require_liquidity_sweep
+        ef.score += 12
+    
+    // Volume Confirmation (20 points)
+    ef.volumeConfirmation := (direction == "BUY" and close > vp_current.poc) or
+                            (direction == "SELL" and close < vp_current.poc)
+    if ef.volumeConfirmation and require_volume_confluence
+        ef.score += 20
+    else if not require_volume_confluence
+        ef.score += 10
+    
+    // Correlation Confirmation (20 points)
+    ef.correlationConfirmation := check_smt_divergence(direction)
+    if ef.correlationConfirmation and require_smt_confluence
+        ef.score += 20
+    else if not require_smt_confluence
+        ef.score += 10
+    
+    // Time of Day (15 points)
+    optimalHours = array.from(2, 3, 6, 7, 8, 9, 10)
+    ef.timeOfDayOptimal := array.includes(optimalHours, get_tz_hour())
+    if ef.timeOfDayOptimal
+        ef.score += 15
+    
+    ef
+
+// =======================
+// === RISK MANAGEMENT ===
+// =======================
+
+calculate_position_size(float entryPrice, float stopLoss) =>
+    position_size = 0.0
+    
+    if enable_risk_management
+        riskAmount = rm.riskPerTrade
+        pipRisk = math.abs(entryPrice - stopLoss)
+        
+        pipValue = syminfo.type == "forex" ? 0.0001 : syminfo.mintick
+        
+        if pipRisk > 0
+            position_size := riskAmount / (pipRisk / pipValue)
+        
+        rm.tradingAllowed := rm.currentOpenTrades < rm.maxConcurrentTrades and
+                            math.abs(rm.currentDailyPnL) < rm.maxDailyLoss
+    
+    position_size
+
+// =======================
+// === ENTRY SIGNALS ===
+// =======================
+
+var string entry_signal = "NONE"
+var float entry_price = na
+var float stop_loss = na
+var float take_profit = na
+var float position_size = na
+var int entry_score = 0
+
+generate_advanced_entry_signal() =>
+    string signal = "NONE"
+    float price = na
+    float sl = na
+    float tp = na
+    float size = na
+    int score = 0
+    
+    bool crt_active = (crt_1am_state == "D_READY") or 
+                     (crt_5am_state == "D_READY") or 
+                     (crt_9am_state == "D_READY")
+    
+    if crt_active and enable_entry_engine
+        h = get_tz_hour()
+        m = get_tz_minute()
+        
+        // Check entry windows (NY TIME!)
+        bool in_1am_window = crt_1am_state == "D_READY" and h >= 2 and h < 3
+        bool in_5am_window = crt_5am_state == "D_READY" and ((h == 6) or (h == 7) or (h == 8 and m < 30))
+        bool in_9am_window = crt_9am_state == "D_READY" and h >= 10 and h < 11
+        
+        bool in_entry_window = in_1am_window or in_5am_window or in_9am_window
+        
+        if in_entry_window
+            string direction = dol_bias == "BULLISH" ? "BUY" : "SELL"
+            
+            EntryFilter filters = evaluate_entry_filters(direction)
+            score := filters.score
+            
+            if score >= min_entry_score
+                if (direction == "BUY" and is_order_block and ob_type == "BULLISH") or
+                   (direction == "SELL" and is_order_block and ob_type == "BEARISH")
+                    
+                    signal := direction
+                    price := close
+                    
+                    sl := direction == "BUY" ? 
+                          low[1] - (ta.atr(14) * 0.5) : 
+                          high[1] + (ta.atr(14) * 0.5)
+                    
+                    size := calculate_position_size(price, sl)
+                    
+                    if tp_calculation_method == "Dynamic (Cursor)"
+                        tp := not na(ms.lastHH) and not na(ms.lastLL) ? 
+                              (direction == "BUY" ? 
+                               math.min(ms.lastHH, price
