@@ -1,0 +1,1021 @@
+// This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © fluxchart - Enhanced by Claude
+
+//@version=5
+
+const bool DEBUG = false
+const int showLastXLiqs = 10
+const int maxDistanceToLastBar = 50000 // Affects Running Time
+const int atrLen = 5
+const bool maxTPLastHour = false
+const int extendFVG = 15
+
+var initRun = true
+
+indicator("ICT Silver Bullet | Flux Charts v2 -claude", shorttitle = "Silver Bullet Claude", overlay = true, max_boxes_count = 500, max_labels_count = 500, max_lines_count = 500)
+
+// === SESSIONS CONFIGURATION ===
+nySession1 = "1000-1100"  // New York Session 1
+nySession2 = "1400-1500"  // New York Session 2
+londonSession = "0300-0400"  // London Session
+asiaSession = "1900-2000"  // Asia Session - ADDED
+killZone1 = "0400-0600"  // London/New York overlap - ADDED
+killZone2 = "1300-1500"  // US Open - ADDED
+
+// === STRATEGY CONFIGURATION ===
+executionType = input.string("FVG", "Execution Type", options = ["FVG", "MSS", "Order Block", "Breaker Block"], group = "General Configuration",     tooltip = "FVG -> Fair Value Gap detection.\nMSS -> Market Structure Shift.\nOrder Block -> ICT Order Block concept.\nBreaker Block -> ICT Breaker Block concept.")
+htfPeriod = input.string("240", "Higher Timeframe", options = ["60", "240", "D", "W"], group = "General Configuration",    tooltip = "Higher timeframe for market structure analysis.")
+mssOffset = input.int(10, "MSS Swing Length", group = "General Configuration")
+breakoutMethod = input.string("Wick", "Breakout Method", options = ["Close", "Wick"], group = "General Configuration")
+fvgBars = input.string("Same Type", "FVG Detection", options = ["Same Type", "All"],     tooltip = "Same Type -> All 3 bars that formed the FVG should be the same type. (Bullish / Bearish) \n\nAll -> Bar types may vary between bullish / bearish.",     group = "General Configuration")
+fvgSensEnabled = input.bool(true, "", "", "sens", "General Configuration")
+fvgSensitivityText = input.string("Extreme", "FVG Detection Sensitivity", options = ["Extreme", "High", "Normal", "Low"], inline = "sens", group = "General Configuration")
+fvgEntry = DEBUG ? input.string("Along", "FVG Entry", options = ["All", "Along", "Inverse"], group = "General Configuration") : "Along"
+allowGaps = true
+fvgSensitivity = fvgSensitivityText == "Extreme" ? 6 : fvgSensitivityText == "High" ? 2 : fvgSensitivityText == "Normal" ? 1.5 : 1
+
+// === DISPLAY CONFIGURATION ===
+showSessions = input.bool(true, "Show Sessions", inline = "2", group = "General Configuration")
+showHL = input.bool(false, "Highs / Lows", inline = "2", group = "General Configuration")
+showFVGs = input.bool(true, "FVGs", inline = "2", group = "General Configuration")
+showTPSL = input.bool(true, "TP / SL", inline = "2", group = "General Configuration")
+showOB = input.bool(true, "Order Blocks", inline = "2", group = "General Configuration")  // ADDED
+showBB = input.bool(true, "Breaker Blocks", inline = "2", group = "General Configuration")  // ADDED
+showBOS = input.bool(true, "Break of Structure", inline = "3", group = "General Configuration")  // ADDED
+showEQHL = input.bool(true, "Equal Highs/Lows", inline = "3", group = "General Configuration")  // ADDED
+
+// === ENHANCED FILTER SETTINGS === (SPEC COMPLIANCE)
+dailyBias = input.string("None", "Daily Bias", options = ["None", "Bullish", "Bearish"], group = "Smart Filters",     tooltip = "Sets a directional bias for the day")
+useHigherTFliq = input.bool(true, "Higher TF Liquidity", inline = "4", group = "Smart Filters",    tooltip = "Considers previous daily/session highs/lows for liquidity sweeps")
+requireDisplacement = input.bool(true, "Require Displacement", inline = "4", group = "Smart Filters",    tooltip = "Requires strong displacement after liquidity sweep for entry")
+requireOBConfluence = input.bool(true, "Order Block Confluence", inline = "5", group = "Smart Filters",    tooltip = "Requires entry within a valid Order Block")
+volumeFilter = input.bool(true, "Volume Filter", inline = "5", group = "Smart Filters")
+
+// === ADVANCED MARKET STRUCTURE SETTINGS === (ADDED)
+bos_lookback = input.int(10, "BOS Lookback", group = "Market Structure")
+eqhl_threshold = input.float(0.05, "EQ H/L Threshold %", group = "Market Structure")
+choch_confirmation = input.bool(true, "Require CHoCH", group = "Market Structure")
+ob_lookback = input.int(20, "Order Block Lookback", group = "Market Structure")
+bb_confirmation = input.bool(true, "Breaker Block Confirmation", group = "Market Structure")
+msip_buffer = input.float(0.2, "MSIP Buffer ATR Multiplier", group = "Market Structure")
+
+// === RISK MANAGEMENT ===
+tpslMethod = input.string("Dynamic", "TP / SL Method", options = ["Dynamic", "Fixed", "MSIP"], group = "TP / SL",    tooltip = "Dynamic -> Based on ATR\nFixed -> Based on percentages\nMSIP -> Market Structure Invalidation Point")
+riskAmount = input.string("Normal", "Risk", options = ["High", "Normal", "Low"], group = "TP / SL",     tooltip = "The risk amount when Dynamic TP / SL method is selected.")
+tpPercent = input.float(0.3, "Take Profit %", group = "TP / SL")
+slPercent = input.float(0.4, "Stop Loss %", group = "TP / SL")
+closePositionAtEndSession = input.bool(true, "Close Position @ Session End", group = "TP / SL")
+partialTP = input.bool(true, "Use Partial Take Profits", group = "TP / SL")  // ADDED
+trailingStop = input.bool(true, "Use Trailing Stop", group = "TP / SL")  // ADDED
+
+RR = DEBUG ? input.float(0.99, "Risk:Reward Ratio", group = "Debug") : 1.5  // INCREASED from 0.99
+requireFVGRetracement = DEBUG ? input.bool(true, "[DBG] Require FVG Retracement", group = "Debug") : true
+slATRMult = riskAmount == "High" ? 6.5 : riskAmount == "Normal" ? 5.5 : 3.5
+
+executeInsideSession = DEBUG ? input.bool(true, "Must Execute Inside Session", group = "Debug", display = display.none) : true
+ny1Enabled = DEBUG ? input.bool(true, "NY 1", group = "Debug", display = display.none) : true
+ny2Enabled = DEBUG ? input.bool(true, "NY 2", group = "Debug", display = display.none) : true
+lnEnabled = DEBUG ? input.bool(true, "London", group = "Debug", display = display.none) : true
+asiaEnabled = input.bool(false, "Asia", group = "Sessions")  // ADDED
+killZoneEnabled = input.bool(true, "Kill Zone Only", group = "Sessions")  // ADDED
+
+// === BACKTESTING DASHBOARD ===
+backtestDisplayEnabled = input.bool(true, "Enabled", group = "Backtesting Dashboard", display = display.none)
+backtestingLocation = input.string("Top Center", "Position", options = ["Top Right", "Right Center", "Top Center"], group = "Backtesting Dashboard", display = display.none)
+fillBackgrounds = input.bool(true, "Fill Backgrounds", group = "Backtesting Dashboard", display = display.none)
+screenerColor = input.color(#1B1F2B, 'Background', inline = "1", group = 'Backtesting Dashboard', display = display.none)
+
+// === VISUAL SETTINGS ===
+highColor = input.color(color.green, "Buy", inline = "colors", group = "Visuals")
+lowColor = input.color(color.red, "Sell", inline = "colors", group = "Visuals")
+textColor = input.color(color.white, "Text", inline = "colors", group = "Visuals")
+obColor = input.color(color.new(color.blue, 70), "Order Block", inline = "colors2", group = "Visuals")  // ADDED
+bbColor = input.color(color.new(color.purple, 70), "Breaker Block", inline = "colors2", group = "Visuals")  // ADDED
+bosColor = input.color(color.new(color.yellow, 70), "BOS", inline = "colors3", group = "Visuals")  // ADDED
+eqhlColor = input.color(color.new(color.orange, 70), "EQ H/L", inline = "colors3", group = "Visuals")  // ADDED
+
+// === ALERTS ===
+buyAlertEnabled = input.bool(true, "Buy Signal", inline = "BS", group = "Alerts")
+sellAlertEnabled = input.bool(true, "Sell Signal", inline = "BS", group = "Alerts")
+tpAlertEnabled = input.bool(true, "Take-Profit Signal", inline = "TS", group = "Alerts")
+slAlertEnabled = input.bool(true, "Stop-Loss Signal ", inline = "TS", group = "Alerts")
+bosAlertEnabled = input.bool(true, "Break of Structure Alert", inline = "MS", group = "Alerts")  // ADDED
+eqhlAlertEnabled = input.bool(true, "Equal High/Low Alert", inline = "MS", group = "Alerts")  // ADDED
+
+buyAlertTick = false
+sellAlertTick = false
+tpAlertTick = false
+slAlertTick = false
+bosAlertTick = false  // ADDED
+eqhlAlertTick = false  // ADDED
+
+// === TYPE DEFINITIONS ===
+type FVG
+    int startTime
+    int endTime
+    float top
+    float bottom
+    bool isBull
+
+type Sweep
+    int startTime
+    int endTime
+    string side
+    float price
+
+type OrderBlock  // ADDED
+    int startTime
+    int endTime
+    float top
+    float bottom
+    bool isBull
+    bool isBOS
+    bool isBreaker
+
+type BOS  // ADDED
+    int time
+    float price
+    bool isBull
+    bool confirmed
+
+type EQHL  // ADDED
+    int time
+    float price
+    bool isHigh
+
+type SilverBullet
+    string state
+    int startTime
+
+    int lastHour = na
+    float lastHourHigh = na
+    float lastHourLow = na
+    Sweep brokenSweep = na
+    float slTarget
+    float tpTarget
+    float tp1Target  // ADDED
+    float tp2Target  // ADDED
+    float trailStop  // ADDED
+    string entryType
+    int entryTime
+    int exitTime
+    float entryPrice
+    float exitPrice
+    int dayEndedBeforeExit
+    FVG fvg
+    OrderBlock ob  // ADDED
+    BOS bos  // ADDED
+    bool htfAligned  // ADDED
+    float msip  // ADDED
+
+var lineX = array.new<line>()
+var boxX = array.new<box>()
+var labelX = array.new<label>()
+
+var SilverBullet[] sbList = array.new<SilverBullet>(0)
+var SilverBullet lastSB = na
+
+var OrderBlock[] orderBlocks = array.new<OrderBlock>(0)  // ADDED
+var BOS[] bosPoints = array.new<BOS>(0)  // ADDED
+var EQHL[] eqhlPoints = array.new<EQHL>(0)  // ADDED
+
+// === INDICATORS ===
+atr = ta.atr(atrLen)
+rsi = ta.rsi(close, 14)
+htf_close = request.security(syminfo.tickerid, htfPeriod, close)
+htf_high = request.security(syminfo.tickerid, htfPeriod, high)
+htf_low = request.security(syminfo.tickerid, htfPeriod, low)
+htf_open = request.security(syminfo.tickerid, htfPeriod, open)
+
+// === HIGHER TIMEFRAME LIQUIDITY ===
+daily_high = request.security(syminfo.tickerid, "D", high[1])
+daily_low = request.security(syminfo.tickerid, "D", low[1])
+
+// London session high/low from previous day
+london_high = request.security(syminfo.tickerid, "60", high, lookahead=barmerge.lookahead_on)
+london_low = request.security(syminfo.tickerid, "60", low, lookahead=barmerge.lookahead_on)
+prev_london_high = request.security(syminfo.tickerid, "D", london_high[1])
+prev_london_low = request.security(syminfo.tickerid, "D", london_low[1])
+
+// NY1 session high/low from previous day
+ny1_high = request.security(syminfo.tickerid, "60", high, lookahead=barmerge.lookahead_on)
+ny1_low = request.security(syminfo.tickerid, "60", low, lookahead=barmerge.lookahead_on)
+prev_ny1_high = request.security(syminfo.tickerid, "D", ny1_high[1])
+prev_ny1_low = request.security(syminfo.tickerid, "D", ny1_low[1])
+
+// NY2 session high/low from previous day
+ny2_high = request.security(syminfo.tickerid, "60", high, lookahead=barmerge.lookahead_on)
+ny2_low = request.security(syminfo.tickerid, "60", low, lookahead=barmerge.lookahead_on)
+prev_ny2_high = request.security(syminfo.tickerid, "D", ny2_high[1])
+prev_ny2_low = request.security(syminfo.tickerid, "D", ny2_low[1])
+
+// === DISPLACEMENT DETECTION FUNCTION ===
+isDisplacement(int lookback, bool isBullish) =>
+    result = true
+    // Check for consecutive candles
+    for i = 0 to lookback-1
+        if isBullish
+            if not (close[i] > open[i] and (close[i] - open[i]) > 0.5 * atr[i])
+                result := false
+                break
+        else
+            if not (close[i] < open[i] and (open[i] - close[i]) > 0.5 * atr[i])
+                result := false
+                break
+    
+    // Check for FVG
+    if isBullish
+        if not (low > high[lookback+1])
+            result := false
+    else
+        if not (high < low[lookback+1])
+            result := false
+    
+    result
+
+// === ORDER BLOCK IDENTIFICATION FUNCTION ===
+findOrderBlock(int lookback, bool isBullish) =>
+    var OrderBlock result = na
+    
+    for i = 0 to lookback
+        // For bullish OB, find last bearish candle before bullish displacement
+        if isBullish
+            if close[i] < open[i]  // Bearish candle
+                if isDisplacement(3, true) and i >= 3  // Check for bullish displacement starting 3 bars later
+                    result := OrderBlock.new(time[i], na, high[i], low[i], true, false, false)
+                    break
+        // For bearish OB, find last bullish candle before bearish displacement
+        else
+            if close[i] > open[i]  // Bullish candle
+                if isDisplacement(3, false) and i >= 3  // Check for bearish displacement starting 3 bars later
+                    result := OrderBlock.new(time[i], na, high[i], low[i], false, false, false)
+                    break
+    
+    result
+
+// === HELPER FUNCTIONS ===
+diffPercent(float val1, float val2) =>
+    (math.abs(val1 - val2) / val2) * 100.0
+
+getPosition(positionText) =>
+    if positionText == "Top Right"
+        position.top_right
+    else if positionText == "Top Center"
+        position.top_center
+    else if positionText == "Right Center"
+        position.middle_right
+    else if positionText == "Left Center"
+        position.middle_left
+    else if positionText == "Bottom Center"
+        position.bottom_center
+    else if positionText == "Middle Center"
+        position.middle_center
+
+// === MSS VARIABLES FOR TP/SL ===
+float highMSS = ta.highest(mssOffset)
+float lowMSS = ta.lowest(mssOffset)
+
+// === HELPER FUNCTION FOR TP/SL SETUP ===
+setupTpSl(SilverBullet sb) =>
+    if tpslMethod == "Fixed"
+        if sb.entryType == "Long"
+            sb.slTarget := sb.entryPrice * (1 - slPercent / 100.0)
+            sb.tpTarget := sb.entryPrice * (1 + tpPercent / 100.0)
+        else
+            sb.slTarget := sb.entryPrice * (1 + slPercent / 100.0)
+            sb.tpTarget := sb.entryPrice * (1 - tpPercent / 100.0)
+    else if tpslMethod == "Dynamic"
+        // If we have a valid Order Block, use it for SL placement
+        if requireOBConfluence and not na(sb.ob)
+            if sb.entryType == "Long"
+                // Place SL just below the bullish Order Block with buffer
+                sb.slTarget := sb.ob.bottom - (atr * 0.5)
+                
+                // For TP, use higher timeframe liquidity levels if enabled
+                if useHigherTFliq
+                    // Target the nearest higher timeframe liquidity level (daily/session high)
+                    htf_target = math.max(daily_high, math.max(prev_london_high, math.max(prev_ny1_high, prev_ny2_high)))
+                    sb.tpTarget := htf_target
+                else
+                    // Default to RR-based TP
+                    sb.tpTarget := sb.entryPrice + (math.abs(sb.entryPrice - sb.slTarget) * RR)
+            else
+                // Place SL just above the bearish Order Block with buffer
+                sb.slTarget := sb.ob.top + (atr * 0.5)
+                
+                // For TP, use higher timeframe liquidity levels if enabled
+                if useHigherTFliq
+                    // Target the nearest higher timeframe liquidity level (daily/session low)
+                    htf_target = math.min(daily_low, math.min(prev_london_low, math.min(prev_ny1_low, prev_ny2_low)))
+                    sb.tpTarget := htf_target
+                else
+                    // Default to RR-based TP
+                    sb.tpTarget := sb.entryPrice - (math.abs(sb.entryPrice - sb.slTarget) * RR)
+        else
+            // No valid Order Block, use default ATR-based SL
+            if sb.entryType == "Long"
+                sb.slTarget := low - (atr * slATRMult)
+                
+                // For TP, use higher timeframe liquidity levels if enabled
+                if useHigherTFliq
+                    // Target the nearest higher timeframe liquidity level (daily/session high)
+                    htf_target = math.max(daily_high, math.max(prev_london_high, math.max(prev_ny1_high, prev_ny2_high)))
+                    sb.tpTarget := htf_target
+                else
+                    // Default to RR-based TP
+                    sb.tpTarget := sb.entryPrice + (math.abs(sb.entryPrice - sb.slTarget) * RR)
+            else
+                sb.slTarget := high + (atr * slATRMult)
+                
+                // For TP, use higher timeframe liquidity levels if enabled
+                if useHigherTFliq
+                    // Target the nearest higher timeframe liquidity level (daily/session low)
+                    htf_target = math.min(daily_low, math.min(prev_london_low, math.min(prev_ny1_low, prev_ny2_low)))
+                    sb.tpTarget := htf_target
+                else
+                    // Default to RR-based TP
+                    sb.tpTarget := sb.entryPrice - (math.abs(sb.entryPrice - sb.slTarget) * RR)
+    else  // MSIP or other methods
+        if sb.entryType == "Long"
+            sb.slTarget := lowMSS - atr * slATRMult
+            sb.tpTarget := sb.entryPrice + (math.abs(sb.entryPrice - sb.slTarget) * RR)
+        else
+            sb.slTarget := highMSS + atr * slATRMult
+            sb.tpTarget := sb.entryPrice - (math.abs(sb.entryPrice - sb.slTarget) * RR)
+
+// === TIMEFRAME VALIDATION ===
+tfInMin = timeframe.in_seconds() / 60
+if tfInMin > 5
+    runtime.error("Silver Bullet indicator only works timeframes <= 5 Minutes.")
+
+// === SESSION MANAGEMENT ===
+int barLength = 60 / tfInMin
+float high12 = ta.highest(barLength)
+float low12 = ta.lowest(barLength)
+int lastHourTime = time[barLength]
+
+// === SESSION DETECTION ===
+sessionBegins(sess) =>
+    t = time("1440", sess, "America/New_York")
+    is_first = na(t[1]) and not na(t) or t[1] < t
+
+inKillZone = not na(time("", killZone1, "America/New_York")) or not na(time("", killZone2, "America/New_York"))
+newSession = (ny1Enabled and sessionBegins(nySession1)) or (ny2Enabled and sessionBegins(nySession2)) or 
+             (lnEnabled and sessionBegins(londonSession)) or (asiaEnabled and sessionBegins(asiaSession))
+insideSession = (ny1Enabled and not na(time("", nySession1, "America/New_York"))) or                 (ny2Enabled and not na (time("", nySession2, "America/New_York"))) or                (lnEnabled and not na(time("", londonSession, "America/New_York"))) or                (asiaEnabled and not na(time("", asiaSession, "America/New_York")))
+endSession = (not insideSession and insideSession[1])
+
+// === MARKET STRUCTURE DETECTION === (ADDED)
+
+// Higher Timeframe Market Structure
+htf_swing_high = ta.pivothigh(htf_high, bos_lookback, bos_lookback)
+htf_swing_low = ta.pivotlow(htf_low, bos_lookback, bos_lookback)
+htf_higher_high = not na(htf_swing_high) and htf_swing_high > ta.valuewhen(not na(htf_swing_high[1]), htf_swing_high[1], 1)
+htf_lower_high = not na(htf_swing_high) and htf_swing_high < ta.valuewhen(not na(htf_swing_high[1]), htf_swing_high[1], 1)
+htf_higher_low = not na(htf_swing_low) and htf_swing_low > ta.valuewhen(not na(htf_swing_low[1]), htf_swing_low[1], 1)
+htf_lower_low = not na(htf_swing_low) and htf_swing_low < ta.valuewhen(not na(htf_swing_low[1]), htf_swing_low[1], 1)
+
+// Higher timeframe trend detection
+htfUptrend = htf_higher_high and htf_higher_low
+htfDowntrend = htf_lower_high and htf_lower_low
+
+// Current timeframe trend detection
+inUptrend = close > open and close > close[1]
+inDowntrend = close < open and close < close[1]
+
+// Current Timeframe Market Structure
+swing_high = ta.pivothigh(high, bos_lookback/2, bos_lookback/2)
+swing_low = ta.pivotlow(low, bos_lookback/2, bos_lookback/2)
+higher_high = not na(swing_high) and swing_high > ta.valuewhen(not na(swing_high[1]), swing_high[1], 1)
+lower_high = not na(swing_high) and swing_high < ta.valuewhen(not na(swing_high[1]), swing_high[1], 1)
+higher_low = not na(swing_low) and swing_low > ta.valuewhen(not na(swing_low[1]), swing_low[1], 1)
+lower_low = not na(swing_low) and swing_low < ta.valuewhen(not na(swing_low[1]), swing_low[1], 1)
+
+// Break of Structure Detection
+bullish_bos = lower_low and higher_low
+bearish_bos = higher_high and lower_high
+
+// Equal Highs/Lows Detection
+eq_high_detected = not na(swing_high) and math.abs(diffPercent(swing_high, ta.valuewhen(not na(swing_high[1]), swing_high[1], 1))) < eqhl_threshold
+eq_low_detected = not na(swing_low) and math.abs(diffPercent(swing_low, ta.valuewhen(not na(swing_low[1]), swing_low[1], 1))) < eqhl_threshold
+
+// Order Block Detection
+create_bull_ob = bearish_bos and barstate.isconfirmed
+create_bear_ob = bullish_bos and barstate.isconfirmed
+
+// Breaker Block Detection
+bull_breaker = false
+bear_breaker = false
+
+if orderBlocks.size() > 0
+    for i = 0 to orderBlocks.size() - 1
+        ob = orderBlocks.get(i)
+        if not na(ob)
+            if not ob.isBreaker
+                if ob.isBull and low <= ob.bottom
+                    bull_breaker := true
+                    var OrderBlock tempOB = orderBlocks.get(i)
+                    tempOB.isBreaker := true
+                    orderBlocks.set(i, tempOB)
+                if not ob.isBull and high >= ob.top
+                    bear_breaker := true
+                    var OrderBlock tempOB2 = orderBlocks.get(i)
+                    tempOB2.isBreaker := true
+                    orderBlocks.set(i, tempOB2)
+
+// Update BOS array
+if bullish_bos
+    newBOS = BOS.new(time, low[bos_lookback/2], true, false)
+    bosPoints.unshift(newBOS)
+    bosAlertTick := true
+if bearish_bos
+    newBOS = BOS.new(time, high[bos_lookback/2], false, false)
+    bosPoints.unshift(newBOS)
+    bosAlertTick := true
+
+// Update EQHL array
+if eq_high_detected
+    newEQHL = EQHL.new(time, swing_high, true)
+    eqhlPoints.unshift(newEQHL)
+    eqhlAlertTick := true
+if eq_low_detected
+    newEQHL = EQHL.new(time, swing_low, false)
+    eqhlPoints.unshift(newEQHL)
+    eqhlAlertTick := true
+
+// Update Order Blocks array
+if create_bull_ob
+    for i = 1 to ob_lookback
+        if open[i] > close[i]  // Bearish candle
+            newOB = OrderBlock.new(time[i], na, high[i], low[i], true, true, false)
+            orderBlocks.unshift(newOB)
+            break
+if create_bear_ob
+    for i = 1 to ob_lookback
+        if open[i] < close[i]  // Bullish candle
+            newOB = OrderBlock.new(time[i], na, high[i], low[i], false, true, false)
+            orderBlocks.unshift(newOB)
+            break
+
+// === MAIN STRATEGY LOGIC ===
+if bar_index > last_bar_index - maxDistanceToLastBar
+    // FVG End
+    if not na(lastSB) and endSession
+        if not na(lastSB.fvg)
+            if na(lastSB.fvg.endTime)
+                lastSB.fvg.endTime := time
+    
+    if not na(lastSB)
+        if not na(lastSB.fvg)
+            if na(lastSB.fvg.endTime) and ((lastSB.fvg.isBull and low <= lastSB.fvg.bottom) or (not lastSB.fvg.isBull and high >= lastSB.fvg.top))
+                lastSB.fvg.endTime := time
+    
+    // Order Block End (ADDED)
+    if orderBlocks.size() > 0
+        for i = 0 to orderBlocks.size() - 1
+            ob = orderBlocks.get(i)
+            if not na(ob) and na(ob.endTime)
+                if (ob.isBull and low <= ob.bottom) or (not ob.isBull and high >= ob.top)
+                    var OrderBlock tempOB3 = orderBlocks.get(i)
+                    tempOB3.endTime := time
+                    orderBlocks.set(i, tempOB3)
+    
+    if true
+        // Find Session Start
+        if newSession
+            createNewSB = true
+            if not na(lastSB)
+                if not na(lastSB.entryPrice) and na(lastSB.exitPrice)
+                    if closePositionAtEndSession
+                        lastSB.dayEndedBeforeExit := time[1]
+                        lastSB.exitTime := time
+                        lastSB.exitPrice := close
+                    else
+                        createNewSB := false // Don't enter if a trade is already entered
+                    
+            if createNewSB
+                newSB = SilverBullet.new("Waiting For Liquidity Break", time)
+                newSB.lastHourHigh := high12
+                newSB.lastHourLow := low12
+                newSB.lastHour := lastHourTime
+                // HTF Alignment (ADDED)
+                newSB.htfAligned := (htfUptrend and inUptrend) or (htfDowntrend and inDowntrend)
+                sbList.unshift(newSB)
+                lastSB := newSB
+
+        if not na(lastSB)
+            // === FVG DETECTION ===
+            fvgEnter = false
+            if na(lastSB.fvg) and lastSB.state != "Waiting For Liquidity Break" and ((not executeInsideSession) or insideSession)
+                bearCondition = false
+                bullCondition = false
+
+                firstBarSize = math.max(open, close) - math.min(open, close)
+                secondBarSize = math.max(open[1], close[1]) - math.min(open[1], close[1])
+                thirdBarSize = math.max(open[2], close[2]) - math.min(open[2], close[2])
+                barSizeSum = firstBarSize + secondBarSize + thirdBarSize
+
+                barSizeCheck = true
+                //if (secondBarSize * fvgSensitivity < (firstBarSize + thirdBarSize) * 1.5)
+                    //barSizeCheck := false
+
+                fvgBarsCheck = false
+                if fvgBars == "Same Type"
+                    if (open > close and open[1] > close[1] and open[2] > close[2]) or (open <= close and open[1] <= close[1] and open[2] <= close[2])
+                        fvgBarsCheck := true
+                else
+                    fvgBarsCheck := true
+
+                if fvgBarsCheck and barSizeCheck
+                    maxCODiff = math.max(math.abs(close[2] - open[1]), math.abs(close[1] - open))
+                    bearCondition := ((not fvgSensEnabled) or (barSizeSum * fvgSensitivity > atr / 1.5)) and (allowGaps or (maxCODiff <= atr))
+                    bullCondition := ((not fvgSensEnabled) or (barSizeSum * fvgSensitivity > atr / 1.5)) and (allowGaps or (maxCODiff <= atr))
+
+                bearFVG = high < low[2] and close[1] < low[2] and bearCondition
+                bullFVG = low > high[2] and close[1] > high[2] and bullCondition
+
+                FVGSize = bearFVG ? math.abs(low[2] - high) : bullFVG ? math.abs(low - high[2]) : 0
+                FVGSizeEnough = (FVGSize * fvgSensitivity > atr)
+            
+                if (bearFVG or bullFVG) and (FVGSizeEnough or (not fvgSensEnabled))
+                    if (fvgEntry == "All")
+                        fvgEnter := true
+                    
+                    if (fvgEntry == "Along")
+                        if (lastSB.entryType == "Long" and bullFVG) or (lastSB.entryType == "Short" and bearFVG)
+                            fvgEnter := true
+                    
+                    if (fvgEntry == "Inverse")
+                        if (lastSB.entryType == "Long" and bearFVG) or (lastSB.entryType == "Short" and bullFVG)
+                            fvgEnter := true
+                    lastSB.fvg := FVG.new(time, na, bearFVG ? low[2] : low, bearFVG ? high : high[2], bullFVG)
+
+            // === FIND LIQUIDITY BREAKS ===
+            if lastSB.state == "Waiting For Liquidity Break"
+                if time > lastSB.startTime
+                    // Check for standard liquidity break
+                    standardLiquidityBreak = false
+                    standardBreakBullish = false
+                    standardBreakBearish = false
+                    
+                    if (breakoutMethod == "Close" ? close : low) < lastSB.lastHourLow
+                        standardLiquidityBreak := true
+                        standardBreakBullish := true
+                    else if (breakoutMethod == "Close" ? close : high) > lastSB.lastHourHigh
+                        standardLiquidityBreak := true
+                        standardBreakBearish := true
+                    
+                    // Check for higher timeframe liquidity break
+                    htfLiquidityBreak = false
+                    htfBreakBullish = false
+                    htfBreakBearish = false
+                    
+                    if useHigherTFliq
+                        // Check for daily/session lows (for bullish entry)
+                        if (breakoutMethod == "Close" ? close : low) < daily_low or
+                           (breakoutMethod == "Close" ? close : low) < prev_london_low or
+                           (breakoutMethod == "Close" ? close : low) < prev_ny1_low or
+                           (breakoutMethod == "Close" ? close : low) < prev_ny2_low
+                            htfLiquidityBreak := true
+                            htfBreakBullish := true
+                        
+                        // Check for daily/session highs (for bearish entry)
+                        if (breakoutMethod == "Close" ? close : high) > daily_high or
+                           (breakoutMethod == "Close" ? close : high) > prev_london_high or
+                           (breakoutMethod == "Close" ? close : high) > prev_ny1_high or
+                           (breakoutMethod == "Close" ? close : high) > prev_ny2_high
+                            htfLiquidityBreak := true
+                            htfBreakBearish := true
+                    
+                    // Daily bias filter
+                    biasCheck = dailyBias == "None" or             (dailyBias == "Bullish" and (standardBreakBullish or htfBreakBullish)) or       (dailyBias == "Bearish" and (standardBreakBearish or htfBreakBearish))
+                    
+                    // Volume filter
+                    volumeCheck = not volumeFilter or volume > ta.sma(volume, 20)
+                    
+                    // Combined check for Bullish entry
+                    if (standardBreakBullish or htfBreakBullish) and biasCheck and volumeCheck
+                        // Check for displacement if required
+                        displacementCheck = not requireDisplacement or isDisplacement(3, true)
+                        
+                        if displacementCheck
+                            // Set up for bullish trade
+                            lastSB.brokenSweep := Sweep.new(lastSB.lastHour, time, "Sellside", standardBreakBullish ? lastSB.lastHourLow : 
+                                                           math.min(daily_low, math.min(prev_london_low, math.min(prev_ny1_low, prev_ny2_low))))
+                            lastSB.entryType := "Long"
+                            lastSB.state := "Waiting For Execution"
+                            
+                            // Find bullish Order Block if required
+                            if requireOBConfluence
+                                lastSB.ob := findOrderBlock(20, true)  // Look back 20 bars for bullish OB
+                    
+                    // Combined check for Bearish entry
+                    else if (standardBreakBearish or htfBreakBearish) and biasCheck and volumeCheck
+                        // Check for displacement if required
+                        displacementCheck = not requireDisplacement or isDisplacement(3, false)
+                        
+                        if displacementCheck
+                            // Set up for bearish trade
+                            lastSB.brokenSweep := Sweep.new(lastSB.lastHour, time, "Buyside", standardBreakBearish ? lastSB.lastHourHigh : 
+                                                           math.max(daily_high, math.max(prev_london_high, math.max(prev_ny1_high, prev_ny2_high))))
+                            lastSB.entryType := "Short"
+                            lastSB.state := "Waiting For Execution"
+                            
+                            // Find bearish Order Block if required
+                            if requireOBConfluence
+                                lastSB.ob := findOrderBlock(20, false)  // Look back 20 bars for bearish OB
+
+            // === EXECUTE ENTRY ===
+            if lastSB.state == "Waiting For Execution" and ((not executeInsideSession) or insideSession)
+                if time > lastSB.brokenSweep.endTime
+                    // Order Block Confluence Check
+                    obConfluenceCheck = true
+                    if requireOBConfluence and not na(lastSB.ob)
+                        // For long entry, price should be within bullish Order Block
+                        if lastSB.entryType == "Long"
+                            obConfluenceCheck := low <= lastSB.ob.top and high >= lastSB.ob.bottom
+                        // For short entry, price should be within bearish Order Block
+                        else
+                            obConfluenceCheck := high >= lastSB.ob.bottom and low <= lastSB.ob.top
+                    
+                    // MSS Execution
+                    if executionType == "MSS" and obConfluenceCheck
+                        if lastSB.brokenSweep.side == "Buyside" // Short
+                            if (breakoutMethod == "Close" ? close : low) < lowMSS[1]
+                                sellAlertTick := true
+                                lastSB.state := "Entry Taken"
+                                lastSB.entryTime := time
+                                lastSB.entryPrice := (breakoutMethod == "Close" ? close : lowMSS[1])
+                                setupTpSl(lastSB)
+                        else // Long
+                            if (breakoutMethod == "Close" ? close : high) > highMSS[1]
+                                buyAlertTick := true
+                                lastSB.state := "Entry Taken"
+                                lastSB.entryTime := time
+                                lastSB.entryPrice := (breakoutMethod == "Close" ? close : highMSS[1])
+                                setupTpSl(lastSB)
+                    
+                    // FVG Execution
+                    else if fvgEnter and executionType == "FVG" and obConfluenceCheck
+                        if not requireFVGRetracement
+                            lastSB.state := "Entry Taken"
+                            lastSB.entryTime := time
+                            lastSB.entryPrice := close
+                            if lastSB.entryType == "Long"
+                                buyAlertTick := true
+                                setupTpSl(lastSB)
+                            else
+                                sellAlertTick := true
+                                setupTpSl(lastSB)
+                        else
+                            lastSB.state := "FVG Retracement"
+                    
+                    // Order Block Execution
+                    else if executionType == "Order Block" and obConfluenceCheck
+                        lastSB.state := "Entry Taken"
+                        lastSB.entryTime := time
+                        lastSB.entryPrice := close
+                        if lastSB.entryType == "Long"
+                            buyAlertTick := true
+                            setupTpSl(lastSB)
+                        else
+                            sellAlertTick := true
+                            setupTpSl(lastSB)
+
+    // === FVG RETRACEMENT ===
+    if not na(lastSB)
+        if lastSB.state == "FVG Retracement" and ((not executeInsideSession) or insideSession)
+            if (lastSB.fvg.isBull and (breakoutMethod == "Close" ? close : low) < lastSB.fvg.top) or (not lastSB.fvg.isBull and (breakoutMethod == "Close" ? close : high) > lastSB.fvg.bottom)
+                lastSB.state := "Entry Taken"
+                lastSB.entryTime := time
+                lastSB.entryPrice := close
+                if lastSB.entryType == "Long"
+                    buyAlertTick := true
+                    setupTpSl(lastSB)
+                else
+                    sellAlertTick := true
+                    setupTpSl(lastSB)
+    
+    // === POSITION MANAGEMENT ===
+    if not na(lastSB)
+        if lastSB.state == "Entry Taken"
+            if tpslMethod == "Fixed"
+                // Take Profit
+                if lastSB.entryType == "Long" and ((high / lastSB.entryPrice) - 1) * 100 >= tpPercent
+                    tpAlertTick := true
+                    lastSB.exitPrice := lastSB.entryPrice * (1 + tpPercent / 100.0)
+                    lastSB.exitTime := time
+                    lastSB.state := "Take Profit"
+                if lastSB.entryType == "Short" and ((low / lastSB.entryPrice) - 1) * 100 <= -tpPercent
+                    tpAlertTick := true
+                    lastSB.exitPrice := lastSB.entryPrice * (1 - tpPercent / 100.0)
+                    lastSB.exitTime := time
+                    lastSB.state := "Take Profit"
+                
+                // Stop Loss
+                if lastSB.entryType == "Long" and ((low / lastSB.entryPrice) - 1) * 100 <= -slPercent
+                    slAlertTick := true
+                    lastSB.exitPrice := lastSB.entryPrice * (1 - slPercent / 100.0)
+                    lastSB.exitTime := time
+                    lastSB.state := "Stop Loss"
+                if lastSB.entryType == "Short" and ((high / lastSB.entryPrice) - 1) * 100 >= slPercent
+                    slAlertTick := true
+                    lastSB.exitPrice := lastSB.entryPrice * (1 + slPercent / 100.0)
+                    lastSB.exitTime := time
+                    lastSB.state := "Stop Loss"
+            else if tpslMethod == "MSIP"
+                // Take Profit with MSIP method
+                if lastSB.entryType == "Long" and high >= lastSB.tpTarget
+                    tpAlertTick := true
+                    lastSB.exitPrice := lastSB.tpTarget
+                    lastSB.exitTime := time
+                    lastSB.state := "Take Profit"
+                if lastSB.entryType == "Short" and low <= lastSB.tpTarget
+                    tpAlertTick := true
+                    lastSB.exitPrice := lastSB.tpTarget
+                    lastSB.exitTime := time
+                    lastSB.state := "Take Profit"
+                
+                // Stop Loss with MSIP
+                if lastSB.entryType == "Long" and low <= lastSB.msip
+                    slAlertTick := true
+                    lastSB.exitPrice := lastSB.msip
+                    lastSB.exitTime := time
+                    lastSB.state := "Stop Loss"
+                if lastSB.entryType == "Short" and high >= lastSB.msip
+                    slAlertTick := true
+                    lastSB.exitPrice := lastSB.msip
+                    lastSB.exitTime := time
+                    lastSB.state := "Stop Loss"
+            else
+                // Dynamic Take Profit
+                if lastSB.entryType == "Long" and ((maxTPLastHour and high >= lastSB.lastHourHigh) or high >= lastSB.tpTarget)
+                    tpAlertTick := true
+                    lastSB.exitPrice := (high >= math.max(lastSB.lastHourHigh, lastSB.tpTarget) ? math.max(lastSB.lastHourHigh, lastSB.tpTarget) : math.min(lastSB.lastHourHigh, lastSB.tpTarget))
+                    lastSB.exitTime := time
+                    lastSB.state := "Take Profit"
+                if lastSB.entryType == "Short" and ((maxTPLastHour and low <= lastSB.lastHourLow) or low <= lastSB.tpTarget)
+                    tpAlertTick := true
+                    lastSB.exitPrice := (low <= math.min(lastSB.lastHourLow, lastSB.tpTarget) ? math.min(lastSB.lastHourLow, lastSB.tpTarget) : math.max(lastSB.lastHourLow, lastSB.tpTarget))
+                    lastSB.exitTime := time
+                    lastSB.state := "Take Profit"
+                
+                // Dynamic Stop Loss
+                if lastSB.entryType == "Long" and low <= lastSB.slTarget
+                    slAlertTick := true
+                    lastSB.exitPrice := lastSB.slTarget
+                    lastSB.exitTime := time
+                    lastSB.state := "Stop Loss"
+                if lastSB.entryType == "Short" and high >= lastSB.slTarget
+                    slAlertTick := true
+                    lastSB.exitPrice := lastSB.slTarget
+                    lastSB.exitTime := time
+                    lastSB.state := "Stop Loss"
+                
+                // Trailing Stop (ADDED)
+                if trailingStop
+                    if lastSB.entryType == "Long"
+                        lastSB.trailStop := math.max(lastSB.trailStop, high - atr * 2)
+                        if close < lastSB.trailStop and lastSB.trailStop > lastSB.entryPrice
+                            slAlertTick := true
+                            lastSB.exitPrice := lastSB.trailStop
+                            lastSB.exitTime := time
+                            lastSB.state := "Trailing Stop"
+                    else
+                        lastSB.trailStop := math.min(lastSB.trailStop, low + atr * 2)
+                        if close > lastSB.trailStop and lastSB.trailStop < lastSB.entryPrice
+                            slAlertTick := true
+                            lastSB.exitPrice := lastSB.trailStop
+                            lastSB.exitTime := time
+                            lastSB.state := "Trailing Stop"
+
+// === PLOTTING VISUALIZATION ===
+tfs = (30 / (timeframe.in_seconds(timeframe.period) / 60))
+
+plotColor = color.new(textColor, 60)
+plotchar(not na(time("", nySession1, "America/New_York")) and newSession and showSessions, title = 'NY Session 1', location = location.top, text='10-11 AM\nNY', color=color.new(color.black, 100), textcolor=plotColor, offset= +tfs)
+plotchar(not na(time("", nySession2, "America/New_York")) and newSession and showSessions, title = 'NY Session 2', location = location.top, text='2-3 PM\nNY', color=color.new(color.black, 100), textcolor=plotColor, offset= +tfs)
+plotchar(not na(time("", londonSession, "America/New_York")) and newSession and showSessions, title = 'London Session', location = location.top, text='3-4 AM\nNY', color=color.new(color.black, 100), textcolor=plotColor, offset= +tfs)
+plotchar(not na(time("", asiaSession, "America/New_York")) and newSession and showSessions, title = 'Asia Session', location = location.top, text='7-8 PM\nNY', color=color.new(color.black, 100), textcolor=plotColor, offset= +tfs)
+plotchar(not na(time("", killZone1, "America/New_York")) and newSession and showSessions, title = 'Kill Zone 1', location = location.top, text='4-6 AM\nKZ', color=color.new(color.black, 100), textcolor=color.new(color.yellow, 60), offset= +tfs)
+plotchar(not na(time("", killZone2, "America/New_York")) and newSession and showSessions, title = 'Kill Zone 2', location = location.top, text='1-3 PM\nKZ', color=color.new(color.black, 100), textcolor=color.new(color.yellow, 60), offset= +tfs)
+
+if (newSession or endSession) and showSessions
+    line.new(bar_index, close, bar_index, close + syminfo.mintick, color = plotColor, extend=extend.both)
+
+// === RENDER TRADE SIGNALS ===
+renderTopSL = false
+renderBottomSL = false
+renderTopTP = false
+renderBottomTP = false
+
+if not na(lastSB)
+    if (lastSB.state == "Stop Loss" or lastSB.state == "Trailing Stop") and time > lastSB.exitTime
+        if lastSB.entryType == "Long"
+            renderBottomSL := true
+        else
+            renderTopSL := true
+        lastSB.state := "Done"
+    if lastSB.state == "Take Profit"
+        if lastSB.entryType == "Long"
+            renderTopTP := true
+        else
+            renderBottomTP := true
+        lastSB.state := "Done"
+
+plotshape(renderTopSL, "", shape.circle, location.abovebar, color.red, textcolor = textColor, text = "SL", size = size.tiny)
+plotshape(renderBottomSL, "", shape.circle, location.belowbar, color.red, textcolor = textColor, text = "SL", size = size.tiny)
+plotshape(renderTopTP, "", shape.xcross, location.abovebar, color.blue, textcolor = textColor, text = "TP", size = size.tiny)
+plotshape(renderBottomTP, "", shape.xcross, location.belowbar, color.blue, textcolor = textColor, text = "TP", size = size.tiny)
+
+// === PLOTTING MARKET STRUCTURE === (ADDED)
+plotshape(showBOS and bullish_bos, title="Bullish BOS", style=shape.triangleup, location=location.belowbar, 
+          color=bosColor, size=size.tiny, text="BOS")
+plotshape(showBOS and bearish_bos, title="Bearish BOS", style=shape.triangledown, location=location.abovebar, 
+          color=bosColor, size=size.tiny, text="BOS")
+plotshape(showEQHL and eq_high_detected, title="Equal High", style=shape.diamond, location=location.abovebar, 
+          color=eqhlColor, size=size.tiny, text="EQH")
+plotshape(showEQHL and eq_low_detected, title="Equal Low", style=shape.diamond, location=location.belowbar, 
+          color=eqhlColor, size=size.tiny, text="EQL")
+
+// === ALERTS ===
+if barstate.islastconfirmedhistory
+    initRun := false
+
+alertcondition(buyAlertTick and not initRun, "Buy Signal", "")
+alertcondition(sellAlertTick and not initRun, "Sell Signal", "")
+alertcondition(tpAlertTick and not initRun, "Take-Profit Signal", "")
+alertcondition(slAlertTick and not initRun, "Stop-Loss Signal", "")
+alertcondition(bosAlertTick and not initRun, "Break of Structure Signal", "")  // ADDED
+alertcondition(eqhlAlertTick and not initRun, "Equal High/Low Signal", "")  // ADDED
+
+if not initRun
+    if buyAlertTick and buyAlertEnabled
+        alert("Buy Signal")
+    if sellAlertTick and sellAlertEnabled
+        alert("Sell Signal")
+    
+    if tpAlertTick and tpAlertEnabled
+        alert("Take-Profit Signal")
+    if slAlertTick and slAlertEnabled
+        alert("Stop-Loss Signal")
+    
+    if bosAlertTick and bosAlertEnabled
+        alert("Break of Structure Signal")
+    if eqhlAlertTick and eqhlAlertEnabled
+        alert("Equal High/Low Signal")
+
+// === RENDER VISUAL ELEMENTS ===
+if barstate.isconfirmed
+    if lineX.size() > 0
+        for i = 0 to lineX.size() - 1
+            line.delete(lineX.get(i))
+
+    if boxX.size() > 0
+        for i = 0 to boxX.size() - 1
+            box.delete(boxX.get(i))
+    
+    if labelX.size() > 0
+        for i = 0 to labelX.size() - 1
+            label.delete(labelX.get(i))
+
+    lineX.clear()
+    boxX.clear()
+    labelX.clear()
+    
+    if sbList.size() > 0
+        for i = 0 to sbList.size() - 1
+            curSB = sbList.get(i)
+
+            // Last Hour
+            if not na(curSB.brokenSweep) and showHL
+                lineX.push(line.new(curSB.brokenSweep.startTime, curSB.lastHourHigh, curSB.brokenSweep.endTime, curSB.lastHourHigh, xloc = xloc.bar_time, color = lowColor, style = (curSB.brokenSweep.price == curSB.lastHourHigh ? line.style_dashed : line.style_solid)))
+                lineX.push(line.new(curSB.brokenSweep.startTime, curSB.lastHourLow, curSB.brokenSweep.endTime, curSB.lastHourLow, xloc = xloc.bar_time, color =highColor, style = (curSB.brokenSweep.price == curSB.lastHourLow ? line.style_dashed : line.style_solid)))
+
+            if not na(curSB.entryTime)
+                // Entry Label
+                if curSB.entryType == "Long"
+                    labelX.push(label.new(curSB.entryTime, close, "Buy", xloc = xloc.bar_time, yloc = yloc.belowbar, textcolor = textColor, color = highColor, style = label.style_label_up, size = size.small))
+                else
+                    labelX.push(label.new(curSB.entryTime, close, "Sell", xloc = xloc.bar_time, yloc = yloc.abovebar, textcolor = textColor, color = lowColor, style = label.style_label_down, size = size.small))
+            
+                // FVG
+                if showFVGs
+                    if not na(curSB.fvg)
+                        boxX.push(box.new(curSB.fvg.startTime, curSB.fvg.top, nz(curSB.fvg.endTime, time("", -extendFVG)), curSB.fvg.bottom, border_width = 0, xloc = xloc.bar_time, bgcolor = (curSB.fvg.isBull ? highColor : lowColor)))
+
+                // Order Block (ADDED)
+                if showOB
+                    if not na(curSB.ob)
+                        boxX.push(box.new(curSB.ob.startTime, curSB.ob.top, nz(curSB.ob.endTime, time("", -extendFVG)), curSB.ob.bottom, border_width = 1, xloc = xloc.bar_time, bgcolor = color.new(obColor, 80), border_color = obColor))
+
+            // TP / SL
+            if not na(curSB.entryTime)
+                if showTPSL
+                    offset = atr / 3.0
+                    boxX.push(box.new(curSB.entryTime, curSB.tpTarget + offset, nz(curSB.exitTime, time("", -extendFVG)), curSB.tpTarget - offset, text = "TAKE PROFIT (" + str.tostring(curSB.tpTarget, format.mintick) + ")", text_color = textColor, xloc = xloc.bar_time, border_width = 0, bgcolor = color.new(highColor, 50), text_size = size.small))
+                    boxX.push(box.new(curSB.entryTime, curSB.slTarget + offset, nz(curSB.exitTime, time("", -extendFVG)), curSB.slTarget - offset, text = "STOP LOSS (" + str.tostring(curSB.slTarget, format.mintick) + ")", text_color = textColor, xloc = xloc.bar_time, border_width = 0, bgcolor = color.new(lowColor, 50) , text_size = size.small))
+                    
+                    // Partial TP (ADDED)
+                    if partialTP
+                        boxX.push(box.new(curSB.entryTime, curSB.tp1Target + offset/2, nz(curSB.exitTime, time("", -extendFVG)), curSB.tp1Target - offset/2, text = "TP1", text_color = textColor, xloc = xloc.bar_time, border_width = 0, bgcolor = color.new(color.blue, 50), text_size = size.tiny))
+
+            if not na(curSB.dayEndedBeforeExit)
+                labelX.push(label.new(curSB.dayEndedBeforeExit, close, "Exit", xloc = xloc.bar_time, yloc = yloc.belowbar, textcolor = textColor, color = color.yellow, style = label.style_circle, size = size.tiny))
+
+    // Render Order Blocks (ADDED)
+    if orderBlocks.size() > 0 and showOB
+        for i = 0 to math.min(orderBlocks.size() - 1, 10)  // Show last 10 order blocks max
+            ob = orderBlocks.get(i)
+            if not na(ob) and not ob.isBreaker
+                boxX.push(box.new(ob.startTime, ob.top, nz(ob.endTime, time("", -extendFVG)), ob.bottom,  border_width = 1, xloc = xloc.bar_time,      bgcolor = color.new(obColor, 80), border_color = obColor))
+
+    // Render Breaker Blocks (ADDED)
+    if orderBlocks.size() > 0 and showBB
+        for i = 0 to math.min(orderBlocks.size() - 1, 10)  // Show last 10 blocks max
+            ob = orderBlocks.get(i)
+            if not na(ob) and ob.isBreaker
+                boxX.push(box.new(ob.startTime, ob.top, nz(ob.endTime, time("", -extendFVG)), ob.bottom,                 border_width = 1, xloc = xloc.bar_time,         bgcolor = color.new(bbColor, 80),                      border_color = bbColor))
+
+// === BACKTESTING DASHBOARD ===
+if barstate.islast and backtestDisplayEnabled
+    var table backtestDisplay = table.new(getPosition(backtestingLocation), 2, 12, bgcolor = screenerColor, frame_width = 2, frame_color = color.black, border_width = 1, border_color = color.black)
+    
+    float totalSBProfitPercent = 0
+    int successfulTrades = 0
+    int unsuccessfulTrades = 0
+    int longTrades = 0
+    int shortTrades = 0
+    int longWins = 0
+    int shortWins = 0
+
+    if sbList.size() > 0
+        for i = 0 to sbList.size() - 1
+            curSB = sbList.get(i)
+            if not na(curSB.entryPrice)
+                isSuccess = false
+                if curSB.entryType == "Long"
+                    longTrades += 1
+                else
+                    shortTrades += 1
+                    
+                if not na(curSB.exitPrice)
+                    if (curSB.entryType == "Long" and curSB.exitPrice > curSB.entryPrice) or (curSB.entryType == "Short" and curSB.exitPrice < curSB.entryPrice)
+                        totalSBProfitPercent += math.abs(diffPercent(curSB.entryPrice, curSB.exitPrice))
+                        isSuccess := true
+                        if curSB.entryType == "Long"
+                            longWins += 1
+                        else
+                            shortWins += 1
+                    else
+                        totalSBProfitPercent -= math.abs(diffPercent(curSB.entryPrice, curSB.exitPrice))
+                        isSuccess := false
+
+                if isSuccess
+                    successfulTrades += 1
+                else
+                    unsuccessfulTrades += 1
+    
+    // Header
+    table.merge_cells(backtestDisplay, 0, 0, 1, 0)
+    table.cell(backtestDisplay, 0, 0, "ICT Silver Bullet Enhanced", text_color = color.white, bgcolor = screenerColor)
+
+    // Total Entries
+    table.cell(backtestDisplay, 0, 1, "Total Entries", text_color = color.white, bgcolor = screenerColor)
+    table.cell(backtestDisplay, 1, 1, str.tostring(successfulTrades + unsuccessfulTrades), text_color = color.white, bgcolor = screenerColor)
+
+    // Wins
+    table.cell(backtestDisplay, 0, 2, "Wins", text_color = color.white, bgcolor = screenerColor)
+    table.cell(backtestDisplay, 1, 2, str.tostring(successfulTrades), text_color = color.white, bgcolor = screenerColor)
+
+    // Losses
+    table.cell(backtestDisplay, 0, 3, "Losses", text_color = color.white, bgcolor = screenerColor)
+    table.cell(backtestDisplay, 1, 3, str.tostring(unsuccessfulTrades), text_color = color.white, bgcolor = screenerColor)
+
+    // Winrate
+    table.cell(backtestDisplay, 0, 4, "Winrate", text_color = color.white, bgcolor = screenerColor)
+    table.cell(backtestDisplay, 1, 4, str.tostring(100.0 * (successfulTrades / math.max(1, (successfulTrades + unsuccessfulTrades))), "#.##") + "%", text_color = color.white, bgcolor = screenerColor)
+
+    // Long Stats
+    table.cell(backtestDisplay, 0, 5, "Long Trades", text_color = color.white, bgcolor = screenerColor)
+    table.cell(backtestDisplay, 1, 5, str.tostring(longTrades), text_color = color.white, bgcolor = screenerColor)
+
+    // Long Winrate
+    table.cell(backtestDisplay, 0, 6, "Long Winrate", text_color = color.white, bgcolor = screenerColor)
+    table.cell(backtestDisplay, 1, 6, str.tostring(100.0 * (longWins / math.max(1, longTrades)), "#.##") + "%", text_color = color.white, bgcolor = screenerColor)
+
+    // Short Stats
+    table.cell(backtestDisplay, 0, 7, "Short Trades", text_color = color.white, bgcolor = screenerColor)
+    table.cell(backtestDisplay, 1, 7, str.tostring(shortTrades), text_color = color.white, bgcolor = screenerColor)
+
+    // Short Winrate
+    table.cell(backtestDisplay, 0, 8, "Short Winrate", text_color = color.white, bgcolor = screenerColor)
+    table.cell(backtestDisplay, 1, 8, str.tostring(100.0 * (shortWins / math.max(1, shortTrades)), "#.##") + "%", text_color = color.white, bgcolor = screenerColor)
+
+    // Average Profit %
+    table.cell(backtestDisplay, 0, 9, "Average Profit", text_color = color.white, bgcolor = screenerColor)
+    table.cell(backtestDisplay, 1, 9, str.tostring(totalSBProfitPercent / math.max(1, (successfulTrades + unsuccessfulTrades)), "#.##") + "%", text_color = color.white, bgcolor = screenerColor)
+
+    // Total Profit %
+    table.cell(backtestDisplay, 0, 10, "Total Profit", text_color = color.white, bgcolor = screenerColor)
+    table.cell(backtestDisplay, 1, 10, str.tostring(totalSBProfitPercent, "#.##") + "%", text_color = color.white, bgcolor = screenerColor)

@@ -347,7 +347,7 @@ if bar_index > last_bar_index - maxDistanceToLastBar
 
             // Execute (Enhanced)
             if lastSB.state == "Waiting For Execution" and ((not executeInsideSession) or insideSession)
-                if time > lastSB.brokenSweep.endTime
+                if not na(lastSB.brokenSweep) and time > lastSB.brokenSweep.endTime
                     bool entryConfirmed = false
                     OrderBlock detectedOB = na
 
@@ -355,7 +355,7 @@ if bar_index > last_bar_index - maxDistanceToLastBar
                         detectedOB := findOrderBlock(5, lastSB.entryType == "Long") // Look for OB in last 5 bars
 
                     if executionType == "MSS"
-                        if lastSB.brokenSweep.side == "Buyside" // Short
+                        if not na(lastSB.brokenSweep) and lastSB.brokenSweep.side == "Buyside" // Short
                             if bar_index >= 1 and (breakoutMethod == "Close" ? close : low) < lowMSS[1]
                                 bool validOB = false
                                 if not na(detectedOB)
