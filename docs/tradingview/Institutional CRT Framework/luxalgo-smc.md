@@ -1,0 +1,67 @@
+## Smart Money Concepts [LuxAlgo]
+
+- **Type**: Indicator
+- **Path**: `tradingview/Institutional CRT Framework/luxalgo-smc.pine`
+- **Pine version**: (unspecified)
+
+### Overview
+This document summarizes public inputs, plots, alerts, and strategy order calls discovered in the script.
+
+- **Inputs**:
+  - `showTrendInput`: input — Color Candles
+  - `showInternalsInput`: input — Show Internal Structure
+  - `internalBullColorInput`: input — (untitled)
+  - `internalBearColorInput`: input — (untitled)
+  - `internalFilterConfluenceInput`: input — Confluence Filter
+  - `showStructureInput`: input — Show Swing Structure
+  - `swingBullColorInput`: input — (untitled)
+  - `swingBearColorInput`: input — (untitled)
+  - `showSwingsInput`: input — Show Swings Points
+  - `showHighLowSwingsInput`: input — Show Strong/Weak High/Low
+  - `showInternalOrderBlocksInput`: input — Internal Order Blocks
+  - `showSwingOrderBlocksInput`: input — Swing Order Blocks
+  - `showEqualHighsLowsInput`: input — Equal High/Low
+  - `showFairValueGapsInput`: input — Fair Value Gaps
+  - `fairValueGapsThresholdInput`: input — Auto Threshold
+  - `showDailyLevelsInput`: input — Daily
+  - `dailyLevelsColorInput`: input — (untitled)
+  - `showWeeklyLevelsInput`: input — Weekly
+  - `weeklyLevelsColorInput`: input — (untitled)
+  - `showMonthlyLevelsInput`: input — Monthly
+  - `monthlyLevelsColorInput`: input — (untitled)
+  - `showPremiumDiscountZonesInput`: input — Premium/Discount Zones
+
+- **Plots**:
+  - plotcandle: (untitled)
+
+- **Alerts**:
+  - Internal Bullish BOS formed — Internal Bullish BOS formed
+  - Internal Bullish CHoCH formed — Internal Bullish CHoCH formed
+  - Internal Bearish BOS formed — Internal Bearish BOS formed
+  - Internal Bearish CHoCH formed — Internal Bearish CHoCH formed
+  - Internal Bullish BOS formed — Internal Bullish BOS formed
+  - Internal Bullish CHoCH formed — Internal Bullish CHoCH formed
+  - Bearish BOS formed — Bearish BOS formed
+  - Bearish CHoCH formed — Bearish CHoCH formed
+  - Price broke bullish internal OB — Price broke bullish internal OB
+  - Price broke bearish internal OB — Price broke bearish internal OB
+  - Price broke bullish swing OB — Price broke bullish swing OB
+  - Price broke bearish swing OB — Price broke bearish swing OB
+  - Equal highs detected — Equal highs detected
+  - Equal lows detected — Equal lows detected
+  - Bullish FVG formed — Bullish FVG formed
+  - Bearish FVG formed — Bearish FVG formed
+
+No strategy orders.
+
+### Usage
+- **Add to chart**: Open the Pine editor in TradingView, paste the script, click Add to chart.
+- **Configure inputs**: Adjust the inputs listed above to suit your market and timeframe.
+- **Alerts**: If alerts exist, create an alert and select one of this indicator's alert conditions.
+
+### Example
+```text
+Add 'Smart Money Concepts [LuxAlgo]' to the chart and enable relevant inputs.
+Create an alert using one of the documented conditions.
+Backtest using Strategy Tester if this is a strategy.
+```
