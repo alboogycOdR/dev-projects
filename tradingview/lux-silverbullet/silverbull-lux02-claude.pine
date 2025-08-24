@@ -2,7 +2,7 @@
 // © fluxchart - Enhanced by Claude
 
 //@version=5
-
+//https://claude.ai/chat/b83312a3-30c4-4410-a758-e93a6a11c1d2
 const bool DEBUG = false
 const int showLastXLiqs = 10
 const int maxDistanceToLastBar = 50000 // Affects Running Time

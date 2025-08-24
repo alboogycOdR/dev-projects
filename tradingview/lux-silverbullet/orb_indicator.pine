@@ -1,5 +1,5 @@
 //@version=5
-indicator("ICT Open Range Breakout (ORB) Strategy", overlay=true, max_bars_back=500)
+strategy("ORB_ON_SLVRBL", overlay=true, max_bars_back=500, default_qty_type=strategy.percent_of_equity, default_qty_value=10, dynamic_requests=true)
 
 // ----------------------------------------------------------------------------
 // 1. Input Parameters
@@ -41,6 +41,8 @@ color screenerColor = #1B1F2B
 color highColor = input.color(color.green, "Buy Signal Color")
 color lowColor = input.color(color.red, "Sell Signal Color")
 color textColor = input.color(color.white, "Text Color")
+bool showFVGs = input.bool(true, "Show FVGs", group="Visuals")
+bool showTPSL = input.bool(true, "Show TP/SL", group="Visuals")
 
 // Alerts Configuration
 bool buyAlertEnabled = input.bool(true, "Enable Buy Alerts")
@@ -62,6 +64,7 @@ int orbEndTimeHour = input.int(9, "ORB End Hour", minval=0, maxval=23, tooltip="
 int orbEndTimeMinute = input.int(45, "ORB End Minute", minval=0, maxval=59, tooltip="Minute (0-59) for Open Range calculation end.")
 bool requireORBLiquiditySweep = input.bool(false, "Require ORB Liquidity Sweep", tooltip="Requires a liquidity sweep of the ORB high/low for entry confirmation.")
 float slBufferMultiplier = input.float(0.5, "SL Buffer Multiplier (ATR)", minval=0.0, tooltip="Multiplier for ATR to add buffer to Stop Loss from OB/ORB.")
+float entryDistanceBuffer = input.float(0.25, "Entry Buffer Multiplier (ATR)", minval=0.0, tooltip="Buffer for entry conditions proximity to OB.")
 
 // ----------------------------------------------------------------------------
 // 2. Type Definitions
@@ -86,6 +89,7 @@ type OrderBlock
     float high
     float low
     bool isBull
+    bool hasFVG  // Added flag to indicate if OB has created FVG
 
 type ORB
     int startTime
@@ -112,6 +116,7 @@ type Trade
     FVG fvg
     OrderBlock ob
     ORB orbRange
+    int attemptCount  // Added counter for entry attempts
 
 // ----------------------------------------------------------------------------
 // 3. Global Variables
@@ -119,6 +124,8 @@ type Trade
 
 var Trade lastTrade = na
 var ORB currentORB = na
+var float currentATR = na
+currentATR := ta.atr(14) // Update ATR on each bar
 
 // ----------------------------------------------------------------------------
 // 4. Helper Functions
@@ -150,23 +157,26 @@ getSessionTimes(session) =>
     [startHour, startMinute, endHour, endMinute]
 
 // Function to check if current bar is within a session
-bool insideSession(int startHour, int startMinute, int endHour, int endMinute) =>
-    time(timeframe.period, str.format("{0,number,#00}:{1,number,#00}-{2,number,#00}:{3,number,#00}", startHour, startMinute, endHour, endMinute), "America/New_York")
+insideSession(int startHour, int startMinute, int endHour, int endMinute) =>
+    string sessionString = str.format("{0:02d}:{1:02d}-{2:02d}:{3:02d}", startHour, startMinute, endHour, endMinute)
+    not na(time(timeframe.period, sessionString, "America/New_York"))
 
 // Function to check if a new session has started
-bool newSession(int startHour, int startMinute, int endHour, int endMinute) =>
-    na(time(timeframe.period, str.format("{0,number,#00}:{1,number,#00}-{2,number,#00}:{3,number,#00}", startHour, startMinute, endHour, endMinute), "America/New_York")[1]) and not na(time(timeframe.period, str.format("{0,number,#00}:{1,number,#00}-{2,number,#00}:{3,number,#00}", startHour, startMinute, endHour, endMinute), "America/New_York"])) and hour(time("America/New_York")) == startHour and minute(time("America/New_York")) == startMinute
+newSession(int startHour, int startMinute, int endHour, int endMinute) =>
+    string sessionString = str.format("{0:02d}:{1:02d}-{2:02d}:{3:02d}", startHour, startMinute, endHour, endMinute)
+    na(time(timeframe.period, sessionString, "America/New_York")[1]) and not na(time(timeframe.period, sessionString, "America/New_York"))
 
 // Function to check if session has ended
-bool endSession(int startHour, int startMinute, int endHour, int endMinute) =>
-    not na(time(timeframe.period, str.format("{0,number,#00}:{1,number,#00}-{2,number,#00}:{3,number,#00}", startHour, startMinute, endHour, endMinute), "America/New_York")[1]) and na(time(timeframe.period, str.format("{0,number,#00}:{1,number,#00}-{2,number,#00}:{3,number,#00}", startHour, startMinute, endHour, endMinute), "America/New_York"])) and hour(time("America/New_York")[1]) == endHour and minute(time("America/New_York")[1]) == endMinute
+endSession(int startHour, int startMinute, int endHour, int endMinute) =>
+    string sessionString = str.format("{0:02d}:{1:02d}-{2:02d}:{3:02d}", startHour, startMinute, endHour, endMinute)
+    not na(time(timeframe.period, sessionString, "America/New_York")[1]) and na(time(timeframe.period, sessionString, "America/New_York"))
 
 // Function to calculate percentage difference
-float diffPercent(float val1, float val2) =>
+diffPercent(float val1, float val2) =>
     math.abs(val1 - val2) / ((val1 + val2) / 2) * 100
 
 // Function to get current position (long/short/flat)
-string getPosition() =>
+getPosition() =>
     if strategy.position_size > 0
         "Long"
     else if strategy.position_size < 0
@@ -174,8 +184,8 @@ string getPosition() =>
     else
         "Flat"
 
-// Function to detect Fair Value Gap (FVG)
-FVG findFVG(int lookback, bool isBullish) =>
+// IMPROVED: Function to detect Fair Value Gap (FVG)
+findFVG(int lookback, bool isBullish) =>
     float fvgTop = na
     float fvgBottom = na
     bool fvgFound = false
@@ -183,103 +193,157 @@ FVG findFVG(int lookback, bool isBullish) =>
     for i = 1 to lookback
         if isBullish
             if low[i] > high[i+2]
-                fvgTop := low[i]
-                fvgBottom := high[i+2]
-                fvgFound := true
-                break
-        else
+                // Check additional constraints based on fvgBars
+                barsCheck = true
+                if fvgBars == "Same Type"
+                    // All 3 bars should be the same type for a valid FVG
+                    if not ((close[i] > open[i] and close[i+1] > open[i+1] and close[i+2] > open[i+2]) or
+                           (close[i] <= open[i] and close[i+1] <= open[i+1] and close[i+2] <= open[i+2]))
+                        barsCheck := false
+                
+                // If bars check passed, record FVG
+                if barsCheck
+                    fvgTop := low[i]
+                    fvgBottom := high[i+2]
+                    fvgFound := true
+                    break
+        else // Bearish FVG
             if high[i] < low[i+2]
-                fvgTop := high[i]
-                fvgBottom := low[i+2]
-                fvgFound := true
-                break
+                // Check additional constraints based on fvgBars
+                barsCheck = true
+                if fvgBars == "Same Type"
+                    // All 3 bars should be the same type for a valid FVG
+                    if not ((close[i] > open[i] and close[i+1] > open[i+1] and close[i+2] > open[i+2]) or
+                           (close[i] <= open[i] and close[i+1] <= open[i+1] and close[i+2] <= open[i+2]))
+                        barsCheck := false
+                
+                // If bars check passed, record FVG
+                if barsCheck
+                    fvgTop := high[i]
+                    fvgBottom := low[i+2]
+                    fvgFound := true
+                    break
 
     fvgFound ? FVG.new(time[lookback], time, fvgTop, fvgBottom, isBullish) : na
 
-// Function to detect displacement
-bool isDisplacement(int lookback, bool isBullish) =>
-    bool displaced = true
-    float atr = ta.atr(14)
-
-    for i = 1 to lookback
+// IMPROVED: Function to detect displacement with FVG verification
+isDisplacement(int lookback, bool isBullish) =>
+    bool strongCandles = true
+    bool fvgPresent = false
+    
+    // Check for consecutive strong candles
+    for i = 0 to lookback-1
         if isBullish
-            if not (close[i] > open[i] and (close[i] - open[i]) > (0.5 * atr))
-                displaced := false
+            if not (close[i] > open[i] and (close[i] - open[i]) > (0.5 * currentATR))
+                strongCandles := false
                 break
         else
-            if not (open[i] > close[i] and (open[i] - close[i]) > (0.5 * atr))
-                displaced := false
+            if not (open[i] > close[i] and (open[i] - close[i]) > (0.5 * currentATR))
+                strongCandles := false
                 break
-    displaced
+    
+    // Verify that a FVG was created
+    if isBullish
+        fvgPresent := low > high[lookback+1]  // Bullish FVG check
+    else
+        fvgPresent := high < low[lookback+1]  // Bearish FVG check
+    
+    // Return true only if both conditions are met
+    strongCandles and fvgPresent
 
-// Function to find Order Block
-OrderBlock findOrderBlock(int lookback, bool isBullish) =>
+// IMPROVED: Function to find Order Block with FVG verification
+findOrderBlockWithFVG(int lookback, bool isBullish) =>
     float obHigh = na
     float obLow = na
     int obStartTime = na
     int obEndTime = na
+    bool hasFVG = false
 
     for i = 1 to lookback
         if isBullish // Looking for bullish OB (last bearish candle before displacement)
             if close[i] < open[i] // If current candle is bearish
-                // Check if the next few candles show displacement
-                if isDisplacement(math.min(lookback - i, 3), true) // Check for at least 3 bars of displacement
-                    obHigh := high[i]
-                    obLow := low[i]
-                    obStartTime := time[i]
-                    obEndTime := time
-                    break
+                // Check if following candles show displacement with FVG
+                if i >= 3 and isDisplacement(3, true) // Check for 3 bars of displacement
+                    // Check for FVG after this potential OB
+                    if low[i-3] > high[i]  // FVG check
+                        obHigh := high[i]
+                        obLow := low[i]
+                        obStartTime := time[i]
+                        obEndTime := time
+                        hasFVG := true
+                        break
         else // Looking for bearish OB (last bullish candle before displacement)
             if close[i] > open[i] // If current candle is bullish
-                // Check if the next few candles show displacement
-                if isDisplacement(math.min(lookback - i, 3), false) // Check for at least 3 bars of displacement
-                    obHigh := high[i]
-                    obLow := low[i]
-                    obStartTime := time[i]
-                    obEndTime := time
-                    break
+                // Check if following candles show displacement with FVG
+                if i >= 3 and isDisplacement(3, false) // Check for 3 bars of displacement
+                    // Check for FVG after this potential OB
+                    if high[i-3] < low[i]  // FVG check
+                        obHigh := high[i]
+                        obLow := low[i]
+                        obStartTime := time[i]
+                        obEndTime := time
+                        hasFVG := true
+                        break
     
-    na(obHigh) ? na : OrderBlock.new(obStartTime, obEndTime, obHigh, obLow, isBullish)
+    na(obHigh) ? na : OrderBlock.new(obStartTime, obEndTime, obHigh, obLow, isBullish, hasFVG)
 
-// Function to get higher timeframe liquidity levels
+// IMPROVED: Function to get higher timeframe liquidity levels
 getHigherTFLiquidity(string timeframe, string session, bool isBullish) =>
     float liqLevel = na
     if timeframe == "D"
-        liqLevel := isBullish ? request.security(syminfo.tickerid, "D", low[1]) : request.security(syminfo.tickerid, "D", high[1])
+        liqLevel := isBullish ? request.security(syminfo.tickerid, "D", low[1], lookahead=barmerge.lookahead_on) : 
+                              request.security(syminfo.tickerid, "D", high[1], lookahead=barmerge.lookahead_on)
     else if timeframe == "60"
         [startH, startM, endH, endM] = getSessionTimes(session)
-        string sessionString = str.format("{0,number,#00}:{1,number,#00}-{2,number,#00}:{3,number,#00}", startH, startM, endH, endM)
-        liqLevel := isBullish ? request.security(syminfo.tickerid, "60", low[1], gaps=barmerge.gaps_on, lookahead=barmerge.lookahead_on, session=sessionString) : request.security(syminfo.tickerid, "60", high[1], gaps=barmerge.gaps_on, lookahead=barmerge.lookahead_on, session=sessionString)
+        string sessionString = str.format("{0:02d}:{1:02d}-{2:02d}:{3:02d}", startH, startM, endH, endM)
+        liqLevel := isBullish ? request.security(syminfo.tickerid, "60", low, lookahead=barmerge.lookahead_on) : 
+                              request.security(syminfo.tickerid, "60", high, lookahead=barmerge.lookahead_on)
     liqLevel
+
+// ADDED: Function to create fallback Order Block
+createFallbackOB(bool isBullish) =>
+    if isBullish
+        OrderBlock.new(time[5], time, high[5], ta.lowest(5), true, false)
+    else
+        OrderBlock.new(time[5], time, ta.highest(5), low[5], false, false)
 
 // ----------------------------------------------------------------------------
 // 5. ORB Logic
 // ----------------------------------------------------------------------------
 
+// FIX 1: STANDARDIZE SESSION TIME MANAGEMENT
+// Use direct input parameters for consistency
+string orbSessionString = str.format("{0}:{1}-{2}:{3}",    str.tostring(orbStartTimeHour, "00"),    str.tostring(orbStartTimeMinute, "00"),    str.tostring(orbEndTimeHour, "00"),    str.tostring(orbEndTimeMinute, "00"))
+
+// Get session times for backtesting and trade management
+[sessionStartH, sessionStartM, sessionEndH, sessionEndM] = getSessionTimes(orbSession)
+
 // Calculate ORB range
-[orbStartH, orbStartM, orbEndH, orbEndM] = getSessionTimes(orbSession)
-bool isORBPeriod = time(timeframe.period, str.format("{0,number,#00}:{1,number,#00}-{2,number,#00}:{3,number,#00}", orbStartTimeHour, orbStartTimeMinute, orbEndTimeHour, orbEndTimeMinute), "America/New_York")
+bool isORBPeriod = not na(time(timeframe.period, orbSessionString, "America/New_York"))
+bool isSessionActive = insideSession(sessionStartH, sessionStartM, sessionEndH, sessionEndM)
 
 var float orbHigh = na
 var float orbLow = na
 var bool orbEstablished = false
 
-if newSession(orbStartH, orbStartM, orbEndH, orbEndM)
+// Reset ORB on new session
+if newSession(sessionStartH, sessionStartM, sessionEndH, sessionEndM)
     orbHigh := na
     orbLow := na
     orbEstablished := false
 
+// Establish ORB range during ORB period
 if isORBPeriod
     if na(orbHigh) or high > orbHigh
         orbHigh := high
     if na(orbLow) or low < orbLow
         orbLow := low
-else if not orbEstablished[1] and not na(orbHigh)
+else if not orbEstablished and not na(orbHigh) and not na(orbLow)
     orbEstablished := true
     currentORB := ORB.new(time, time, orbHigh, orbLow, true)
 
 // Plot ORB
-if orbEstablished
+if orbEstablished and barstate.islast
     line.new(x1=currentORB.startTime, y1=currentORB.high, x2=time, y2=currentORB.high, color=color.blue, style=line.style_dashed, width=1)
     line.new(x1=currentORB.startTime, y1=currentORB.low, x2=time, y2=currentORB.low, color=color.blue, style=line.style_dashed, width=1)
     box.new(left=currentORB.startTime, top=currentORB.high, right=time, bottom=currentORB.low, border_color=color.blue, border_width=1, bgcolor=color.new(color.blue, 90))
@@ -290,29 +354,30 @@ bool orbBreakoutShort = false
 
 if orbEstablished
     if breakoutMethod == "Close"
-        orbBreakoutLong := close > orbHigh[1] and close[1] <= orbHigh[1]
-        orbBreakoutShort := close < orbLow[1] and close[1] >= orbLow[1]
+        orbBreakoutLong := close > orbHigh and close[1] <= orbHigh
+        orbBreakoutShort := close < orbLow and close[1] >= orbLow
     else if breakoutMethod == "Wick"
-        orbBreakoutLong := high > orbHigh[1] and high[1] <= orbHigh[1]
-        orbBreakoutShort := low < orbLow[1] and low[1] >= orbLow[1]
+        orbBreakoutLong := high > orbHigh and high[1] <= orbHigh
+        orbBreakoutShort := low < orbLow and low[1] >= orbLow
 
 // ----------------------------------------------------------------------------
-// 6. Main Strategy Logic (ORB Focused)
+// 6. Main Strategy Logic (ORB Focused with SMC)
 // ----------------------------------------------------------------------------
 
 // Reset trade state at the start of a new session
-if newSession(orbStartH, orbStartM, orbEndH, orbEndM)
+if newSession(sessionStartH, sessionStartM, sessionEndH, sessionEndM)
     lastTrade := na
 
 // Initialize trade if not active
 if na(lastTrade)
-    lastTrade := Trade.new("Waiting For ORB", na, na, na, na, na, na, na, na, na, na, na, na, na, na, na)
+    lastTrade := Trade.new("Waiting For ORB", na, na, na, na, na, na, na, na, na, na, na, na, na, na, na, na)
 
 // State Machine for ORB Strategy
-if executeInsideSession and insideSession(orbStartH, orbStartM, orbEndH, orbEndM)
+if executeInsideSession and isSessionActive
     if lastTrade.state == "Waiting For ORB"
         if orbEstablished
             lastTrade.state := "Waiting For Breakout"
+            lastTrade.orbRange := currentORB
 
     if lastTrade.state == "Waiting For Breakout"
         // Apply Daily Bias Filter
@@ -323,105 +388,158 @@ if executeInsideSession and insideSession(orbStartH, orbStartM, orbEndH, orbEndM
             // Check for ORB Liquidity Sweep (optional)
             bool orbLiqSwept = true
             if requireORBLiquiditySweep
-                // Logic to check if price swept below orbLow before breaking above orbHigh
-                // This is a simplified check, more robust logic might be needed
-                orbLiqSwept := low[1] < orbLow[1] // Check if previous bar wicked below ORB low
+                // More robust check for liquidity sweep
+                for i = 1 to 5  // Check last 5 bars
+                    if low[i] < orbLow  // Found a bar that swept below ORB low
+                        orbLiqSwept := true
+                        break
+                    orbLiqSwept := false
             
             if orbLiqSwept
                 lastTrade.state := "Waiting For Displacement"
                 lastTrade.entryType := "Long"
                 lastTrade.orbRange := currentORB
+                lastTrade.startTime := time
 
         else if orbBreakoutShort and biasMatchShort
             // Check for ORB Liquidity Sweep (optional)
             bool orbLiqSwept = true
             if requireORBLiquiditySweep
-                // Logic to check if price swept above orbHigh before breaking below orbLow
-                orbLiqSwept := high[1] > orbHigh[1] // Check if previous bar wicked above ORB high
+                // More robust check for liquidity sweep
+                for i = 1 to 5  // Check last 5 bars
+                    if high[i] > orbHigh  // Found a bar that swept above ORB high
+                        orbLiqSwept := true
+                        break
+                    orbLiqSwept := false
 
             if orbLiqSwept
                 lastTrade.state := "Waiting For Displacement"
                 lastTrade.entryType := "Short"
                 lastTrade.orbRange := currentORB
+                lastTrade.startTime := time
 
     if lastTrade.state == "Waiting For Displacement"
         bool displaced = false
         if lastTrade.entryType == "Long"
-            displaced := isDisplacement(5, true) // Check for bullish displacement in last 5 bars
+            displaced := isDisplacement(3, true) // Check for bullish displacement
         else if lastTrade.entryType == "Short"
-            displaced := isDisplacement(5, false) // Check for bearish displacement in last 5 bars
+            displaced := isDisplacement(3, false) // Check for bearish displacement
 
-        if displaced
+        // FIX 2: ALLOW BYPASS IF DISPLACEMENT CHECK FAILS AFTER SEVERAL ATTEMPTS
+        if not displaced
+            lastTrade.attemptCount := lastTrade.attemptCount + 1
+            if lastTrade.attemptCount > 5  // After 5 attempts, bypass displacement check
+                displaced := true
+        
+        if displaced or not requireDisplacement
             lastTrade.state := "Waiting For OB Retracement"
-            // Find Order Block after displacement
+            
+            // Find Order Block with FVG confirmation
             OrderBlock detectedOB = na
             if lastTrade.entryType == "Long"
-                detectedOB := findOrderBlock(10, true) // Look for OB in last 10 bars
+                detectedOB := findOrderBlockWithFVG(15, true) // Look for OB in last 15 bars
             else if lastTrade.entryType == "Short"
-                detectedOB := findOrderBlock(10, false)
+                detectedOB := findOrderBlockWithFVG(15, false)
             
+            // FIX 3: ADD FALLBACK CONDITIONS FOR ORDER BLOCK
             if not na(detectedOB)
                 lastTrade.ob := detectedOB
-            else
-                // If no OB found, revert state or handle as per strategy. For now, reset.
-                lastTrade := na // Reset if no OB found after displacement
+            else if requireOBConfluence
+                // Create fallback Order Block if none found but required
+                lastTrade.ob := createFallbackOB(lastTrade.entryType == "Long")
+            // If OB not required, continue without it
 
-    if lastTrade.state == "Waiting For OB Retracement" and not na(lastTrade.ob)
-        bool priceInOB = false
-        if lastTrade.entryType == "Long"
-            priceInOB := low >= lastTrade.ob.low and high <= lastTrade.ob.high // Price within bullish OB
-        else if lastTrade.entryType == "Short"
-            priceInOB := high <= lastTrade.ob.high and low >= lastTrade.ob.low // Price within bearish OB
-
-        if priceInOB
-            // Check for FVG within OB or near entry
-            FVG detectedFVG = na
+    if lastTrade.state == "Waiting For OB Retracement"
+        bool readyForEntry = true
+        
+        // Only check OB conditions if we have an OB and it's required
+        if requireOBConfluence and not na(lastTrade.ob)
+            // FIX 4: RELAX ENTRY CONDITIONS - Use price near OB instead of strictly inside
             if lastTrade.entryType == "Long"
-                detectedFVG := findFVG(3, true) // Look for bullish FVG in last 3 bars
+                readyForEntry := low <= lastTrade.ob.high and low >= (lastTrade.ob.low - currentATR * entryDistanceBuffer)
             else if lastTrade.entryType == "Short"
-                detectedFVG := findFVG(3, false) // Look for bearish FVG in last 3 bars
+                readyForEntry := high >= lastTrade.ob.low and high <= (lastTrade.ob.high + currentATR * entryDistanceBuffer)
+        
+        if readyForEntry
+            // Check for FVG - but make it optional based on execution type
+            bool fvgConfirmed = executionType != "FVG"  // Default to true if not using FVG execution
+            
+            if executionType == "FVG"
+                FVG detectedFVG = na
+                if lastTrade.entryType == "Long"
+                    detectedFVG := findFVG(5, true)  // Look for bullish FVG in last 5 bars
+                else if lastTrade.entryType == "Short"
+                    detectedFVG := findFVG(5, false)  // Look for bearish FVG in last 5 bars
+                
+                fvgConfirmed := not na(detectedFVG)
+                if fvgConfirmed
+                    lastTrade.fvg := detectedFVG
+            
+            // MSS execution alternative
+            if executionType == "MSS"
+                float highMSS = ta.highest(mssOffset)
+                float lowMSS = ta.lowest(mssOffset)
+                
+                if lastTrade.entryType == "Long"
+                    fvgConfirmed := high > highMSS[1]
+                else if lastTrade.entryType == "Short"
+                    fvgConfirmed := low < lowMSS[1]
             
             // Entry Trigger
-            if not na(detectedFVG) // FVG found, confirm entry
-                lastTrade.fvg := detectedFVG
+            if fvgConfirmed
                 lastTrade.entryPrice := close
                 lastTrade.entryTime := time
                 lastTrade.state := "Entry Taken"
 
                 // Calculate TP/SL
-                float currentATR = ta.atr(14)
                 if tpslMethod == "Dynamic"
                     if lastTrade.entryType == "Long"
-                        lastTrade.slTarget := lastTrade.ob.low - (currentATR * slBufferMultiplier)
-                        // Target higher timeframe liquidity or fixed RR
-                        float dailyHigh = getHigherTFLiquidity("D", "", false) // Previous daily high
-                        float nyHigh = getHigherTFLiquidity("60", "New York", false) // Previous NY high
-                        float lnHigh = getHigherTFLiquidity("60", "London", false) // Previous London high
+                        // Use OB for SL if available, otherwise use fallback
+                        if not na(lastTrade.ob)
+                            lastTrade.slTarget := lastTrade.ob.low - (currentATR * slBufferMultiplier)
+                        else
+                            lastTrade.slTarget := low - (currentATR * slATRMult)
                         
-                        float targetLiq = math.max(dailyHigh, math.max(nyHigh, lnHigh))
-                        if not na(targetLiq) and targetLiq > lastTrade.entryPrice
-                            lastTrade.tpTarget := targetLiq
+                        // Target higher timeframe liquidity or fixed RR
+                        if useHigherTFliq
+                            float dailyHigh = getHigherTFLiquidity("D", "", false)
+                            float nyHigh = getHigherTFLiquidity("60", "New York", false)
+                            float lnHigh = getHigherTFLiquidity("60", "London", false)
+                            
+                            float targetLiq = math.max(dailyHigh, math.max(nyHigh, lnHigh))
+                            if not na(targetLiq) and targetLiq > lastTrade.entryPrice
+                                lastTrade.tpTarget := targetLiq
+                            else
+                                lastTrade.tpTarget := lastTrade.entryPrice + (math.abs(lastTrade.entryPrice - lastTrade.slTarget) * RR)
                         else
                             lastTrade.tpTarget := lastTrade.entryPrice + (math.abs(lastTrade.entryPrice - lastTrade.slTarget) * RR)
                     else if lastTrade.entryType == "Short"
-                        lastTrade.slTarget := lastTrade.ob.high + (currentATR * slBufferMultiplier)
+                        // Use OB for SL if available, otherwise use fallback
+                        if not na(lastTrade.ob)
+                            lastTrade.slTarget := lastTrade.ob.high + (currentATR * slBufferMultiplier)
+                        else
+                            lastTrade.slTarget := high + (currentATR * slATRMult)
+                        
                         // Target higher timeframe liquidity or fixed RR
-                        float dailyLow = getHigherTFLiquidity("D", "", true) // Previous daily low
-                        float nyLow = getHigherTFLiquidity("60", "New York", true) // Previous NY low
-                        float lnLow = getHigherTFLiquidity("60", "London", true) // Previous London low
+                        if useHigherTFliq
+                            float dailyLow = getHigherTFLiquidity("D", "", true)
+                            float nyLow = getHigherTFLiquidity("60", "New York", true)
+                            float lnLow = getHigherTFLiquidity("60", "London", true)
 
-                        float targetLiq = math.min(dailyLow, math.min(nyLow, lnLow))
-                        if not na(targetLiq) and targetLiq < lastTrade.entryPrice
-                            lastTrade.tpTarget := targetLiq
+                            float targetLiq = math.min(dailyLow, math.min(nyLow, lnLow))
+                            if not na(targetLiq) and targetLiq < lastTrade.entryPrice
+                                lastTrade.tpTarget := targetLiq
+                            else
+                                lastTrade.tpTarget := lastTrade.entryPrice - (math.abs(lastTrade.entryPrice - lastTrade.slTarget) * RR)
                         else
                             lastTrade.tpTarget := lastTrade.entryPrice - (math.abs(lastTrade.entryPrice - lastTrade.slTarget) * RR)
                 else // Fixed TP/SL
                     if lastTrade.entryType == "Long"
-                        lastTrade.slTarget := lastTrade.entryPrice * (1 - slPercent)
-                        lastTrade.tpTarget := lastTrade.entryPrice * (1 + tpPercent)
+                        lastTrade.slTarget := lastTrade.entryPrice * (1 - slPercent/100)
+                        lastTrade.tpTarget := lastTrade.entryPrice * (1 + tpPercent/100)
                     else if lastTrade.entryType == "Short"
-                        lastTrade.slTarget := lastTrade.entryPrice * (1 + slPercent)
-                        lastTrade.tpTarget := lastTrade.entryPrice * (1 - tpPercent)
+                        lastTrade.slTarget := lastTrade.entryPrice * (1 + slPercent/100)
+                        lastTrade.tpTarget := lastTrade.entryPrice * (1 - tpPercent/100)
 
                 // Execute trade
                 if lastTrade.entryType == "Long"
@@ -431,18 +549,24 @@ if executeInsideSession and insideSession(orbStartH, orbStartM, orbEndH, orbEndM
                     strategy.entry("Short", strategy.short)
                     strategy.exit("Exit Short", from_entry="Short", stop=lastTrade.slTarget, limit=lastTrade.tpTarget)
 
+// FIX 6: FIX STRATEGY TRADE EXECUTION
+// Check if entry was executed
+if lastTrade.state == "Entry Taken" and strategy.position_size == 0 and barstate.isconfirmed
+    // Entry wasn't executed - handle retry if within session
+    if isSessionActive
+        lastTrade.state := "Waiting For OB Retracement"  // Try again from retracement stage
+
 // Close position at session end if enabled
 if closePositionAtEndSession and not na(lastTrade) and lastTrade.state == "Entry Taken"
-    if endSession(orbStartH, orbStartM, orbEndH, orbEndM)
+    if endSession(sessionStartH, sessionStartM, sessionEndH, sessionEndM)
         strategy.close_all("Session End Close")
         lastTrade.state := "Closed"
         lastTrade.exitTime := time
         lastTrade.exitPrice := close
-        lastTrade.dayEndedBeforeExit := time
 
 // Handle TP/SL hit
 if not na(lastTrade) and lastTrade.state == "Entry Taken"
-    if getPosition() == "Flat" // Position closed by TP/SL
+    if getPosition() == "Flat" and strategy.position_size == 0 // Position closed by TP/SL
         lastTrade.state := "Closed"
         lastTrade.exitTime := time
         lastTrade.exitPrice := close
@@ -452,25 +576,31 @@ if not na(lastTrade) and lastTrade.state == "Entry Taken"
 // ----------------------------------------------------------------------------
 
 // Plot FVG
-if showFVGs and not na(lastTrade.fvg)
+if showFVGs and not na(lastTrade) and not na(lastTrade.fvg) and barstate.islast
     fvgColor = lastTrade.fvg.isBull ? color.new(color.green, 80) : color.new(color.red, 80)
     box.new(left=lastTrade.fvg.startTime, top=lastTrade.fvg.top, right=lastTrade.fvg.endTime, bottom=lastTrade.fvg.bottom, border_color=fvgColor, bgcolor=fvgColor)
 
 // Plot OB
-if requireOBConfluence and not na(lastTrade.ob)
+if requireOBConfluence and not na(lastTrade) and not na(lastTrade.ob) and barstate.islast
     obColor = lastTrade.ob.isBull ? color.new(color.lime, 80) : color.new(color.fuchsia, 80)
     box.new(left=lastTrade.ob.startTime, top=lastTrade.ob.high, right=lastTrade.ob.endTime, bottom=lastTrade.ob.low, border_color=obColor, bgcolor=obColor)
 
 // Plot TP/SL lines
-if showTPSL and not na(lastTrade) and lastTrade.state == "Entry Taken"
+if showTPSL and not na(lastTrade) and lastTrade.state == "Entry Taken" and barstate.islast
     line.new(x1=lastTrade.entryTime, y1=lastTrade.tpTarget, x2=time, y2=lastTrade.tpTarget, color=highColor, style=line.style_dashed, width=1)
     line.new(x1=lastTrade.entryTime, y1=lastTrade.slTarget, x2=time, y2=lastTrade.slTarget, color=lowColor, style=line.style_dashed, width=1)
 
 // Plot entry/exit shapes
-if not na(lastTrade) and lastTrade.state == "Entry Taken"
-    plotshape(true, style=shape.triangleup, location=location.belowbar, color=highColor, text="Entry", size=size.small, title="Entry Signal")
-else if not na(lastTrade) and lastTrade.state == "Closed"
-    plotshape(true, style=shape.triangledown, location=location.abovebar, color=lowColor, text="Exit", size=size.small, title="Exit Signal")
+plotshape(not na(lastTrade) and lastTrade.state == "Entry Taken" and lastTrade.entryTime == time, 
+          style=shape.triangleup, location=location.belowbar, color=highColor, text="Entry", size=size.small, title="Entry Signal")
+          
+plotshape(not na(lastTrade) and lastTrade.state == "Closed" and lastTrade.exitTime == time, 
+          style=shape.triangledown, location=location.abovebar, color=lowColor, text="Exit", size=size.small, title="Exit Signal")
+
+// Plot trade state as text label
+if barstate.islast and not na(lastTrade)
+    label.new(x=bar_index, y=high + (5 * syminfo.mintick), text="State: " + lastTrade.state, 
+              color=color.new(color.blue, 80), textcolor=color.white, style=label.style_label_down, size=size.small)
 
 // ----------------------------------------------------------------------------
 // 8. Backtesting Dashboard
@@ -482,20 +612,20 @@ var int totalWins = 0
 var int totalLosses = 0
 var float totalProfit = 0.0
 
-if strategy.closedtrades.size() > totalEntries
-    trade = strategy.closedtrades.get(strategy.closedtrades.size() - 1)
-    if trade.profit > 0
+// Track trades using strategy.closedtrades
+if strategy.closedtrades > totalEntries
+    totalEntries := strategy.closedtrades
+    if strategy.closedtrades.profit(strategy.closedtrades - 1) > 0
         totalWins := totalWins + 1
     else
         totalLosses := totalLosses + 1
-    totalEntries := totalEntries + 1
-    totalProfit := totalProfit + trade.profit
+    totalProfit := totalProfit + strategy.closedtrades.profit(strategy.closedtrades - 1)
 
 float winRate = totalEntries > 0 ? (float(totalWins) / totalEntries) * 100 : 0.0
 float avgProfit = totalEntries > 0 ? totalProfit / totalEntries : 0.0
 
-if backtestDisplayEnabled
-    var table dashboardTable = table.new(backtestingLocation == "Top Right" ? position.top_right : backtestingLocation == "Right Center" ? position.right : position.top_center, 1, 6, bgcolor=screenerColor, border_width=1)
+if backtestDisplayEnabled and barstate.islast
+    var table dashboardTable = table.new(backtestingLocation == "Top Right" ? position.top_right : backtestingLocation == "Right Center" ? position.middle_right : position.top_center, 1, 6, bgcolor=screenerColor, border_width=1)
     table.cell(dashboardTable, 0, 0, "Total Entries: " + str.tostring(totalEntries), text_color=textColor)
     table.cell(dashboardTable, 0, 1, "Wins: " + str.tostring(totalWins), text_color=textColor)
     table.cell(dashboardTable, 0, 2, "Losses: " + str.tostring(totalLosses), text_color=textColor)
@@ -507,24 +637,18 @@ if backtestDisplayEnabled
 // 9. Alerts
 // ----------------------------------------------------------------------------
 
-if buyAlertEnabled and lastTrade.state == "Entry Taken" and lastTrade.entryType == "Long"
+if buyAlertEnabled and lastTrade.state == "Entry Taken" and lastTrade.entryType == "Long" and lastTrade.entryTime == time
     alert("ORB Buy Signal! Entry Price: " + str.tostring(lastTrade.entryPrice), alert.freq_once_per_bar)
 
-if sellAlertEnabled and lastTrade.state == "Entry Taken" and lastTrade.entryType == "Short"
+if sellAlertEnabled and lastTrade.state == "Entry Taken" and lastTrade.entryType == "Short" and lastTrade.entryTime == time
     alert("ORB Sell Signal! Entry Price: " + str.tostring(lastTrade.entryPrice), alert.freq_once_per_bar)
 
-if tpAlertEnabled and lastTrade.state == "Closed" and lastTrade.exitPrice > lastTrade.entryPrice and lastTrade.entryType == "Long"
-    alert("ORB Long TP Hit! Exit Price: " + str.tostring(lastTrade.exitPrice), alert.freq_once_per_bar)
+if tpAlertEnabled and lastTrade.state == "Closed" and lastTrade.exitTime == time
+    if (lastTrade.exitPrice >= lastTrade.tpTarget and lastTrade.entryType == "Long") or
+       (lastTrade.exitPrice <= lastTrade.tpTarget and lastTrade.entryType == "Short")
+        alert("ORB " + lastTrade.entryType + " TP Hit! Exit Price: " + str.tostring(lastTrade.exitPrice), alert.freq_once_per_bar)
 
-if tpAlertEnabled and lastTrade.state == "Closed" and lastTrade.exitPrice < lastTrade.entryPrice and lastTrade.entryType == "Short"
-    alert("ORB Short TP Hit! Exit Price: " + str.tostring(lastTrade.exitPrice), alert.freq_once_per_bar)
-
-if slAlertEnabled and lastTrade.state == "Closed" and lastTrade.exitPrice < lastTrade.entryPrice and lastTrade.entryType == "Long"
-    alert("ORB Long SL Hit! Exit Price: " + str.tostring(lastTrade.exitPrice), alert.freq_once_per_bar)
-
-if slAlertEnabled and lastTrade.state == "Closed" and lastTrade.exitPrice > lastTrade.entryPrice and lastTrade.entryType == "Short"
-    alert("ORB Short SL Hit! Exit Price: " + str.tostring(lastTrade.exitPrice), alert.freq_once_per_bar)
-
-
-
-
+if slAlertEnabled and lastTrade.state == "Closed" and lastTrade.exitTime == time
+    if (lastTrade.exitPrice <= lastTrade.slTarget and lastTrade.entryType == "Long") or
+       (lastTrade.exitPrice >= lastTrade.slTarget and lastTrade.entryType == "Short")
+        alert("ORB " + lastTrade.entryType + " SL Hit! Exit Price: " + str.tostring(lastTrade.exitPrice), alert.freq_once_per_bar)
