@@ -5,6 +5,9 @@ indicator("ICT ORB Manual Trading Companion v2.2 (Final Visual Fix)", overlay=tr
 // 1. INPUT PARAMETERS (Aligned with Technical Specification)
 // =============================================================================
 
+//24-08-2025   https://aistudio.google.com/prompts/1hqkGB_NKBaIW4mUPhEbfKM2VzipN2Ebc
+
+
 // --- General Configuration ---
 string executionType = input.string("FVG", "Execution Type", options=["FVG", "MSS"], tooltip="Determines the primary entry trigger.")
 int mssOffset = input.int(10, "MSS Swing Length", minval=1, tooltip="Swing length for Market Structure Shift (MSS) detection.")
