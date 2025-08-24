@@ -1,0 +1,256 @@
+//@version=5
+indicator("ICT ORB Manual Trading Companion v2.2 (Final Visual Fix)", overlay=true, max_bars_back=500)
+
+// =============================================================================
+// 1. INPUT PARAMETERS (Aligned with Technical Specification)
+// =============================================================================
+
+// --- General Configuration ---
+string executionType = input.string("FVG", "Execution Type", options=["FVG", "MSS"], tooltip="Determines the primary entry trigger.")
+int mssOffset = input.int(10, "MSS Swing Length", minval=1, tooltip="Swing length for Market Structure Shift (MSS) detection.")
+string breakoutMethod = input.string("Close", "Breakout Method", options=["Close", "Wick"], tooltip="Method to determine ORB breakout.")
+string fvgBars = input.string("Same Type", "FVG Bar Type", options=["Same Type", "All"], tooltip="Controls the strictness of FVG detection.")
+string dailyBias = input.string("None", "Daily Bias", options=["None", "Bullish", "Bearish"], tooltip="Sets a directional bias for the day.")
+bool useHigherTFliq = input.bool(true, "Use Higher TF Liquidity for TP Target")
+bool requireDisplacement = input.bool(true, "Require Displacement Confirmation")
+bool requireOBConfluence = input.bool(true, "Require Entry within an Order Block")
+
+// --- ORB Specific Inputs ---
+string orbSessionType = input.string("New York", "ORB Session", options=["New York", "London", "Asia", "Custom"])
+int orbStartTimeHour = input.int(9, "ORB Start Hour", minval=0, maxval=23)
+int orbStartTimeMinute = input.int(30, "ORB Start Minute", minval=0, maxval=59)
+int orbEndTimeHour = input.int(9, "ORB End Hour", minval=0, maxval=23)
+int orbEndTimeMinute = input.int(45, "ORB End Minute", minval=0, maxval=59)
+bool requireORBLiquiditySweep = input.bool(false, "Require ORB Liquidity Sweep")
+float slBufferMultiplier = input.float(0.5, "SL Buffer Multiplier (ATR)", minval=0.0, tooltip="Multiplier for ATR to add a buffer to the Stop Loss.")
+int maxHistoricalORBs = input.int(30, "Max Historical ORBs", minval=1, maxval=50)
+
+// --- Visuals Configuration ---
+color highColor = input.color(color.new(color.green, 0), "Buy Signal Color")
+color lowColor = input.color(color.new(color.red, 0), "Sell Signal Color")
+color textColor = input.color(color.white, "Text Color")
+color orbColor = input.color(color.blue, "ORB Color")
+
+// =============================================================================
+// 2. TYPE DEFINITIONS
+// =============================================================================
+
+type FVG
+    int startTime
+    float top
+    float bottom
+
+type OrderBlock
+    int startTime
+    float high
+    float low
+
+type ORB
+    int startTime
+    int endTime
+    float high
+    float low
+    string sessionDate
+
+type Trade
+    string state
+    string direction
+    OrderBlock ob
+    float slTarget
+    float tpTarget
+
+// =============================================================================
+// 3. GLOBAL VARIABLES
+// =============================================================================
+
+var ORB[] historicalORBs = array.new<ORB>(0)
+var OrderBlock[] orderBlocks = array.new<OrderBlock>(0)
+var FVG[] fvgs = array.new<FVG>(0)
+var float currentATR = na
+var ORB currentORB = na
+var bool orbEstablished = false
+var float orbHigh = na
+var float orbLow = na
+var Trade lastTrade = Trade.new("WAITING_FOR_ORB", na, na, na, na)
+var line slLine = na
+var line tpLine = na
+
+currentATR := ta.atr(14)
+[prevDayHigh, prevDayLow] = request.security(syminfo.tickerid, "D", [high[1], low[1]], lookahead=barmerge.lookahead_on)
+
+// =============================================================================
+// 4. HELPER FUNCTIONS
+// =============================================================================
+
+findFVG(isBullish) =>
+    FVG result = na
+    if isBullish and low[1] > high[3] and (fvgBars == "All" or (close[1]>open[1] and close[2]>open[2] and close[3]>open[3]))
+        result := FVG.new(time[3], low[1], high[3])
+    if not isBullish and high[1] < low[3] and (fvgBars == "All" or (close[1]<open[1] and close[2]<open[2] and close[3]<open[3]))
+        result := FVG.new(time[3], high[1], low[3])
+    result
+
+isDisplacement(lookback, isBullish) =>
+    strongCount = 0
+    for i = 0 to lookback - 1
+        isStrong = isBullish ? (close[i] > open[i] and (close[i] - open[i]) > (0.5 * currentATR)) : (open[i] > close[i] and (open[i] - close[i]) > (0.5 * currentATR))
+        if isStrong
+            strongCount += 1
+    strongCount >= (lookback - 1)
+
+findOrderBlock(lookback, isBullish) =>
+    OrderBlock ob = na
+    for i = 1 to lookback
+        if isBullish and close[i] < open[i] and isDisplacement(3, true)
+            ob := OrderBlock.new(time[i], high[i], low[i])
+            break
+        if not isBullish and close[i] > open[i] and isDisplacement(3, false)
+            ob := OrderBlock.new(time[i], high[i], low[i])
+            break
+    ob
+
+// =============================================================================
+// 5. ORB & SESSION LOGIC - [BUG FIXED HERE]
+// =============================================================================
+
+// CORRECTED LOGIC: These timestamps are calculated on every bar for historical accuracy.
+int orbStartTimestamp = timestamp("America/New_York", year, month, dayofmonth, orbStartTimeHour, orbStartTimeMinute)
+int orbEndTimestamp = timestamp("America/New_York", year, month, dayofmonth, orbEndTimeHour, orbEndTimeMinute)
+bool isORBPeriod = time >= orbStartTimestamp and time < orbEndTimestamp
+
+// This block resets state variables only once per day
+if ta.change(time("D"))
+    orbHigh := na
+    orbLow := na
+    orbEstablished := false
+    currentORB := na
+    lastTrade.state := "WAITING_FOR_ORB"
+    lastTrade.direction := na
+    line.delete(slLine)
+    line.delete(tpLine)
+    slLine := na
+    tpLine := na
+
+if isORBPeriod and not orbEstablished
+    orbHigh := na(orbHigh) ? high : math.max(high, orbHigh)
+    orbLow := na(orbLow) ? low : math.min(low, orbLow)
+else if time >= orbEndTimestamp and not orbEstablished and not na(orbHigh)
+    orbEstablished := true
+    // **CRITICAL FIX 1**: Use the correct timestamps when CREATING the ORB object.
+    currentORB := ORB.new(orbStartTimestamp, orbEndTimestamp, orbHigh, orbLow, str.format("{0}-{1}", dayofmonth, month))
+    
+    // Logic to add the new ORB to the historical array.
+    array.unshift(historicalORBs, currentORB)
+    if array.size(historicalORBs) > maxHistoricalORBs
+        array.pop(historicalORBs)
+    
+    lastTrade.state := "WAITING_FOR_BREAKOUT"
+
+
+// =============================================================================
+// 6. MAIN INDICATOR LOGIC (STATE MACHINE) - REMAINS UNCHANGED
+// =============================================================================
+
+if orbEstablished
+    if lastTrade.state == "WAITING_FOR_BREAKOUT"
+        isLongBreakout = breakoutMethod == "Close" ? ta.cross(close, orbHigh) : high > orbHigh
+        if isLongBreakout and (dailyBias == "None" or dailyBias == "Bullish") and (not requireORBLiquiditySweep or low[1] < orbLow)
+            lastTrade.state := "WAITING_FOR_DISPLACEMENT"
+            lastTrade.direction := "Long"
+                
+        isShortBreakout = breakoutMethod == "Close" ? ta.cross(low, orbLow) : low < orbLow
+        if isShortBreakout and (dailyBias == "None" or dailyBias == "Bearish") and (not requireORBLiquiditySweep or high[1] > orbHigh)
+            lastTrade.state := "WAITING_FOR_DISPLACEMENT"
+            lastTrade.direction := "Short"
+    
+    if lastTrade.state == "WAITING_FOR_DISPLACEMENT"
+        displaced = lastTrade.direction == "Long" ? isDisplacement(3, true) : isDisplacement(3, false)
+        if (displaced and requireDisplacement) or not requireDisplacement
+            detectedOB = lastTrade.direction == "Long" ? findOrderBlock(5, true) : findOrderBlock(5, false)
+            if not na(detectedOB) or not requireOBConfluence
+                lastTrade.ob := detectedOB
+                if not na(detectedOB)
+                    array.unshift(orderBlocks, detectedOB)
+                lastTrade.state := "WAITING_FOR_RETRACEMENT"
+                    
+    if lastTrade.state == "WAITING_FOR_RETRACEMENT"
+        entryConditionMet = false
+        if lastTrade.direction == "Long"
+            isWithinOB = not na(lastTrade.ob) ? (low <= lastTrade.ob.high and high >= lastTrade.ob.low) : false
+            inOB = not requireOBConfluence or isWithinOB
+            if inOB
+                if executionType == "FVG"
+                    detectedFVG = findFVG(true)
+                    if not na(detectedFVG)
+                        entryConditionMet := true
+                        array.unshift(fvgs, detectedFVG)
+                else if executionType == "MSS"
+                    if ta.highest(mssOffset) < high
+                        entryConditionMet := true
+            if entryConditionMet
+                lastTrade.slTarget := requireOBConfluence and not na(lastTrade.ob) ? lastTrade.ob.low - (currentATR * slBufferMultiplier) : orbLow - (currentATR * slBufferMultiplier)
+                risk = close - lastTrade.slTarget
+                lastTrade.tpTarget := useHigherTFliq and not na(prevDayHigh) and prevDayHigh > close ? prevDayHigh : close + (risk * 2)
+                lastTrade.state := "ENTRY_TAKEN"
+                line.delete(slLine)
+                slLine := line.new(bar_index-1, lastTrade.slTarget, bar_index, lastTrade.slTarget, color=color.red, style=line.style_dashed, extend=extend.right)
+                line.delete(tpLine)
+                tpLine := line.new(bar_index-1, lastTrade.tpTarget, bar_index, lastTrade.tpTarget, color=color.green, style=line.style_dashed, extend=extend.right)
+                
+        else if lastTrade.direction == "Short"
+            isWithinOB = not na(lastTrade.ob) ? (high >= lastTrade.ob.low and low <= lastTrade.ob.high) : false
+            inOB = not requireOBConfluence or isWithinOB
+            if inOB
+                if executionType == "FVG"
+                    detectedFVG = findFVG(false)
+                    if not na(detectedFVG)
+                        entryConditionMet := true
+                        array.unshift(fvgs, detectedFVG)
+                else if executionType == "MSS"
+                    if ta.lowest(mssOffset) > low
+                        entryConditionMet := true
+            if entryConditionMet
+                lastTrade.slTarget := requireOBConfluence and not na(lastTrade.ob) ? lastTrade.ob.high + (currentATR * slBufferMultiplier) : orbHigh + (currentATR * slBufferMultiplier)
+                risk = lastTrade.slTarget - close
+                lastTrade.tpTarget := useHigherTFliq and not na(prevDayLow) and prevDayLow < close ? prevDayLow : close - (risk * 2)
+                lastTrade.state := "ENTRY_TAKEN"
+                line.delete(slLine)
+                slLine := line.new(bar_index-1, lastTrade.slTarget, bar_index, lastTrade.slTarget, color=color.red, style=line.style_dashed, extend=extend.right)
+                line.delete(tpLine)
+                tpLine := line.new(bar_index-1, lastTrade.tpTarget, bar_index, lastTrade.tpTarget, color=color.green, style=line.style_dashed, extend=extend.right)
+
+// =============================================================================
+// 7. VISUALS & ALERTS - [BUG FIXED HERE]
+// =============================================================================
+
+// Draw ORBs on last bar to avoid repainting and script errors.
+if barstate.islast
+    // Draw the current ORB separately if it's been established today.
+    if orbEstablished and not na(currentORB)
+        // **CRITICAL FIX 2**: Use the correct endTime, not the current 'time'.
+        box.new(currentORB.startTime, currentORB.high, currentORB.endTime, currentORB.low, orbColor, 1, bgcolor=color.new(orbColor, 90), xloc=xloc.bar_time)
+
+    // Draw all previous day's ORBs from the historical array.
+    for i = 0 to array.size(historicalORBs) - 1
+        orb = array.get(historicalORBs, i)
+        // Check to not draw the current day's ORB twice.
+        if na(currentORB) or orb.startTime != currentORB.startTime
+            box.new(orb.startTime, orb.high, orb.endTime, orb.low, color.new(orbColor, 80), 1, bgcolor=color.new(orbColor, 95), xloc=xloc.bar_time)
+            label.new(orb.startTime, orb.high, orb.sessionDate, xloc=xloc.bar_time, style=label.style_label_down, size=size.tiny, color=color.new(color.blue, 90), textcolor=textColor)
+
+// Entry Signals
+isSignalBar = lastTrade.state[1] != "ENTRY_TAKEN" and lastTrade.state == "ENTRY_TAKEN"
+longSignal = isSignalBar and lastTrade.direction == "Long"
+shortSignal = isSignalBar and lastTrade.direction == "Short"
+
+plotshape(longSignal, "Long Entry", shape.triangleup, location.belowbar, highColor, size=size.small)
+plotshape(shortSignal, "Short Entry", shape.triangledown, location.abovebar, lowColor, size=size.small)
+
+// Alert triggers
+alertcondition(longSignal, "Long Signal", "ORB Long Setup Detected")
+alertcondition(shortSignal, "Short Signal", "ORB Short Setup Detected")
+
+// Display current state on the chart
+if barstate.islast
+    labelText = orbEstablished ? "State: " + lastTrade.state : "Waiting for ORB Period"
+    label.new(bar_index, high + 3*currentATR, labelText, color=color.new(orbColor, 50), textcolor=textColor, style=label.style_label_down)
