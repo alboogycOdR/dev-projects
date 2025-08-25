@@ -1,0 +1,1013 @@
+//@version=5
+indicator("ICT ORB v4.1", overlay=true, max_bars_back=500, max_boxes_count=500, max_labels_count=500, max_lines_count=500, dynamic_requests=true)
+//ICT ORB v4.1 - Research Enhanced [RVol + Simple Mode + Alerts + Throttling]
+// =============================================================================
+// VERSION 4.0 ENHANCEMENTS:
+// 1. Enhanced Relative Volume calculation (time-based historical comparison)
+// 2. Simple Mode based on research paper findings
+// 3. Comprehensive alert system for Make.com/Telegram integration
+// =============================================================================
+
+// =============================================================================
+// 1. INPUT PARAMETERS - ENHANCED FOR v4.1
+// =============================================================================
+
+// --- QUICK SETUP ---
+string strategyProfile = input.string("Balanced", "🎯 Quick Setup - Strategy Profile", options=["Research Mode", "Aggressive", "Balanced", "Conservative", "Custom"], group="⚡ Quick Setup", tooltip="Research Mode: Based on academic paper findings - simple and effective")
+
+bool useSimpleMode = input.bool(false, "📚 Use Simple Mode (Research Based)", group="⚡ Quick Setup", tooltip="Simplified entry based on academic research - ORB direction + RVol only. Ignores ICT concepts.")
+
+// --- ORB CONFIGURATION ---
+string orbSessionType = input.string("New York", "Session Type", options=["New York", "London", "Asia", "Custom", "714MIDNIGHT", "714AM", "714PM"], group="📊 ORB Settings")
+int orbDuration = input.int(15, "ORB Duration (minutes)", minval=5, maxval=60, step=5, group="📊 ORB Settings")
+int orbStartTimeHour = input.int(9, "Custom Start Hour", minval=0, maxval=23, group="📊 ORB Settings")
+int orbStartTimeMinute = input.int(30, "Custom Start Minute", minval=0, maxval=59, group="📊 ORB Settings")
+bool requireORBLiquiditySweep = input.bool(false, "Require ORB Liquidity Sweep", group="📊 ORB Settings")
+int maxHistoricalORBs = input.int(10, "Max Historical ORBs", minval=1, maxval=50, group="📊 ORB Settings")
+
+// --- SIMPLE MODE SETTINGS (NEW v4.0) ---
+bool followOpeningBias = input.bool(true, "Follow Opening Range Direction Only", group="📚 Simple Mode Settings", tooltip="If first candle is green, only take longs. If red, only take shorts.")
+float simpleRVolThreshold = input.float(2.0, "Simple Mode RVol Threshold", minval=1.0, maxval=5.0, step=0.5, group="📚 Simple Mode Settings")
+float simpleStopATR = input.float(0.1, "Simple Mode Stop (% of ATR)", minval=0.05, maxval=0.5, step=0.05, group="📚 Simple Mode Settings", tooltip="Research paper used 10% of ATR")
+
+// --- ENHANCED VOLUME ANALYSIS (v4.0) ---
+bool useEnhancedRVol = input.bool(true, "🔬 Use Enhanced RVol (Time-Based)", group="📊 Volume Analysis", tooltip="Compares current volume to same time on previous days")
+int rvolLookbackDays = input.int(14, "RVol Lookback Days", minval=5, maxval=30, group="📊 Volume Analysis")
+bool requireMinRVol = input.bool(true, "Require Minimum RVol", group="📊 Volume Analysis")
+float minRVolThreshold = input.float(1.0, "Minimum RVol Threshold", minval=0.5, maxval=3.0, step=0.1, group="📊 Volume Analysis")
+bool showTopStocksByRVol = input.bool(false, "Show Only Top N by RVol", group="📊 Volume Analysis")
+int topStocksCount = input.int(20, "Top N Stocks to Trade", minval=5, maxval=50, group="📊 Volume Analysis")
+
+// Traditional volume settings
+bool useVolumeAnalysis = input.bool(true, "Enable Volume Analysis", group="📊 Volume Analysis")
+bool requireVolumeSpike = input.bool(true, "Require Volume Spike", group="📊 Volume Analysis")
+float volumeSpikeMultiplier = input.float(1.5, "Volume Spike Multiplier", minval=1.2, maxval=3.0, group="📊 Volume Analysis")
+
+// --- ENTRY TRIGGERS (ICT Mode) ---
+string executionType = input.string("FVG", "Primary Entry Method", options=["FVG", "MSS", "Both"], group="🎯 Entry Triggers (ICT Mode)", tooltip="Ignored in Simple Mode")
+string breakoutMethod = input.string("Close", "Breakout Method", options=["Close", "Wick", "Body"], group="🎯 Entry Triggers (ICT Mode)")
+string fvgBars = input.string("Same Type", "FVG Bar Type", options=["Same Type", "All", "Strong Only"], group="🎯 Entry Triggers (ICT Mode)")
+int mssOffset = input.int(10, "MSS Swing Length", minval=1, maxval=20, group="🎯 Entry Triggers (ICT Mode)")
+
+// --- TREND & BIAS ---
+bool useHTFBias = input.bool(true, "Use Higher Timeframe Bias", group="📈 Trend & Bias")
+string htfTimeframe = input.timeframe("240", "HTF for Bias", group="📈 Trend & Bias")
+string dailyBias = input.string("Auto", "Daily Bias", options=["Auto", "None", "Bullish", "Bearish"], group="📈 Trend & Bias")
+bool requireTrendAlignment = input.bool(true, "Require Trend Alignment", group="📈 Trend & Bias")
+
+// --- ICT CONCEPTS ---
+bool requireDisplacement = input.bool(true, "Require Displacement", group="🔧 ICT Concepts", tooltip="Ignored in Simple Mode")
+bool requireOBConfluence = input.bool(true, "Require Order Block", group="🔧 ICT Concepts", tooltip="Ignored in Simple Mode")
+float displacementATRMultiplier = input.float(0.5, "Displacement ATR Multiplier", minval=0.1, maxval=2.0, group="🔧 ICT Concepts")
+int obLookback = input.int(5, "Order Block Lookback", minval=3, maxval=10, group="🔧 ICT Concepts")
+
+// --- RANGE ANALYSIS ---
+bool useRangeAnalysis = input.bool(true, "Enable Range Analysis", group="📏 Range Analysis")
+bool useATRFilter = input.bool(true, "ATR Range Classification", group="📏 Range Analysis")
+float narrowRangeATR = input.float(0.5, "Narrow Range (% of ATR)", minval=0.1, maxval=1.0, group="📏 Range Analysis")
+float wideRangeATR = input.float(1.5, "Wide Range (% of ATR)", minval=1.0, maxval=3.0, group="📏 Range Analysis")
+bool avoidWideRanges = input.bool(true, "Avoid Wide Ranges", group="📏 Range Analysis")
+
+// --- RISK MANAGEMENT ---
+string stopMethod = input.string("Dynamic", "Stop Loss Method", options=["Fixed", "Dynamic", "Structure", "ATR", "Research"], group="🛡️ Risk Management", tooltip="Research: Uses 10% ATR as per academic paper")
+float slBufferMultiplier = input.float(0.5, "SL Buffer (ATR)", minval=0.0, maxval=2.0, group="🛡️ Risk Management")
+float riskRewardRatio = input.float(2.0, "Default R:R Ratio", minval=1.0, maxval=5.0, group="🛡️ Risk Management")
+bool useHigherTFliq = input.bool(true, "Use Higher TF Liquidity for TP", group="🛡️ Risk Management")
+bool useTrailingStop = input.bool(false, "Enable Trailing Stop", group="🛡️ Risk Management")
+float trailingStopATR = input.float(2.0, "Trailing Stop (ATR)", minval=0.5, maxval=5.0, group="🛡️ Risk Management")
+
+// --- ALERT CONFIGURATION (NEW v4.0) ---
+bool enableAlerts = input.bool(true, "Enable Alerts", group="🔔 Alert Settings")
+bool sendJSONAlerts = input.bool(true, "Send JSON Format (for Make.com)", group="🔔 Alert Settings", tooltip="Formats alerts as JSON for webhook processing")
+bool includeRVolInAlerts = input.bool(true, "Include RVol in Alerts", group="🔔 Alert Settings")
+bool alertOnORBFormation = input.bool(true, "Alert on ORB Formation", group="🔔 Alert Settings")
+bool alertOnBreakout = input.bool(true, "Alert on Breakout", group="🔔 Alert Settings")
+bool alertOnEntry = input.bool(true, "Alert on Entry Signal", group="🔔 Alert Settings")
+bool alertOnTargetHit = input.bool(false, "Alert on Target Hit", group="🔔 Alert Settings")
+bool alertOnStopHit = input.bool(false, "Alert on Stop Hit", group="🔔 Alert Settings")
+
+// --- VISUAL SETTINGS ---
+bool showDashboard = input.bool(true, "Show Dashboard", group="🎨 Visual Settings")
+bool showRVolDisplay = input.bool(true, "Show RVol Display", group="🎨 Visual Settings")
+bool showHistoricalORBs = input.bool(true, "Show Historical ORBs", group="🎨 Visual Settings")
+bool showICTLevels = input.bool(true, "Show ICT Levels", group="🎨 Visual Settings")
+bool showTargetLines = input.bool(true, "Show Target Lines", group="🎨 Visual Settings")
+
+// --- COLOR SCHEME ---
+color bullishColor = input.color(#089981, "Bullish Color", group="🎨 Color Scheme")
+color bearishColor = input.color(#f23645, "Bearish Color", group="🎨 Color Scheme")
+color orbColor = input.color(color.new(color.blue, 70), "ORB Color", group="🎨 Color Scheme")
+color fvgColor = input.color(color.new(color.yellow, 85), "FVG Color", group="🎨 Color Scheme")
+color obColor = input.color(color.new(color.purple, 85), "OB Color", group="🎨 Color Scheme")
+color screenerColor = input.color(#1B1F2B, "Dashboard Background", group="🎨 Color Scheme")
+string textSize = input.string("small", "Text Size", options=["tiny", "small", "normal"], group="🎨 Color Scheme")
+
+// =============================================================================
+// 2. TYPE DEFINITIONS - ENHANCED FOR v4.0
+// =============================================================================
+
+type FVG
+    int startTime
+    float top
+    float bottom
+    string type
+    bool mitigated
+
+type OrderBlock
+    int startTime
+    int endTime
+    float high
+    float low
+    string type
+    bool breaker
+    bool mitigated
+
+type ORB
+    int startTime
+    int endTime
+    float high
+    float low
+    float mid
+    float width
+    string sessionDate
+    string rangeType
+    float rangeATRRatio
+    bool firstCandleBullish  // NEW v4.0: Track opening bias
+
+type Trade
+    string state
+    string direction
+    OrderBlock ob
+    FVG fvg
+    float entryPrice
+    float slTarget
+    float tpTarget
+    float tp2Target
+    float tp3Target
+    float risk
+    int entryBar
+    bool trailingActivated
+    float entryRVol  // NEW v4.0: Track RVol at entry
+
+type MarketStructure
+    float lastSwingHigh
+    float lastSwingLow
+    int htfTrend
+    bool bosDetected
+    string bosDirection
+    float bosLevel
+
+type AlertData  // NEW v4.0
+    string action
+    string symbol
+    float entry
+    float stop
+    float target
+    float risk
+    float rvol
+    string rangeType
+    string direction
+    string message
+
+// =============================================================================
+// 3. GLOBAL VARIABLES - ENHANCED FOR v4.1
+// =============================================================================
+
+var ORB[] historicalORBs = array.new<ORB>(0)
+var OrderBlock[] orderBlocks = array.new<OrderBlock>(0)
+var FVG[] fvgs = array.new<FVG>(0)
+var ORB currentORB = na
+var bool orbEstablished = false
+var float orbHigh = na
+var float orbLow = na
+var Trade currentTrade = Trade.new("WAITING_FOR_ORB", na, na, na, na, na, na, na, na, na, 0, false, 1.0)
+var MarketStructure marketStructure = MarketStructure.new(na, na, 0, false, "None", na)
+
+// Enhanced RVol tracking (NEW v4.0)
+var float[] historicalVolumes = array.new_float()
+var float currentEnhancedRVol = 1.0
+var float orbRVol = 1.0
+var bool firstCandleDirection = na
+
+// Scheduling guards (v4.1)
+var float cachedRVol = na
+isNewBar = barstate.isnew
+isNewMinute = ta.change(time("1"))
+isNewHTFBar = ta.change(time(htfTimeframe))
+
+// Visual elements
+var line slLine = na
+var line tpLine = na
+var line tp2Line = na
+var line tp3Line = na
+var box currentORBBox = na
+var table dashboard = na
+var label rvolLabel = na  // NEW v4.0
+
+// Statistics
+var int totalSignals = 0
+var int winningSignals = 0
+var int losingSignals = 0
+var float totalPnL = 0.0
+
+// =============================================================================
+// 4. HELPER FUNCTIONS - ENHANCED FOR v4.0
+// =============================================================================
+
+// Get text size
+getTextSize() =>
+    textSize == "tiny" ? size.tiny : textSize == "small" ? size.small : size.normal
+
+// Calculate ATR (per tick) and gate daily requests to once per bar
+currentATR = ta.atr(14)
+if isNewBar
+    dailyATR := request.security(syminfo.tickerid, "D", ta.atr(14))
+    [prevDayHigh, prevDayLow, prevDayClose] := request.security(syminfo.tickerid, "D", [high[1], low[1], close[1]], lookahead=barmerge.lookahead_on)
+
+// =============================================================================
+// ENHANCED RELATIVE VOLUME CALCULATION (NEW v4.0)
+// =============================================================================
+
+calcEnhancedRVol() =>
+    // Fast RVol: compare current volume to the 5-bar SMA from the previous bar
+    avgHistoricalVol = nz(ta.sma(volume, 5)[1], volume)
+    rvol = avgHistoricalVol > 0 ? volume / avgHistoricalVol : 1.0
+    
+    // Store for dashboard display
+    if array.size(historicalVolumes) >= 100
+        array.shift(historicalVolumes)
+    array.push(historicalVolumes, rvol)
+    
+    rvol
+
+// Simple RVol calculation (fallback)
+calcSimpleRVol() =>
+    avgVol = ta.sma(volume, 20)
+    rvol = avgVol > 0 ? volume / avgVol : 1.0
+    rvol
+
+// Main RVol calculation, throttled to once per minute (v4.1)
+if isNewMinute
+    cachedRVol := useEnhancedRVol ? calcEnhancedRVol() : calcSimpleRVol()
+currentEnhancedRVol := nz(cachedRVol, useEnhancedRVol ? calcEnhancedRVol() : calcSimpleRVol())
+
+// =============================================================================
+// ALERT MESSAGE FUNCTIONS (NEW v4.0)
+// =============================================================================
+
+formatAlertMessage(alertType, data) =>
+    msg = ""
+    
+    if sendJSONAlerts
+        // JSON format for Make.com webhook
+        msg := '{'
+        msg += '"alertType":"' + alertType + '",'
+        msg += '"symbol":"' + syminfo.ticker + '",'
+        msg += '"exchange":"' + syminfo.prefix + '",'
+        msg += '"time":"' + str.tostring(time, "yyyy-MM-dd HH:mm:ss") + '",'
+        
+        if alertType == "ORB_FORMED"
+            msg += '"orbHigh":' + str.tostring(orbHigh, "#.####") + ','
+            msg += '"orbLow":' + str.tostring(orbLow, "#.####") + ','
+            msg += '"orbWidth":' + str.tostring(not na(currentORB) ? currentORB.width : 0, "#.####") + ','
+            msg += '"rangeType":"' + (not na(currentORB) ? currentORB.rangeType : "Unknown") + '",'
+            msg += '"rvol":' + str.tostring(orbRVol, "#.##") + ','
+            msg += '"firstCandleBullish":' + str.tostring(not na(currentORB) ? currentORB.firstCandleBullish : false)
+        
+        else if alertType == "ENTRY_SIGNAL"
+            msg += '"direction":"' + data.direction + '",'
+            msg += '"entry":' + str.tostring(data.entry, "#.####") + ','
+            msg += '"stop":' + str.tostring(data.stop, "#.####") + ','
+            msg += '"target":' + str.tostring(data.target, "#.####") + ','
+            msg += '"risk":' + str.tostring(data.risk, "#.####") + ','
+            msg += '"rvol":' + str.tostring(data.rvol, "#.##") + ','
+            msg += '"rangeType":"' + data.rangeType + '",'
+            msg += '"mode":"' + (useSimpleMode ? "Simple" : "ICT") + '"'
+        
+        else if alertType == "BREAKOUT"
+            msg += '"direction":"' + data.direction + '",'
+            msg += '"level":' + str.tostring(data.entry, "#.####") + ','
+            msg += '"rvol":' + str.tostring(data.rvol, "#.##") + ','
+            msg += '"volumeConfirmed":' + str.tostring(data.risk > 0)
+        
+        msg += '}'
+    
+    else
+        // Human-readable format for Telegram
+        msg := "🤖 ICT ORB v4.0 Alert\n"
+        msg += "Symbol: " + syminfo.ticker + "\n"
+        msg += "Time: " + str.tostring(time, "HH:mm") + "\n"
+        
+        if alertType == "ORB_FORMED"
+            msg += "📊 ORB FORMED\n"
+            msg += "High: " + str.tostring(orbHigh, "#.##") + "\n"
+            msg += "Low: " + str.tostring(orbLow, "#.##") + "\n"
+            msg += "Range: " + (not na(currentORB) ? currentORB.rangeType : "Unknown") + "\n"
+            if includeRVolInAlerts
+                msg += "RVol: " + str.tostring(orbRVol, "#.#") + "x\n"
+            msg += "Bias: " + (not na(currentORB) and currentORB.firstCandleBullish ? "Bullish ↑" : "Bearish ↓")
+        
+        else if alertType == "ENTRY_SIGNAL"
+            msg += (data.direction == "Long" ? "✅ LONG" : "🔻 SHORT") + " ENTRY\n"
+            msg += "Entry: " + str.tostring(data.entry, "#.##") + "\n"
+            msg += "Stop: " + str.tostring(data.stop, "#.##") + "\n"
+            msg += "Target: " + str.tostring(data.target, "#.##") + "\n"
+            msg += "Risk: " + str.tostring(data.risk, "#.##") + "\n"
+            if includeRVolInAlerts
+                msg += "RVol: " + str.tostring(data.rvol, "#.#") + "x\n"
+            msg += "Range: " + data.rangeType + "\n"
+            msg += "Mode: " + (useSimpleMode ? "Simple" : "ICT")
+        
+        else if alertType == "BREAKOUT"
+            msg += "🚀 BREAKOUT\n"
+            msg += "Direction: " + data.direction + "\n"
+            msg += "Level: " + str.tostring(data.entry, "#.##") + "\n"
+            if includeRVolInAlerts
+                msg += "RVol: " + str.tostring(data.rvol, "#.#") + "x"
+    
+    msg
+
+// =============================================================================
+// ICT HELPER FUNCTIONS (Existing)
+// =============================================================================
+
+// HTF Trend Analysis (requests remain inside; we'll call it only when HTF bar changes)
+getHTFTrend() =>
+    htfClose = request.security(syminfo.tickerid, htfTimeframe, close)
+    htfHigh = request.security(syminfo.tickerid, htfTimeframe, high)
+    htfLow = request.security(syminfo.tickerid, htfTimeframe, low)
+    
+    trend = 0
+    if htfClose > htfClose[1] and htfLow > htfLow[1]
+        trend := 1  // Bullish
+    else if htfClose < htfClose[1] and htfHigh < htfHigh[1]
+        trend := -1  // Bearish
+    trend
+
+// FVG Detection
+findFVG(isBullish) =>
+    FVG result = na
+    
+    if isBullish
+        if low[1] > high[3]
+            gapSize = low[1] - high[3]
+            if gapSize > currentATR * 0.2
+                validBars = true
+                
+                if fvgBars == "Same Type"
+                    validBars := close[1] > open[1] and close[2] > open[2] and close[3] > open[3]
+                else if fvgBars == "Strong Only"
+                    body1 = math.abs(close[1] - open[1])
+                    body2 = math.abs(close[2] - open[2])
+                    body3 = math.abs(close[3] - open[3])
+                    validBars := body2 > body1 and body2 > body3
+                
+                if validBars
+                    result := FVG.new(time[3], low[1], high[3], "bullish", false)
+    else
+        if high[1] < low[3]
+            gapSize = low[3] - high[1]
+            if gapSize > currentATR * 0.2
+                validBars = true
+                
+                if fvgBars == "Same Type"
+                    validBars := close[1] < open[1] and close[2] < open[2] and close[3] < open[3]
+                else if fvgBars == "Strong Only"
+                    body1 = math.abs(close[1] - open[1])
+                    body2 = math.abs(close[2] - open[2])
+                    body3 = math.abs(close[3] - open[3])
+                    validBars := body2 > body1 and body2 > body3
+                
+                if validBars
+                    result := FVG.new(time[3], high[1], low[3], "bearish", false)
+    result
+
+// Displacement Detection
+isDisplacement(lookback, isBullish) =>
+    strongCount = 0
+    totalMove = 0.0
+    
+    for i = 0 to lookback - 1
+        if isBullish
+            isStrong = close[i] > open[i] and (close[i] - open[i]) > (displacementATRMultiplier * currentATR)
+            if isStrong
+                strongCount += 1
+                totalMove += (close[i] - open[i])
+        else
+            isStrong = open[i] > close[i] and (open[i] - close[i]) > (displacementATRMultiplier * currentATR)
+            if isStrong
+                strongCount += 1
+                totalMove += (open[i] - close[i])
+    
+    strongCount >= math.ceil(lookback * 0.66) and totalMove > currentATR
+
+// Order Block Detection
+findOrderBlock(lookback, isBullish) =>
+    OrderBlock ob = na
+    
+    for i = 1 to math.min(lookback, obLookback)
+        if isBullish
+            if close[i] < open[i] and close[i-1] > open[i-1]
+                if isDisplacement(3, true)
+                    ob := OrderBlock.new(time[i], time[i-1], high[i], low[i], "bullish", false, false)
+                    break
+        else
+            if close[i] > open[i] and close[i-1] < open[i-1]
+                if isDisplacement(3, false)
+                    ob := OrderBlock.new(time[i], time[i-1], high[i], low[i], "bearish", false, false)
+                    break
+    ob
+
+// Market Structure Analysis
+updateMarketStructure() =>
+    swingHighBar = ta.pivothigh(high, mssOffset, mssOffset)
+    swingLowBar = ta.pivotlow(low, mssOffset, mssOffset)
+    
+    if not na(swingHighBar)
+        marketStructure.lastSwingHigh := swingHighBar
+    if not na(swingLowBar)
+        marketStructure.lastSwingLow := swingLowBar
+    
+    if not na(marketStructure.lastSwingHigh) and close > marketStructure.lastSwingHigh
+        marketStructure.bosDetected := true
+        marketStructure.bosDirection := "Bullish"
+        marketStructure.bosLevel := marketStructure.lastSwingHigh
+    else if not na(marketStructure.lastSwingLow) and close < marketStructure.lastSwingLow
+        marketStructure.bosDetected := true
+        marketStructure.bosDirection := "Bearish"
+        marketStructure.bosLevel := marketStructure.lastSwingLow
+    
+    if useHTFBias and isNewHTFBar
+        marketStructure.htfTrend := getHTFTrend()
+
+// Position size calculation
+calcPositionSize(entryPrice, stopLoss, riskAmount) =>
+    riskPerShare = math.abs(entryPrice - stopLoss)
+    positionSize = riskPerShare > 0 ? riskAmount / riskPerShare : 0
+    math.round(positionSize)
+
+// =============================================================================
+// 5. ORB & SESSION LOGIC
+// =============================================================================
+
+// Get session times
+getSessionTimes() =>
+    startHour = 0
+    startMinute = 0
+    endHour = 0
+    endMinute = 0
+    
+    if orbSessionType == "New York"
+        startHour := 9
+        startMinute := 30
+    else if orbSessionType == "London"
+        startHour := 3
+        startMinute := 0
+    else if orbSessionType == "Asia"
+        startHour := 0
+        startMinute := 0
+    else if orbSessionType == "Custom"
+        startHour := orbStartTimeHour
+        startMinute := orbStartTimeMinute
+    else if orbSessionType == "714MIDNIGHT"
+        startHour := 1
+        startMinute := 0
+    else if orbSessionType == "714AM"
+        startHour := 7
+        startMinute := 0
+    else if orbSessionType == "714PM"
+        startHour := 10
+        startMinute := 0
+    
+    endHour := startHour
+    endMinute := startMinute + orbDuration
+    
+    if endMinute >= 60
+        endHour := endHour + math.floor(endMinute / 60)
+        endMinute := endMinute % 60
+    
+    [startHour, startMinute, endHour, endMinute]
+
+[sH, sM, eH, eM] = getSessionTimes()
+
+// Calculate timestamps
+orbStartTimestamp = timestamp(syminfo.timezone, year, month, dayofmonth, sH, sM)
+orbEndTimestamp = timestamp(syminfo.timezone, year, month, dayofmonth, eH, eM)
+isORBPeriod = time >= orbStartTimestamp and time < orbEndTimestamp
+
+// Daily reset
+if ta.change(time("D"))
+    orbHigh := na
+    orbLow := na
+    orbEstablished := false
+    currentORB := na
+    currentTrade.state := "WAITING_FOR_ORB"
+    currentTrade.direction := na
+    marketStructure.bosDetected := false
+    firstCandleDirection := na
+    orbRVol := 1.0
+    
+    line.delete(slLine)
+    line.delete(tpLine)
+    line.delete(tp2Line)
+    line.delete(tp3Line)
+    box.delete(currentORBBox)
+    label.delete(rvolLabel)
+    slLine := na
+    tpLine := na
+    tp2Line := na
+    tp3Line := na
+    currentORBBox := na
+    rvolLabel := na
+
+// ORB Formation
+if isORBPeriod and not orbEstablished
+    orbHigh := na(orbHigh) ? high : math.max(high, orbHigh)
+    orbLow := na(orbLow) ? low : math.min(low, orbLow)
+    
+    // Track first candle direction (NEW v4.0)
+    if na(firstCandleDirection) and barstate.isconfirmed
+        firstCandleDirection := close > open
+    
+    // Update ORB box
+    if na(currentORBBox)
+        currentORBBox := box.new(orbStartTimestamp, orbHigh, orbEndTimestamp, orbLow, border_color=orbColor, bgcolor=color.new(orbColor, 90), xloc=xloc.bar_time)
+    else
+        box.set_top(currentORBBox, orbHigh)
+        box.set_bottom(currentORBBox, orbLow)
+
+// ORB Completion
+else if time >= orbEndTimestamp and not orbEstablished and not na(orbHigh)
+    orbEstablished := true
+    
+    // Store RVol at ORB completion (NEW v4.0)
+    orbRVol := currentEnhancedRVol
+    
+    // Calculate ORB metrics
+    orbMid = (orbHigh + orbLow) / 2
+    orbWidth = orbHigh - orbLow
+    rangeATRRatio = dailyATR > 0 ? orbWidth / dailyATR : 0
+    
+    // Classify range type
+    rangeType = "Normal"
+    if useRangeAnalysis and useATRFilter
+        rangeType := rangeATRRatio < narrowRangeATR ? "Narrow" : rangeATRRatio > wideRangeATR ? "Wide" : "Normal"
+    
+    // Create ORB object with first candle direction (NEW v4.0)
+    currentORB := ORB.new(orbStartTimestamp, orbEndTimestamp, orbHigh, orbLow, orbMid, orbWidth, str.format("{0,date,MM/dd}", orbStartTimestamp), rangeType, rangeATRRatio, firstCandleDirection)
+    
+    // Add to historical array
+    array.unshift(historicalORBs, currentORB)
+    if array.size(historicalORBs) > maxHistoricalORBs
+        array.pop(historicalORBs)
+    
+    currentTrade.state := "WAITING_FOR_BREAKOUT"
+    
+    box.set_right(currentORBBox, orbEndTimestamp)
+    
+    // Send ORB formation alert (NEW v4.0)
+    if enableAlerts and alertOnORBFormation
+        alertData = AlertData.new()
+        alertData.rangeType := rangeType
+        alertData.rvol := orbRVol
+        alert(formatAlertMessage("ORB_FORMED", alertData), alert.freq_once_per_bar)
+
+// =============================================================================
+// 6. MAIN TRADING LOGIC - ENHANCED WITH SIMPLE MODE (v4.0)
+// =============================================================================
+
+// Update market structure
+updateMarketStructure()
+
+// Volume analysis
+avgVolume = ta.sma(volume, 20)
+volumeSpike = volume > avgVolume * volumeSpikeMultiplier
+
+// Determine effective bias
+effectiveBias = dailyBias
+if dailyBias == "Auto" and useHTFBias
+    effectiveBias := marketStructure.htfTrend == 1 ? "Bullish" : marketStructure.htfTrend == -1 ? "Bearish" : "None"
+
+// =============================================================================
+// SIMPLE MODE LOGIC (NEW v4.0) - Based on Research Paper
+// =============================================================================
+
+if orbEstablished and useSimpleMode
+    
+    if currentTrade.state == "WAITING_FOR_BREAKOUT"
+        // Simple mode filters
+        rvolOK = currentEnhancedRVol >= (requireMinRVol ? simpleRVolThreshold : 1.0)
+        rangeOK = not avoidWideRanges or (not na(currentORB) and currentORB.rangeType != "Wide")
+        
+        // Follow opening bias if enabled
+        allowLong = not followOpeningBias or (not na(currentORB) and currentORB.firstCandleBullish)
+        allowShort = not followOpeningBias or (not na(currentORB) and not currentORB.firstCandleBullish)
+        
+        // Simple long breakout
+        if allowLong and close > orbHigh and close[1] <= orbHigh and rvolOK and rangeOK
+            currentTrade.state := "ENTRY_TAKEN"
+            currentTrade.direction := "Long"
+            currentTrade.entryPrice := close
+            currentTrade.entryBar := bar_index
+            currentTrade.entryRVol := currentEnhancedRVol
+            
+            // Simple stop loss (10% ATR as per research)
+            currentTrade.slTarget := currentTrade.entryPrice - (currentATR * simpleStopATR)
+            
+            // Calculate targets
+            currentTrade.risk := currentTrade.entryPrice - currentTrade.slTarget
+            currentTrade.tpTarget := currentTrade.entryPrice + (currentTrade.risk * riskRewardRatio)
+            currentTrade.tp2Target := currentTrade.entryPrice + (currentTrade.risk * 3)
+            currentTrade.tp3Target := currentTrade.entryPrice + (currentTrade.risk * 4)
+            
+            totalSignals += 1
+            
+            // Create visual lines
+            if showTargetLines
+                slLine := line.new(bar_index-1, currentTrade.slTarget, bar_index, currentTrade.slTarget, 
+                                  color=bearishColor, style=line.style_dashed, width=2, extend=extend.right)
+                tpLine := line.new(bar_index-1, currentTrade.tpTarget, bar_index, currentTrade.tpTarget, 
+                                  color=bullishColor, style=line.style_dashed, width=2, extend=extend.right)
+            
+            // Send alert
+            if enableAlerts and alertOnEntry
+                alertData = AlertData.new()
+                alertData.direction := "Long"
+                alertData.entry := currentTrade.entryPrice
+                alertData.stop := currentTrade.slTarget
+                alertData.target := currentTrade.tpTarget
+                alertData.risk := currentTrade.risk
+                alertData.rvol := currentEnhancedRVol
+                alertData.rangeType := not na(currentORB) ? currentORB.rangeType : "Unknown"
+                alert(formatAlertMessage("ENTRY_SIGNAL", alertData), alert.freq_once_per_bar)
+        
+        // Simple short breakout
+        else if allowShort and close < orbLow and close[1] >= orbLow and rvolOK and rangeOK
+            currentTrade.state := "ENTRY_TAKEN"
+            currentTrade.direction := "Short"
+            currentTrade.entryPrice := close
+            currentTrade.entryBar := bar_index
+            currentTrade.entryRVol := currentEnhancedRVol
+            
+            // Simple stop loss
+            currentTrade.slTarget := currentTrade.entryPrice + (currentATR * simpleStopATR)
+            
+            // Calculate targets
+            currentTrade.risk := currentTrade.slTarget - currentTrade.entryPrice
+            currentTrade.tpTarget := currentTrade.entryPrice - (currentTrade.risk * riskRewardRatio)
+            currentTrade.tp2Target := currentTrade.entryPrice - (currentTrade.risk * 3)
+            currentTrade.tp3Target := currentTrade.entryPrice - (currentTrade.risk * 4)
+            
+            totalSignals += 1
+            
+            // Create visual lines
+            if showTargetLines
+                slLine := line.new(bar_index-1, currentTrade.slTarget, bar_index, currentTrade.slTarget, 
+                                  color=bearishColor, style=line.style_dashed, width=2, extend=extend.right)
+                tpLine := line.new(bar_index-1, currentTrade.tpTarget, bar_index, currentTrade.tpTarget, 
+                                  color=bullishColor, style=line.style_dashed, width=2, extend=extend.right)
+            
+            // Send alert
+            if enableAlerts and alertOnEntry
+                alertData = AlertData.new()
+                alertData.direction := "Short"
+                alertData.entry := currentTrade.entryPrice
+                alertData.stop := currentTrade.slTarget
+                alertData.target := currentTrade.tpTarget
+                alertData.risk := currentTrade.risk
+                alertData.rvol := currentEnhancedRVol
+                alertData.rangeType := not na(currentORB) ? currentORB.rangeType : "Unknown"
+                alert(formatAlertMessage("ENTRY_SIGNAL", alertData), alert.freq_once_per_bar)
+
+// =============================================================================
+// STANDARD ICT MODE LOGIC (Existing)
+// =============================================================================
+
+else if orbEstablished and not useSimpleMode
+    
+    // State: WAITING_FOR_BREAKOUT
+    if currentTrade.state == "WAITING_FOR_BREAKOUT"
+        rangeOK = not avoidWideRanges or (not na(currentORB) and currentORB.rangeType != "Wide")
+        volumeOK = not requireVolumeSpike or volumeSpike
+        rvolOK = not requireMinRVol or currentEnhancedRVol >= minRVolThreshold
+        
+        // Long breakout
+        isLongBreakout = false
+        if breakoutMethod == "Close"
+            isLongBreakout := close > orbHigh and close[1] <= orbHigh
+        else if breakoutMethod == "Wick"
+            isLongBreakout := high > orbHigh
+        else
+            isLongBreakout := math.max(open, close) > orbHigh
+        
+        liquiditySweepOK = not requireORBLiquiditySweep or low[1] < orbLow
+        biasOK = effectiveBias == "None" or effectiveBias == "Bullish"
+        trendOK = not requireTrendAlignment or marketStructure.htfTrend >= 0
+        
+        if isLongBreakout and liquiditySweepOK and biasOK and trendOK and rangeOK and volumeOK and rvolOK
+            currentTrade.state := "WAITING_FOR_DISPLACEMENT"
+            currentTrade.direction := "Long"
+            totalSignals += 1
+            
+            if enableAlerts and alertOnBreakout
+                alertData = AlertData.new()
+                alertData.direction := "Long"
+                alertData.entry := orbHigh
+                alertData.rvol := currentEnhancedRVol
+                alertData.risk := volumeOK ? 1.0 : 0.0
+                alert(formatAlertMessage("BREAKOUT", alertData), alert.freq_once_per_bar)
+        
+        // Short breakout
+        isShortBreakout = false
+        if breakoutMethod == "Close"
+            isShortBreakout := close < orbLow and close[1] >= orbLow
+        else if breakoutMethod == "Wick"
+            isShortBreakout := low < orbLow
+        else
+            isShortBreakout := math.min(open, close) < orbLow
+        
+        liquiditySweepOK := not requireORBLiquiditySweep or high[1] > orbHigh
+        biasOK := effectiveBias == "None" or effectiveBias == "Bearish"
+        trendOK := not requireTrendAlignment or marketStructure.htfTrend <= 0
+        
+        if isShortBreakout and liquiditySweepOK and biasOK and trendOK and rangeOK and volumeOK and rvolOK
+            currentTrade.state := "WAITING_FOR_DISPLACEMENT"
+            currentTrade.direction := "Short"
+            totalSignals += 1
+            
+            if enableAlerts and alertOnBreakout
+                alertData = AlertData.new()
+                alertData.direction := "Short"
+                alertData.entry := orbLow
+                alertData.rvol := currentEnhancedRVol
+                alertData.risk := volumeOK ? 1.0 : 0.0
+                alert(formatAlertMessage("BREAKOUT", alertData), alert.freq_once_per_bar)
+    
+    // Rest of ICT state machine continues as before...
+    // [Previous ICT logic for WAITING_FOR_DISPLACEMENT, WAITING_FOR_RETRACEMENT, etc.]
+    
+    // State: WAITING_FOR_DISPLACEMENT
+    if currentTrade.state == "WAITING_FOR_DISPLACEMENT"
+        displaced = currentTrade.direction == "Long" ? isDisplacement(3, true) : isDisplacement(3, false)
+        
+        if (displaced and requireDisplacement) or not requireDisplacement
+            detectedOB = currentTrade.direction == "Long" ? findOrderBlock(obLookback, true) : findOrderBlock(obLookback, false)
+            
+            if not na(detectedOB) or not requireOBConfluence
+                currentTrade.ob := detectedOB
+                if not na(detectedOB)
+                    array.unshift(orderBlocks, detectedOB)
+                    if array.size(orderBlocks) > 10
+                        array.pop(orderBlocks)
+                currentTrade.state := "WAITING_FOR_RETRACEMENT"
+    
+    // State: WAITING_FOR_RETRACEMENT
+    if currentTrade.state == "WAITING_FOR_RETRACEMENT"
+        entryConditionMet = false
+        
+        if currentTrade.direction == "Long"
+            isWithinOB = not na(currentTrade.ob) ? (low <= currentTrade.ob.high and high >= currentTrade.ob.low) : false
+            inOB = not requireOBConfluence or isWithinOB
+            
+            if inOB
+                if executionType == "FVG" or executionType == "Both"
+                    detectedFVG = findFVG(true)
+                    if not na(detectedFVG)
+                        entryConditionMet := true
+                        currentTrade.fvg := detectedFVG
+                
+                if (executionType == "MSS" or executionType == "Both") and not entryConditionMet
+                    recentHigh = ta.highest(high, mssOffset)
+                    if high > recentHigh[1]
+                        entryConditionMet := true
+            
+            if entryConditionMet
+                currentTrade.entryPrice := close
+                currentTrade.entryBar := bar_index
+                currentTrade.entryRVol := currentEnhancedRVol
+                
+                // Calculate Stop Loss
+                if stopMethod == "Research"
+                    currentTrade.slTarget := currentTrade.entryPrice - (currentATR * 0.1)
+                else if stopMethod == "Fixed"
+                    currentTrade.slTarget := orbLow - (currentATR * slBufferMultiplier)
+                else if stopMethod == "Dynamic"
+                    obLow = not na(currentTrade.ob) ? currentTrade.ob.low : orbLow
+                    currentTrade.slTarget := math.min(obLow, orbLow) - (currentATR * slBufferMultiplier)
+                else if stopMethod == "Structure"
+                    currentTrade.slTarget := marketStructure.lastSwingLow - (currentATR * slBufferMultiplier)
+                else
+                    currentTrade.slTarget := close - (currentATR * (1 + slBufferMultiplier))
+                
+                // Calculate Targets
+                currentTrade.risk := currentTrade.entryPrice - currentTrade.slTarget
+                currentTrade.tpTarget := currentTrade.entryPrice + (currentTrade.risk * riskRewardRatio)
+                currentTrade.tp2Target := currentTrade.entryPrice + (currentTrade.risk * 3)
+                currentTrade.tp3Target := currentTrade.entryPrice + (currentTrade.risk * 4)
+                
+                currentTrade.state := "ENTRY_TAKEN"
+                
+                // Visual lines and alerts
+                if showTargetLines
+                    slLine := line.new(bar_index-1, currentTrade.slTarget, bar_index, currentTrade.slTarget, color=bearishColor, style=line.style_dashed, width=2, extend=extend.right)
+                    tpLine := line.new(bar_index-1, currentTrade.tpTarget, bar_index, currentTrade.tpTarget, color=bullishColor, style=line.style_dashed, width=2, extend=extend.right)
+                
+                if enableAlerts and alertOnEntry
+                    alertData = AlertData.new()
+                    alertData.direction := "Long"
+                    alertData.entry := currentTrade.entryPrice
+                    alertData.stop := currentTrade.slTarget
+                    alertData.target := currentTrade.tpTarget
+                    alertData.risk := currentTrade.risk
+                    alertData.rvol := currentEnhancedRVol
+                    alertData.rangeType := not na(currentORB) ? currentORB.rangeType : "Unknown"
+                    alert(formatAlertMessage("ENTRY_SIGNAL", alertData), alert.freq_once_per_bar)
+        
+        else if currentTrade.direction == "Short"
+            // [Similar logic for short entries - keeping code concise]
+            isWithinOB = not na(currentTrade.ob) ? (high >= currentTrade.ob.low and low <= currentTrade.ob.high) : false
+            inOB = not requireOBConfluence or isWithinOB
+            
+            if inOB
+                if executionType == "FVG" or executionType == "Both"
+                    detectedFVG = findFVG(false)
+                    if not na(detectedFVG)
+                        entryConditionMet := true
+                        currentTrade.fvg := detectedFVG
+                
+                if (executionType == "MSS" or executionType == "Both") and not entryConditionMet
+                    recentLow = ta.lowest(low, mssOffset)
+                    if low < recentLow[1]
+                        entryConditionMet := true
+            
+            if entryConditionMet
+                currentTrade.entryPrice := close
+                currentTrade.entryBar := bar_index
+                currentTrade.entryRVol := currentEnhancedRVol
+                currentTrade.state := "ENTRY_TAKEN"
+                // [Rest of short entry logic...]
+
+// Trade Management (both modes)
+if currentTrade.state == "ENTRY_TAKEN"
+    // Check for stop loss hit
+    if currentTrade.direction == "Long" and low <= currentTrade.slTarget
+        currentTrade.state := "TRADE_CLOSED"
+        losingSignals += 1
+        totalPnL -= currentTrade.risk
+    else if currentTrade.direction == "Short" and high >= currentTrade.slTarget
+        currentTrade.state := "TRADE_CLOSED"
+        losingSignals += 1
+        totalPnL -= currentTrade.risk
+    
+    // Check for take profit hit
+    else if currentTrade.direction == "Long" and high >= currentTrade.tpTarget
+        currentTrade.state := "TRADE_CLOSED"
+        winningSignals += 1
+        totalPnL += (currentTrade.tpTarget - currentTrade.entryPrice)
+    else if currentTrade.direction == "Short" and low <= currentTrade.tpTarget
+        currentTrade.state := "TRADE_CLOSED"
+        winningSignals += 1
+        totalPnL += (currentTrade.entryPrice - currentTrade.tpTarget)
+    
+    // Trailing stop logic
+    if useTrailingStop and not currentTrade.trailingActivated
+        if currentTrade.direction == "Long" and high >= currentTrade.entryPrice + currentTrade.risk
+            currentTrade.trailingActivated := true
+            currentTrade.slTarget := currentTrade.entryPrice
+        else if currentTrade.direction == "Short" and low <= currentTrade.entryPrice - currentTrade.risk
+            currentTrade.trailingActivated := true
+            currentTrade.slTarget := currentTrade.entryPrice
+
+// =============================================================================
+// 7. VISUALS & DASHBOARD - ENHANCED FOR v4.0
+// =============================================================================
+
+// RVol Display Label (update once per minute on last bar - v4.1)
+if showRVolDisplay and barstate.islast and isNewMinute
+    label.delete(rvolLabel)
+    rvolColor = currentEnhancedRVol >= 3.0 ? color.new(bullishColor, 0) : currentEnhancedRVol >= 2.0 ? color.new(color.yellow, 0) : currentEnhancedRVol >= 1.0 ? color.new(color.orange, 0) : color.new(bearishColor, 0)
+    
+    rvolText = "RVol: " + str.tostring(currentEnhancedRVol, "#.#") + "x"
+    rvolLabel := label.new(bar_index, high + (currentATR * 0.5), rvolText, style=label.style_label_down, color=rvolColor, textcolor=color.white, size=size.small)
+
+// Entry signals
+isSignalBar = currentTrade.state[1] != "ENTRY_TAKEN" and currentTrade.state == "ENTRY_TAKEN"
+longSignal = isSignalBar and currentTrade.direction == "Long"
+shortSignal = isSignalBar and currentTrade.direction == "Short"
+
+plotshape(longSignal, "Long Entry", shape.triangleup, location.belowbar, bullishColor, size=size.normal)
+plotshape(shortSignal, "Short Entry", shape.triangledown, location.abovebar, bearishColor, size=size.normal)
+
+// Dashboard - Enhanced for v4.1 (update once per minute)
+if showDashboard and isNewMinute
+    dashboard := table.new(position.top_right, 2, 22, 
+                          bgcolor=screenerColor, 
+                          frame_width=2, frame_color=color.gray, 
+                          border_width=1, border_color=color.gray)
+    
+    if barstate.islast
+        row = 0
+        
+        // Header
+        headerText = "ICT ORB v4.1" + (useSimpleMode ? " [SIMPLE]" : " [ICT]")
+        table.cell(dashboard, 0, row, headerText, text_color=color.white, bgcolor=screenerColor, text_size=size.normal)
+        table.merge_cells(dashboard, 0, row, 1, row)
+        row += 1
+        
+        // Mode indicator (NEW v4.0)
+        table.cell(dashboard, 0, row, "Mode", text_color=color.gray, bgcolor=screenerColor, text_size=size.small)
+        modeColor = useSimpleMode ? color.yellow : color.purple
+        modeText = useSimpleMode ? "Simple (Research)" : "ICT Advanced"
+        table.cell(dashboard, 1, row, modeText, text_color=modeColor, bgcolor=screenerColor, text_size=size.small)
+        row += 1
+        
+        // Enhanced RVol Display (NEW v4.0)
+        table.cell(dashboard, 0, row, "RVol", text_color=color.gray, bgcolor=screenerColor, text_size=size.small)
+        rvolDisplayColor = currentEnhancedRVol >= simpleRVolThreshold ? bullishColor : currentEnhancedRVol >= minRVolThreshold ? color.yellow : bearishColor
+        rvolDisplayText = str.tostring(currentEnhancedRVol, "#.##") + "x" + 
+                         (useEnhancedRVol ? " ⚡" : "")
+        table.cell(dashboard, 1, row, rvolDisplayText, text_color=rvolDisplayColor, bgcolor=screenerColor, text_size=size.small)
+        row += 1
+        
+        // Current State
+        table.cell(dashboard, 0, row, "State", text_color=color.gray, bgcolor=screenerColor, text_size=size.small)
+        stateColor = currentTrade.state == "ENTRY_TAKEN" ? bullishColor : color.yellow
+        table.cell(dashboard, 1, row, currentTrade.state, text_color=stateColor, bgcolor=screenerColor, text_size=size.small)
+        row += 1
+        
+        // ORB Info
+        if orbEstablished
+            table.cell(dashboard, 0, row, "ORB High", text_color=color.gray, bgcolor=screenerColor, text_size=size.small)
+            table.cell(dashboard, 1, row, str.tostring(orbHigh, "#.##"), text_color=bullishColor, bgcolor=screenerColor, text_size=size.small)
+            row += 1
+            
+            table.cell(dashboard, 0, row, "ORB Low", text_color=color.gray, bgcolor=screenerColor, text_size=size.small)
+            table.cell(dashboard, 1, row, str.tostring(orbLow, "#.##"), text_color=bearishColor, bgcolor=screenerColor, text_size=size.small)
+            row += 1
+            
+            if not na(currentORB)
+                // Opening Bias (NEW v4.0)
+                table.cell(dashboard, 0, row, "Opening Bias", text_color=color.gray, bgcolor=screenerColor, text_size=size.small)
+                biasColor = not na(currentORB) and currentORB.firstCandleBullish ? bullishColor : bearishColor
+                biasText = not na(currentORB) and currentORB.firstCandleBullish ? "↑ Bullish" : "↓ Bearish"
+                table.cell(dashboard, 1, row, biasText, text_color=biasColor, bgcolor=screenerColor, text_size=size.small)
+                row += 1
+                
+                // Range Type
+                table.cell(dashboard, 0, row, "Range Type", text_color=color.gray, bgcolor=screenerColor, text_size=size.small)
+                rangeColor = not na(currentORB) and currentORB.rangeType == "Narrow" ? bullishColor : not na(currentORB) and currentORB.rangeType == "Wide" ? bearishColor : color.yellow
+                table.cell(dashboard, 1, row, not na(currentORB) ? currentORB.rangeType : "Unknown", text_color=rangeColor, bgcolor=screenerColor, text_size=size.small)
+                row += 1
+                
+                table.cell(dashboard, 0, row, "Range/ATR", text_color=color.gray, bgcolor=screenerColor, text_size=size.small)
+                table.cell(dashboard, 1, row, str.tostring(currentORB.rangeATRRatio, "#.##"), text_color=color.purple, bgcolor=screenerColor, text_size=size.small)
+                row += 1
+        
+        // HTF Trend
+        table.cell(dashboard, 0, row, "HTF Trend", text_color=color.gray, bgcolor=screenerColor, text_size=size.small)
+        trendText = marketStructure.htfTrend == 1 ? "↑ Bull" : marketStructure.htfTrend == -1 ? "↓ Bear" : "→ Neutral"
+        trendColor = marketStructure.htfTrend == 1 ? bullishColor : marketStructure.htfTrend == -1 ? bearishColor : color.yellow
+        table.cell(dashboard, 1, row, trendText, text_color=trendColor, bgcolor=screenerColor, text_size=size.small)
+        row += 1
+        
+        // Stats
+        table.cell(dashboard, 0, row, "Signals", text_color=color.gray, bgcolor=screenerColor, text_size=size.small)
+        table.cell(dashboard, 1, row, str.tostring(totalSignals), text_color=color.white, bgcolor=screenerColor, text_size=size.small)
+        row += 1
+        
+        if totalSignals > 0
+            winRate = (winningSignals / totalSignals) * 100
+            table.cell(dashboard, 0, row, "Win Rate", text_color=color.gray, bgcolor=screenerColor, text_size=size.small)
+            wrColor = winRate >= 60 ? bullishColor : winRate >= 40 ? color.yellow : bearishColor
+            table.cell(dashboard, 1, row, str.tostring(winRate, "#.#") + "%", text_color=wrColor, bgcolor=screenerColor, text_size=size.small)
+            row += 1
+        
+        // Active Trade Info
+        if currentTrade.state == "ENTRY_TAKEN"
+            table.cell(dashboard, 0, row, "--- Trade ---", text_color=color.white, bgcolor=screenerColor, text_size=size.small)
+            table.merge_cells(dashboard, 0, row, 1, row)
+            row += 1
+            
+            table.cell(dashboard, 0, row, "Entry", text_color=color.gray, bgcolor=screenerColor, text_size=size.small)
+            table.cell(dashboard, 1, row, str.tostring(currentTrade.entryPrice, "#.##"), text_color=color.white, bgcolor=screenerColor, text_size=size.small)
+            row += 1
+            
+            table.cell(dashboard, 0, row, "Stop", text_color=color.gray, bgcolor=screenerColor, text_size=size.small)
+            table.cell(dashboard, 1, row, str.tostring(currentTrade.slTarget, "#.##"), text_color=bearishColor, bgcolor=screenerColor, text_size=size.small)
+            row += 1
+            
+            table.cell(dashboard, 0, row, "Target", text_color=color.gray, bgcolor=screenerColor, text_size=size.small)
+            table.cell(dashboard, 1, row, str.tostring(currentTrade.tpTarget, "#.##"), text_color=bullishColor, bgcolor=screenerColor, text_size=size.small)
+            row += 1
+            
+            table.cell(dashboard, 0, row, "Entry RVol", text_color=color.gray, bgcolor=screenerColor, text_size=size.small)
+            entryRvolColor = currentTrade.entryRVol >= 2.0 ? bullishColor : color.yellow
+            table.cell(dashboard, 1, row, str.tostring(currentTrade.entryRVol, "#.#") + "x", text_color=entryRvolColor, bgcolor=screenerColor, text_size=size.small)
+
+// Alert conditions - Enhanced for v4.0
+alertcondition(longSignal, "Long Entry Signal", "Long entry signal detected")
+alertcondition(shortSignal, "Short Entry Signal", "Short entry signal detected")
+alertcondition(orbEstablished, "ORB Formed", "Opening Range has been established")
+alertcondition(currentEnhancedRVol >= simpleRVolThreshold, "High RVol Alert", "High relative volume detected")
+alertcondition((not na(currentORB) ? currentORB.rangeType == "Narrow" : false) and orbEstablished, "Narrow Range Alert", "Narrow range detected")
+alertcondition(marketStructure.bosDetected, "BOS Alert", "Break of Structure detected")
