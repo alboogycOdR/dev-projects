@@ -1,0 +1,358 @@
+//@version=5
+indicator("2AM-Gold Swing Strategy+hist", shorttitle="2AM-GSS-SMC", overlay=true, max_boxes_count=500, max_lines_count=500)
+
+// ===== INPUTS =====
+swing_length = input.int(15, title="Swing Length", minval=5, maxval=50)
+start_hour = input.int(2, title="Start Hour (UTC+2)", minval=0, maxval=23)
+show_swing_levels = input.bool(true, title="Show Swing Levels")
+show_state_markers = input.bool(true, title="Show State Markers")
+show_ob_boxes = input.bool(true, title="Show Order Block Boxes")
+show_fvg_boxes = input.bool(true, title="Show Fair Value Gap Boxes")
+show_historic_trades = input.bool(true, title="Show Historic Trades")
+historic_trades_days = input.int(7, title="Historic Trades (Days)", minval=1, maxval=365)
+
+// ===== COLORS =====
+color_swing_high = color.new(color.blue, 0)
+color_swing_low = color.new(color.blue, 0)
+color_buy_signal = color.new(color.green, 0)
+color_sell_signal = color.new(color.red, 0)
+color_mss = color.new(color.orange, 0)
+color_ob = color.new(color.purple, 80)
+color_fvg = color.new(color.yellow, 80)
+color_historic_trade_win = color.new(color.lime, 0)
+color_historic_trade_loss = color.new(color.red, 0)
+
+// ===== VARIABLES =====
+var float swing_high_price = na
+var float swing_low_price = na
+var int swing_high_bar = 0
+var int swing_low_bar = 0
+var bool liquidity_swept = false
+var string swept_direction = ""
+var bool mss_confirmed = false
+var bool ob_identified = false
+var bool fvg_identified = false
+var float ob_high = na
+var float ob_low = na
+var int ob_bar = 0
+var float fvg_high = na
+var float fvg_low = na
+var int fvg_bar = 0
+
+// State variables
+var int current_state = 0
+// States: 0=Wait for 2AM, 1=Monitor Liquidity Sweep, 2=Confirm MSS, 3=Find OB/FVG, 4=Signal Generated
+
+// Historic Trades Storage
+// Using arrays to store trade data (type, entry_price, target_price, entry_time, exit_time, pnl)
+// Note: Pine Script arrays are limited in size and performance for very long history.
+// For extensive backtesting, TradingView's built-in strategy tester is more suitable.
+var historic_trades_data = array.new<string>(0)
+
+// ===== HELPER FUNCTIONS =====
+
+// Function to check if current time is 2:00 AM UTC+2
+is_start_time() =>
+    current_hour = hour(time, "UTC+2")
+    current_minute = minute(time, "UTC+2")
+    current_hour == start_hour and current_minute == 0
+
+// Function to identify swing high
+is_swing_high(index) =>
+    if index < swing_length or index > bar_index - swing_length or bar_index - index < 0 or bar_index - index > 10000
+        false
+    else
+        pivot_high = high[bar_index - index]
+        is_highest = true
+        for i = 1 to swing_length
+            if (bar_index - index + i) >= 0 and (bar_index - index + i) <= 10000 and (bar_index - index - i) >= 0 and (bar_index - index - i) <= 10000
+                if high[bar_index - index + i] >= pivot_high or high[bar_index - index - i] >= pivot_high
+                    is_highest := false
+                    break
+        is_highest
+
+// Function to identify swing low
+is_swing_low(index) =>
+    if index < swing_length or index > bar_index - swing_length or bar_index - index < 0 or bar_index - index > 10000
+        false
+    else
+        pivot_low = low[bar_index - index]
+        is_lowest = true
+        for i = 1 to swing_length
+            if (bar_index - index + i) >= 0 and (bar_index - index + i) <= 10000 and (bar_index - index - i) >= 0 and (bar_index - index - i) <= 10000
+                if low[bar_index - index + i] <= pivot_low or low[bar_index - index - i] <= pivot_low
+                    is_lowest := false
+                    break
+        is_lowest
+
+// Function to detect Order Block (last opposite candle before strong move)
+detect_order_block(direction) =>
+    ob_found = false
+    float ob_h = na
+    float ob_l = na
+    int ob_b = 0
+    
+    if direction == "bullish"
+        // Look for last bearish candle before current bullish move
+        for i = 1 to 20
+            if close[i] < open[i] and close[i-1] >= open[i-1] // Found bearish candle after bullish
+                ob_h := high[i]
+                ob_l := low[i]
+                ob_b := bar_index - i
+                ob_found := true
+                break
+    else if direction == "bearish"
+        // Look for last bullish candle before current bearish move
+        for i = 1 to 20
+            if close[i] > open[i] and close[i-1] <= open[i-1] // Found bullish candle after bearish
+                ob_h := high[i]
+                ob_l := low[i]
+                ob_b := bar_index - i
+                ob_found := true
+                break
+    
+    [ob_found, ob_h, ob_l, ob_b]
+
+// Function to detect Fair Value Gap
+detect_fvg(direction) =>
+    fvg_found = false
+    float fvg_h = na
+    float fvg_l = na
+    int fvg_b = 0
+    
+    if direction == "bullish"
+        // Bullish FVG: low[0] > high[2] with strong bullish candle[1]
+        if low[0] > high[2] and close[1] > open[1] and (close[1] - open[1]) > (high[1] - low[1]) * 0.7
+            fvg_h := low[0]
+            fvg_l := high[2]
+            fvg_b := bar_index - 1
+            fvg_found := true
+    else if direction == "bearish"
+        // Bearish FVG: high[0] < low[2] with strong bearish candle[1]
+        if high[0] < low[2] and close[1] < open[1] and (open[1] - close[1]) > (high[1] - low[1]) * 0.7
+            fvg_h := low[2]
+            fvg_l := high[0]
+            fvg_b := bar_index - 1
+            fvg_found := true
+    
+    [fvg_found, fvg_h, fvg_l, fvg_b]
+
+// Function to detect Market Structure Shift
+detect_mss(swept_dir) =>
+    mss_found = false
+    
+    if swept_dir == "high_swept"
+        // Look for break of recent swing low (bearish MSS)
+        max_lookback = math.min(10, bar_index - swing_length)
+        for i = 1 to max_lookback
+            if is_swing_low(i) and low < low[i]
+                mss_found := true
+                break
+    else if swept_dir == "low_swept"
+        // Look for break of recent swing high (bullish MSS)
+        max_lookback = math.min(10, bar_index - swing_length)
+        for i = 1 to max_lookback
+            if is_swing_high(i) and high > high[i]
+                mss_found := true
+                break
+    
+    mss_found
+
+// ===== MAIN LOGIC =====
+
+// State 0: Wait for 2:00 AM and identify swing points
+if current_state == 0 and is_start_time()
+    // Find most recent swing high and low on higher timeframe
+    max_lookback = math.min(100, bar_index - swing_length)
+    for i = swing_length to max_lookback
+        if is_swing_high(i) and na(swing_high_price)
+            swing_high_price := high[i]
+            swing_high_bar := bar_index - i
+        if is_swing_low(i) and na(swing_low_price)
+            swing_low_price := low[i]
+            swing_low_bar := bar_index - i
+        if not na(swing_high_price) and not na(swing_low_price)
+            break
+    
+    if not na(swing_high_price) and not na(swing_low_price)
+        current_state := 1
+
+// State 1: Monitor for liquidity sweep
+if current_state == 1 and not na(swing_high_price) and not na(swing_low_price)
+    if high > swing_high_price and not liquidity_swept
+        liquidity_swept := true
+        swept_direction := "high_swept"
+        current_state := 2
+    else if low < swing_low_price and not liquidity_swept
+        liquidity_swept := true
+        swept_direction := "low_swept"
+        current_state := 2
+
+// State 2: Confirm Market Structure Shift
+if current_state == 2 and liquidity_swept
+    if detect_mss(swept_direction)
+        mss_confirmed := true
+        current_state := 3
+
+// State 3: Identify Order Block and Fair Value Gap
+if current_state == 3 and mss_confirmed
+    direction = swept_direction == "high_swept" ? "bearish" : "bullish"
+    
+    // Detect Order Block
+    [ob_found, ob_h, ob_l, ob_b] = detect_order_block(direction)
+    if ob_found and not ob_identified
+        ob_identified := true
+        ob_high := ob_h
+        ob_low := ob_l
+        ob_bar := ob_b
+    
+    // Detect Fair Value Gap
+    [fvg_found, fvg_h, fvg_l, fvg_b] = detect_fvg(direction)
+    if fvg_found and not fvg_identified
+        fvg_identified := true
+        fvg_high := fvg_h
+        fvg_low := fvg_l
+        fvg_bar := fvg_b
+    
+    // Check if both OB and FVG are identified
+    if ob_identified and fvg_identified
+        current_state := 4
+
+// ===== SIGNAL GENERATION =====
+buy_signal = current_state == 4 and swept_direction == "low_swept" and mss_confirmed and ob_identified and fvg_identified
+sell_signal = current_state == 4 and swept_direction == "high_swept" and mss_confirmed and ob_identified and fvg_identified
+
+// Store historic trade data when a signal is generated
+if buy_signal or sell_signal
+    trade_type = buy_signal ? "BUY" : "SELL"
+    entry_price = close
+    target_price = buy_signal ? swing_high_price : swing_low_price
+    entry_time = time
+    
+    // Simulate trade exit (for simplicity, assume target hit on next bar or within a few bars)
+    // In a real strategy, this would involve more complex exit logic.
+    float pnl = na
+    string result = ""
+    if buy_signal
+        if high[0] >= target_price // Assuming target hit on current bar or next few
+            pnl := (target_price - entry_price) / syminfo.mintick
+            result := "WIN"
+        else
+            pnl := (close - entry_price) / syminfo.mintick // Or some stop loss logic
+            result := "LOSS"
+    else if sell_signal
+        if low[0] <= target_price
+            pnl := (entry_price - target_price) / syminfo.mintick
+            result := "WIN"
+        else
+            pnl := (entry_price - close) / syminfo.mintick
+            result := "LOSS"
+
+    array.push(historic_trades_data, str.tostring(entry_time) + "," + trade_type + "," + str.tostring(entry_price, "#.##") + "," + str.tostring(target_price, "#.##") + "," + str.tostring(pnl, "#.##") + "," + result)
+
+    current_state := 0
+    liquidity_swept := false
+    swept_direction := ""
+    mss_confirmed := false
+    ob_identified := false
+    fvg_identified := false
+    swing_high_price := na
+    swing_low_price := na
+    swing_high_bar := 0
+    swing_low_bar := 0
+    ob_high := na
+    ob_low := na
+    ob_bar := 0
+    fvg_high := na
+    fvg_low := na
+    fvg_bar := 0
+
+// ===== VISUALIZATIONS =====
+
+// Plot swing levels
+plot(show_swing_levels and not na(swing_high_price) ? swing_high_price : na, 
+     title="Swing High", color=color_swing_high, linewidth=2, style=plot.style_line)
+plot(show_swing_levels and not na(swing_low_price) ? swing_low_price : na, 
+     title="Swing Low", color=color_swing_low, linewidth=2, style=plot.style_line)
+
+// Plot signals
+plotshape(buy_signal, title="Buy Signal", location=location.belowbar, color=color_buy_signal, style=shape.labelup, text="BUY", size=size.normal)
+plotshape(sell_signal, title="Sell Signal", location=location.abovebar, color=color_sell_signal, style=shape.labeldown, text="SELL", size=size.normal)
+
+// Plot state markers
+plotshape(show_state_markers and mss_confirmed and current_state >= 2, title="MSS", location=location.abovebar, color=color_mss, style=shape.triangleup, text="MSS", size=size.small)
+
+// Draw Order Block boxes
+if show_ob_boxes and ob_identified and not na(ob_high) and not na(ob_low)
+    box.new(left=ob_bar, top=ob_high, right=bar_index + 10, bottom=ob_low,    border_color=color_ob, bgcolor=color_ob, text="OB")
+
+// Draw Fair Value Gap boxes
+if show_fvg_boxes and fvg_identified and not na(fvg_high) and not na(fvg_low)
+    box.new(left=fvg_bar, top=fvg_high, right=bar_index + 10, bottom=fvg_low,           border_color=color_fvg, bgcolor=color_fvg, text="FVG")
+
+// ===== HISTORIC TRADES TABLE =====
+if show_historic_trades and barstate.islast
+    // Count how many trades we need to display
+    time_filter = time - historic_trades_days * 24 * 60 * 60 * 1000 // Milliseconds for days
+    display_count = 0
+    
+    if array.size(historic_trades_data) > 0
+        for i = array.size(historic_trades_data) - 1 to 0
+            trade_info_str = array.get(historic_trades_data, i)
+            trade_info_arr = str.split(trade_info_str, ",")
+            trade_time = str.tonumber(trade_info_arr.get(0))
+            if int(trade_time) >= time_filter
+                display_count := display_count + 1
+    
+    // Create table with header + data rows
+    max_rows = math.min(display_count + 1, 20) // Limit to 20 rows max
+    var table historic_trades_table = table.new(position.bottom_right, 5, max_rows, bgcolor=color.white, border_width=1)
+    
+    // Set header
+    table.cell(historic_trades_table, 0, 0, "Type", text_color=color.black, bgcolor=color.gray)
+    table.cell(historic_trades_table, 1, 0, "Entry", text_color=color.black, bgcolor=color.gray)
+    table.cell(historic_trades_table, 2, 0, "Target", text_color=color.black, bgcolor=color.gray)
+    table.cell(historic_trades_table, 3, 0, "P&L", text_color=color.black, bgcolor=color.gray)
+    table.cell(historic_trades_table, 4, 0, "Result", text_color=color.black, bgcolor=color.gray)
+
+    // Populate data rows
+    row_idx = 1
+    if array.size(historic_trades_data) > 0
+        for i = array.size(historic_trades_data) - 1 to 0
+            if row_idx >= max_rows
+                break
+                
+            trade_info_str = array.get(historic_trades_data, i)
+            trade_info_arr = str.split(trade_info_str, ",")
+            trade_time = str.tonumber(trade_info_arr.get(0))
+
+            if int(trade_time) >= time_filter
+                table.cell(historic_trades_table, 0, row_idx, trade_info_arr.get(1), text_color=color.black)
+                table.cell(historic_trades_table, 1, row_idx, trade_info_arr.get(2), text_color=color.black)
+                table.cell(historic_trades_table, 2, row_idx, trade_info_arr.get(3), text_color=color.black)
+                table.cell(historic_trades_table, 3, row_idx, trade_info_arr.get(4), text_color=color.black)
+                table.cell(historic_trades_table, 4, row_idx, trade_info_arr.get(5), text_color=trade_info_arr.get(5) == "WIN" ? color_historic_trade_win : color_historic_trade_loss)
+                row_idx := row_idx + 1
+
+// ===== ALERTS =====
+alertcondition(buy_signal, title="Buy Signal Alert", message="Gold Swing Strategy: BUY signal generated")
+alertcondition(sell_signal, title="Sell Signal Alert", message="Gold Swing Strategy: SELL signal generated")
+
+// ===== TABLE FOR STATE INFORMATION =====
+if barstate.islast
+    var table info_table = table.new(position.top_right, 2, 6, bgcolor=color.white, border_width=1)
+    table.cell(info_table, 0, 0, "State", text_color=color.black, bgcolor=color.gray)
+    table.cell(info_table, 1, 0, str.tostring(current_state), text_color=color.black)
+    table.cell(info_table, 0, 1, "Swing High", text_color=color.black, bgcolor=color.gray)
+    table.cell(info_table, 1, 1, na(swing_high_price) ? "N/A" : str.tostring(swing_high_price, "#.##"), text_color=color.black)
+    table.cell(info_table, 0, 2, "Swing Low", text_color=color.black, bgcolor=color.gray)
+    table.cell(info_table, 1, 2, na(swing_low_price) ? "N/A" : str.tostring(swing_low_price, "#.##"), text_color=color.black)
+    table.cell(info_table, 0, 3, "Liquidity Swept", text_color=color.black, bgcolor=color.gray)
+    table.cell(info_table, 1, 3, liquidity_swept ? swept_direction : "No", text_color=color.black)
+    table.cell(info_table, 0, 4, "MSS Confirmed", text_color=color.black, bgcolor=color.gray)
+    table.cell(info_table, 1, 4, mss_confirmed ? "Yes" : "No", text_color=color.black)
+    table.cell(info_table, 0, 5, "OB & FVG", text_color=color.black, bgcolor=color.gray)
+    table.cell(info_table, 1, 5, (ob_identified and fvg_identified) ? "Yes" : "No", text_color=color.black)
+
+
+
