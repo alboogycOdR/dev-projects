@@ -224,41 +224,8 @@ dailyATR = request.security(syminfo.tickerid, "D", ta.atr(14))
 // =============================================================================
 
 calcEnhancedRVol() =>
-    // Get current time components
-    currentHour = hour(time)
-    currentMinute = minute(time)
-    
-    // Calculate average volume for this specific time over lookback period
-    sumVol = 0.0
-    count = 0
-    
-    // Use a simpler approach - calculate RVol based on recent volume patterns
-    // This avoids the loop variable issue with request.security
-    recentVolumes = array.new<float>(0)
-    
-    // Get volumes from recent bars (avoiding loop variables in request.security)
-    vol1 = request.security(syminfo.tickerid, timeframe.period, volume[1], lookahead=barmerge.lookahead_on)
-    vol2 = request.security(syminfo.tickerid, timeframe.period, volume[2], lookahead=barmerge.lookahead_on)
-    vol3 = request.security(syminfo.tickerid, timeframe.period, volume[3], lookahead=barmerge.lookahead_on)
-    vol4 = request.security(syminfo.tickerid, timeframe.period, volume[4], lookahead=barmerge.lookahead_on)
-    vol5 = request.security(syminfo.tickerid, timeframe.period, volume[5], lookahead=barmerge.lookahead_on)
-    
-    // Add valid volumes to array
-    if not na(vol1) and vol1 > 0
-        array.push(recentVolumes, vol1)
-    if not na(vol2) and vol2 > 0
-        array.push(recentVolumes, vol2)
-    if not na(vol3) and vol3 > 0
-        array.push(recentVolumes, vol3)
-    if not na(vol4) and vol4 > 0
-        array.push(recentVolumes, vol4)
-    if not na(vol5) and vol5 > 0
-        array.push(recentVolumes, vol5)
-    
-    // Calculate average historical volume
-    avgHistoricalVol = array.size(recentVolumes) > 0 ? array.avg(recentVolumes) : volume
-    
-    // Calculate RVol
+    // Fast RVol: compare current volume to the 5-bar SMA from the previous bar
+    avgHistoricalVol = nz(ta.sma(volume, 5)[1], volume)
     rvol = avgHistoricalVol > 0 ? volume / avgHistoricalVol : 1.0
     
     // Store for dashboard display
