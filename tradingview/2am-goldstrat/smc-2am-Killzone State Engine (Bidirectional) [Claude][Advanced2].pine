@@ -1,0 +1,656 @@
+
+//@version=5
+indicator("SMC Killzone Engine V2 [Precision]", overlay=true, max_boxes_count=500, max_labels_count=500, max_lines_count=500)
+
+// ═══════════════════════════════════════════════════════════════════════════
+// INPUTS
+// ═══════════════════════════════════════════════════════════════════════════
+
+var GRP_TRADE = "═══ Trade Settings ═══"
+trade_direction_input = input.string("Both", "Trade Direction", options=["Both", "Longs Only", "Shorts Only"], group=GRP_TRADE)
+min_rr_ratio = input.float(2.0, "Min Risk:Reward", minval=1.0, maxval=5.0, step=0.5, group=GRP_TRADE)
+max_trades_per_session = input.int(5, "Max Trades per Session", minval=1, maxval=10, group=GRP_TRADE)
+
+var GRP_KILLZONES = "═══ Killzone Settings ═══"
+// London Session
+use_london = input.bool(true, "London Session", group=GRP_KILLZONES)
+london_start_hour = input.int(9, "London Start Hour (Local)", minval=0, maxval=23, group=GRP_KILLZONES)
+london_end_hour = input.int(12, "London End Hour (Local)", minval=0, maxval=23, group=GRP_KILLZONES)
+
+// New York Session  
+use_ny = input.bool(true, "New York Session", group=GRP_KILLZONES)
+ny_start_hour = input.int(15, "NY Start Hour (Local)", minval=0, maxval=23, group=GRP_KILLZONES)
+ny_end_hour = input.int(18, "NY End Hour (Local)", minval=0, maxval=23, group=GRP_KILLZONES)
+
+// Asian Session
+use_asian = input.bool(false, "Asian Session", group=GRP_KILLZONES)
+asian_start_hour = input.int(0, "Asian Start Hour (Local)", minval=0, maxval=23, group=GRP_KILLZONES)
+asian_end_hour = input.int(3, "Asian End Hour (Local)", minval=0, maxval=23, group=GRP_KILLZONES)
+
+var GRP_POI = "═══ POI Detection ═══"
+// Timeframes
+htf_primary = input.timeframe("5", "Primary TF (Entry)", group=GRP_POI)
+htf_secondary = input.timeframe("15", "Secondary TF (POIs)", group=GRP_POI) 
+htf_structure = input.timeframe("60", "Structure TF", group=GRP_POI)
+
+// POI Parameters
+poi_lookback = input.int(30, "POI Lookback", minval=10, maxval=100, group=GRP_POI)
+min_fvg_pips = input.float(5.0, "Min FVG Size (Pips)", minval=1.0, maxval=50.0, step=1.0, group=GRP_POI)
+min_poi_score = input.float(50, "Min POI Score", minval=0, maxval=100, step=5, group=GRP_POI)
+mitigation_percent = input.float(50, "Mitigation % into POI", minval=10, maxval=100, step=10, group=GRP_POI)
+
+// POI Types
+detect_fvg = input.bool(true, "Detect FVGs", group=GRP_POI)
+detect_ob = input.bool(true, "Detect Order Blocks", group=GRP_POI)
+detect_breaker = input.bool(true, "Detect Breakers", group=GRP_POI)
+detect_mb = input.bool(true, "Detect Mitigation Blocks", group=GRP_POI)
+
+var GRP_ENTRY = "═══ Entry Confirmation ═══"
+use_market_structure = input.bool(true, "Require Structure Break", group=GRP_ENTRY)
+use_liquidity_sweep = input.bool(true, "Liquidity Sweep Confirmation", group=GRP_ENTRY)
+use_displacement = input.bool(true, "Require Displacement", group=GRP_ENTRY)
+displacement_atr = input.float(1.5, "Displacement ATR Multiple", minval=1.0, maxval=3.0, step=0.1, group=GRP_ENTRY)
+use_volume_confirm = input.bool(true, "Volume Confirmation", group=GRP_ENTRY)
+volume_threshold = input.float(1.2, "Volume Threshold", minval=1.0, maxval=3.0, step=0.1, group=GRP_ENTRY)
+
+var GRP_VISUAL = "═══ Visual Settings ═══"
+show_dashboard = input.bool(true, "Dashboard", group=GRP_VISUAL)
+show_poi_boxes = input.bool(true, "POI Boxes", group=GRP_VISUAL)
+show_entries = input.bool(true, "Entry Signals", group=GRP_VISUAL)
+show_structure = input.bool(true, "Market Structure", group=GRP_VISUAL)
+show_liquidity = input.bool(true, "Liquidity Levels", group=GRP_VISUAL)
+
+// Colors
+color_bull_fvg = input.color(#089981, "Bull FVG", group=GRP_VISUAL)
+color_bear_fvg = input.color(#f23645, "Bear FVG", group=GRP_VISUAL)
+color_bull_ob = input.color(#2962ff, "Bull OB", group=GRP_VISUAL)
+color_bear_ob = input.color(#ff6d00, "Bear OB", group=GRP_VISUAL)
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TYPES & VARIABLES
+// ═══════════════════════════════════════════════════════════════════════════
+
+type POI
+    string  type        // "FVG", "OB", "BREAKER", "MB"
+    float   top
+    float   bottom
+    float   entry
+    int     start_bar
+    string  direction   // "BULL" or "BEAR"
+    float   score
+    bool    mitigated
+    bool    triggered
+    box     visual
+
+type MarketStructure
+    float   recent_high
+    float   recent_low
+    int     high_bar
+    int     low_bar
+    string  bias        // "BULLISH", "BEARISH", "NEUTRAL"
+    bool    bos         // Break of Structure
+    bool    choch       // Change of Character
+
+type LiquidityLevel
+    float   price
+    int     bar_idx
+    string  type        // "HIGH", "LOW"
+    int     touches
+    bool    swept
+    line    visual
+
+// Global Variables
+var array<POI> active_pois = array.new<POI>()
+var array<LiquidityLevel> liquidity_levels = array.new<LiquidityLevel>()
+var MarketStructure ms = MarketStructure.new()
+
+var int trades_today = 0
+var int current_state = 0
+var POI current_poi = na
+
+// State definitions
+var int STATE_IDLE = 0
+var int STATE_SCANNING = 1
+var int STATE_POI_FOUND = 2
+var int STATE_AWAITING_MITIGATION = 3
+var int STATE_MITIGATED = 4
+var int STATE_ENTRY = 5
+
+// ═══════════════════════════════════════════════════════════════════════════
+// UTILITY FUNCTIONS
+// ═══════════════════════════════════════════════════════════════════════════
+
+pip_size() => syminfo.mintick * (syminfo.type == "forex" ? 10 : 1)
+
+pips_to_price(pips) => pips * pip_size()
+
+is_in_killzone() =>
+    h = hour
+    london = use_london and h >= london_start_hour and h < london_end_hour
+    ny = use_ny and h >= ny_start_hour and h < ny_end_hour  
+    asian = use_asian and h >= asian_start_hour and h < asian_end_hour
+    london or ny or asian
+
+get_session() =>
+    h = hour
+    if use_london and h >= london_start_hour and h < london_end_hour
+        "LONDON"
+    else if use_ny and h >= ny_start_hour and h < ny_end_hour
+        "NEW YORK"
+    else if use_asian and h >= asian_start_hour and h < asian_end_hour
+        "ASIAN"
+    else
+        "CLOSED"
+
+// ═══════════════════════════════════════════════════════════════════════════
+// MARKET STRUCTURE ANALYSIS
+// ═══════════════════════════════════════════════════════════════════════════
+
+update_structure() =>
+    // Find swing highs and lows
+    swing_high = ta.pivothigh(high, 3, 3)
+    swing_low = ta.pivotlow(low, 3, 3)
+    
+    if not na(swing_high)
+        if na(ms.recent_high) or swing_high > ms.recent_high
+            // Higher high = potential bullish structure
+            if ms.bias == "BEARISH"
+                ms.choch := true
+            else
+                ms.bos := true
+            ms.bias := "BULLISH"
+        ms.recent_high := swing_high
+        ms.high_bar := bar_index[3]
+    
+    if not na(swing_low)
+        if na(ms.recent_low) or swing_low < ms.recent_low
+            // Lower low = potential bearish structure  
+            if ms.bias == "BULLISH"
+                ms.choch := true
+            else
+                ms.bos := true
+            ms.bias := "BEARISH"
+        ms.recent_low := swing_low
+        ms.low_bar := bar_index[3]
+
+// ═══════════════════════════════════════════════════════════════════════════
+// LIQUIDITY DETECTION
+// ═══════════════════════════════════════════════════════════════════════════
+
+find_liquidity() =>
+    // Look for equal highs/lows
+    for i = 1 to 20
+        // Equal highs (buy-side liquidity)
+        if math.abs(high[i] - high[i+1]) < pips_to_price(2)
+            exists = false
+            for liq in liquidity_levels
+                if liq.type == "HIGH" and math.abs(liq.price - high[i]) < pips_to_price(2)
+                    liq.touches += 1
+                    exists := true
+                    break
+            
+            if not exists and array.size(liquidity_levels) < 10
+                liq = LiquidityLevel.new()
+                liq.price := high[i]
+                liq.bar_idx := bar_index[i]
+                liq.type := "HIGH"
+                liq.touches := 2
+                array.push(liquidity_levels, liq)
+        
+        // Equal lows (sell-side liquidity)
+        if math.abs(low[i] - low[i+1]) < pips_to_price(2)
+            exists = false
+            for liq in liquidity_levels
+                if liq.type == "LOW" and math.abs(liq.price - low[i]) < pips_to_price(2)
+                    liq.touches += 1
+                    exists := true
+                    break
+            
+            if not exists and array.size(liquidity_levels) < 10
+                liq = LiquidityLevel.new()
+                liq.price := low[i]
+                liq.bar_idx := bar_index[i]
+                liq.type := "LOW"
+                liq.touches := 2
+                array.push(liquidity_levels, liq)
+
+check_liquidity_sweep() =>
+    swept_type = ""
+    for liq in liquidity_levels
+        if not liq.swept
+            // Check for sweep and rejection
+            if liq.type == "HIGH" and high > liq.price and close < liq.price
+                liq.swept := true
+                swept_type := "BEARISH"  // Swept highs = bearish
+            else if liq.type == "LOW" and low < liq.price and close > liq.price
+                liq.swept := true
+                swept_type := "BULLISH"  // Swept lows = bullish
+    swept_type
+
+// ═══════════════════════════════════════════════════════════════════════════
+// POI DETECTION
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Get HTF data
+[htf1_o, htf1_h, htf1_l, htf1_c, htf1_v] = request.security(syminfo.tickerid, htf_primary, [open, high, low, close, volume])
+[htf2_o, htf2_h, htf2_l, htf2_c] = request.security(syminfo.tickerid, htf_secondary, [open, high, low, close])
+[htf3_h, htf3_l] = request.security(syminfo.tickerid, htf_structure, [high, low])
+
+calculate_score(poi) =>
+    score = 40.0  // Base score
+    
+    // Market structure alignment (30 points)
+    if (poi.direction == "BULL" and ms.bias == "BULLISH") or (poi.direction == "BEAR" and ms.bias == "BEARISH")
+        score += 30
+    else if ms.bias == "NEUTRAL"
+        score += 15
+    
+    // Recent structure break bonus (20 points)
+    if ms.bos
+        score += 20
+    else if ms.choch
+        score += 15
+    
+    // POI type quality (20 points)
+    if poi.type == "BREAKER"
+        score += 20
+    else if poi.type == "OB"
+        score += 15
+    else if poi.type == "MB"
+        score += 12
+    else if poi.type == "FVG"
+        score += 10
+    
+    // Liquidity sweep alignment (20 points)
+    sweep_dir = check_liquidity_sweep()
+    if (sweep_dir == "BULLISH" and poi.direction == "BULL") or (sweep_dir == "BEARISH" and poi.direction == "BEAR")
+        score += 20
+    
+    // Distance from price (10 points) - closer is better
+    dist_pips = math.abs(close - poi.entry) / pip_size()
+    if dist_pips < 10
+        score += 10
+    else if dist_pips < 20
+        score += 5
+    
+    math.min(score, 100)
+
+detect_fvgs() =>
+    if detect_fvg
+        min_gap = pips_to_price(min_fvg_pips)
+        
+        // Check for FVGs on multiple timeframes
+        // Primary TF - Bearish FVG
+        if htf1_l[2] > htf1_h and (htf1_l[2] - htf1_h) > min_gap
+            if trade_direction_input != "Longs Only" and array.size(active_pois) < 30
+                poi = POI.new()
+                poi.type := "FVG"
+                poi.top := htf1_l[2]
+                poi.bottom := htf1_h
+                poi.entry := poi.bottom + (poi.top - poi.bottom) * mitigation_percent / 100
+                poi.start_bar := bar_index
+                poi.direction := "BEAR"
+                poi.score := calculate_score(poi)
+                array.push(active_pois, poi)
+            
+            // Primary TF - Bullish FVG
+            if htf1_h[2] < htf1_l and (htf1_l - htf1_h[2]) > min_gap
+                if trade_direction_input != "Shorts Only" and array.size(active_pois) < 30
+                    poi = POI.new()
+                    poi.type := "FVG"
+                    poi.top := htf1_l
+                    poi.bottom := htf1_h[2]
+                    poi.entry := poi.top - (poi.top - poi.bottom) * mitigation_percent / 100
+                    poi.start_bar := bar_index
+                    poi.direction := "BULL"
+                    poi.score := calculate_score(poi)
+                    array.push(active_pois, poi)
+            
+            // Secondary TF - Bearish FVG (higher weight)
+            if htf2_l[2] > htf2_h and (htf2_l[2] - htf2_h) > min_gap * 1.5
+                if trade_direction_input != "Longs Only" and array.size(active_pois) < 30
+                    poi = POI.new()
+                    poi.type := "FVG"
+                    poi.top := htf2_l[2]
+                    poi.bottom := htf2_h
+                    poi.entry := poi.bottom + (poi.top - poi.bottom) * mitigation_percent / 100
+                    poi.start_bar := bar_index
+                    poi.direction := "BEAR"
+                    poi.score := calculate_score(poi) * 1.2  // Higher score for HTF
+                    array.push(active_pois, poi)
+            
+            // Secondary TF - Bullish FVG (higher weight)
+            if htf2_h[2] < htf2_l and (htf2_l - htf2_h[2]) > min_gap * 1.5
+                if trade_direction_input != "Shorts Only" and array.size(active_pois) < 30
+                    poi = POI.new()
+                    poi.type := "FVG"
+                    poi.top := htf2_l
+                    poi.bottom := htf2_h[2]
+                    poi.entry := poi.top - (poi.top - poi.bottom) * mitigation_percent / 100
+                    poi.start_bar := bar_index
+                    poi.direction := "BULL"
+                    poi.score := calculate_score(poi) * 1.2  // Higher score for HTF
+                    array.push(active_pois, poi)
+
+detect_order_blocks() =>
+    if detect_ob
+        // Look for order blocks in recent history
+        for i = 1 to math.min(poi_lookback, 100)
+            // Bearish OB - strong bull candle before reversal
+            if htf2_c[i] > htf2_o[i] and htf2_c < htf2_o[i]
+                body = htf2_c[i] - htf2_o[i]
+                float price_range = htf2_h[i] - htf2_l[i]
+                if body > price_range * 0.6 and trade_direction_input != "Longs Only" and array.size(active_pois) < 30
+                    poi = POI.new()
+                    poi.type := "OB"
+                    poi.top := htf2_h[i]
+                    poi.bottom := htf2_o[i]
+                    poi.entry := poi.bottom + (poi.top - poi.bottom) * 0.5
+                    poi.start_bar := bar_index[i]
+                    poi.direction := "BEAR"
+                    poi.score := calculate_score(poi)
+                    array.push(active_pois, poi)
+            
+            // Bullish OB - strong bear candle before reversal
+            if htf2_c[i] < htf2_o[i] and htf2_c > htf2_o[i]
+                body = htf2_o[i] - htf2_c[i]
+                float price_range = htf2_h[i] - htf2_l[i]
+                if body > price_range * 0.6 and trade_direction_input != "Shorts Only" and array.size(active_pois) < 30
+                    poi = POI.new()
+                    poi.type := "OB"
+                    poi.top := htf2_o[i]
+                    poi.bottom := htf2_l[i]
+                    poi.entry := poi.top - (poi.top - poi.bottom) * 0.5
+                    poi.start_bar := bar_index[i]
+                    poi.direction := "BULL"
+                    poi.score := calculate_score(poi)
+                    array.push(active_pois, poi)
+
+detect_breaker_blocks() =>
+    if detect_breaker
+        // Breakers are failed OBs that get retested
+        for poi in active_pois
+            if poi.type == "OB" and not poi.triggered
+                // Check if OB was violated
+                violated = false
+                flip_direction = ""
+                
+                if poi.direction == "BEAR" and close > poi.top
+                    violated := true
+                    flip_direction := "BULL"
+                else if poi.direction == "BULL" and close < poi.bottom
+                    violated := true
+                    flip_direction := "BEAR"
+                
+                if violated and array.size(active_pois) < 30
+                    breaker = POI.new()
+                    breaker.type := "BREAKER"
+                    breaker.top := poi.top
+                    breaker.bottom := poi.bottom
+                    breaker.entry := flip_direction == "BULL" ? 
+                                     breaker.bottom + (breaker.top - breaker.bottom) * 0.3 :
+                                     breaker.top - (breaker.top - breaker.bottom) * 0.3
+                    breaker.start_bar := bar_index
+                    breaker.direction := flip_direction
+                    breaker.score := calculate_score(breaker) * 1.3  // Breakers get bonus score
+                    array.push(active_pois, breaker)
+                    poi.triggered := true  // Mark original OB as used
+
+detect_mitigation_blocks() =>
+    if detect_mb
+        // Mitigation blocks are areas where price reversed sharply
+        for i = 5 to math.min(poi_lookback, 50)
+            // Bullish MB - sharp reversal from lows
+            sharp_reversal_up = low[i] < low[i+1] and low[i] < low[i-1] and 
+                               close > high[i] and (close - low[i]) > ta.atr(14) * 2
+            
+            if sharp_reversal_up and trade_direction_input != "Shorts Only" and array.size(active_pois) < 30
+                mb = POI.new()
+                mb.type := "MB"
+                mb.top := high[i]
+                mb.bottom := low[i]
+                mb.entry := mb.bottom + (mb.top - mb.bottom) * 0.4
+                mb.start_bar := bar_index[i]
+                mb.direction := "BULL"
+                mb.score := calculate_score(mb) * 1.15
+                array.push(active_pois, mb)
+            
+            // Bearish MB - sharp reversal from highs
+            sharp_reversal_down = high[i] > high[i+1] and high[i] > high[i-1] and 
+                                 close < low[i] and (high[i] - close) > ta.atr(14) * 2
+            
+            if sharp_reversal_down and trade_direction_input != "Longs Only" and array.size(active_pois) < 30
+                mb = POI.new()
+                mb.type := "MB"
+                mb.top := high[i]
+                mb.bottom := low[i]
+                mb.entry := mb.top - (mb.top - mb.bottom) * 0.4
+                mb.start_bar := bar_index[i]
+                mb.direction := "BEAR"
+                mb.score := calculate_score(mb) * 1.15
+                array.push(active_pois, mb)
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ENTRY LOGIC
+// ═══════════════════════════════════════════════════════════════════════════
+
+check_entry_conditions(poi) =>
+    if na(poi) or poi.triggered
+        false
+    else
+        // Check if price is at POI
+        at_poi = (poi.direction == "BULL" and low <= poi.entry and high >= poi.bottom) or
+                 (poi.direction == "BEAR" and high >= poi.entry and low <= poi.top)
+        
+        if not at_poi
+            false
+        else
+            confirmed = true
+            
+            // Market structure confirmation
+            if use_market_structure
+                confirmed := confirmed and ((poi.direction == "BULL" and ms.bias != "BEARISH") or 
+                                           (poi.direction == "BEAR" and ms.bias != "BULLISH"))
+            
+            // Displacement confirmation
+            if use_displacement
+                atr = ta.atr(14)
+                float price_range = high - low
+                has_displacement = price_range > atr * displacement_atr
+                is_right_direction = (poi.direction == "BULL" and close > open) or  (poi.direction == "BEAR" and close < open)
+                confirmed := confirmed and has_displacement and is_right_direction
+            
+            // Volume confirmation
+            if use_volume_confirm
+                avg_vol = ta.sma(volume, 20)
+                confirmed := confirmed and volume > avg_vol * volume_threshold
+            
+            confirmed
+
+// ═══════════════════════════════════════════════════════════════════════════
+// MAIN EXECUTION
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Reset daily
+if dayofweek != dayofweek[1]
+    trades_today := 0
+    array.clear(active_pois)
+    array.clear(liquidity_levels)
+    current_state := STATE_IDLE
+
+// Update systems
+update_structure()
+find_liquidity()
+
+// Clean old POIs
+if array.size(active_pois) > 0
+    for i = array.size(active_pois) - 1 to 0
+        poi = array.get(active_pois, i)
+        if bar_index - poi.start_bar > 100 or poi.triggered
+            if not na(poi.visual)
+                box.delete(poi.visual)
+            array.remove(active_pois, i)
+
+// Main state machine
+if is_in_killzone() and trades_today < max_trades_per_session
+    // Scan for new POIs continuously
+    if barstate.isconfirmed
+        detect_fvgs()
+        detect_order_blocks()
+        detect_breaker_blocks()
+        detect_mitigation_blocks()
+    
+    // Process all POIs for potential entries
+    entries_found = 0
+    
+    for poi in active_pois
+        if not poi.triggered and not poi.mitigated and poi.score >= min_poi_score
+            // Check distance to POI
+            dist = math.abs(close - poi.entry)
+            max_dist = ta.atr(14) * 5  // Increased range for detection
+            
+            if dist < max_dist
+                // Check if price is interacting with POI
+                touching_poi = (poi.direction == "BULL" and low <= poi.top and low >= poi.bottom) or
+                              (poi.direction == "BEAR" and high >= poi.bottom and high <= poi.top)
+                
+                if touching_poi
+                    poi.mitigated := true
+                    
+                    // Check entry conditions
+                    if check_entry_conditions(poi)
+                        poi.triggered := true
+                        trades_today += 1
+                        entries_found += 1
+                        current_state := STATE_ENTRY
+                        current_poi := poi
+                        
+                        // Visual entry signal
+                        entry_text = "ENTRY " + poi.direction + "\n" + poi.type + " | Score: " + str.tostring(poi.score, "#") + "\n" + "Target: " + str.tostring(poi.entry, "#.#####")
+                        
+                        label.new(bar_index, poi.direction == "BULL" ? low - ta.atr(14) : high + ta.atr(14), entry_text, color=poi.direction == "BULL" ? #00ff00 : #ff0000, textcolor=#ffffff, style=poi.direction == "BULL" ? label.style_label_up : label.style_label_down, size=size.normal)
+                        
+                        // Alert with details
+                        alert_msg = "🎯 SMC Entry Signal\n" + "Direction: " + poi.direction + "\n" + "Type: " + poi.type + "\n" + "Score: " + str.tostring(poi.score, "#") + "/100\n" + "Entry: " + str.tostring(poi.entry, "#.#####") + "\n" + "Session: " + get_session()
+                        alert(alert_msg, alert.freq_once_per_bar)
+                        
+                        // Color the triggered POI box
+                        if not na(poi.visual)
+                            box.set_border_color(poi.visual, #ffff00)
+                            box.set_border_width(poi.visual, 3)
+                        
+                        if entries_found >= 1  // Limit entries per bar
+                            break
+else
+    current_state := STATE_IDLE
+
+// ═══════════════════════════════════════════════════════════════════════════
+// VISUALIZATION
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Killzone background
+bgcolor(is_in_killzone() ? #0000ff : na)
+
+// Draw POIs
+if show_poi_boxes and barstate.islast
+    for poi in active_pois
+        if not poi.triggered and not na(poi.visual)
+            box.delete(poi.visual)
+        
+        if not poi.triggered and bar_index - poi.start_bar < 100
+            poi_color = poi.direction == "BULL" ? (poi.type == "FVG" ? color_bull_fvg : color_bull_ob) : (poi.type == "FVG" ? color_bear_fvg : color_bear_ob)
+            
+            poi.visual := box.new(poi.start_bar, poi.top, bar_index + 10, poi.bottom, border_color=#808080, border_width=1, bgcolor=poi_color, text=poi.type + "\n" + str.tostring(poi.score, "#"), text_color=#ffffff, text_halign=text.align_left, text_valign=text.align_center, text_size=size.small)
+
+// Draw liquidity levels
+if show_liquidity and barstate.islast
+    for liq in liquidity_levels
+        if not na(liq.visual)
+            line.delete(liq.visual)
+        
+        if not liq.swept and bar_index - liq.bar_idx < 200
+            liq.visual := line.new(liq.bar_idx, liq.price, bar_index + 5, liq.price, color=liq.swept ? #808080 : (liq.type == "HIGH" ? #ff0000 : #00ff00), style=line.style_dashed, width=1)
+
+// Market structure
+if show_structure
+    if not na(ms.recent_high)
+        line.new(ms.high_bar, ms.recent_high, bar_index, ms.recent_high, color=#ff0000, style=line.style_dotted, extend=extend.right)
+    if not na(ms.recent_low)
+        line.new(ms.low_bar, ms.recent_low, bar_index, ms.recent_low, color=#00ff00, style=line.style_dotted, extend=extend.right)
+
+// Dashboard
+if show_dashboard and barstate.islast
+    var table dash = table.new(position.top_right, 2, 10, border_color=#808080, border_width=1, bgcolor=#000000)
+    
+    // Session info
+    table.cell(dash, 0, 0, "Session", text_color=#ffffff, text_size=size.small)
+    table.cell(dash, 1, 0, get_session(), text_color=get_session() != "CLOSED" ? #00ff00 : #ff0000, text_size=size.small)
+    
+    // Market structure
+    table.cell(dash, 0, 1, "Bias", text_color=#ffffff, text_size=size.small)
+    table.cell(dash, 1, 1, ms.bias, text_color=ms.bias == "BULLISH" ? #00ff00 : ms.bias == "BEARISH" ? #ff0000 : #808080, text_size=size.small)
+    
+    // Trade count
+    table.cell(dash, 0, 2, "Trades", text_color=#ffffff, text_size=size.small)
+    table.cell(dash, 1, 2, str.tostring(trades_today) + "/" + str.tostring(max_trades_per_session), text_color=trades_today < max_trades_per_session ? #00ff00 : #ff0000, text_size=size.small)
+    
+    // Active POIs
+    table.cell(dash, 0, 3, "POIs", text_color=#ffffff, text_size=size.small)
+    table.cell(dash, 1, 3, str.tostring(array.size(active_pois)),
+              text_color=#00ffff, text_size=size.small)
+    
+    // Best POI
+    if array.size(active_pois) > 0
+        best = 0.0
+        best_type = ""
+        for poi in active_pois
+            if not poi.triggered and poi.score > best
+                best := poi.score
+                best_type := poi.type + " " + poi.direction
+        
+        if best > 0
+            table.cell(dash, 0, 4, "Best", text_color=#ffffff, text_size=size.small)
+            table.cell(dash, 1, 4, best_type, text_color=#ffff00, text_size=size.small)
+            
+            table.cell(dash, 0, 5, "Score", text_color=#ffffff, text_size=size.small)
+            table.cell(dash, 1, 5, str.tostring(best, "#"), text_color=best > 70 ? #00ff00 : best > 50 ? #ffff00 : #ffa500, text_size=size.small)
+
+// Entry markers
+plotshape(current_state == STATE_ENTRY and current_state[1] != STATE_ENTRY,
+         title="Entry", location=location.belowbar,
+         color=#00ff00, style=shape.triangleup, size=size.normal)
+
+// Alerts
+if is_in_killzone() and not is_in_killzone()[1]
+    alert("Killzone Active: " + get_session(), alert.freq_once_per_bar)
+
+// Stats table
+if show_dashboard and barstate.islast
+    var table stats = table.new(position.bottom_center, 5, 1, border_color=#808080, border_width=1, bgcolor=#000000)
+    
+    // Calculate stats
+    total_signals = trades_today
+    bull_signals = 0
+    bear_signals = 0
+    avg_score = 0.0
+    
+    for poi in active_pois
+        if poi.triggered
+            if poi.direction == "BULL"
+                bull_signals += 1
+            else
+                bear_signals += 1
+            avg_score += poi.score
+    
+    if total_signals > 0
+        avg_score := avg_score / total_signals
+    
+    table.cell(stats, 0, 0, "Signals: " + str.tostring(total_signals), text_color=#ffffff, text_size=size.tiny)
+    table.cell(stats, 1, 0, "Bulls: " + str.tostring(bull_signals), text_color=#00ff00, text_size=size.tiny)
+    table.cell(stats, 2, 0, "Bears: " + str.tostring(bear_signals), text_color=#ff0000, text_size=size.tiny)
+    table.cell(stats, 3, 0, "Avg Score: " + str.tostring(avg_score, "#"), text_color=#ffff00, text_size=size.tiny)
+    table.cell(stats, 4, 0, "Session: " + get_session(), text_color=get_session() != "CLOSED" ? #00ffff : #808080, text_size=size.tiny)
+
+// © Enhanced SMC System V2
+
+

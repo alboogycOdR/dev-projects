@@ -1,0 +1,303 @@
+# --- START OF FILE main.py (V3 - With Dynamic Parser Loading) ---
+from ctypes import pythonapi
+
+
+
+#   updated to use python 3.13 as from 03/05 2025
+
+
+import asyncio
+import logging
+import signal
+import threading
+from queue import Queue
+import importlib # Needed if using importlib method
+import inspect   # Needed for inspect method
+
+# --- Module Imports (Make sure paths are correct) ---
+try:
+    from utils.config_loader import load_config, setup_logging
+    # Import Connector Modules
+    from connectors.telegram_connector import TelegramUserConnector
+    import connectors.base_connector as base_conn_module # Alias import
+    import connectors.telegram_connector as tg_conn_module # Alias import
+    
+    # Add imports for other connector modules (e.g., connectors.discord_connector)
+    # Import Parser Modules
+    import parsers.base_parser
+    import parsers.telegram_parser        # Module for Format 1
+    import parsers.telegram_parser_format2 # Module for Format 2
+    import parsers.telegram_parser_format3 # Module for Format 3
+    import parsers.telegram_parser_format4 # Module for Format 4
+        
+    # Add imports for other parser modules (e.g., parsers.discord_parser)
+    # Import other components
+    from normalizer import normalize_signal
+    from signal_processor import SignalProcessor
+    from api_server import run_api_server
+except ImportError as e:
+     # Critical error if imports fail
+     print(f"ERROR: Failed to import required modules. Check file structure and Python paths: {e}")
+     exit(1)
+
+# --- Global Queue & Lock ---
+raw_message_queue = Queue() # Using standard Queue
+latest_signal_for_api = {}
+api_data_lock = threading.Lock()
+
+# ===> HELPER FUNCTION for Dynamic Class Loading <===
+def find_classes(module, base_class):
+    """Finds all classes in a given module that inherit from a base_class."""
+    classes = {}
+    # Iterate over members of the module
+    for name, obj in inspect.getmembers(module, inspect.isclass):
+        # Check if it's a class defined in *that* module (not imported into it),
+        # is a subclass of base_class, and is not the base_class itself.
+        if inspect.getmodule(obj) == module and issubclass(obj, base_class) and obj is not base_class:
+            classes[name] = obj # Store {ClassNameString: ClassObject}
+            # Optional Debug: logger.debug(f"Discovered class '{name}' in {module.__name__}")
+    return classes
+# ===> END HELPER FUNCTION <===
+
+
+async def main():
+    # 1. Load Configuration & Logging
+    config = load_config()
+    if not config: return
+    setup_logging(config)
+    logger = logging.getLogger("MainApp")
+    logger.info("Application starting...")
+
+    # --- Dynamically Discover Available Parser and Connector Classes ---
+    available_parser_classes = {}
+    parser_modules_to_check = [
+        parsers.telegram_parser,
+        parsers.telegram_parser_format2,
+        parsers.telegram_parser_format3,
+        parsers.telegram_parser_format4
+        # Add other parser module objects here: e.g., parsers.discord_parser
+    ]
+    for module in parser_modules_to_check:
+        try:
+            found_parsers = find_classes(module, parsers.base_parser.BaseParser)
+            available_parser_classes.update(found_parsers)
+        except Exception as e:
+            logger.error(f"Error discovering parsers in module {getattr(module, '__name__', 'Unknown')}: {e}")
+
+    available_connector_classes = {}
+    connector_modules_to_check = [
+        tg_conn_module # Use alias
+        # Add other connector module objects here: e.g., connectors.discord_connector
+    ]
+    for module in connector_modules_to_check:
+         try:
+            found_connectors = find_classes(module, base_conn_module.BaseConnector) # Use alias
+            available_connector_classes.update(found_connectors)
+         except Exception as e:
+            logger.error(f"Error discovering connectors in module {getattr(module, '__name__', 'Unknown')}: {e}")
+
+    logger.info(f"Discovered Parsers: {list(available_parser_classes.keys())}")
+    logger.info(f"Discovered Connectors: {list(available_connector_classes.keys())}")
+
+
+    # 2. Instantiate Components based on Config using Discovered Classes
+    active_parsers = {} # Instantiated parsers: {config_id: instance}
+    parser_configs = config.get('parsers', {})
+    logger.info(f"Loading {len(parser_configs)} parser configurations...")
+    for parser_id, p_config in parser_configs.items():
+        parser_class_name = p_config.get('type') # e.g., "TelegramFormat1Parser"
+        if not parser_class_name:
+            logger.warning(f"Parser config '{parser_id}' missing 'type'. Skipping.")
+            continue
+
+        ParserClass = available_parser_classes.get(parser_class_name) # Find the actual Class object
+        if ParserClass:
+            try:
+                active_parsers[parser_id] = ParserClass(parser_id, p_config)
+                logger.info(f"Instantiated Parser: {parser_id} (Using Class: {parser_class_name})")
+            except Exception as e:
+                logger.error(f"Failed to instantiate parser '{parser_id}' using {parser_class_name}: {e}", exc_info=True)
+        else:
+            logger.error(f"Parser class '{parser_class_name}' needed by config '{parser_id}' was not found/discovered. Skipping.")
+    logger.info(f"Final active_parsers dictionary: { {pid: type(p).__name__ for pid, p in active_parsers.items()} }")
+
+    connectors = [] # Instantiated connectors
+    connector_tasks = [] # Asyncio tasks for running connectors
+    source_configs = config.get('sources', {})
+    source_parser_map = {} # Map: source_id -> parser_config_id
+    logger.info(f"Loading {len(source_configs)} source configurations...")
+    for source_id, s_config in source_configs.items():
+        if not s_config.get('enabled', False):
+            logger.info(f"Source '{source_id}' is disabled. Skipping.")
+            continue
+
+        # --- Find Associated Parser Instance ---
+        parser_id = s_config.get('parser')
+        if not parser_id or parser_id not in active_parsers:
+            logger.error(f"Invalid or missing parser reference '{parser_id}' for source '{source_id}'. Skipping source.")
+            continue
+        # Map source to the parser config ID for the processor
+        source_parser_map[source_id] = parser_id
+        logger.debug(f"Mapping source '{source_id}' to parser config '{parser_id}'")
+
+        # --- Find and Instantiate Connector ---
+        connector_type_key = s_config.get('type') # e.g., "telegram_user" from config
+        ConnectorClass = None
+
+
+        # TODO: Need a reliable way to map 'type' string from config to discovered Class Name
+        # Simple approach for now assumes type key might match class name, might need explicit mapping dict
+        if connector_type_key == "telegram_user": # Example simple mapping
+            ConnectorClass = available_connector_classes.get("TelegramUserConnector")
+
+        if not ConnectorClass:
+            logger.warning(f"No implementation found for connector type '{connector_type_key}' (source '{source_id}'). Skipping.")
+            continue
+
+        try:
+            connector_instance = ConnectorClass(source_id, s_config, raw_message_queue)
+            logger.info(f"Instantiated Connector: {source_id} (Using Class: {ConnectorClass.__name__})")
+            connectors.append(connector_instance)
+            # Create task for connector's main run loop
+            connector_tasks.append(asyncio.create_task(connector_instance.run(), name=f"Connector_{source_id}"))
+        except Exception as e:
+             logger.error(f"Failed to instantiate/start connector task '{source_id}': {e}", exc_info=True)
+
+    logger.info(f"Constructed source->parser map: {source_parser_map}")
+    # --- Check if any essential components failed ---
+    if not active_parsers:
+         logger.critical("No parsers were successfully instantiated. Exiting.")
+         return
+    if not connectors:
+         logger.warning("No connectors were successfully instantiated or enabled.")
+         # Application can continue if API server/processor have other roles,
+         # but no new signals will be received from connectors.
+
+    # 3. Initialize Signal Processor Thread
+    logger.info("Initializing Signal Processor...")
+    signal_processor = SignalProcessor(
+        message_queue=raw_message_queue,
+        parsers=active_parsers,             # Pass dict of active parser INSTANCES
+        source_parser_map=source_parser_map,# Pass the source -> parser_id map
+        latest_signal_store=latest_signal_for_api,
+        api_lock=api_data_lock,
+        symbol_map=config.get('symbol_mapping', {})
+    )
+    processor_thread = threading.Thread(target=signal_processor.run, daemon=True, name="SignalProcessor")
+
+    # 4. Initialize Flask API Server Thread
+    logger.info("Initializing API Server...")
+    api_config = config.get('api_endpoint', {})
+    api_host = api_config.get('host', '127.0.0.1')
+    api_port = api_config.get('port', 5000)
+    api_thread = threading.Thread(
+        target=run_api_server,
+        args=(latest_signal_for_api, api_data_lock, api_host, api_port),
+        daemon=True, name="APIServer"
+    )
+
+    # --- Start Background Threads ---
+    processor_thread.start()
+    logger.info("Started Signal Processor Thread.")
+    api_thread.start()
+    logger.info(f"Started API Server Thread aiming for http://{api_host}:{api_port}.")
+
+    # --- Run Connector Tasks & Handle Shutdown ---
+    running_connector_tasks = list(connector_tasks) # Initial list of tasks to monitor
+    try:
+        if running_connector_tasks:
+            logger.info(f"Monitoring {len(running_connector_tasks)} connector task(s). Use Ctrl+C to exit gracefully.")
+            while running_connector_tasks: # Loop as long as tasks are supposed to be running
+                 done, pending = await asyncio.wait(
+                      running_connector_tasks,
+                      return_when=asyncio.FIRST_COMPLETED
+                 )
+                 running_connector_tasks = list(pending) # Update tasks still pending
+
+                 # Process tasks that completed
+                 for task in done:
+                      task_name = task.get_name() or "Unnamed Task"
+                      try:
+                          if not task.cancelled():
+                              task.result() # Check for exceptions if not cancelled
+                              # If result() doesn't raise, task finished normally
+                              logger.warning(f"Task '{task_name}' completed unexpectedly. Check its logic.")
+                          else:
+                              # Task was cancelled, likely during shutdown
+                              logger.info(f"Task '{task_name}' was cancelled.")
+                      except asyncio.CancelledError:
+                           # Explicitly catch cancellation
+                           logger.info(f"Task '{task_name}' handling_cancellation.")
+                      except Exception as e:
+                           logger.error(f"Task '{task_name}' failed: {e}", exc_info=True)
+                           # Optionally trigger shutdown on connector failure?
+                           # raise RuntimeError("Connector failed, shutting down.") from e
+
+        else:
+            logger.warning("No active connectors started. App will idle until Ctrl+C.")
+            # Wait indefinitely if no tasks, relies on Ctrl+C for exit
+            await asyncio.Event().wait()
+
+    except asyncio.CancelledError:
+        # This happens when asyncio.run() is cancelling the 'main' task due to KeyboardInterrupt
+        logger.info("Main async task received cancellation signal (Ctrl+C likely).")
+    except Exception as e:
+        logger.critical(f"Error in main async task execution: {e}", exc_info=True)
+    finally:
+        # --- Graceful Shutdown Sequence ---
+        logger.info("--- Initiating Application Shutdown ---")
+
+        # 1. Stop Connectors (Tell them to disconnect/stop listening)
+        if connectors:
+             logger.info(f"Signaling {len(connectors)} connectors to stop...")
+             # Allow connector stop() methods to run concurrently
+             stop_connector_tasks = [asyncio.create_task(conn.stop(), name=f"Stop_{conn.source_id}") for conn in connectors]
+             # Wait for them with a timeout
+             done_stop, pending_stop = await asyncio.wait(stop_connector_tasks, timeout=10.0)
+             if pending_stop:
+                  logger.warning(f"{len(pending_stop)} connector stop tasks timed out.")
+                  for task in pending_stop:
+                       logger.warning(f"Cancelling unresponsive stop task: {task.get_name()}")
+                       task.cancel()
+             else:
+                 logger.info("Connectors stop routines completed.")
+             # Brief pause allows underlying libraries to finish cleanup
+             await asyncio.sleep(0.5)
+
+        # 2. Cancel any Connector 'run' tasks that might still be listed as pending
+        #    (though they should have exited if their connector stopped)
+        if running_connector_tasks:
+             logger.info(f"Cancelling {len(running_connector_tasks)} potentially remaining connector run tasks...")
+             for task in running_connector_tasks:
+                 if not task.done(): task.cancel()
+             await asyncio.sleep(0.1) # Allow cancellations to process
+
+        # 3. Stop Processor Thread
+        if 'signal_processor' in locals() and processor_thread.is_alive():
+            logger.info("Stopping Signal Processor thread (allowing queue processing)...")
+            signal_processor.stop()
+            processor_thread.join(timeout=5.0)
+            if processor_thread.is_alive(): logger.warning("Processor thread failed to stop cleanly.")
+        else: logger.debug("Processor thread already stopped or not started.")
+
+        # 4. API Server thread (daemon) - will terminate automatically.
+        logger.info("API Server daemon thread will exit.")
+
+        logger.info("--- Application Shutdown Complete ---")
+
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    try:
+        print("Starting signal aggregator... Press Ctrl+C to exit.")
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\nCtrl+C detected by entry point. Shutdown sequence should be running...")
+        logging.info("Shutdown initiated via KeyboardInterrupt.")
+    except Exception as e:
+        logging.critical(f"Critical unhandled exception at entry point: {e}", exc_info=True)
+
+    logging.info("Script finished execution.")
+    print("Signal aggregator finished.")
+
+# --- END OF FILE main.py ---

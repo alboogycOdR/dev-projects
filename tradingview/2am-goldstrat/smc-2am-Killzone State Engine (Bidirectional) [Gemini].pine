@@ -1,0 +1,122 @@
+// © Gemini
+//@version=5
+indicator("SMC Killzone State Engine (Bidirectional) [Gemini]", overlay=true)
+//gemini chat 
+// --- INPUTS ---
+var GRP_TRADE = "Trade Settings"
+trade_direction_input = input.string("Both", "Trade Direction", options=["Both", "Longs Only", "Shorts Only"], group=GRP_TRADE)
+
+var GRP_TIME = "Time Settings"
+kz_start_hour   = input.int(2, "Killzone Start Hour", minval=0, maxval=23, group=GRP_TIME)
+kz_start_minute = input.int(0, "Killzone Start Minute", minval=0, maxval=59, group=GRP_TIME)
+kz_end_hour     = input.int(3, "Killzone End Hour", minval=0, maxval=23, group=GRP_TIME)
+kz_end_minute   = input.int(15, "Killzone End Minute", minval=0, maxval=59, group=GRP_TIME)
+timeZone        = "UTC+2"
+
+var GRP_POI = "Point of Interest (POI) Settings"
+htf_timeframe = input.timeframe("15", "Higher Timeframe (HTF) for POIs", group=GRP_POI)
+fvg_sensitivity = input.float(0.5, "POI Mitigation %", minval=0.1, maxval=1.0, step=0.1, group=GRP_POI, tooltip="Price must retrace this far into the POI to be considered mitigated. 0.5 = 50%.")
+
+var GRP_VIS = "Visual Settings"
+show_labels = input.bool(true, "Show State Labels", group=GRP_VIS)
+bull_fvg_color = input.color(color.new(color.green, 85), "Bullish FVG Color", group=GRP_VIS)
+bear_fvg_color = input.color(color.new(color.red, 85), "Bearish FVG Color", group=GRP_VIS)
+bull_ob_color = input.color(color.new(color.blue, 85), "Bullish OB Color", group=GRP_VIS)
+bear_ob_color = input.color(color.new(color.orange, 85), "Bearish OB Color", group=GRP_VIS)
+
+// --- STATE MACHINE ---
+var int STATE_IDLE = 0, var int STATE_IN_KILLZONE = 1, var int STATE_POI_IDENTIFIED = 2
+var int STATE_POI_MITIGATED = 3, var int STATE_ENTRY_SIGNAL = 4
+var int trade_state = STATE_IDLE
+var string trade_direction = na // "BULLISH" or "BEARISH"
+
+// --- TIME-BASED LOGIC ---
+is_in_killzone() =>
+    bar_hour = hour(time, timeZone), bar_minute = minute(time, timeZone)
+    currentTime = bar_hour * 100 + bar_minute, startTime = kz_start_hour * 100 + kz_start_minute, endTime = kz_end_hour * 100 + kz_end_minute
+    currentTime >= startTime and currentTime <= endTime
+
+// --- HTF DATA & POI IDENTIFICATION ---
+[htf_open, htf_high, htf_low, htf_close] = request.security(syminfo.tickerid, htf_timeframe, [open, high, low, close], lookahead=barmerge.lookahead_on)
+
+// Bearish POIs
+is_bearish_fvg = htf_low[2] > htf_high[0]
+bearish_fvg_high = htf_low[2], bearish_fvg_low = htf_high[0]
+is_bearish_ob = htf_close[1] > htf_open[1] and htf_close < htf_open[1]
+bearish_ob_high = htf_high[1], bearish_ob_low = htf_open[1]
+
+// Bullish POIs
+is_bullish_fvg = htf_high[2] < htf_low[0]
+bullish_fvg_high = htf_low[0], bullish_fvg_low = htf_high[2]
+is_bullish_ob = htf_close[1] < htf_open[1] and htf_close > htf_open[1]
+bullish_ob_high = htf_close[1], bullish_ob_low = htf_low[1]
+
+// --- STATE MANAGEMENT & VISUALS ---
+var float poi_high = na, var float poi_low = na, var box poi_box = na, var string poi_type = na
+
+// Reset state when killzone ends
+if not is_in_killzone() and trade_state != STATE_IDLE
+    trade_state := STATE_IDLE, poi_high := na, poi_low := na, poi_type := na, trade_direction := na
+    box.delete(poi_box), poi_box := na
+
+// Main State Machine Logic
+if is_in_killzone()
+    if trade_state == STATE_IDLE
+        trade_state := STATE_IN_KILLZONE
+
+    if trade_state == STATE_IN_KILLZONE
+        // --- Look for Bearish POI ---
+        if trade_direction_input != "Longs Only"
+            if is_bearish_fvg
+                poi_high := bearish_fvg_high, poi_low := bearish_fvg_low, poi_type := "FVG", trade_direction := "BEARISH"
+                poi_box := box.new(bar_index - 2, poi_high, bar_index + 100, poi_low, border_color=na, bgcolor=bear_fvg_color, text=poi_type, text_color=color.white, text_halign=text.align_center)
+                trade_state := STATE_POI_IDENTIFIED
+            else if is_bearish_ob
+                poi_high := bearish_ob_high, poi_low := bearish_ob_low, poi_type := "OB", trade_direction := "BEARISH"
+                poi_box := box.new(bar_index - 1, poi_high, bar_index + 100, poi_low, border_color=na, bgcolor=bear_ob_color, text=poi_type, text_color=color.white, text_halign=text.align_center)
+                trade_state := STATE_POI_IDENTIFIED
+        // --- Look for Bullish POI ---
+        if trade_direction_input != "Shorts Only"
+            if is_bullish_fvg
+                poi_high := bullish_fvg_high, poi_low := bullish_fvg_low, poi_type := "FVG", trade_direction := "BULLISH"
+                poi_box := box.new(bar_index - 2, poi_high, bar_index + 100, poi_low, border_color=na, bgcolor=bull_fvg_color, text=poi_type, text_color=color.white, text_halign=text.align_center)
+                trade_state := STATE_POI_IDENTIFIED
+            else if is_bullish_ob
+                poi_high := bullish_ob_high, poi_low := bullish_ob_low, poi_type := "OB", trade_direction := "BULLISH"
+                poi_box := box.new(bar_index - 1, poi_high, bar_index + 100, poi_low, border_color=na, bgcolor=bull_ob_color, text=poi_type, text_color=color.white, text_halign=text.align_center)
+                trade_state := STATE_POI_IDENTIFIED
+
+    if trade_state == STATE_POI_IDENTIFIED
+        poi_midpoint = poi_low + (poi_high - poi_low) * fvg_sensitivity
+        // Check mitigation based on direction
+        mitigated = (trade_direction == "BEARISH" and high >= poi_midpoint) or (trade_direction == "BULLISH" and low <= poi_midpoint)
+        if mitigated
+            trade_state := STATE_POI_MITIGATED
+            box.set_border_color(poi_box, trade_direction == "BEARISH" ? color.red : color.green)
+            box.set_border_width(poi_box, 2)
+
+    if trade_state == STATE_POI_MITIGATED
+        // Check for entry signal based on direction
+        is_bearish_entry = trade_direction == "BEARISH" and close < open and (high - low) > ta.atr(14) * 1.5
+        is_bullish_entry = trade_direction == "BULLISH" and close > open and (high - low) > ta.atr(14) * 1.5
+        if is_bearish_entry or is_bullish_entry
+            trade_state := STATE_ENTRY_SIGNAL
+            label.new(bar_index, is_bullish_entry ? low - ta.atr(14) : high + ta.atr(14), "ENTRY SIGNAL", 
+              color=is_bullish_entry ? color.green : color.red, textcolor=color.white, 
+              style=is_bullish_entry ? label.style_label_up : label.style_label_down)
+
+// --- ON-SCREEN LABELS ---
+var label state_label = na
+state_text = switch trade_state
+    STATE_IDLE => "IDLE - Waiting for Killzone"
+    STATE_IN_KILLZONE => "KILLZONE ACTIVE - Searching for HTF POI"
+    STATE_POI_IDENTIFIED => trade_direction + " POI (" + poi_type + ") - Waiting for Mitigation"
+    STATE_POI_MITIGATED => trade_direction + " POI MITIGATED - Waiting for LTF Entry"
+    STATE_ENTRY_SIGNAL => trade_direction + " ENTRY SIGNAL FOUND"
+    => "UNKNOWN"
+
+if show_labels
+    label.delete(state_label)
+    state_label := label.new(bar_index, ta.highest(high, 20) * 1.00005, state_text, 
+         xloc=xloc.bar_index, yloc=yloc.price, 
+         color=color.new(color.black, 20), textcolor=color.white, style=label.style_label_left)

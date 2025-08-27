@@ -1,0 +1,133 @@
+# config.yaml
+
+logging:
+  level: DEBUG # Changed from INFO
+  format: '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+api_endpoint:
+  host: "127.0.0.1"
+  port: 5000
+#testing   fxhddemochannel
+sources:
+  # --- Source Example 1: Telegram User Account ---
+  telegram_fxscalping: # Unique ID for this source
+    enabled: true
+    type: telegram_user
+    session_name: "mt5_signal_session" # Keep existing session file if desired
+    credentials:
+      api_id: 20086439      # Replace with actual value
+      api_hash: 9d5afd6b6fcdce39e84b72b03cf4d9ac # Replace with actual value
+      phone: 27834492741
+    targets: # Channels/Users to monitor
+      - "fx_scalping" #"" fxhddemochannel
+      # - "another_telegram_channel_username"
+    parser: telegram_format_1 # Name matching a parser config below
+
+  # --- ADDED SOURCE ---
+  telegram_derivknights: # Unique ID for the new source
+    enabled: true
+    type: telegram_user
+    # Use same credentials if same account, BUT different session name
+    session_name: "mt5_deriv_session"
+    credentials:
+      api_id: 20086439
+      api_hash: 9d5afd6b6fcdce39e84b72b03cf4d9ac
+      phone: 27834492741
+    targets:
+      - "DeriveVIKnightsPtY"   #"DeriveVIKnightsPtY # <<< Target Channel Username/ID
+    parser: telegram_format_2 # <<< Maps to new parser config ID
+
+  # --- ADDED SOURCE ---
+  telegram_redfox: # Unique ID for the new source
+    enabled: true
+    type: telegram_user
+    # Use same credentials if same account, BUT different session name
+    session_name: "mt5_redfox_session"
+    credentials:
+      api_id: 20086439
+      api_hash: 9d5afd6b6fcdce39e84b72b03cf4d9ac
+      phone: 27834492741
+    targets:
+      - "redfox_daily_forex_signals"   #redfox_daily_forex_signals
+    parser: telegram_format_3 # <<< Maps to new parser config ID
+
+  # --- ADDED SOURCE ---
+  telegram_private_club: # Unique ID for the new source
+    enabled: true
+    type: telegram_user
+    # Use same credentials if same account, BUT different session name
+    session_name: "mt5_private_club_session"
+    credentials:
+      api_id: 20086439
+      api_hash: 9d5afd6b6fcdce39e84b72b03cf4d9ac
+      phone: 27834492741
+    targets:
+      - "fxhddemochannel"    #fxhddemochannel         #"FXMPrivateClub"   #redfox_daily_forex_signals
+    parser: telegram_format_4 # <<< Maps to new parser config ID
+
+
+
+parsers:
+  telegram_format_1: # Matches the parser name used in sources
+    type: TelegramFormat1Parser # Python class name to use
+    # Add any specific settings needed for this parser later if needed
+    # e.g., specific regex patterns could be stored here
+
+  telegram_format_2: # ID for the second parser
+    type: TelegramFormat2Parser # <<< Class name for format 2
+
+ # --- ADDED REDFOX PARSER CONFIG ---
+  telegram_format_3:         # Config ID referenced by source
+    type: TelegramFormat3Parser # <<< Class name for format 3
+
+ # --- ADDED FXMPrivateClub PARSER CONFIG ---
+  telegram_format_4:         # Config ID referenced by source
+    type: TelegramFormat4Parser # <<< Class name for format 4
+
+# Optional symbol mapping
+# symbol_mapping:
+#   STEPINDEX500: STEP500 # Example mapping if needed by MQL5
+
+# --- Add other top-level sections if needed (e.g., symbol_mapping) ---
+symbol_mapping:
+   #currencies
+   AUD/USD: AUDUSD
+   USD/JPY: USDJPY
+   EUR/USD: EURUSD
+   EUR/GBP: EURGBP
+   CHF/JPY: CHFJPY
+   EUR/CHF: EURCHF
+   GBP/USD: GBPUSD
+   GBP/CAD: GBPCAD
+   NZD/USD: NZDUSD
+   GBP/JPY: GBPJPY         # Common, but check if suffix like .m needed
+   USDCADm: USDCAD
+   #metals
+   SILVER: XAGUSD          # Replace XAGUSD if your broker uses something else
+   GOLD: XAUUSD
+   #indices
+   US500 SPOT: US SP 500       # Replace US500 if needed (e.g., SPX500, USA500)
+   US100 SPOT: US Tech 100
+   US30 SPOT: Wall Street 30
+   GERMANY40 SPOT: Germany 40
+   WHEAT FUTURES: WHEAT    # Replace WHEAT if needed (e.g., ZW, WHEAT.f)
+   HONG KONG 50: Hong Kong 50        # Replace HK50 if needed (e.g., HKG50)
+   #energies
+   OIL SPOT: US Oil
+   BRENT OIL: UK Brent Oil
+   #synthetics
+   STEPINDEX200: Step Index 200
+   STEPINDEX300: Step Index 300
+   STEPINDEX400: Step Index 400
+   STEPINDEX500: Step Index 500
+
+
+# --- Source Example 2: Another Potential Source (Future) ---
+# discord_coolsignals:
+#   enabled: false
+#   type: discord_bot
+#   credentials:
+#     token: YOUR_DISCORD_BOT_TOKEN
+#   targets:
+#     - server_id: 1234567890
+#       channel_id: 9876543210
+#   parser: discord_format_x

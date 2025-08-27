@@ -1,0 +1,417 @@
+// © Enhanced SMC System
+//@version=5
+indicator("SMC Killzone State Engine [Enhanced] CLAUDE", overlay=true, max_boxes_count=500, max_labels_count=500, max_lines_count=500)
+//https://claude.ai/chat/9af9bc2d-4d0c-4568-89b0-1e8847506f3d
+ // © Enhanced SMC System
+
+// ═══════════════════════════════════════════════════════════════════════════
+// INPUTS
+// ═══════════════════════════════════════════════════════════════════════════
+
+var GRP_TRADE = "═══ Trade Settings ═══"
+trade_direction_input = input.string("Both", "Trade Direction", options=["Both", "Longs Only", "Shorts Only"], group=GRP_TRADE)
+risk_reward_ratio = input.float(2.0, "Risk:Reward Ratio", minval=1.0, maxval=5.0, step=0.5, group=GRP_TRADE)
+max_trades_per_session = input.int(3, "Max Trades per Session", minval=1, maxval=10, group=GRP_TRADE)
+
+var GRP_KILLZONES = "═══ Killzone Settings ═══"
+// London Session
+use_london = input.bool(true, "London Session", group=GRP_KILLZONES)
+london_start_hour = input.int(2, "London Start Hour (SAST)", minval=0, maxval=23, group=GRP_KILLZONES)
+london_end_hour = input.int(5, "London End Hour (SAST)", minval=0, maxval=23, group=GRP_KILLZONES)
+
+// New York Session
+use_ny = input.bool(true, "New York Session", group=GRP_KILLZONES)
+ny_start_hour = input.int(14, "NY Start Hour (SAST)", minval=0, maxval=23, group=GRP_KILLZONES)
+ny_end_hour = input.int(17, "NY End Hour (SAST)", minval=0, maxval=23, group=GRP_KILLZONES)
+
+timeZone = input.string("GMT+2", "Timezone", options=["GMT+2", "UTC", "America/New_York", "Europe/London"], group=GRP_KILLZONES)
+
+var GRP_POI = "═══ POI Detection Settings ═══"
+htf1 = input.timeframe("15", "Primary HTF", group=GRP_POI)
+htf2 = input.timeframe("60", "Secondary HTF", group=GRP_POI)
+htf3 = input.timeframe("240", "Structure HTF", group=GRP_POI)
+
+poi_lookback = input.int(50, "POI Lookback Bars", minval=10, maxval=200, group=GRP_POI)
+fvg_min_size = input.float(0.0010, "Min FVG Size (% of Price)", minval=0.0001, maxval=0.01, step=0.0001, group=GRP_POI)
+ob_strength = input.int(3, "OB Strength (bars)", minval=1, maxval=10, group=GRP_POI)
+min_poi_score = input.float(60, "Minimum POI Score", minval=0, maxval=100, step=5, group=GRP_POI)
+
+use_breakers = input.bool(true, "Detect Breakers", group=GRP_POI)
+use_mitigation_blocks = input.bool(true, "Detect Mitigation Blocks", group=GRP_POI)
+use_volume_imbalance = input.bool(true, "Volume Imbalance Zones", group=GRP_POI)
+
+var GRP_STRUCTURE = "═══ Market Structure ═══"
+structure_lookback = input.int(20, "Structure Lookback", minval=5, maxval=50, group=GRP_STRUCTURE)
+use_choch = input.bool(true, "Use CHoCH Detection", group=GRP_STRUCTURE)
+use_bos = input.bool(true, "Use BOS Detection", group=GRP_STRUCTURE)
+swing_strength = input.int(3, "Swing High/Low Strength", minval=1, maxval=10, group=GRP_STRUCTURE)
+
+var GRP_LIQUIDITY = "═══ Liquidity Analysis ═══"
+use_liquidity = input.bool(true, "Enable Liquidity Sweeps", group=GRP_LIQUIDITY)
+liquidity_lookback = input.int(20, "Liquidity Lookback", minval=5, maxval=50, group=GRP_LIQUIDITY)
+sweep_threshold = input.float(0.0005, "Sweep Threshold %", minval=0.0001, maxval=0.01, step=0.0001, group=GRP_LIQUIDITY)
+
+var GRP_VISUAL = "═══ Visual Settings ═══"
+show_dashboard = input.bool(true, "Show Dashboard", group=GRP_VISUAL)
+show_structure = input.bool(true, "Show Market Structure", group=GRP_VISUAL)
+show_liquidity = input.bool(true, "Show Liquidity Levels", group=GRP_VISUAL)
+show_poi_scores = input.bool(true, "Show POI Scores", group=GRP_VISUAL)
+
+// Colors
+bull_fvg_color = input.color(#26a69a, "Bullish FVG", group=GRP_VISUAL)
+bear_fvg_color = input.color(#ef5350, "Bearish FVG", group=GRP_VISUAL)
+bull_ob_color = input.color(#2196f3, "Bullish OB", group=GRP_VISUAL)
+bear_ob_color = input.color(#ff9800, "Bearish OB", group=GRP_VISUAL)
+
+// ═══════════════════════════════════════════════════════════════════════════
+// GLOBAL VARIABLES & TYPES
+// ═══════════════════════════════════════════════════════════════════════════
+
+// State Machine States
+var int STATE_IDLE = 0
+var int STATE_SCANNING = 1
+var int STATE_POI_FOUND = 2
+var int STATE_ENTRY_TRIGGERED = 3
+
+// Variables
+var int current_state = STATE_IDLE
+var int trades_today = 0
+var float best_poi_high = na
+var float best_poi_low = na
+var string best_poi_type = ""
+var string best_poi_direction = ""
+var float best_poi_score = 0.0
+var box best_poi_box = na
+
+// Market Structure
+var float last_swing_high = na
+var float last_swing_low = na
+var string market_trend = "NEUTRAL"
+var bool structure_break = false
+var bool choch_detected = false
+
+// Arrays for multiple POIs
+var array<box> poi_boxes = array.new<box>()
+var array<float> poi_scores = array.new<float>()
+var array<line> liquidity_lines = array.new<line>()
+
+// ═══════════════════════════════════════════════════════════════════════════
+// FUNCTIONS
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Killzone Detection
+is_in_killzone() =>
+    int h = hour(time, timeZone)
+    bool in_london = use_london and h >= london_start_hour and h < london_end_hour
+    bool in_ny = use_ny and h >= ny_start_hour and h < ny_end_hour
+    in_london or in_ny
+
+get_current_session() =>
+    int h = hour(time, timeZone)
+    if use_london and h >= london_start_hour and h < london_end_hour
+        "LONDON"
+    else if use_ny and h >= ny_start_hour and h < ny_end_hour
+        "NEW_YORK"
+    else
+        "NONE"
+
+// Market Structure Analysis
+update_market_structure() =>
+    // Detect swing points
+    float swing_high = ta.pivothigh(high, swing_strength, swing_strength)
+    float swing_low = ta.pivotlow(low, swing_strength, swing_strength)
+
+    // Start with current state
+    bool new_structure_break = structure_break
+    float new_last_swing_high = last_swing_high
+    float new_last_swing_low = last_swing_low
+    string new_market_trend = market_trend
+    bool new_choch_detected = false
+
+    // Update swings and state locally
+    if not na(swing_high)
+        if na(new_last_swing_high) or swing_high > new_last_swing_high
+            new_structure_break := true
+            new_market_trend := "BULLISH"
+        new_last_swing_high := swing_high
+
+    if not na(swing_low)
+        if na(new_last_swing_low) or swing_low < new_last_swing_low
+            new_structure_break := true
+            new_market_trend := "BEARISH"
+        new_last_swing_low := swing_low
+
+    // CHoCH detection
+    if use_choch
+        if new_market_trend == "BULLISH" and close < new_last_swing_low
+            new_choch_detected := true
+            new_market_trend := "BEARISH"
+        else if new_market_trend == "BEARISH" and close > new_last_swing_high
+            new_choch_detected := true
+            new_market_trend := "BULLISH"
+
+    [new_structure_break, new_last_swing_high, new_last_swing_low, new_market_trend, new_choch_detected]
+
+// POI Scoring
+calculate_poi_score(poi_type, poi_dir, timeframe_weight) =>
+    float score = 50.0  // Base score
+    
+    // Market structure alignment
+    if (poi_dir == "BULL" and market_trend == "BULLISH") or (poi_dir == "BEAR" and market_trend == "BEARISH")
+        score += 20
+    
+    // Timeframe weight
+    score += timeframe_weight
+    
+    // Recent structure break bonus
+    if structure_break
+        score += 10
+    
+    // CHoCH bonus
+    if choch_detected
+        score += 10
+    
+    // POI type bonus
+    if poi_type == "BREAKER"
+        score += 15
+    else if poi_type == "OB"
+        score += 10
+    else if poi_type == "FVG"
+        score += 5
+    
+    math.min(score, 100)
+
+// ═══════════════════════════════════════════════════════════════════════════
+// POI DETECTION
+// ═══════════════════════════════════════════════════════════════════════════
+
+// HTF Data
+[htf1_o, htf1_h, htf1_l, htf1_c] = request.security(syminfo.tickerid, htf1, [open, high, low, close])
+[htf2_o, htf2_h, htf2_l, htf2_c] = request.security(syminfo.tickerid, htf2, [open, high, low, close])
+[htf3_o, htf3_h, htf3_l, htf3_c] = request.security(syminfo.tickerid, htf3, [open, high, low, close])
+
+// FVG Detection
+detect_fvg() =>
+    // HTF1 FVGs
+    bool bear_fvg_h1 = htf1_l[2] > htf1_h and (htf1_l[2] - htf1_h) / htf1_c > fvg_min_size
+    bool bull_fvg_h1 = htf1_h[2] < htf1_l and (htf1_l - htf1_h[2]) / htf1_c > fvg_min_size
+    
+    // HTF2 FVGs
+    bool bear_fvg_h2 = htf2_l[2] > htf2_h and (htf2_l[2] - htf2_h) / htf2_c > fvg_min_size
+    bool bull_fvg_h2 = htf2_h[2] < htf2_l and (htf2_l - htf2_h[2]) / htf2_c > fvg_min_size
+    
+    float best_fvg_high = na
+    float best_fvg_low = na
+    string best_fvg_type = ""
+    string best_fvg_direction = ""
+    float best_fvg_score = 0.0
+    
+    if bear_fvg_h1 and (trade_direction_input == "Both" or trade_direction_input == "Shorts Only")
+        float score = calculate_poi_score("FVG", "BEAR", 10)
+        if score > best_fvg_score
+            best_fvg_high := htf1_l[2]
+            best_fvg_low := htf1_h
+            best_fvg_type := "FVG"
+            best_fvg_direction := "BEAR"
+            best_fvg_score := score
+    
+    if bull_fvg_h1 and (trade_direction_input == "Both" or trade_direction_input == "Longs Only")
+        float score = calculate_poi_score("FVG", "BULL", 10)
+        if score > best_fvg_score
+            best_fvg_high := htf1_l
+            best_fvg_low := htf1_h[2]
+            best_fvg_type := "FVG"
+            best_fvg_direction := "BULL"
+            best_fvg_score := score
+    
+    if bear_fvg_h2 and (trade_direction_input == "Both" or trade_direction_input == "Shorts Only")
+        float score = calculate_poi_score("FVG", "BEAR", 15)
+        if score > best_fvg_score
+            best_fvg_high := htf2_l[2]
+            best_fvg_low := htf2_h
+            best_fvg_type := "FVG"
+            best_fvg_direction := "BEAR"
+            best_fvg_score := score
+    
+    if bull_fvg_h2 and (trade_direction_input == "Both" or trade_direction_input == "Longs Only")
+        float score = calculate_poi_score("FVG", "BULL", 15)
+        if score > best_fvg_score
+            best_fvg_high := htf2_l
+            best_fvg_low := htf2_h[2]
+            best_fvg_type := "FVG"
+            best_fvg_direction := "BULL"
+            best_fvg_score := score
+    
+    [best_fvg_high, best_fvg_low, best_fvg_type, best_fvg_direction, best_fvg_score]
+
+// Order Block Detection
+detect_order_blocks() =>
+    // Check for OBs on multiple timeframes
+    float best_ob_high = na
+    float best_ob_low = na
+    string best_ob_type = ""
+    string best_ob_direction = ""
+    float best_ob_score = 0.0
+    
+    for i = 1 to ob_strength
+        // HTF1 Bearish OB
+        if htf1_c[i] > htf1_o[i] and htf1_c < htf1_o[i]
+            float body = math.abs(htf1_c[i] - htf1_o[i])
+            float price_range = htf1_h[i] - htf1_l[i]
+            if body > price_range * 0.6 and (trade_direction_input == "Both" or trade_direction_input == "Shorts Only")
+                float score = calculate_poi_score("OB", "BEAR", 10)
+                if score > best_ob_score
+                    best_ob_high := htf1_h[i]
+                    best_ob_low := math.min(htf1_o[i], htf1_c[i])
+                    best_ob_type := "OB"
+                    best_ob_direction := "BEAR"
+                    best_ob_score := score
+        
+        // HTF1 Bullish OB
+        if htf1_c[i] < htf1_o[i] and htf1_c > htf1_o[i]
+            float body = math.abs(htf1_c[i] - htf1_o[i])
+            float price_range = htf1_h[i] - htf1_l[i]
+            if body > price_range * 0.6 and (trade_direction_input == "Both" or trade_direction_input == "Longs Only")
+                float score = calculate_poi_score("OB", "BULL", 10)
+                if score > best_ob_score
+                    best_ob_high := math.max(htf1_o[i], htf1_c[i])
+                    best_ob_low := htf1_l[i]
+                    best_ob_type := "OB"
+                    best_ob_direction := "BULL"
+                    best_ob_score := score
+    
+    [best_ob_high, best_ob_low, best_ob_type, best_ob_direction, best_ob_score]
+
+// Combined POI Detection
+detect_pois() =>
+    [fvg_high, fvg_low, fvg_type, fvg_direction, fvg_score] = detect_fvg()
+    [ob_high, ob_low, ob_type, ob_direction, ob_score] = detect_order_blocks()
+    
+    // Return the POI with the highest score
+    if fvg_score > ob_score
+        [fvg_high, fvg_low, fvg_type, fvg_direction, fvg_score]
+    else
+        [ob_high, ob_low, ob_type, ob_direction, ob_score]
+
+// ═══════════════════════════════════════════════════════════════════════════
+// MAIN LOGIC
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Reset daily
+if dayofweek != dayofweek[1]
+    trades_today := 0
+    current_state := STATE_IDLE
+    best_poi_score := 0
+
+// Update market structure
+[new_structure_break, new_last_swing_high, new_last_swing_low, new_market_trend, new_choch_detected] = update_market_structure()
+structure_break := new_structure_break
+last_swing_high := new_last_swing_high
+last_swing_low := new_last_swing_low
+market_trend := new_market_trend
+choch_detected := new_choch_detected
+
+// State Machine
+if is_in_killzone() and trades_today < max_trades_per_session
+    if current_state == STATE_IDLE
+        current_state := STATE_SCANNING
+        best_poi_score := 0  // Reset score for new scan
+    
+    if current_state == STATE_SCANNING
+        [poi_high, poi_low, poi_type, poi_direction, poi_score] = detect_pois()
+        
+        if poi_score > best_poi_score
+            best_poi_high := poi_high
+            best_poi_low := poi_low
+            best_poi_type := poi_type
+            best_poi_direction := poi_direction
+            best_poi_score := poi_score
+        
+        if best_poi_score > min_poi_score
+            current_state := STATE_POI_FOUND
+            
+            // Create POI box
+            if not na(best_poi_box)
+                box.delete(best_poi_box)
+            
+            box_color = best_poi_direction == "BULL" ? (best_poi_type == "FVG" ? bull_fvg_color : bull_ob_color) : (best_poi_type == "FVG" ? bear_fvg_color : bear_ob_color)
+            
+            best_poi_box := box.new(bar_index, best_poi_high, bar_index + 50, best_poi_low, border_color=na, bgcolor=box_color, text=best_poi_type + "\n" + str.tostring(best_poi_score, "#"), text_color=#ffffff)
+    
+    if current_state == STATE_POI_FOUND
+        // Check for price mitigation
+        float poi_mid = (best_poi_high + best_poi_low) / 2
+        bool mitigated = (best_poi_direction == "BEAR" and high >= poi_mid) or (best_poi_direction == "BULL" and low <= poi_mid)
+        
+        if mitigated
+            // Check for entry confirmation
+            float atr = ta.atr(14)
+            bool is_displacement = (best_poi_direction == "BEAR" and close < open and (high - low) > atr * 1.5) or  (best_poi_direction == "BULL" and close > open and (high - low) > atr * 1.5)
+            
+            if is_displacement
+                current_state := STATE_ENTRY_TRIGGERED
+                trades_today += 1
+                
+                // Update box to show triggered
+                box.set_border_color(best_poi_box, #ffff00)
+                box.set_border_width(best_poi_box, 2)
+                
+                // Create entry label
+                label.new(bar_index, best_poi_direction == "BULL" ? low - atr : high + atr, "ENTRY " + best_poi_direction + "\nType: " + best_poi_type + "\nScore: " + str.tostring(best_poi_score, "#"), color=best_poi_direction == "BULL" ? #00ff00 : #ff0000, textcolor=#ffffff, style=best_poi_direction == "BULL" ? label.style_label_up : label.style_label_down)
+else
+    if current_state != STATE_IDLE
+        current_state := STATE_IDLE
+
+// ═══════════════════════════════════════════════════════════════════════════
+// VISUALIZATION
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Killzone Background
+bgcolor(is_in_killzone() ? #0000ff : na)
+
+// Market Structure Lines
+if show_structure
+    if not na(last_swing_high)
+        line.new(bar_index[swing_strength], last_swing_high, bar_index, last_swing_high, color=#ff0000, style=line.style_dotted, width=1, extend=extend.right)
+    if not na(last_swing_low)
+        line.new(bar_index[swing_strength], last_swing_low, bar_index, last_swing_low, color=#00ff00, style=line.style_dotted, width=1, extend=extend.right)
+
+// Dashboard
+if show_dashboard and barstate.islast
+    var table dash = table.new(position.top_right, 2, 8, bgcolor=#000000)
+    
+    string state_text = switch current_state
+        STATE_IDLE => "🔴 IDLE"
+        STATE_SCANNING => "🟡 SCANNING"
+        STATE_POI_FOUND => "🟢 POI FOUND"
+        STATE_ENTRY_TRIGGERED => "✅ ENTRY"
+        => "UNKNOWN"
+    
+    table.cell(dash, 0, 0, "Session", text_color=#ffffff, text_size=size.small)
+    table.cell(dash, 1, 0, get_current_session(), text_color=#ffff00, text_size=size.small)
+    
+    table.cell(dash, 0, 1, "State", text_color=#ffffff, text_size=size.small)
+    table.cell(dash, 1, 1, state_text, text_color=#ffffff, text_size=size.small)
+    
+    table.cell(dash, 0, 2, "Trend", text_color=#ffffff, text_size=size.small)
+    table.cell(dash, 1, 2, market_trend,       text_color=market_trend == "BULLISH" ? #00ff00 :      market_trend == "BEARISH" ? #ff0000 : #808080,     text_size=size.small)
+    
+    table.cell(dash, 0, 3, "Trades", text_color=#ffffff, text_size=size.small)
+    table.cell(dash, 1, 3, str.tostring(trades_today) + "/" + str.tostring(max_trades_per_session), text_color=trades_today >= max_trades_per_session ? #ff0000 : #00ff00, text_size=size.small)
+    
+    if not na(best_poi_type) and best_poi_score > 0
+        table.cell(dash, 0, 4, "Best POI", text_color=#ffffff, text_size=size.small)
+        table.cell(dash, 1, 4, best_poi_type + " " + best_poi_direction, text_color=#00ffff, text_size=size.small)
+        
+        table.cell(dash, 0, 5, "Score", text_color=#ffffff, text_size=size.small)
+        table.cell(dash, 1, 5, str.tostring(best_poi_score, "#") + "/100", text_color=best_poi_score > 70 ? #00ff00 : best_poi_score > 50 ? #ffff00 : #ff0000, text_size=size.small)
+
+// Entry Signals
+plotshape(current_state == STATE_ENTRY_TRIGGERED and current_state[1] != STATE_ENTRY_TRIGGERED, title="Entry", location=location.belowbar, color=#00ff00, style=shape.triangleup, size=size.normal)
+
+// Alerts
+if current_state == STATE_ENTRY_TRIGGERED and current_state[1] != STATE_ENTRY_TRIGGERED
+    alert("SMC Entry Signal: " + best_poi_direction + " " + best_poi_type + " (Score: " + str.tostring(best_poi_score, "#") + ")", alert.freq_once_per_bar)
+
+if is_in_killzone() and not is_in_killzone()[1]
+    alert("Killzone Session Started: " + get_current_session(), alert.freq_once_per_bar)
