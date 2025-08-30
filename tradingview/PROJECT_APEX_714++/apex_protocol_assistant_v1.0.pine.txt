@@ -1,0 +1,303 @@
+//@version=5
+indicator("Apex Protocol Assistant v1.0", shorttitle="APA", overlay=true, timeframe="", timeframe_gaps=true, max_lines_count=500, max_boxes_count=500, max_labels_count=500)
+
+// ===== INPUTS SECTION =====
+
+// Session Times
+asiaStartTime   = input.time(20, "Asia Session Start (EST)", minval=timestamp("1970-01-01 00:00+00:00"))
+asiaEndTime     = input.time(06, "Asia Session End (EST)", minval=timestamp("1970-01-01 00:00+00:00"))
+londonStartTime = input.time(02, "London Killzone Start (EST)", minval=timestamp("1970-01-01 00:00+00:00"))
+londonEndTime   = input.time(05, "London Killzone End (EST)", minval=timestamp("1970-01-01 00:00+00:00"))
+nyStartTime     = input.time(08, "NY Killzone Start (EST)", minval=timestamp("1970-01-01 00:00+00:00"))
+nyEndTime       = input.time(11, "NY Killzone End (EST)", minval=timestamp("1970-01-01 00:00+00:00"))
+timezone        = input.string("America/New_York", "Timezone", options=["America/New_York", "Europe/London", "Asia/Tokyo"])
+
+// Technical Parameters
+htfTimeframe    = input.timeframe("4H", "HTF Timeframe")
+htfEmaLength    = input.int(50, "HTF EMA Length", minval=1)
+chocLookback    = input.int(5, "CHoCH Lookback Period", minval=1)
+fvgSearchBars   = input.int(20, "FVG Search Bars", minval=5, maxval=100)
+
+// Risk Management
+riskRewardRatio = input.float(2.0, "Risk-to-Reward Ratio", minval=1.0, step=0.1)
+accountBalance  = input.float(10000, "Account Balance ($)", minval=1)
+riskPercent     = input.float(1.0, "Risk % per Trade", minval=0.1, maxval=5.0)
+
+// Visual Settings
+showAsianRange  = input.bool(true, "Show Asian Range")
+showKillzones   = input.bool(true, "Show Killzones")
+showDashboard   = input.bool(true, "Show Dashboard")
+showLevels      = input.bool(true, "Show Key Levels")
+
+// Colors
+bullishColor    = input.color(color.new(color.green, 90), "Bullish Background")
+bearishColor    = input.color(color.new(color.red, 90), "Bearish Background")
+asianBoxColor   = input.color(color.new(color.blue, 85), "Asian Range Box")
+londonZoneColor = input.color(color.new(color.yellow, 85), "London Killzone")
+nyZoneColor     = input.color(color.new(color.orange, 85), "NY Killzone")
+entryZoneColor  = input.color(color.new(color.purple, 80), "Entry Zone")
+pdhColor        = input.color(color.new(color.gray, 0), "PDH/PDL Color")
+pwhColor        = input.color(color.new(color.gray, 50), "PWH/PWL Color")
+
+// ===== STATE VARIABLES =====
+
+// Protocol State Machine
+var int protocolState = 0  // 0=STANDBY, 1=HUNTING, 2=MANIPULATION_DETECTED, 3=ARMED
+
+// Persistent variables for setup tracking
+var float manipulationWickLow = na
+var float manipulationWickHigh = na
+var bool isBullishSetup = false
+var float entryPrice = na
+var float stopLoss = na
+var float takeProfit = na
+var float lastSignalPrice = na
+var string lastSignalDirection = ""
+
+// Session tracking
+var float asianSessionHigh = na
+var float asianSessionLow = na
+var bool asianSessionActive = false
+
+// ===== HTF BIAS DETECTION =====
+
+// Get HTF EMA for bias determination
+htfClose = request.security(syminfo.tickerid, htfTimeframe, close, barmerge.gaps_off, barmerge.lookahead_off)
+htfEma = request.security(syminfo.tickerid, htfTimeframe, ta.ema(close, htfEmaLength), barmerge.gaps_off, barmerge.lookahead_off)
+isBullishBias = htfClose > htfEma
+
+// ===== SESSION DETECTION =====
+
+// Current time in specified timezone
+currentTime = time(timeframe.period, session.regular, timezone)
+
+// Session active flags
+isLondonKillzone = currentTime >= londonStartTime and currentTime <= londonEndTime
+isNYKillzone = currentTime >= nyStartTime and currentTime <= nyEndTime
+isKillzone = isLondonKillzone or isNYKillzone
+
+// Asian session detection and range calculation
+if barstate.islast
+    asianSessionActive := false
+    if currentTime >= asiaStartTime and currentTime <= asiaEndTime
+        asianSessionActive := true
+        asianSessionHigh := max(asianSessionHigh, high)
+        asianSessionLow := min(asianSessionLow, low)
+
+// ===== KEY LEVELS =====
+
+// Previous Day High/Low
+pdh = request.security(syminfo.tickerid, "D", high[1], barmerge.gaps_off, barmerge.lookahead_off)
+pdl = request.security(syminfo.tickerid, "D", low[1], barmerge.gaps_off, barmerge.lookahead_off)
+
+// Previous Week High/Low
+pwh = request.security(syminfo.tickerid, "W", high[1], barmerge.gaps_off, barmerge.lookahead_off)
+pwl = request.security(syminfo.tickerid, "W", low[1], barmerge.gaps_off, barmerge.lookahead_off)
+
+// ===== LIQUIDITY SWEEP DETECTION =====
+
+// Bullish sweep detection (price breaks below key low then recovers)
+bullishSweepDetected = false
+if not na(asianSessionLow) and not na(pdl)
+    keyLow = min(asianSessionLow, pdl)
+    if low[1] < keyLow and close[1] > keyLow
+        bullishSweepDetected := true
+        manipulationWickLow := low[1]
+
+// Bearish sweep detection (price breaks above key high then recovers)
+bearishSweepDetected = false
+if not na(asianSessionHigh) and not na(pdh)
+    keyHigh = max(asianSessionHigh, pdh)
+    if high[1] > keyHigh and close[1] < keyHigh
+        bearishSweepDetected := true
+        manipulationWickHigh := high[1]
+
+// ===== CHANGE OF CHARACTER (CHoCH) DETECTION =====
+
+// Bullish CHoCH - break above pivot high after bullish sweep
+bullishCHoCH = false
+if bullishSweepDetected and not na(manipulationWickLow)
+    pivotHigh = ta.pivothigh(high, chocLookback, chocLookback)
+    if not na(pivotHigh) and high > pivotHigh and close > pivotHigh
+        bullishCHoCH := true
+
+// Bearish CHoCH - break below pivot low after bearish sweep
+bearishCHoCH = false
+if bearishSweepDetected and not na(manipulationWickHigh)
+    pivotLow = ta.pivotlow(low, chocLookback, chocLookback)
+    if not na(pivotLow) and low < pivotLow and close < pivotLow
+        bearishCHoCH := true
+
+// ===== ENTRY ZONE IDENTIFICATION =====
+
+// Fair Value Gap detection function
+f_findBullishFVG() =>
+    float entry = na
+    for i = 1 to fvgSearchBars
+        if high[i] < low[i-2] and not na(high[i]) and not na(low[i-2])
+            entry := high[i]
+            break
+    entry
+
+f_findBearishFVG() =>
+    float entry = na
+    for i = 1 to fvgSearchBars
+        if low[i] > high[i-2] and not na(low[i]) and not na(high[i-2])
+            entry := low[i]
+            break
+    entry
+
+// Order Block detection function
+f_findBullishOB() =>
+    float entry = na
+    for i = 1 to fvgSearchBars
+        if close[i] > open[i] and close[i+1] < open[i+1] and not na(close[i])
+            entry := open[i]
+            break
+    entry
+
+f_findBearishOB() =>
+    float entry = na
+    for i = 1 to fvgSearchBars
+        if close[i] < open[i] and close[i+1] > open[i+1] and not na(close[i])
+            entry := close[i]
+            break
+    entry
+
+// Determine entry zone based on setup type
+entryZone = na
+if bullishCHoCH
+    // Priority: FVG then OB
+    fvgEntry = f_findBullishFVG()
+    entryZone := not na(fvgEntry) ? fvgEntry : f_findBullishOB()
+    isBullishSetup := true
+
+if bearishCHoCH
+    // Priority: FVG then OB
+    fvgEntry = f_findBearishFVG()
+    entryZone := not na(fvgEntry) ? fvgEntry : f_findBearishOB()
+    isBullishSetup := false
+
+// ===== STATE MACHINE LOGIC =====
+
+// Reset state at start of new session
+if not isKillzone and protocolState != 0
+    protocolState := 0
+
+// State transitions
+if protocolState == 0 and isKillzone  // STANDBY -> HUNTING
+    protocolState := 1
+
+if protocolState == 1 and (bullishSweepDetected or bearishSweepDetected)  // HUNTING -> MANIPULATION_DETECTED
+    protocolState := 2
+
+if protocolState == 2 and (bullishCHoCH or bearishCHoCH)  // MANIPULATION_DETECTED -> ARMED
+    protocolState := 3
+    entryPrice := entryZone
+    if isBullishSetup
+        stopLoss := manipulationWickLow - (close * 0.001)  // Small buffer below wick
+        takeProfit := entryPrice + (entryPrice - stopLoss) * riskRewardRatio
+        lastSignalDirection := "BUY"
+    else
+        stopLoss := manipulationWickHigh + (close * 0.001)  // Small buffer above wick
+        takeProfit := entryPrice - (stopLoss - entryPrice) * riskRewardRatio
+        lastSignalDirection := "SELL"
+    lastSignalPrice := entryPrice
+
+// ===== VISUAL ELEMENTS =====
+
+// HTF Bias Background
+bgcolor(isBullishBias ? bullishColor : bearishColor)
+
+// Key Levels
+plot(showLevels and not na(pdh) ? pdh : na, "PDH", color=pdhColor, linewidth=1, style=plot.style_linebr)
+plot(showLevels and not na(pdl) ? pdl : na, "PDL", color=pdhColor, linewidth=1, style=plot.style_linebr)
+plot(showLevels and not na(pwh) ? pwh : na, "PWH", color=pwhColor, linewidth=2, style=plot.style_linebr)
+plot(showLevels and not na(pwl) ? pwl : na, "PWL", color=pwhColor, linewidth=2, style=plot.style_linebr)
+
+// Session Ranges
+asianHighPlot = showAsianRange and not na(asianSessionHigh) ? asianSessionHigh : na
+asianLowPlot = showAsianRange and not na(asianSessionLow) ? asianSessionLow : na
+plot(asianHighPlot, "Asian High", color=color.new(color.blue, 0), linewidth=2)
+plot(asianLowPlot, "Asian Low", color=color.new(color.blue, 0), linewidth=2)
+
+// Killzone backgrounds
+bgcolor(showKillzones and isLondonKillzone ? londonZoneColor : na, offset=0)
+bgcolor(showKillzones and isNYKillzone ? nyZoneColor : na, offset=0)
+
+// Setup visualization when ARMED
+entryLine = protocolState == 3 ? entryPrice : na
+slLine = protocolState == 3 ? stopLoss : na
+tpLine = protocolState == 3 ? takeProfit : na
+
+plot(entryLine, "Entry", color=color.new(color.green, 0), linewidth=3, style=plot.style_linebr)
+plot(slLine, "Stop Loss", color=color.new(color.red, 0), linewidth=2, style=plot.style_linebr)
+plot(tpLine, "Take Profit", color=color.new(color.blue, 0), linewidth=2, style=plot.style_linebr)
+
+// ===== DASHBOARD TABLE =====
+
+if showDashboard and barstate.islast
+    // Create table
+    table.delete(myTable)
+    myTable = table.new(position.top_right, 2, 8, bgcolor=color.new(color.white, 90), border_color=color.new(color.black, 0), border_width=1)
+
+    // Headers
+    table.cell(myTable, 0, 0, "Apex Protocol Status", text_color=color.new(color.black, 0), text_size=size.small)
+    table.cell(myTable, 1, 0, "Value", text_color=color.new(color.black, 0), text_size=size.small)
+
+    // Status
+    statusText = protocolState == 0 ? "STANDBY" : protocolState == 1 ? "HUNTING" : protocolState == 2 ? "MANIPULATION" : "ARMED"
+    statusColor = protocolState == 3 ? color.new(color.green, 0) : protocolState == 1 ? color.new(color.yellow, 0) : color.new(color.gray, 0)
+    table.cell(myTable, 0, 1, "Protocol Status", text_color=color.new(color.black, 0))
+    table.cell(myTable, 1, 1, statusText, text_color=statusColor, text_weight=weight.bold)
+
+    // HTF Bias
+    biasText = isBullishBias ? "BULLISH" : "BEARISH"
+    biasColor = isBullishBias ? color.new(color.green, 0) : color.new(color.red, 0)
+    table.cell(myTable, 0, 2, "HTF Bias (H4)", text_color=color.new(color.black, 0))
+    table.cell(myTable, 1, 2, biasText, text_color=biasColor)
+
+    // Current Session
+    sessionText = isLondonKillzone ? "London Killzone" : isNYKillzone ? "NY Killzone" : "Regular Session"
+    table.cell(myTable, 0, 3, "Current Session", text_color=color.new(color.black, 0))
+    table.cell(myTable, 1, 3, sessionText, text_color=color.new(color.blue, 0))
+
+    // Checklist
+    table.cell(myTable, 0, 4, "✓ In Killzone", text_color=color.new(color.black, 0))
+    table.cell(myTable, 1, 4, isKillzone ? "✓" : "-", text_color=isKillzone ? color.new(color.green, 0) : color.new(color.gray, 0))
+
+    table.cell(myTable, 0, 5, "✓ Liquidity Swept", text_color=color.new(color.black, 0))
+    table.cell(myTable, 1, 5, (bullishSweepDetected or bearishSweepDetected) ? "✓" : "-", text_color=(bullishSweepDetected or bearishSweepDetected) ? color.new(color.green, 0) : color.new(color.gray, 0))
+
+    table.cell(myTable, 0, 6, "✓ CHoCH Confirmed", text_color=color.new(color.black, 0))
+    table.cell(myTable, 1, 6, (bullishCHoCH or bearishCHoCH) ? "✓" : "-", text_color=(bullishCHoCH or bearishCHoCH) ? color.new(color.green, 0) : color.new(color.gray, 0))
+
+    // Last Signal
+    lastSigText = not na(lastSignalPrice) ? str.format("{0} @ {1}", lastSignalDirection, str.tostring(lastSignalPrice)) : "None"
+    table.cell(myTable, 0, 7, "Last Signal", text_color=color.new(color.black, 0))
+    table.cell(myTable, 1, 7, lastSigText, text_color=color.new(color.purple, 0))
+
+// ===== ALERTS =====
+
+// Alert condition for armed setups
+alertcondition(protocolState == 3, title="Apex Protocol Setup Armed",
+              message=str.format("APEX PROTOCOL: {{ticker}} {0} Signal! Entry: {1}, SL: {2}, TP: {3}, HTF Bias: {4}",
+                               lastSignalDirection, str.tostring(entryPrice), str.tostring(stopLoss),
+                               str.tostring(takeProfit), isBullishBias ? "BULLISH" : "BEARISH"))
+
+// ===== POSITION SIZE CALCULATOR =====
+
+// Calculate suggested position size
+pipValue = syminfo.mintick * syminfo.pointvalue
+stopLossPips = not na(entryPrice) and not na(stopLoss) ? math.abs(entryPrice - stopLoss) / syminfo.mintick : 0
+riskAmount = accountBalance * (riskPercent / 100)
+suggestedPositionSize = stopLossPips != 0 ? riskAmount / (stopLossPips * pipValue) : 0
+
+// Display position size in label when setup is armed
+if protocolState == 3 and barstate.islast
+    label.delete(myLabel)
+    myLabel = label.new(bar_index, high, str.format("Suggested Position: {0} units\nRisk: ${1}", str.tostring(math.round(suggestedPositionSize)), str.tostring(math.round(riskAmount))),
+                       style=label.style_label_down, color=color.new(color.white, 0), textcolor=color.new(color.black, 0))
+
+var table myTable = na
+var label myLabel = na
