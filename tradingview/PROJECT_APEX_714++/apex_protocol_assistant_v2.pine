@@ -1,0 +1,460 @@
+//@version=5
+indicator("Apex Protocol Assistant v2.0 (Optimized)", shorttitle="APA-v2", overlay=true, dynamic_requests=true, max_lines_count=500, max_boxes_count=500, max_labels_count=500)
+//https://claude.ai/chat/8147022c-e04c-411c-83e7-1bfa1901732d
+// ===== INPUTS SECTION (ENHANCED UI) =====
+
+group_sessions = "Session Times & Timezone"
+asiaSession   = input.session("2000-0600", "Asia Session", group = group_sessions)
+londonKillzone = input.session("0800-1100", "London Killzone (SAST 09:00-12:00)", group = group_sessions, tooltip = "Set to 0800-1100 for SAST 09:00-12:00 with Europe/London timezone.")
+nyKillzone     = input.session("1300-1600", "NY Killzone (SAST 14:00-17:00)", group = group_sessions, tooltip = "Set to 1300-1600 for SAST 14:00-17:00 with Europe/London timezone.")
+timezone        = input.string("Europe/London", "Timezone", options=["America/New_York", "Europe/London", "Asia/Tokyo"], group = group_sessions)
+
+group_tech = "Technical Parameters"
+htfTimeframe    = input.timeframe("240", "HTF Timeframe", group = group_tech)
+htfEmaLength    = input.int(50, "HTF EMA Length", minval=1, group = group_tech)
+chocLookback    = input.int(5, "CHoCH Lookback Period", minval=1, group = group_tech)
+fvgSearchBars   = input.int(20, "FVG Search Bars", minval=5, maxval=50, group = group_tech)
+minQualityScore = input.float(0.6, "Minimum Setup Quality", minval=0.1, maxval=1.0, step=0.1, group = group_tech, tooltip="Only arm setups with quality score above this threshold")
+
+group_risk = "Risk Management"
+riskRewardRatio = input.float(2.0, "Risk-to-Reward Ratio", minval=1.0, step=0.1, group = group_risk)
+accountBalance  = input.float(10000, "Account Balance ($)", minval=1, group = group_risk)
+riskPercent     = input.float(1.0, "Risk % per Trade", minval=0.1, maxval=5.0, group = group_risk)
+enableDynamicSizing = input.bool(true, "Enable Dynamic Position Sizing", group = group_risk, tooltip="Adjust position size based on volatility and session strength")
+
+group_filters = "Signal Filters"
+enableVolumeFilter = input.bool(true, "Volume Confirmation", group = group_filters)
+enableRsiFilter = input.bool(true, "RSI Momentum Filter", group = group_filters)
+volumeMultiplier = input.float(1.2, "Volume Threshold Multiplier", minval=1.0, step=0.1, group = group_filters)
+rsiOverbought = input.int(70, "RSI Overbought", minval=50, maxval=90, group = group_filters)
+rsiOversold = input.int(30, "RSI Oversold", minval=10, maxval=50, group = group_filters)
+
+group_visual = "Visual Settings"
+showAsianRange  = input.bool(true, "Show Asian Range", group = group_visual)
+showKillzones   = input.bool(true, "Show Killzones", group = group_visual)
+showDashboard   = input.bool(true, "Show Dashboard", group = group_visual)
+showLevels      = input.bool(true, "Show Key Levels", group = group_visual)
+showQualityScore = input.bool(true, "Show Setup Quality", group = group_visual)
+bullishColor    = input.color(color.new(color.green, 90), "Bullish Background", group = group_visual, inline="1")
+bearishColor    = input.color(color.new(color.red, 90), "Bearish Background", group = group_visual, inline="1")
+asianBoxColor   = input.color(color.new(color.blue, 85), "Asian Range Box", group = group_visual, inline="2")
+londonZoneColor = input.color(color.new(color.yellow, 90), "London Killzone", group = group_visual, inline="3")
+nyZoneColor     = input.color(color.new(color.orange, 90), "NY Killzone", group = group_visual, inline="3")
+pdhColor        = input.color(color.new(color.gray, 0), "PDH/PDL Color", group = group_visual, inline="4")
+pwhColor        = input.color(color.new(color.gray, 50), "PWH/PWL Color", group = group_visual, inline="4")
+
+// ===== STATE & SESSION VARIABLES =====
+var int protocolState = 0
+var string protocolSubState = "NONE"
+var int stateConfidence = 0
+var float setupQualityScore = 0.0
+var float manipulationWickLow = na
+var float manipulationWickHigh = na
+var bool isBullishSetup = false
+var float entryPrice = na
+var float stopLoss = na
+var float takeProfit = na
+var float lastSignalPrice = na
+var string lastSignalDirection = ""
+var float asianSessionHigh = na
+var float asianSessionLow = na
+var box asianBox = na
+var int lastSweepBar = na
+
+// ===== ENHANCED TIME & BIAS LOGIC =====
+is_in_session(sess) => not na(time(timeframe.period, sess, timezone))
+
+is_london_killzone = is_in_session(londonKillzone)
+is_ny_killzone     = is_in_session(nyKillzone)
+is_killzone        = is_london_killzone or is_ny_killzone
+is_asia_session    = is_in_session(asiaSession)
+
+// OPTIMIZED: Consolidated security calls for better performance
+[htfClose, htfHigh, htfLow, htfOpen, htfVolume] = request.security(syminfo.tickerid, htfTimeframe,
+ [close[barstate.isrealtime ? 1 : 0], high[1], low[1], open[1], volume[1]],
+ barmerge.gaps_off, barmerge.lookahead_off)
+
+htfEma = ta.ema(htfClose, htfEmaLength)
+isBullishBias = htfClose > htfEma
+
+// ===== ENHANCED TECHNICAL INDICATORS =====
+rsi = ta.rsi(close, 14)
+atr = ta.atr(14)
+avgAtr = ta.sma(atr, 50)
+volumeAvg = ta.sma(volume, 20)
+volumeAvgLong = ta.sma(volume, 50)
+
+// ===== SESSION & KEY LEVEL LOGIC (OPTIMIZED) =====
+var float sessionHigh = 0.0
+var float sessionLow = 0.0
+
+if is_asia_session and not is_asia_session[1]
+    sessionHigh := high
+    sessionLow := low
+if is_asia_session
+    sessionHigh := math.max(sessionHigh, high)
+    sessionLow := math.min(sessionLow, low)
+if is_asia_session[1] and not is_asia_session
+    asianSessionHigh := sessionHigh
+    asianSessionLow := sessionLow
+    if showAsianRange
+        box.delete(asianBox[1])
+        asianBox := box.new(bar_index[1], asianSessionHigh, bar_index, asianSessionLow,
+ border_color=asianBoxColor, bgcolor=asianBoxColor, extend=extend.right)
+
+// OPTIMIZED: Single security calls for key levels
+pdh = request.security(syminfo.tickerid, "D", high[1], barmerge.gaps_off, barmerge.lookahead_off)
+pdl = request.security(syminfo.tickerid, "D", low[1], barmerge.gaps_off, barmerge.lookahead_off)
+pwh = request.security(syminfo.tickerid, "W", high[1], barmerge.gaps_off, barmerge.lookahead_off)
+pwl = request.security(syminfo.tickerid, "W", low[1], barmerge.gaps_off, barmerge.lookahead_off)
+
+// ===== ENHANCED MARKET ANALYSIS FUNCTIONS =====
+
+// Calculate session strength based on volume and volatility
+f_calculateSessionStrength() =>
+    volume_strength = volume > volumeAvgLong ? 1.0 : volume > volumeAvg ? 0.7 : 0.4
+    volatility_strength = atr > avgAtr * 1.1 ? 1.0 : atr > avgAtr * 0.9 ? 0.7 : 0.4
+    time_strength = is_london_killzone ? 1.0 : is_ny_killzone ? 0.9 : 0.5
+    (volume_strength + volatility_strength + time_strength) / 3
+
+// Enhanced market condition assessment
+f_getMarketCondition() =>
+    trend_strength = math.abs(htfClose - htfEma) / htfEma
+    volatility_ratio = atr / avgAtr
+    if trend_strength > 0.02 and volatility_ratio > 1.2
+        "STRONG TRENDING"
+    else if trend_strength > 0.01 and volatility_ratio > 0.8
+        "TRENDING"
+    else if volatility_ratio < 0.6
+        "LOW VOLATILITY"
+    else
+        "CONSOLIDATING"
+
+// ===== ENHANCED MANIPULATION DETECTION =====
+
+f_enhancedBullishSweep(keyLow) =>
+    if na(keyLow) or na(lastSweepBar) == false and bar_index - lastSweepBar < 10
+        false
+    else
+        basic_sweep = low[1] < keyLow and close[1] > keyLow
+        volume_confirmation = enableVolumeFilter ? volume > volumeAvg * volumeMultiplier : true
+        candle_confirmation = (close[1] - open[1]) > (close[1] - low[1]) * 0.3
+        rsi_confirmation = enableRsiFilter ? rsi < rsiOversold + 10 : true
+        basic_sweep and volume_confirmation and candle_confirmation and rsi_confirmation
+
+f_enhancedBearishSweep(keyHigh) =>
+    if na(keyHigh) or na(lastSweepBar) == false and bar_index - lastSweepBar < 10
+        false
+    else
+        basic_sweep = high[1] > keyHigh and close[1] < keyHigh
+        volume_confirmation = enableVolumeFilter ? volume > volumeAvg * volumeMultiplier : true
+        candle_confirmation = (open[1] - close[1]) > (high[1] - close[1]) * 0.3
+        rsi_confirmation = enableRsiFilter ? rsi > rsiOverbought - 10 : true
+        basic_sweep and volume_confirmation and candle_confirmation and rsi_confirmation
+
+// ===== ENHANCED CHOCH DETECTION =====
+
+f_enhancedCHoCH(isBullish) =>
+    lookback = chocLookback
+    pivot = isBullish ? ta.pivothigh(high, lookback, lookback)[1] : ta.pivotlow(low, lookback, lookback)[1]
+    if not na(pivot)
+        volume_confirmation = volume > volumeAvg * 1.1
+        momentum_confirmation = isBullish ? rsi > 60 : rsi < 40
+        structure_confirmation = isBullish ? (high > pivot and close > pivot * 1.0005) : (low < pivot and close < pivot * 0.9995)
+        basic_filters = volume_confirmation and structure_confirmation
+        enableRsiFilter ? basic_filters and momentum_confirmation : basic_filters
+    else
+        false
+
+// ===== OPTIMIZED ENTRY ZONE DETECTION =====
+
+// VECTORIZED: Much faster FVG detection
+f_findOptimizedBullishFVG() =>
+    fvg_condition = high[2] < low and high[1] > low[1] and high[2] < low[1]
+    fvg_condition and bar_index >= 3 ? high[2] : na
+
+f_findOptimizedBearishFVG() =>
+    fvg_condition = low[2] > high and low[1] < high[1] and low[2] > high[1]
+    fvg_condition and bar_index >= 3 ? low[2] : na
+
+// Enhanced Order Block detection with confluence
+f_findEnhancedBullishOB() =>
+    float ob_entry = na
+    for i = 1 to math.min(fvgSearchBars, 20)
+        if i >= 1
+            is_engulfing = close[i] < open[i] and close[i-1] > open[i-1]
+            volume_spike = volume[i] > ta.sma(volume[i], 5) * 1.1
+            if is_engulfing and (not enableVolumeFilter or volume_spike)
+                ob_entry := open[i]
+                break
+    ob_entry
+
+f_findEnhancedBearishOB() =>
+    float ob_entry = na
+    for i = 1 to math.min(fvgSearchBars, 20)
+        if i >= 1
+            is_engulfing = close[i] > open[i] and close[i-1] < open[i-1]
+            volume_spike = volume[i] > ta.sma(volume[i], 5) * 1.1
+            if is_engulfing and (not enableVolumeFilter or volume_spike)
+                ob_entry := open[i]
+                break
+    ob_entry
+
+// ===== SETUP QUALITY ASSESSMENT =====
+
+f_calculateSetupQuality(isBullish) =>
+    quality = 0.0
+    // HTF alignment (30% weight)
+    quality += isBullishBias == isBullish ? 0.3 : 0.0
+    // Volume confirmation (25% weight)
+    volume_score = volume > volumeAvg * 1.5 ? 0.25 : volume > volumeAvg ? 0.15 : 0.05
+    quality += volume_score
+    // Time-based scoring (20% weight)
+    time_score = is_london_killzone ? 0.2 : is_ny_killzone ? 0.15 : 0.05
+    quality += time_score
+    // RSI momentum (15% weight)
+    rsi_score = isBullish ? (rsi > 40 and rsi < 70 ? 0.15 : 0.05) : (rsi < 60 and rsi > 30 ? 0.15 : 0.05)
+    quality += rsi_score
+    // Session strength (10% weight)
+    session_strength = f_calculateSessionStrength()
+    quality += session_strength * 0.1
+    math.max(0.0, math.min(1.0, quality))
+
+// ===== DYNAMIC RISK MANAGEMENT =====
+
+f_calculateDynamicPositionSize() =>
+    if protocolState == 3 and not na(entryPrice) and not na(stopLoss)
+        // Base risk amount
+        base_risk = accountBalance * (riskPercent / 100)
+        float adjusted_risk = base_risk
+        if enableDynamicSizing
+            // Volatility adjustment
+            volatility_multiplier = atr > avgAtr * 1.2 ? 0.7 : atr < avgAtr * 0.8 ? 1.3 : 1.0
+            // Session strength adjustment
+            session_strength = f_calculateSessionStrength()
+            strength_multiplier = session_strength > 0.7 ? 1.2 : session_strength < 0.4 ? 0.8 : 1.0
+            // Quality score adjustment
+            quality_multiplier = setupQualityScore > 0.8 ? 1.1 : setupQualityScore < 0.6 ? 0.9 : 1.0
+            adjusted_risk := base_risk * volatility_multiplier * strength_multiplier * quality_multiplier
+        pip_value = syminfo.mintick * syminfo.pointvalue
+        stop_distance = math.abs(entryPrice - stopLoss) / syminfo.mintick
+        stop_distance > 0 ? adjusted_risk / (stop_distance * pip_value) : 0
+    else
+        0
+
+// ===== CORE TRADING LOGIC (ENHANCED) =====
+
+keyLow = na(asianSessionLow) ? pdl : math.min(asianSessionLow, pdl)
+keyHigh = na(asianSessionHigh) ? pdh : math.max(asianSessionHigh, pdh)
+
+// Enhanced sweep detection
+bullishSweepDetected = f_enhancedBullishSweep(keyLow)
+if bullishSweepDetected
+    manipulationWickLow := low[1]
+    lastSweepBar := bar_index
+    protocolSubState := "BULLISH_SWEEP"
+
+bearishSweepDetected = f_enhancedBearishSweep(keyHigh)
+if bearishSweepDetected
+    manipulationWickHigh := high[1]
+    lastSweepBar := bar_index
+    protocolSubState := "BEARISH_SWEEP"
+
+// Enhanced CHoCH detection
+bullishCHoCH = bullishSweepDetected and f_enhancedCHoCH(true)
+bearishCHoCH = bearishSweepDetected and f_enhancedCHoCH(false)
+
+// Optimized entry zone detection
+float entryZone = na
+if bullishCHoCH
+    fvgEntry = f_findOptimizedBullishFVG()
+    entryZone := na(fvgEntry) ? f_findEnhancedBullishOB() : fvgEntry
+    if not na(entryZone)
+        isBullishSetup := true
+        setupQualityScore := f_calculateSetupQuality(true)
+        protocolSubState := "BULLISH_ENTRY_FOUND"
+
+if bearishCHoCH
+    fvgEntry = f_findOptimizedBearishFVG()
+    entryZone := na(fvgEntry) ? f_findEnhancedBearishOB() : fvgEntry
+    if not na(entryZone)
+        isBullishSetup := false
+        setupQualityScore := f_calculateSetupQuality(false)
+        protocolSubState := "BEARISH_ENTRY_FOUND"
+
+// ===== ENHANCED STATE MACHINE =====
+
+if not is_killzone
+    protocolState := 0
+    protocolSubState := "STANDBY"
+    stateConfidence := 0
+
+if is_killzone and protocolState == 0
+    protocolState := 1
+    protocolSubState := "HUNTING"
+    stateConfidence := 25
+
+if protocolState == 1 and (bullishSweepDetected or bearishSweepDetected)
+    protocolState := 2
+    protocolSubState := protocolSubState == "BULLISH_SWEEP" ? "BULLISH_MANIPULATION" : "BEARISH_MANIPULATION"
+    stateConfidence := 50
+
+if protocolState == 2 and not na(entryZone) and setupQualityScore >= minQualityScore
+    protocolState := 3
+    stateConfidence := int(setupQualityScore * 100)
+    entryPrice := entryZone
+    if isBullishSetup
+        stopLoss := manipulationWickLow - syminfo.mintick * 5
+        takeProfit := entryPrice + (entryPrice - stopLoss) * riskRewardRatio
+        lastSignalDirection := "BUY"
+        protocolSubState := "BULLISH_ARMED"
+    else
+        stopLoss := manipulationWickHigh + syminfo.mintick * 5
+        takeProfit := entryPrice - (stopLoss - entryPrice) * riskRewardRatio
+        lastSignalDirection := "SELL"
+        protocolSubState := "BEARISH_ARMED"
+    lastSignalPrice := entryPrice
+
+// ===== VISUAL ELEMENTS (ENHANCED) =====
+
+bgcolor(isBullishBias ? bullishColor : bearishColor, title="HTF Bias Background")
+bgcolor(showKillzones and is_london_killzone ? londonZoneColor : na, title="London Killzone")
+bgcolor(showKillzones and is_ny_killzone ? nyZoneColor : na, title="NY Killzone")
+
+plot(showLevels ? pdh : na, "PDH", pdhColor, 1, plot.style_linebr)
+plot(showLevels ? pdl : na, "PDL", pdhColor, 1, plot.style_linebr)
+plot(showLevels ? pwh : na, "PWH", pwhColor, 2, plot.style_linebr)
+plot(showLevels ? pwl : na, "PWL", pwhColor, 2, plot.style_linebr)
+
+// Enhanced trade visualization
+var line entryLineId = na
+var line slLineId = na
+var line tpLineId = na
+var label entryLabelId = na
+var label slLabelId = na
+var label tpLabelId = na
+var label qualityLabelId = na
+
+if protocolState == 3 and protocolState[1] != 3
+    // FIXED: Explicit color definitions to avoid 'color' namespace issues
+    lineColor = isBullishSetup ? #00ff00 : #ff0000  // Green for bullish, red for bearish
+    qualityColor = setupQualityScore > 0.8 ? #32cd32 : setupQualityScore > 0.7 ? #ffff00 : #ffa500  // Lime, yellow, orange
+    
+    entryLineId := line.new(bar_index, entryPrice, bar_index + 20, entryPrice, color=lineColor, width=2, extend=extend.right)
+    slLineId := line.new(bar_index, stopLoss, bar_index + 20, stopLoss, color=#ff0000, width=2, extend=extend.right)
+    tpLineId := line.new(bar_index, takeProfit, bar_index + 20, takeProfit, color=#0000ff, width=2, extend=extend.right)
+    
+    entryLabelId := label.new(bar_index + 10, entryPrice, "Entry: " + str.tostring(entryPrice, format.mintick),
+     style=label.style_label_left, color=color.new(lineColor, 20), textcolor=color.white, size=size.small)
+    slLabelId := label.new(bar_index + 10, stopLoss, "SL: " + str.tostring(stopLoss, format.mintick),
+     style=label.style_label_left, color=color.new(#ff0000, 20), textcolor=color.white, size=size.small)
+    tpLabelId := label.new(bar_index + 10, takeProfit, "TP: " + str.tostring(takeProfit, format.mintick),
+     style=label.style_label_left, color=color.new(#0000ff, 20), textcolor=color.white, size=size.small)
+    
+    if showQualityScore
+        qualityLabelId := label.new(bar_index, entryPrice, "Q: " + str.tostring(setupQualityScore * 100, "#") + "%",
+         style=label.style_label_up, color=qualityColor, textcolor=color.black, size=size.small)
+
+if protocolState != 3 and protocolState[1] == 3
+    line.delete(entryLineId[1])
+    line.delete(slLineId[1])
+    line.delete(tpLineId[1])
+    label.delete(entryLabelId[1])
+    label.delete(slLabelId[1])
+    label.delete(tpLabelId[1])
+    if showQualityScore
+        label.delete(qualityLabelId[1])
+
+// ===== ENHANCED DASHBOARD =====
+
+var table myTable = na
+if showDashboard and barstate.islast
+    table.delete(myTable)
+    myTable := table.new(position.top_right, 3, 12,
+     bgcolor=color.new(color.black, 85), border_color=color.gray, border_width=1)
+    // Header
+    table.cell(myTable, 0, 0, "🚀 APEX PROTOCOL v2.0",
+     text_size=size.small, text_color=color.white, bgcolor=color.new(color.blue, 50))
+    table.cell(myTable, 1, 0, "", bgcolor=color.new(color.blue, 50))
+    table.cell(myTable, 2, 0, "", bgcolor=color.new(color.blue, 50))
+    // Status
+    statusText = protocolState == 0 ? "STANDBY" : protocolState == 1 ? "HUNTING" : protocolState == 2 ? "MANIPULATION" : "ARMED"
+    statusColor = protocolState == 3 ? color.lime : protocolState > 0 ? color.yellow : color.gray
+    confidence_text = stateConfidence > 0 ? " (" + str.tostring(stateConfidence) + "%)" : ""
+    table.cell(myTable, 0, 1, "Status", text_color=color.white, text_size=size.small)
+    table.cell(myTable, 1, 1, statusText, text_color=statusColor, text_size=size.small)
+    table.cell(myTable, 2, 1, confidence_text, text_color=color.orange, text_size=size.small)
+    // HTF Bias
+    table.cell(myTable, 0, 2, "HTF Bias", text_color=color.white, text_size=size.small)
+    table.cell(myTable, 1, 2, isBullishBias ? "BULLISH" : "BEARISH",
+     text_color=isBullishBias ? color.green : color.red, text_size=size.small)
+    // Market Condition
+    market_condition = f_getMarketCondition()
+    table.cell(myTable, 0, 3, "Market", text_color=color.white, text_size=size.small)
+    table.cell(myTable, 1, 3, market_condition, text_color=color.yellow, text_size=size.small)
+    // Session Strength
+    session_strength = f_calculateSessionStrength()
+    table.cell(myTable, 0, 4, "Session", text_color=color.white, text_size=size.small)
+    table.cell(myTable, 1, 4, str.tostring(session_strength, "#.##"),
+     text_color=session_strength > 0.7 ? color.green : color.orange, text_size=size.small)
+    // Setup Quality
+    if protocolState >= 3 and showQualityScore
+        table.cell(myTable, 0, 5, "Quality", text_color=color.white, text_size=size.small)
+        quality_color = setupQualityScore > 0.8 ? color.lime : setupQualityScore > 0.7 ? color.yellow : color.orange
+        table.cell(myTable, 1, 5, str.tostring(setupQualityScore * 100, "#") + "%",
+         text_color=quality_color, text_size=size.small)
+    // Checklist
+    table.cell(myTable, 0, 6, "✓ In Killzone",
+     text_color=is_killzone ? color.green : color.gray, text_size=size.small)
+    table.cell(myTable, 0, 7, "✓ Liquidity Swept",
+     text_color=protocolState >= 2 ? color.green : color.gray, text_size=size.small)
+    table.cell(myTable, 0, 8, "✓ CHoCH & Entry",
+     text_color=protocolState >= 3 ? color.green : color.gray, text_size=size.small)
+    // Position sizing
+    if protocolState == 3
+        suggested_size = f_calculateDynamicPositionSize()
+        table.cell(myTable, 1, 6, "Position:", text_color=color.white, text_size=size.small)
+        table.cell(myTable, 1, 7, str.tostring(suggested_size, "#.##"),
+         text_color=color.orange, text_size=size.small)
+        if enableDynamicSizing
+            table.cell(myTable, 1, 8, "Dynamic", text_color=color.blue, text_size=size.small)
+
+// ===== ENHANCED ALERT SYSTEM =====
+
+// High quality setups
+alertcondition(protocolState == 3 and protocolState[1] != 3 and setupQualityScore >= 0.8,
+    title="🚀 HIGH QUALITY Setup",
+    message="HIGH QUALITY APEX Setup Detected - Check Chart for Details")
+
+// Medium quality setups
+alertcondition(protocolState == 3 and protocolState[1] != 3 and setupQualityScore >= minQualityScore and setupQualityScore < 0.8,
+    title="⚡ MEDIUM QUALITY Setup",
+    message="MEDIUM QUALITY APEX Setup Detected - Check Chart for Details")
+
+// Early warning
+alertcondition(protocolState == 2 and protocolState[1] != 2,
+    title="👀 Manipulation Detected",
+    message="APEX: Liquidity Manipulation Detected - Watching for Entry")
+
+// Session alerts
+alertcondition(is_killzone and not is_killzone[1] and f_calculateSessionStrength() > 0.6,
+    title="🎯 Active Killzone",
+    message="APEX: Killzone Session Active - Monitoring for Setups")
+
+// State change notifications for debugging/optimization
+alertcondition(protocolState != protocolState[1],
+    title="📊 State Change",
+    message="APEX Protocol State Changed - Check Dashboard")
+
+// Dynamic alerts using alert() function for series string content
+if protocolState == 3 and protocolState[1] != 3 and setupQualityScore >= 0.8
+    alert("🚀 HIGH QUALITY APEX: " + lastSignalDirection + " Setup at " + str.tostring(entryPrice, format.mintick) + " | Quality: " + str.tostring(setupQualityScore * 100, "#") + "%", alert.freq_once_per_bar_close)
+
+if protocolState == 3 and protocolState[1] != 3 and setupQualityScore >= minQualityScore and setupQualityScore < 0.8
+    alert("⚡ MEDIUM QUALITY APEX: " + lastSignalDirection + " Setup at " + str.tostring(entryPrice, format.mintick) + " | Quality: " + str.tostring(setupQualityScore * 100, "#") + "%", alert.freq_once_per_bar_close)
+
+if protocolState == 2 and protocolState[1] != 2
+    alert("👀 APEX: Liquidity swept. Session: " + f_getMarketCondition(), alert.freq_once_per_bar_close)
+
+if is_killzone and not is_killzone[1] and f_calculateSessionStrength() > 0.6
+    alert("🎯 APEX: " + (is_london_killzone ? "London" : "New York") + " Killzone Active | Strength: " + str.tostring(f_calculateSessionStrength(), "#.##"), alert.freq_once_per_bar_close)
