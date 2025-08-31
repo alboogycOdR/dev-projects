@@ -1,0 +1,449 @@
+//@version=5
+indicator("Apex Protocol v3.0 - The SMC Engine", shorttitle="APEX v3.0", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500)
+
+// ============================================================================
+// APEX PROTOCOL v3.0 - THE SMC ENGINE
+// Technical Specification Implementation
+// Document Version: 3.1 | Date: August 31, 2025
+// ============================================================================
+//https://claude.ai/chat/c7911582-fc05-4cef-bddd-7ad87cad41fa
+// ============================================================================
+// 1. USER INPUTS & SETTINGS
+// ============================================================================
+
+// Group: General Settings & Risk
+htf_tf = input.timeframe("240", "HTF Timeframe", group="General Settings")
+account_balance = input.float(10000, "Account Balance", minval=1, group="General Settings")
+risk_percent = input.float(2.0, "Risk % per Trade", minval=0.1, maxval=10, group="General Settings")
+correlated_asset = input.string("TVC:DXY", "Correlated Asset TickerID", group="General Settings")
+
+// Group: SMC Engine Visuals
+show_bos_mss = input.bool(true, "Show BOS/MSS Markers", group="SMC Engine Visuals")
+show_fvgs = input.bool(true, "Show Fair Value Gaps (M5)", group="SMC Engine Visuals")
+show_obs = input.bool(true, "Show Order Blocks (M5)", group="SMC Engine Visuals")
+show_sessions = input.bool(true, "Show Session Ranges", group="SMC Engine Visuals")
+
+// Group: Killzone Strategy Selection
+london_strategy = input.string("The Core SMC Model", "London Killzone Strategy", 
+     options=["OFF", "The Core SMC Model", "ICT Silver Bullet"], group="Killzone Strategies")
+newyork_strategy = input.string("The Core SMC Model", "New York Killzone Strategy", 
+     options=["OFF", "The Core SMC Model", "ICT Silver Bullet"], group="Killzone Strategies")
+
+// Group: Low Timeframe Confirmation
+ltf_tf = input.string("1", "LTF Timeframe", options=["1", "30S"], group="LTF Settings")
+
+// Colors
+bull_color = input.color(color.green, "Bullish Color", group="Colors")
+bear_color = input.color(color.red, "Bearish Color", group="Colors")
+fvg_color = input.color(color.blue, "FVG Color", group="Colors")
+ob_color = input.color(color.orange, "Order Block Color", group="Colors")
+
+// ============================================================================
+// 2. GLOBAL VARIABLES & STATE MANAGEMENT
+// ============================================================================
+
+// State Machine States
+var string system_state = "STANDBY"
+var string htf_bias = "NEUTRAL"
+var bool event1_complete = false
+var bool event2_complete = false
+var bool event3_complete = false
+var bool event4_complete = false
+var string active_strategy = "NONE"
+var string active_killzone = "NONE"
+
+// Session tracking
+var float asian_high = na
+var float asian_low = na
+var float london_high = na
+var float london_low = na
+var float pdh = na
+var float pdl = na
+
+// Structure tracking
+var float last_swing_high = na
+var float last_swing_low = na
+var bool structure_bullish = na
+
+// ============================================================================
+// 3. HELPER FUNCTIONS
+// ============================================================================
+
+// Session detection
+is_asian_session() =>
+    hour >= 21 or hour < 8
+
+is_london_session() =>
+    hour >= 2 and hour < 11
+
+is_newyork_session() =>
+    hour >= 8 and hour < 17
+
+get_current_killzone() =>
+    if is_london_session()
+        "London"
+    else if is_newyork_session()
+        "New York"
+    else
+        "None"
+
+// Swing point detection
+is_swing_high(len=5) =>
+    high[len] > high[len+1] and high[len] > high[len+2] and 
+    high[len] > high[len-1] and high[len] > high[len-2]
+
+is_swing_low(len=5) =>
+    low[len] < low[len+1] and low[len] < low[len+2] and 
+    low[len] < low[len-1] and low[len] < low[len-2]
+
+// ============================================================================
+// 4. SMC ENGINE - POI DETECTION
+// ============================================================================
+
+// HTF Data Request
+htf_high = request.security(syminfo.tickerid, htf_tf, high, lookahead=barmerge.lookahead_off)
+htf_low = request.security(syminfo.tickerid, htf_tf, low, lookahead=barmerge.lookahead_off)
+htf_close = request.security(syminfo.tickerid, htf_tf, close, lookahead=barmerge.lookahead_off)
+
+// Correlated Asset Data
+corr_high = request.security(correlated_asset, timeframe.period, high, lookahead=barmerge.lookahead_off)
+corr_low = request.security(correlated_asset, timeframe.period, low, lookahead=barmerge.lookahead_off)
+
+// HTF Bias Determination
+htf_bias := htf_close > htf_close[1] ? "BULLISH" : htf_close < htf_close[1] ? "BEARISH" : htf_bias[1]
+
+// Session High/Low Tracking
+if is_asian_session()
+    if na(asian_high) or high > asian_high
+        asian_high := high
+    if na(asian_low) or low < asian_low
+        asian_low := low
+else
+    asian_high := na
+    asian_low := na
+
+if is_london_session()
+    if na(london_high) or high > london_high
+        london_high := high
+    if na(london_low) or low < london_low
+        london_low := low
+else
+    london_high := na
+    london_low := na
+
+// Previous Day High/Low
+if dayofweek != dayofweek[1]
+    pdh := high[1]
+    pdl := low[1]
+
+// Fair Value Gap Detection (M5)
+m5_high = request.security(syminfo.tickerid, "5", high[1], lookahead=barmerge.lookahead_off)
+m5_low = request.security(syminfo.tickerid, "5", low[1], lookahead=barmerge.lookahead_off)
+m5_high_2 = request.security(syminfo.tickerid, "5", high[2], lookahead=barmerge.lookahead_off)
+m5_low_2 = request.security(syminfo.tickerid, "5", low[2], lookahead=barmerge.lookahead_off)
+m5_close = request.security(syminfo.tickerid, "5", close, lookahead=barmerge.lookahead_off)
+
+// Bullish FVG: low[0] > high[2]
+bullish_fvg = m5_low > m5_high_2
+// Bearish FVG: high[0] < low[2]
+bearish_fvg = m5_high < m5_low_2
+
+// Break of Structure Detection
+detect_bos() =>
+    swing_high_broken = close > last_swing_high and not na(last_swing_high)
+    swing_low_broken = close < last_swing_low and not na(last_swing_low)
+    
+    bos_bull = swing_high_broken and htf_bias == "BULLISH"
+    bos_bear = swing_low_broken and htf_bias == "BEARISH"
+    
+    [bos_bull, bos_bear]
+
+// Market Structure Shift Detection
+detect_mss() =>
+    [bos_bull, bos_bear] = detect_bos()
+    mss_bull = bos_bull and htf_bias == "BEARISH"  // BOS against trend
+    mss_bear = bos_bear and htf_bias == "BULLISH"
+    [mss_bull, mss_bear]
+
+// Liquidity Sweep Detection
+detect_liquidity_sweep() =>
+    swept_asian_high = not na(asian_high) and high > asian_high and low < asian_high
+    swept_asian_low = not na(asian_low) and low < asian_low and high > asian_low
+    swept_london_high = not na(london_high) and high > london_high and low < london_high
+    swept_london_low = not na(london_low) and low < london_low and high > london_low
+    swept_pdh = not na(pdh) and high > pdh and low < pdh
+    swept_pdl = not na(pdl) and low < pdl and high > pdl
+    
+    any_sweep = swept_asian_high or swept_asian_low or swept_london_high or swept_london_low or swept_pdh or swept_pdl
+    any_sweep
+
+// SMT Divergence Detection (Simplified)
+detect_smt_divergence() =>
+    // Primary makes new high, correlated fails to confirm
+    primary_new_high = high > highest(high, 10)[1]
+    corr_fails_high = corr_high < highest(corr_high, 10)[1]
+    
+    // Primary makes new low, correlated fails to confirm
+    primary_new_low = low < lowest(low, 10)[1]
+    corr_fails_low = corr_low > lowest(corr_low, 10)[1]
+    
+    smt_div = (primary_new_high and corr_fails_high) or (primary_new_low and corr_fails_low)
+    smt_div
+
+// Order Block Detection (Simplified)
+detect_order_block() =>
+    // Last opposing candle before strong move
+    strong_bullish_move = close > open and (close - open) > (high - low) * 0.7 and close > close[1]
+    strong_bearish_move = close < open and (open - close) > (high - low) * 0.7 and close < close[1]
+    
+    bullish_ob = strong_bullish_move[1] and close[1] < open[1]  // Previous candle was bearish
+    bearish_ob = strong_bearish_move[1] and close[1] > open[1]  // Previous candle was bullish
+    
+    [bullish_ob, bearish_ob]
+
+// IFVG Detection (Simplified)
+detect_ifvg() =>
+    // FVG that gets traded through then holds as support/resistance
+    ltf_timeframe = ltf_tf == "1" ? "1" : "30S"
+    
+    ltf_high = request.security(syminfo.tickerid, ltf_timeframe, high, lookahead=barmerge.lookahead_off)
+    ltf_low = request.security(syminfo.tickerid, ltf_timeframe, low, lookahead=barmerge.lookahead_off)
+    ltf_close = request.security(syminfo.tickerid, ltf_timeframe, close, lookahead=barmerge.lookahead_off)
+    
+    // Simplified IFVG logic - price rejection from a previously violated level
+    bullish_ifvg = ltf_low > ltf_low[1] and ltf_close > ltf_low[2]
+    bearish_ifvg = ltf_high < ltf_high[1] and ltf_close < ltf_high[2]
+    
+    [bullish_ifvg, bearish_ifvg]
+
+// ============================================================================
+// 5. STRATEGY MODULES
+// ============================================================================
+
+// Update swing points
+if is_swing_high()
+    last_swing_high := high[5]
+
+if is_swing_low()
+    last_swing_low := low[5]
+
+// Core SMC Model Logic
+execute_core_smc_model() =>
+    var bool local_event1 = false
+    var bool local_event2 = false
+    var bool local_event3 = false
+    var bool local_event4 = false
+    
+    // Event 1: Manipulation Confirmed
+    if not local_event1
+        liquidity_sweep = detect_liquidity_sweep()
+        smt_div = detect_smt_divergence()
+        if liquidity_sweep or smt_div
+            local_event1 := true
+    
+    // Event 2: Structure Break Confirmed
+    if local_event1 and not local_event2
+        [mss_bull, mss_bear] = detect_mss()
+        [bos_bull, bos_bear] = detect_bos()
+        if mss_bull or mss_bear or bos_bull or bos_bear
+            local_event2 := true
+    
+    // Event 3: Return to HTF POI
+    if local_event2 and not local_event3
+        [bull_ob, bear_ob] = detect_order_block()
+        if bullish_fvg or bearish_fvg or bull_ob or bear_ob
+            local_event3 := true
+    
+    // Event 4: LTF Entry Confirmation
+    if local_event3 and not local_event4
+        [bull_ifvg, bear_ifvg] = detect_ifvg()
+        if bull_ifvg or bear_ifvg
+            local_event4 := true
+    
+    // Return completion status
+    all_events_complete = local_event1 and local_event2 and local_event3 and local_event4
+    
+    // Reset if new bar starts a fresh setup
+    if barstate.isconfirmed and all_events_complete
+        local_event1 := false
+        local_event2 := false
+        local_event3 := false
+        local_event4 := false
+    
+    [local_event1, local_event2, local_event3, local_event4, all_events_complete]
+
+// ICT Silver Bullet Logic
+execute_silver_bullet() =>
+    var bool sb_event1 = false
+    var bool sb_event2 = false
+    
+    // Must be in specific time window (10:00-11:00 EST example)
+    in_sb_window = (hour >= 10 and hour < 11)
+    
+    if in_sb_window and not sb_event1
+        liquidity_sweep = detect_liquidity_sweep()
+        if liquidity_sweep
+            sb_event1 := true
+    
+    if sb_event1 and not sb_event2
+        if bullish_fvg or bearish_fvg
+            sb_event2 := true
+    
+    sb_complete = sb_event1 and sb_event2
+    
+    // Reset for next opportunity
+    if not in_sb_window
+        sb_event1 := false
+        sb_event2 := false
+    
+    [sb_event1, sb_event2, sb_complete]
+
+// ============================================================================
+// 6. STATE MACHINE LOGIC
+// ============================================================================
+
+current_killzone = get_current_killzone()
+
+// Determine active strategy
+if current_killzone == "London" and london_strategy != "OFF"
+    active_strategy := london_strategy
+    active_killzone := "London"
+else if current_killzone == "New York" and newyork_strategy != "OFF"
+    active_strategy := newyork_strategy
+    active_killzone := "New York"
+else
+    active_strategy := "NONE"
+    active_killzone := "NONE"
+
+// State Machine Updates
+if active_strategy == "NONE"
+    system_state := "STANDBY"
+    event1_complete := false
+    event2_complete := false
+    event3_complete := false
+    event4_complete := false
+else
+    if system_state == "STANDBY"
+        system_state := "HUNTING"
+    
+    // Execute appropriate strategy
+    if active_strategy == "The Core SMC Model"
+        [e1, e2, e3, e4, complete] = execute_core_smc_model()
+        event1_complete := e1
+        event2_complete := e2
+        event3_complete := e3
+        event4_complete := e4
+        
+        if e1 and not e2
+            system_state := "CONFIRMING"
+        else if complete
+            system_state := "ARMED"
+    
+    else if active_strategy == "ICT Silver Bullet"
+        [sb_e1, sb_e2, sb_complete] = execute_silver_bullet()
+        event1_complete := sb_e1
+        event2_complete := sb_e2
+        event3_complete := false  // Not used in Silver Bullet
+        event4_complete := false  // Not used in Silver Bullet
+        
+        if sb_e1 and not sb_e2
+            system_state := "CONFIRMING"
+        else if sb_complete
+            system_state := "ARMED"
+
+// ============================================================================
+// 7. VISUAL ELEMENTS
+// ============================================================================
+
+// BOS/MSS Markers
+if show_bos_mss
+    [bos_bull, bos_bear] = detect_bos()
+    [mss_bull, mss_bear] = detect_mss()
+    
+    if bos_bull
+        label.new(bar_index, high, "BOS↗", color=bull_color, style=label.style_label_up, size=size.small)
+    if bos_bear
+        label.new(bar_index, low, "BOS↘", color=bear_color, style=label.style_label_down, size=size.small)
+    if mss_bull
+        label.new(bar_index, high, "MSS↗", color=bull_color, style=label.style_label_up, size=size.normal)
+    if mss_bear
+        label.new(bar_index, low, "MSS↘", color=bear_color, style=label.style_label_down, size=size.normal)
+
+// Fair Value Gaps
+if show_fvgs and (bullish_fvg or bearish_fvg)
+    gap_color = bullish_fvg ? color.new(bull_color, 80) : color.new(bear_color, 80)
+    box.new(bar_index, bullish_fvg ? m5_low : m5_high, bar_index + 10, bullish_fvg ? m5_high_2 : m5_low_2, 
+             bgcolor=gap_color, border_color=color.na)
+
+// Session Ranges
+if show_sessions
+    if not na(asian_high)
+        line.new(bar_index, asian_high, bar_index, asian_low, color=color.yellow, width=2, style=line.style_dotted)
+    if not na(london_high)
+        line.new(bar_index, london_high, bar_index, london_low, color=color.blue, width=2, style=line.style_dotted)
+
+// ============================================================================
+// 8. DASHBOARD
+// ============================================================================
+
+// Dashboard Table
+if barstate.islast
+    var table dashboard = table.new(position.top_right, 2, 6, bgcolor=color.white, border_width=2)
+    
+    table.cell(dashboard, 0, 0, "Protocol Status", text_color=color.black, bgcolor=color.gray)
+    table.cell(dashboard, 1, 0, system_state, text_color=color.white, 
+               bgcolor = system_state == "ARMED" ? color.green : system_state == "HUNTING" ? color.orange : color.gray)
+    
+    table.cell(dashboard, 0, 1, "HTF Bias", text_color=color.black, bgcolor=color.gray)
+    table.cell(dashboard, 1, 1, htf_bias, text_color=color.white,
+               bgcolor = htf_bias == "BULLISH" ? bull_color : htf_bias == "BEARISH" ? bear_color : color.gray)
+    
+    // Strategy Checklist (for Core SMC Model)
+    if active_strategy == "The Core SMC Model"
+        table.cell(dashboard, 0, 2, "CORE SMC CHECKLIST", text_color=color.black, bgcolor=color.silver)
+        table.cell(dashboard, 1, 2, "", bgcolor=color.silver)
+        
+        table.cell(dashboard, 0, 3, event1_complete ? "✓ Event 1: Manipulation" : "□ Event 1: Manipulation", 
+                   text_color = event1_complete ? color.green : color.black, bgcolor=color.white)
+        table.cell(dashboard, 1, 3, "Confirmed", text_color=color.black, bgcolor=color.white)
+        
+        table.cell(dashboard, 0, 4, event2_complete ? "✓ Event 2: Structure Break" : "□ Event 2: Structure Break", 
+                   text_color = event2_complete ? color.green : color.black, bgcolor=color.white)
+        table.cell(dashboard, 1, 4, "Confirmed", text_color=color.black, bgcolor=color.white)
+        
+        table.cell(dashboard, 0, 5, event3_complete ? "✓ Event 3: HTF POI Return" : "□ Event 3: HTF POI Return", 
+                   text_color = event3_complete ? color.green : color.black, bgcolor=color.white)
+        table.cell(dashboard, 1, 5, event4_complete ? "✓ Event 4: LTF Entry" : "□ Event 4: LTF Entry", 
+                   text_color = event4_complete ? color.green : color.black, bgcolor=color.white)
+    
+    else if active_strategy == "ICT Silver Bullet"
+        table.cell(dashboard, 0, 2, "SILVER BULLET STATUS", text_color=color.black, bgcolor=color.silver)
+        table.cell(dashboard, 1, 2, "", bgcolor=color.silver)
+        
+        table.cell(dashboard, 0, 3, event1_complete ? "✓ Liquidity Sweep" : "□ Liquidity Sweep", 
+                   text_color = event1_complete ? color.green : color.black, bgcolor=color.white)
+        table.cell(dashboard, 1, 3, event2_complete ? "✓ FVG Created" : "□ FVG Created", 
+                   text_color = event2_complete ? color.green : color.black, bgcolor=color.white)
+
+// ============================================================================
+// 9. ALERTS
+// ============================================================================
+
+// Single Alert Condition
+alert_condition(system_state == "ARMED", "APEX Protocol Signal", 
+                message="APEX: " + active_killzone + " '" + active_strategy + "' Signal Triggered!")
+
+// ============================================================================
+// 10. PLOTTING
+// ============================================================================
+
+// Plot key levels
+plot(pdh, "PDH", color=color.red, linewidth=1, style=plot.style_line)
+plot(pdl, "PDL", color=color.red, linewidth=1, style=plot.style_line)
+
+// System state background color
+bgcolor_color = system_state == "ARMED" ? color.new(color.green, 95) : 
+               system_state == "HUNTING" ? color.new(color.yellow, 95) : 
+               system_state == "CONFIRMING" ? color.new(color.orange, 95) : na
+
+bgcolor(bgcolor_color, title="System State Background")

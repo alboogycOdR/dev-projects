@@ -1,0 +1,503 @@
+//@version=5
+indicator("Apex Protocol v3.0 - The SMC Engine", shorttitle="APEX v3.0", overlay=true, max_bars_back=500, max_lines_count=500, max_labels_count=500, max_boxes_count=500)
+
+// ============================================================================
+// APEX PROTOCOL v3.0 - THE SMC ENGINE
+// Technical Specification Version: 3.1
+// Pine Script Version: 5
+// Author: Manus AI
+// Date: August 31, 2025
+// ============================================================================
+//https://manus.im/app/BmHTsrg2IMTsquWNWDWAAh
+// ============================================================================
+// USER INPUTS - ORGANIZED BY GROUPS
+// ============================================================================
+
+// Group: General Settings & Risk
+htfTimeframe = input.timeframe("240", title="Higher Timeframe", group="General Settings & Risk")
+accountBalance = input.float(10000.0, title="Account Balance", group="General Settings & Risk")
+riskPerTrade = input.float(1.0, title="Risk % per Trade", minval=0.01, maxval=100.0, group="General Settings & Risk")
+correlatedAsset = input.string("TVC:DXY", title="Correlated Asset TickerID for SMT", group="General Settings & Risk")
+
+// Group: SMC Engine Visuals (Toggles)
+showBOSMSS = input.bool(true, title="Show BOS/MSS Markers", group="SMC Engine Visuals")
+showFVG = input.bool(true, title="Show Fair Value Gaps (M5)", group="SMC Engine Visuals")
+showOB = input.bool(true, title="Show Order Blocks (M5)", group="SMC Engine Visuals")
+showSessionRanges = input.bool(true, title="Show Session Ranges", group="SMC Engine Visuals")
+
+// Group: Killzone Strategy Selection
+londonStrategy = input.string("OFF", title="London Killzone Strategy", 
+     options=["OFF", "The Core SMC Model", "ICT Silver Bullet"], group="Killzone Strategy Selection")
+newYorkStrategy = input.string("OFF", title="New York Killzone Strategy", 
+     options=["OFF", "The Core SMC Model", "ICT Silver Bullet"], group="Killzone Strategy Selection")
+
+// Group: Low Timeframe Confirmation
+ltfTimeframe = input.string("1 Minute", title="LTF Timeframe", 
+     options=["1 Minute", "30 Second"], group="Low Timeframe Confirmation")
+
+// Group: Visual Customization
+colorBullishFVG = input.color(color.new(color.green, 80), title="Bullish FVG Color", group="Visual Customization")
+colorBearishFVG = input.color(color.new(color.red, 80), title="Bearish FVG Color", group="Visual Customization")
+colorBullishOB = input.color(color.new(color.blue, 80), title="Bullish Order Block Color", group="Visual Customization")
+colorBearishOB = input.color(color.new(color.orange, 80), title="Bearish Order Block Color", group="Visual Customization")
+colorBOS = input.color(color.lime, title="BOS Marker Color", group="Visual Customization")
+colorMSS = input.color(color.fuchsia, title="MSS Marker Color", group="Visual Customization")
+
+// ============================================================================
+// GLOBAL STATE VARIABLES
+// ============================================================================
+
+// State Machine States
+var string protocolStatus = "STANDBY"
+var string previousStatus = "STANDBY"
+
+// HTF Trend Direction
+var string htfBias = "NEUTRAL"
+
+// Strategy Event Tracking - Core SMC Model
+var bool event1Confirmed = false
+var bool event2Confirmed = false
+var bool event3Confirmed = false
+var bool event4Confirmed = false
+
+// Strategy Event Tracking - ICT Silver Bullet
+var bool sbEvent1Confirmed = false
+var bool sbEvent2Confirmed = false
+
+// Active Strategy and Killzone
+var string activeKillzone = "NONE"
+var string activeStrategyName = "NONE"
+var bool isBullishSignal = false
+
+// POI Storage
+var array<box> fvgBoxes = array.new<box>()
+var array<box> obBoxes = array.new<box>()
+var array<label> bosLabels = array.new<label>()
+
+// ============================================================================
+// UTILITY FUNCTIONS
+// ============================================================================
+
+// Convert LTF timeframe string to Pine Script timeframe
+f_getLTFTimeframe() =>
+    switch ltfTimeframe
+        "1 Minute" => "1"
+        "30 Second" => "30S"
+        => "1"
+
+// Check if current time is within London Killzone (3:00-6:00 EST)
+f_isLondonKillzone() =>
+    currentHour = hour(time, "America/New_York")
+    currentHour >= 3 and currentHour < 6
+
+// Check if current time is within New York Killzone (9:30-11:00 EST)
+f_isNewYorkKillzone() =>
+    currentHour = hour(time, "America/New_York")
+    currentMinute = minute(time, "America/New_York")
+    (currentHour == 9 and currentMinute >= 30) or (currentHour == 10) or (currentHour == 11 and currentMinute == 0)
+
+// Check if current time is within ICT Silver Bullet window (10:00-11:00 EST)
+f_isSilverBulletWindow() =>
+    currentHour = hour(time, "America/New_York")
+    currentHour >= 10 and currentHour < 11
+
+// ============================================================================
+// SMC ENGINE - POI DETECTION FUNCTIONS
+// ============================================================================
+
+// Swing High/Low Detection
+f_isSwingHigh(length) =>
+    ta.pivothigh(high, length, length)
+
+f_isSwingLow(length) =>
+    ta.pivotlow(low, length, length)
+
+// HTF Trend Detection (Simple MA-based)
+f_getHTFTrend() =>
+    htfClose = request.security(syminfo.tickerid, htfTimeframe, close, lookahead=barmerge.lookahead_off)
+    htfMA = request.security(syminfo.tickerid, htfTimeframe, ta.sma(close, 50), lookahead=barmerge.lookahead_off)
+    
+    if htfClose > htfMA
+        "BULLISH"
+    else if htfClose < htfMA
+        "BEARISH"
+    else
+        "NEUTRAL"
+
+// Break of Structure Detection
+f_detectBOS(swingHighPrice, swingLowPrice, trend) =>
+    bosDetected = false
+    bosType = ""
+    bosPrice = 0.0
+    
+    if trend == "BULLISH" and close > swingHighPrice
+        bosDetected := true
+        bosType := "BULLISH"
+        bosPrice := swingHighPrice
+    else if trend == "BEARISH" and close < swingLowPrice
+        bosDetected := true
+        bosType := "BEARISH"
+        bosPrice := swingLowPrice
+    
+    [bosDetected, bosType, bosPrice]
+
+// Market Structure Shift Detection
+f_detectMSS(prevTrend, currentBOSType) =>
+    mssDetected = false
+    newTrend = ""
+    
+    if prevTrend == "BULLISH" and currentBOSType == "BEARISH"
+        mssDetected := true
+        newTrend := "BEARISH"
+    else if prevTrend == "BEARISH" and currentBOSType == "BULLISH"
+        mssDetected := true
+        newTrend := "BULLISH"
+    
+    [mssDetected, newTrend]
+
+// Fair Value Gap Detection
+f_detectFVG(tf) =>
+    fvgHigh = request.security(syminfo.tickerid, tf, high, lookahead=barmerge.lookahead_off)
+    fvgLow = request.security(syminfo.tickerid, tf, low, lookahead=barmerge.lookahead_off)
+    fvgClose = request.security(syminfo.tickerid, tf, close, lookahead=barmerge.lookahead_off)
+    
+    fvgHigh1 = request.security(syminfo.tickerid, tf, high[1], lookahead=barmerge.lookahead_off)
+    fvgLow1 = request.security(syminfo.tickerid, tf, low[1], lookahead=barmerge.lookahead_off)
+    
+    fvgHigh2 = request.security(syminfo.tickerid, tf, high[2], lookahead=barmerge.lookahead_off)
+    fvgLow2 = request.security(syminfo.tickerid, tf, low[2], lookahead=barmerge.lookahead_off)
+    
+    // Bullish FVG: high[2] < low[0]
+    bullishFVG = fvgHigh2 < fvgLow
+    // Bearish FVG: low[2] > high[0]
+    bearishFVG = fvgLow2 > fvgHigh
+    
+    fvgDetected = bullishFVG or bearishFVG
+    fvgType = bullishFVG ? "BULLISH" : bearishFVG ? "BEARISH" : "NONE"
+    fvgTop = bullishFVG ? fvgLow : bearishFVG ? fvgLow2 : na
+    fvgBottom = bullishFVG ? fvgHigh2 : bearishFVG ? fvgHigh : na
+    
+    [fvgDetected, fvgType, fvgTop, fvgBottom]
+
+// Order Block Detection
+f_detectOB(isBullishMove) =>
+    obDetected = false
+    obHigh = 0.0
+    obLow = 0.0
+    
+    // Simplified OB detection: last opposing candle before strong move
+    if isBullishMove and close[1] < open[1] and close > close[1] * 1.005 // 0.5% move threshold
+        obDetected := true
+        obHigh := high[1]
+        obLow := low[1]
+    else if not isBullishMove and close[1] > open[1] and close < close[1] * 0.995 // 0.5% move threshold
+        obDetected := true
+        obHigh := high[1]
+        obLow := low[1]
+    
+    [obDetected, obHigh, obLow]
+
+// Session High/Low Detection
+f_getSessionHighLow(sessionString) =>
+    sessionHigh = request.security(syminfo.tickerid, "1D", high, lookahead=barmerge.lookahead_off)
+    sessionLow = request.security(syminfo.tickerid, "1D", low, lookahead=barmerge.lookahead_off)
+    
+    [sessionHigh, sessionLow]
+
+// Liquidity Sweep Detection
+f_detectLiquiditySweep() =>
+    [asianHigh, asianLow] = f_getSessionHighLow("0300-0600")
+    [londonHigh, londonLow] = f_getSessionHighLow("0800-1200")
+    
+    pdh = request.security(syminfo.tickerid, "1D", high[1], lookahead=barmerge.lookahead_off)
+    pdl = request.security(syminfo.tickerid, "1D", low[1], lookahead=barmerge.lookahead_off)
+    
+    sweepDetected = false
+    sweepType = ""
+    
+    // Check for sweeps above key levels
+    if high > math.max(asianHigh, math.max(londonHigh, pdh)) * 1.0001 // Small buffer
+        sweepDetected := true
+        sweepType := "HIGH_SWEEP"
+    // Check for sweeps below key levels
+    else if low < math.min(asianLow, math.min(londonLow, pdl)) * 0.9999 // Small buffer
+        sweepDetected := true
+        sweepType := "LOW_SWEEP"
+    
+    [sweepDetected, sweepType]
+
+// SMT Divergence Detection
+f_detectSMTDivergence() =>
+    // Get correlated asset data
+    correlatedHigh = request.security(correlatedAsset, timeframe.period, high, lookahead=barmerge.lookahead_off)
+    correlatedLow = request.security(correlatedAsset, timeframe.period, low, lookahead=barmerge.lookahead_off)
+    
+    // Simple divergence: primary makes new high/low, correlated doesn't
+    primaryNewHigh = high > high[1] and high[1] > high[2]
+    primaryNewLow = low < low[1] and low[1] < low[2]
+    
+    correlatedNewHigh = correlatedHigh > correlatedHigh[1] and correlatedHigh[1] > correlatedHigh[2]
+    correlatedNewLow = correlatedLow < correlatedLow[1] and correlatedLow[1] < correlatedLow[2]
+    
+    smtDivergence = false
+    smtType = ""
+    
+    if primaryNewHigh and not correlatedNewHigh
+        smtDivergence := true
+        smtType := "BEARISH_DIVERGENCE"
+    else if primaryNewLow and not correlatedNewLow
+        smtDivergence := true
+        smtType := "BULLISH_DIVERGENCE"
+    
+    [smtDivergence, smtType]
+
+// Inversion Fair Value Gap Detection
+f_detectIFVG(fvgTop, fvgBottom, fvgType) =>
+    ifvgDetected = false
+    
+    // Check if price has traded through the FVG and then returned
+    if fvgType == "BULLISH" and low < fvgBottom and close > fvgBottom
+        ifvgDetected := true
+    else if fvgType == "BEARISH" and high > fvgTop and close < fvgTop
+        ifvgDetected := true
+    
+    ifvgDetected
+
+// ============================================================================
+// STRATEGY MODULES
+// ============================================================================
+
+// Core SMC Model Strategy
+f_executeCoreStrategy() =>
+    // Event 1: Manipulation Confirmed
+    if not event1Confirmed
+        [sweepDetected, sweepType] = f_detectLiquiditySweep()
+        [smtDetected, smtType] = f_detectSMTDivergence()
+        
+        if sweepDetected or smtDetected
+            event1Confirmed := true
+            protocolStatus := "CONFIRMING"
+    
+    // Event 2: Structure Break Confirmed
+    if event1Confirmed and not event2Confirmed
+        swingHigh = f_isSwingHigh(5)
+        swingLow = f_isSwingLow(5)
+        
+        if not na(swingHigh) or not na(swingLow)
+            [bosDetected, bosType, bosPrice] = f_detectBOS(nz(swingHigh, high), nz(swingLow, low), htfBias)
+            [mssDetected, newTrend] = f_detectMSS(htfBias, bosType)
+            
+            if bosDetected or mssDetected
+                event2Confirmed := true
+                isBullishSignal := bosType == "BULLISH" or newTrend == "BULLISH"
+    
+    // Event 3: Return to HTF Point of Interest
+    if event2Confirmed and not event3Confirmed
+        [fvgDetected, fvgType, fvgTop, fvgBottom] = f_detectFVG("5")
+        [obDetected, obHigh, obLow] = f_detectOB(isBullishSignal)
+        
+        // Check if price is interacting with 5M FVG or OB
+        if fvgDetected and ((fvgType == "BULLISH" and close >= fvgBottom and close <= fvgTop) or 
+           (fvgType == "BEARISH" and close >= fvgBottom and close <= fvgTop))
+            event3Confirmed := true
+        else if obDetected and close >= obLow and close <= obHigh
+            event3Confirmed := true
+    
+    // Event 4: LTF Entry Confirmation
+    if event3Confirmed and not event4Confirmed
+        ltfTF = f_getLTFTimeframe()
+        [ltfFVGDetected, ltfFVGType, ltfFVGTop, ltfFVGBottom] = f_detectFVG(ltfTF)
+        
+        if ltfFVGDetected
+            ifvgConfirmed = f_detectIFVG(ltfFVGTop, ltfFVGBottom, ltfFVGType)
+            if ifvgConfirmed
+                event4Confirmed := true
+                protocolStatus := "ARMED"
+
+// ICT Silver Bullet Strategy
+f_executeSilverBulletStrategy() =>
+    // Check if within Silver Bullet window
+    if not f_isSilverBulletWindow()
+        return
+    
+    // Event 1: Liquidity Sweep
+    if not sbEvent1Confirmed
+        [sweepDetected, sweepType] = f_detectLiquiditySweep()
+        
+        if sweepDetected
+            sbEvent1Confirmed := true
+            protocolStatus := "CONFIRMING"
+            isBullishSignal := sweepType == "LOW_SWEEP"
+    
+    // Event 2: Price Displacement & FVG
+    if sbEvent1Confirmed and not sbEvent2Confirmed
+        [fvgDetected, fvgType, fvgTop, fvgBottom] = f_detectFVG(timeframe.period)
+        
+        if fvgDetected
+            sbEvent2Confirmed := true
+            protocolStatus := "ARMED"
+
+// ============================================================================
+// MAIN EXECUTION LOGIC
+// ============================================================================
+
+// Update HTF Bias
+htfBias := f_getHTFTrend()
+
+// Determine active Killzone and Strategy
+currentKillzone = ""
+currentStrategy = ""
+
+if f_isLondonKillzone() and londonStrategy != "OFF"
+    currentKillzone := "LONDON"
+    currentStrategy := londonStrategy
+else if f_isNewYorkKillzone() and newYorkStrategy != "OFF"
+    currentKillzone := "NEW_YORK"
+    currentStrategy := newYorkStrategy
+
+// State Machine Logic
+if currentKillzone == ""
+    // Outside Killzones - STANDBY
+    protocolStatus := "STANDBY"
+    activeKillzone := "NONE"
+    activeStrategyName := "NONE"
+    // Reset all event flags
+    event1Confirmed := false
+    event2Confirmed := false
+    event3Confirmed := false
+    event4Confirmed := false
+    sbEvent1Confirmed := false
+    sbEvent2Confirmed := false
+else
+    // Inside Killzone
+    if protocolStatus == "STANDBY"
+        protocolStatus := "HUNTING"
+        activeKillzone := currentKillzone
+        activeStrategyName := currentStrategy
+    
+    // Execute selected strategy
+    if currentStrategy == "The Core SMC Model"
+        f_executeCoreStrategy()
+    else if currentStrategy == "ICT Silver Bullet"
+        f_executeSilverBulletStrategy()
+
+// ============================================================================
+// VISUAL ELEMENTS
+// ============================================================================
+
+// Plot FVGs
+if showFVG
+    [fvgDetected, fvgType, fvgTop, fvgBottom] = f_detectFVG("5")
+    if fvgDetected and not na(fvgTop) and not na(fvgBottom)
+        fvgColor = fvgType == "BULLISH" ? colorBullishFVG : colorBearishFVG
+        fvgBox = box.new(bar_index, fvgTop, bar_index + 10, fvgBottom, 
+                        bgcolor=fvgColor, border_color=color.new(fvgColor, 0), 
+                        extend=extend.right)
+        array.push(fvgBoxes, fvgBox)
+
+// Plot Order Blocks
+if showOB
+    [obDetected, obHigh, obLow] = f_detectOB(close > open)
+    if obDetected and not na(obHigh) and not na(obLow)
+        obColor = close > open ? colorBullishOB : colorBearishOB
+        obBox = box.new(bar_index - 1, obHigh, bar_index + 5, obLow, 
+                       bgcolor=obColor, border_color=color.new(obColor, 0))
+        array.push(obBoxes, obBox)
+
+// Plot BOS/MSS Markers
+if showBOSMSS
+    swingHigh = f_isSwingHigh(5)
+    swingLow = f_isSwingLow(5)
+    
+    if not na(swingHigh) or not na(swingLow)
+        [bosDetected, bosType, bosPrice] = f_detectBOS(nz(swingHigh, high), nz(swingLow, low), htfBias)
+        [mssDetected, newTrend] = f_detectMSS(htfBias, bosType)
+        
+        if bosDetected
+            bosLabel = label.new(bar_index, bosType == "BULLISH" ? low : high, 
+                               text="BOS", style=label.style_circle, 
+                               color=colorBOS, textcolor=color.white, size=size.small)
+            array.push(bosLabels, bosLabel)
+        
+        if mssDetected
+            mssLabel = label.new(bar_index, newTrend == "BULLISH" ? low : high, 
+                               text="MSS", style=label.style_diamond, 
+                               color=colorMSS, textcolor=color.white, size=size.small)
+            array.push(bosLabels, mssLabel)
+
+// ============================================================================
+// ON-CHART DASHBOARD
+// ============================================================================
+
+// Create dashboard table
+var table dashboard = table.new(position.top_right, 2, 6, bgcolor=color.new(color.white, 80), 
+                               border_width=1, border_color=color.gray)
+
+// Update dashboard content
+if barstate.islast
+    // Header
+    table.cell(dashboard, 0, 0, "Protocol Status", text_color=color.black, text_size=size.small)
+    table.cell(dashboard, 1, 0, protocolStatus, text_color=color.black, text_size=size.small, 
+              bgcolor=protocolStatus == "ARMED" ? color.new(color.green, 70) : color.new(color.gray, 70))
+    
+    table.cell(dashboard, 0, 1, "HTF Bias", text_color=color.black, text_size=size.small)
+    table.cell(dashboard, 1, 1, htfBias, text_color=color.black, text_size=size.small,
+              bgcolor=htfBias == "BULLISH" ? color.new(color.green, 70) : 
+                     htfBias == "BEARISH" ? color.new(color.red, 70) : color.new(color.gray, 70))
+    
+    // Strategy Checklist (only show if strategy is active)
+    if activeStrategyName == "The Core SMC Model"
+        table.cell(dashboard, 0, 2, "▼ CORE SMC MODEL", text_color=color.black, text_size=size.small)
+        table.cell(dashboard, 1, 2, "", text_color=color.black, text_size=size.small)
+        
+        table.cell(dashboard, 0, 3, (event1Confirmed ? "✓" : "☐") + " Event 1: Manipulation", 
+                  text_color=event1Confirmed ? color.green : color.gray, text_size=size.tiny)
+        table.cell(dashboard, 1, 3, "", text_color=color.black, text_size=size.tiny)
+        
+        table.cell(dashboard, 0, 4, (event2Confirmed ? "✓" : "☐") + " Event 2: Structure Break", 
+                  text_color=event2Confirmed ? color.green : color.gray, text_size=size.tiny)
+        table.cell(dashboard, 1, 4, "", text_color=color.black, text_size=size.tiny)
+        
+        table.cell(dashboard, 0, 5, (event3Confirmed ? "✓" : "☐") + " Event 3: HTF POI Return", 
+                  text_color=event3Confirmed ? color.green : color.gray, text_size=size.tiny)
+        table.cell(dashboard, 1, 5, (event4Confirmed ? "✓" : "☐") + " Event 4: LTF Confirmation", 
+                  text_color=event4Confirmed ? color.green : color.gray, text_size=size.tiny)
+    
+    else if activeStrategyName == "ICT Silver Bullet"
+        table.cell(dashboard, 0, 2, "▼ SILVER BULLET", text_color=color.black, text_size=size.small)
+        table.cell(dashboard, 1, 2, "", text_color=color.black, text_size=size.small)
+        
+        table.cell(dashboard, 0, 3, (sbEvent1Confirmed ? "✓" : "☐") + " Event 1: Liquidity Sweep", 
+                  text_color=sbEvent1Confirmed ? color.green : color.gray, text_size=size.tiny)
+        table.cell(dashboard, 1, 3, "", text_color=color.black, text_size=size.tiny)
+        
+        table.cell(dashboard, 0, 4, (sbEvent2Confirmed ? "✓" : "☐") + " Event 2: FVG Formation", 
+                  text_color=sbEvent2Confirmed ? color.green : color.gray, text_size=size.tiny)
+        table.cell(dashboard, 1, 4, "", text_color=color.black, text_size=size.tiny)
+    
+    else
+        table.cell(dashboard, 0, 2, "Active Killzone", text_color=color.black, text_size=size.small)
+        table.cell(dashboard, 1, 2, activeKillzone, text_color=color.black, text_size=size.small)
+        
+        table.cell(dashboard, 0, 3, "Active Strategy", text_color=color.black, text_size=size.small)
+        table.cell(dashboard, 1, 3, activeStrategyName, text_color=color.black, text_size=size.small)
+
+// ============================================================================
+// ALERTING MECHANISM
+// ============================================================================
+
+// Single alert condition
+alertCondition = protocolStatus == "ARMED" and protocolStatus != previousStatus
+alertMessage = str.format("APEX: {0} '{1}' {2} Signal!", 
+                         activeKillzone, activeStrategyName, 
+                         isBullishSignal ? "BUY" : "SELL")
+
+alertcondition(alertCondition, title="Apex Protocol v3.0 Alert", message=alertMessage)
+
+// Update previous status for next bar
+previousStatus := protocolStatus
+
+// ============================================================================
+// END OF SCRIPT
+// ============================================================================
+
