@@ -97,18 +97,15 @@ i_corr_asset_ticker = input.symbol("TVC:DXY", "🔗 SMT Correlation Asset", grou
 // 🕐 Killzone Sessions & Strategy Assignment
 // =====================================================================================================================================
 string G_SESSIONS = "🕐 Killzone Sessions & Strategy Assignment"
-// --- NEW --- Create a unified options array for all dropdowns
-string[] strategyOptions = array.from(O_OFF, O_CORE, O_SILVER, O_MIDNIGHT)
-
 // --- NEW --- Midnight Killzone (02:00-05:00 SAST is 00:00-03:00 UTC)
 i_midnight_session = input.session("0000-0300", "🇯🇵 Midnight Killzone", group=G_SESSIONS, tooltip="Midnight session time window (UTC). Ideal for assets like GOLD. Format: HHMM-HHMM. Default is 02:00-05:00 SAST.")
-i_midnight_strategy = input.string(O_MIDNIGHT, "   ↳ Midnight Strategy", options=strategyOptions, group=G_SESSIONS)
+i_midnight_strategy = input.string(O_MIDNIGHT, "   ↳ Midnight Strategy", options=[O_OFF, O_CORE, O_SILVER, O_MIDNIGHT], group=G_SESSIONS)
 
 i_london_session = input.session("0800-1100", "🇬🇧 London Killzone", group=G_SESSIONS, tooltip="London session time window (UTC). Format: HHMM-HHMM")
-i_london_strategy = input.string(O_CORE, "   ↳ London Strategy", options=strategyOptions, group=G_SESSIONS)
+i_london_strategy = input.string(O_CORE, "   ↳ London Strategy", options=[O_OFF, O_CORE, O_SILVER, O_MIDNIGHT], group=G_SESSIONS)
 
 i_ny_session = input.session("1500-1800", "🇺🇸 New York Killzone", group=G_SESSIONS, tooltip="New York session time window (UTC). Format: HHMM-HHMM")
-i_ny_strategy = input.string(O_SILVER, "   ↳ New York Strategy", options=strategyOptions, group=G_SESSIONS)
+i_ny_strategy = input.string(O_SILVER, "   ↳ New York Strategy", options=[O_OFF, O_CORE, O_SILVER, O_MIDNIGHT], group=G_SESSIONS)
 
 
 // =====================================================================================================================================
@@ -320,26 +317,34 @@ var float lastBullishBOSPrice = na, var float lastBearishBOSPrice = na
 var float lastSwingHigh = na, var float lastSwingLow = na
 var float recentSwingHighForSL = na, var float recentSwingLowForSL = na
 if f_isSwingHigh(5)
-    lastSwingHigh := high[5], recentSwingHighForSL := high[5]
+    lastSwingHigh := high[5]
+    recentSwingHighForSL := high[5]
 if f_isSwingLow(5)
-    lastSwingLow := low[5], recentSwingLowForSL := low[5]
+    lastSwingLow := low[5]
+    recentSwingLowForSL := low[5]
 isBullishBOS = close > lastSwingHigh and not na(lastSwingHigh) and htfBias == "BULLISH"
 isBearishBOS = close < lastSwingLow and not na(lastSwingLow) and htfBias == "BEARISH"
 isBullishMSS = close > lastSwingHigh and not na(lastSwingHigh) and htfBias == "BEARISH"
 isBearishMSS = close < lastSwingLow and not na(lastSwingLow) and htfBias == "BULLISH"
 if isBullishBOS or isBullishMSS
-    lastBullishBOSPrice := lastSwingHigh, lastSwingHigh := na
+    lastBullishBOSPrice := lastSwingHigh
+    lastSwingHigh := na
 if isBearishBOS or isBearishMSS
-    lastBearishBOSPrice := lastSwingLow, lastSwingLow := na
+    lastBearishBOSPrice := lastSwingLow
+    lastSwingLow := na
 var int bullishStructureBar = na, var float bullishStructurePrice = na, var string bullishStructureText = na
 var int bearishStructureBar = na, var float bearishStructurePrice = na, var string bearishStructureText = na
 if i_show_bos_mss
     if ta.change(lastBullishBOSPrice)
         line.new(bar_index[1], lastBullishBOSPrice, bar_index, lastBullishBOSPrice, color=color.new(c_bullish, 50), style=line.style_dotted, width=1)
-        bullishStructureBar := bar_index, bullishStructurePrice := lastBullishBOSPrice, bullishStructureText := isBullishBOS ? "BOS" : "MSS"
+        bullishStructureBar := bar_index
+        bullishStructurePrice := lastBullishBOSPrice
+        bullishStructureText := isBullishBOS ? "BOS" : "MSS"
     if ta.change(lastBearishBOSPrice)
         line.new(bar_index[1], lastBearishBOSPrice, bar_index, lastBearishBOSPrice, color=color.new(c_bearish, 50), style=line.style_dotted, width=1)
-        bearishStructureBar := bar_index, bearishStructurePrice := lastBearishBOSPrice, bearishStructureText := isBearishMSS ? "MSS" : "BOS"
+        bearishStructureBar := bar_index
+        bearishStructurePrice := lastBearishBOSPrice
+        bearishStructureText := isBearishMSS ? "MSS" : "BOS"
 plot(bullishStructureBar == bar_index ? bullishStructurePrice : na, "Bullish Structure", color=c_bullish, linewidth=0, display=display.none)
 plot(bearishStructureBar == bar_index ? bearishStructurePrice : na, "Bearish Structure", color=c_bearish, linewidth=0, display=display.none)
 if not na(bullishStructureBar) and bar_index == bullishStructureBar
@@ -350,23 +355,30 @@ var float asiaHigh = na, var float asiaLow = na
 int asianSessionStartBar = ta.barssince(inAsianSession and not inAsianSession[1])
 int rawSessionLength = not na(asianSessionStartBar) and asianSessionStartBar >= 0 ? math.max(1, bar_index - asianSessionStartBar) : 1
 int asianSessionLength = math.min(rawSessionLength, 5000)
-float currentAsiaHigh = ta.highest(high, asianSessionLength), float currentAsiaLow = ta.lowest(low, asianSessionLength)
+float currentAsiaHigh = ta.highest(high, asianSessionLength)
+float currentAsiaLow = ta.lowest(low, asianSessionLength)
 if not inAsianSession and inAsianSession[1] and not na(asianSessionLength) and asianSessionLength > 0 and asianSessionLength <= bar_index
-    asiaHigh := currentAsiaHigh[1], asiaLow := currentAsiaLow[1]
+    asiaHigh := currentAsiaHigh[1]
+    asiaLow := currentAsiaLow[1]
     if i_show_session_ranges and not na(asiaHigh) and not na(asiaLow)
-        sessionStartBar = bar_index - asianSessionLength, sessionEndBar = bar_index
+        sessionStartBar = bar_index - asianSessionLength
+        sessionEndBar = bar_index
         box.new(sessionStartBar, asiaHigh, sessionEndBar, asiaLow, border_color=na, bgcolor=c_session_range)
         line.new(sessionStartBar, asiaHigh, sessionEndBar, asiaHigh, color=c_session_range, style=line.style_dotted)
         line.new(sessionStartBar, asiaLow, sessionEndBar, asiaLow, color=c_session_range, style=line.style_dotted)
 [pdh, pdl] = request.security(syminfo.tickerid, "D", [high[1], low[1]], lookahead=barmerge.lookahead_on)
-isAsiaHighSweep = high > asiaHigh and not na(asiaHigh), isAsiaLowSweep = low < asiaLow and not na(asiaLow)
-isPDHSweep = high > pdh and not na(pdh), isPDLSweep = low < pdl and not na(pdl)
+isAsiaHighSweep = high > asiaHigh and not na(asiaHigh)
+isAsiaLowSweep = low < asiaLow and not na(asiaLow)
+isPDHSweep = high > pdh and not na(pdh)
+isPDLSweep = low < pdl and not na(pdl)
 isAnyLiquiditySweep = isAsiaHighSweep or isAsiaLowSweep or isPDHSweep or isPDLSweep
 calculatePivots(length) =>
     var int intraCalc = 0
     if bar_index > length + 1
-        up = highArr.slice(0, length).max(), dn = lowArr.slice(0, length).min() 
-        cHi = highArr.get(length), cLo = lowArr.get(length)
+        up = highArr.slice(0, length).max()
+        dn = lowArr.slice(0, length).min() 
+        cHi = highArr.get(length)
+        cLo = lowArr.get(length)
         intraCalc := switch 
             cHi > up => 0 
             cLo < dn => 1 
@@ -437,10 +449,12 @@ if barstate.islast
 fvg(direction) => 
     var fvgMat = matrix.new<float>(5), var fvgDrawings = array.new<box>(), var fvgMidLines = array.new<line>()
     fvgMat.add_col(0, array.from(math.sign(close - open), close, high, low, time))
-    if fvgMat.columns() > 3, fvgMat.remove_col(fvgMat.columns() - 1)
+    if fvgMat.columns() > 3
+        fvgMat.remove_col(fvgMat.columns() - 1)
     if fvgMat.row(0).sum() == direction
         getDir = math.sign(direction)
-        [y, y1] = getDir == -1 ? [fvgMat.get(3, 2), fvgMat.get(2, 0)] : [fvgMat.get(3, 0), fvgMat.get(2, 2)]
+        y = getDir == -1 ? fvgMat.get(3, 2) : fvgMat.get(3, 0)
+        y1 = getDir == -1 ? fvgMat.get(2, 0) : fvgMat.get(2, 2)
         col = i_close_only_fvg ? #00000000 : color.new(c_fvg, i_fvg_transparency)
         fvgDrawings.push(box.new(int(fvgMat.get(4, 1)), y, last_bar_time, y1, xloc=xloc.bar_time, border_color=col, bgcolor=col, text="FVG", text_size=size.small, text_color=color.black))
         fvg_midpoint = math.avg(y, y1)
@@ -453,67 +467,104 @@ if i_show_fvg
         for i = fvgDn.size() - 1 to 0
             getfvg = fvgDn.get(i)
             if high >= getfvg.get_top()
-                getfvg.delete(), fvgDn.remove(i)
-                if fvgDnLines.size() > i, fvgDnLines.get(i).delete(), fvgDnLines.remove(i)
+                getfvg.delete()
+                fvgDn.remove(i)
+                if fvgDnLines.size() > i
+                    fvgDnLines.get(i).delete()
+                    fvgDnLines.remove(i)
             else if i_contract_fvg
                 if high > getfvg.get_bottom()
                     getfvg.set_bottom(high)
-                    if fvgDnLines.size() > i, new_midpoint = math.avg(getfvg.get_top(), getfvg.get_bottom()), fvgDnLines.get(i).set_y1(new_midpoint), fvgDnLines.get(i).set_y2(new_midpoint)
+                    if fvgDnLines.size() > i
+                        new_midpoint = math.avg(getfvg.get_top(), getfvg.get_bottom())
+                        fvgDnLines.get(i).set_y1(new_midpoint)
+                        fvgDnLines.get(i).set_y2(new_midpoint)
     if fvgUp.size() > 0 
         for i = fvgUp.size() - 1 to 0
             getfvg = fvgUp.get(i)
             if low <= getfvg.get_bottom()
-                getfvg.delete(), fvgUp.remove(i)
-                if fvgUpLines.size() > i, fvgUpLines.get(i).delete(), fvgUpLines.remove(i)
+                getfvg.delete()
+                fvgUp.remove(i)
+                if fvgUpLines.size() > i
+                    fvgUpLines.get(i).delete()
+                    fvgUpLines.remove(i)
             else if i_contract_fvg
                 if low < getfvg.get_top()
                     getfvg.set_top(low)
-                    if fvgUpLines.size() > i, new_midpoint = math.avg(getfvg.get_top(), getfvg.get_bottom()), fvgUpLines.get(i).set_y1(new_midpoint), fvgUpLines.get(i).set_y2(new_midpoint)
+                    if fvgUpLines.size() > i
+                        new_midpoint = math.avg(getfvg.get_top(), getfvg.get_bottom())
+                        fvgUpLines.get(i).set_y1(new_midpoint)
+                        fvgUpLines.get(i).set_y2(new_midpoint)
     if i_close_only_fvg and barstate.islast 
         minDist = matrix.new<float>(1, 2, 20e20)
         if fvgDn.size() > 0 
             for i = fvgDn.size() - 1 to 0
                 getBottom = fvgDn.get(i).get_bottom()
                 minDist.set(0, 1, math.min(minDist.get(0, 1), math.abs(close - getBottom)))
-                if math.abs(close - getBottom) == minDist.get(0, 1), minDist.set(0, 0, i)
+                if math.abs(close - getBottom) == minDist.get(0, 1)
+                    minDist.set(0, 0, i)
                 fvgDn.get(i).set_right(fvgDn.get(i).get_left())
-                if fvgDnLines.size() > i, fvgDnLines.get(i).set_x2(fvgDnLines.get(i).get_x1())
+                if fvgDnLines.size() > i
+                    fvgDnLines.get(i).set_x2(fvgDnLines.get(i).get_x1())
             closest_dn_idx = int(minDist.get(0, 0))
-            fvgDn.get(closest_dn_idx).set_bgcolor(color.new(c_fvg, i_fvg_transparency)), fvgDn.get(closest_dn_idx).set_border_color(color.new(c_fvg, i_fvg_transparency)), fvgDn.get(closest_dn_idx).set_right(last_bar_time)
-            if fvgDnLines.size() > closest_dn_idx, fvgDnLines.get(closest_dn_idx).set_color(color.new(c_fvg, math.max(0, i_fvg_transparency - 30))), fvgDnLines.get(closest_dn_idx).set_x2(last_bar_time)
-        minDist.set(0, 0, 0), minDist.set(0, 1, 20e20)
+            fvgDn.get(closest_dn_idx).set_bgcolor(color.new(c_fvg, i_fvg_transparency))
+            fvgDn.get(closest_dn_idx).set_border_color(color.new(c_fvg, i_fvg_transparency))
+            fvgDn.get(closest_dn_idx).set_right(last_bar_time)
+            if fvgDnLines.size() > closest_dn_idx
+                fvgDnLines.get(closest_dn_idx).set_color(color.new(c_fvg, math.max(0, i_fvg_transparency - 30)))
+                fvgDnLines.get(closest_dn_idx).set_x2(last_bar_time)
+        minDist.set(0, 0, 0)
+        minDist.set(0, 1, 20e20)
         if fvgUp.size() > 0 
             for i = fvgUp.size() - 1 to 0
                 getTop = fvgUp.get(i).get_top()
                 minDist.set(0, 1, math.min(minDist.get(0, 1), math.abs(close - getTop)))
-                if math.abs(close - getTop) == minDist.get(0, 1), minDist.set(0, 0, i)
+                if math.abs(close - getTop) == minDist.get(0, 1)
+                    minDist.set(0, 0, i)
                 fvgUp.get(i).set_right(fvgUp.get(i).get_left())
-                if fvgUpLines.size() > i, fvgUpLines.get(i).set_x2(fvgUpLines.get(i).get_x1())
+                if fvgUpLines.size() > i
+                    fvgUpLines.get(i).set_x2(fvgUpLines.get(i).get_x1())
             closest_up_idx = int(minDist.get(0, 0))
-            fvgUp.get(closest_up_idx).set_bgcolor(color.new(c_fvg, i_fvg_transparency)), fvgUp.get(closest_up_idx).set_border_color(color.new(c_fvg, i_fvg_transparency)), fvgUp.get(closest_up_idx).set_right(last_bar_time)
-            if fvgUpLines.size() > closest_up_idx, fvgUpLines.get(closest_up_idx).set_color(color.new(c_fvg, math.max(0, i_fvg_transparency - 30))), fvgUpLines.get(closest_up_idx).set_x2(last_bar_time)
+            fvgUp.get(closest_up_idx).set_bgcolor(color.new(c_fvg, i_fvg_transparency))
+            fvgUp.get(closest_up_idx).set_border_color(color.new(c_fvg, i_fvg_transparency))
+            fvgUp.get(closest_up_idx).set_right(last_bar_time)
+            if fvgUpLines.size() > closest_up_idx
+                fvgUpLines.get(closest_up_idx).set_color(color.new(c_fvg, math.max(0, i_fvg_transparency - 30)))
+                fvgUpLines.get(closest_up_idx).set_x2(last_bar_time)
 var line main = line.new(0, 0, 100, 100, style=line.style_dashed, width=2)
-method updateMain(line id) => 
+method updateMain(line id) =>
     if i_show_fibs
         [bigUpperFibs, bigLowerFibs] = calculatePivots(25)
         var int counterFibs = 0
-        if bigUpperFibs != 0, counterFibs := 1
-        if bigLowerFibs != 0, counterFibs := -1
+        if bigUpperFibs != 0
+            counterFibs := 1
+        if bigLowerFibs != 0
+            counterFibs := -1
         if counterFibs == 1 
-            hi = 0.0, lo = 1e8
+            hi = 0.0
+            lo = 1e8
             id.set_xy1(int(bigData.get("upaxis2")), bigData.get("upaxis"))
             for i = 0 to bar_index - int(bigData.get("dnaxis2"))
-                getLow = lowArr.get(i), lo := math.min(getLow, lo)
-                if lo == getLow, id.set_xy2(bar_index - i, lo)
+                getLow = lowArr.get(i)
+                lo := math.min(getLow, lo)
+                if lo == getLow
+                    id.set_xy2(bar_index - i, lo)
         else if counterFibs == -1
-            hi = 0.0, lo = 1e8
+            hi = 0.0
+            lo = 1e8
             id.set_xy1(int(bigData.get("dnaxis2")), bigData.get("dnaxis"))
             for i = 0 to bar_index - bigData.get("upaxis2")
-                getHigh = highArr.get(i), hi := math.max(highArr.get(i), hi)
-                if hi == getHigh, id.set_xy2(bar_index - i, hi)
+                getHigh = highArr.get(i)
+                hi := math.max(highArr.get(i), hi)
+                if hi == getHigh
+                    id.set_xy2(bar_index - i, hi)
         if id.get_x2() < id.get_x1()
-            x2 = id.get_x2(), x1 = id.get_x1(), y2 = id.get_y2(), y1 = id.get_y1()
-            id.set_xy2(x1, y1), id.set_xy1(x2, y2)
+            x2 = id.get_x2()
+            x1 = id.get_x1()
+            y2 = id.get_y2()
+            y1 = id.get_y1()
+            id.set_xy2(x1, y1)
+            id.set_xy1(x2, y2)
         id.set_color(id.get_y2() < id.get_y1() ? c_bearish : c_bullish)
     0
 main.updateMain()
@@ -559,119 +610,226 @@ drawAOE() =>
             else 
                 getLowBox.set_lefttop(bar_index + 5, minaoiL), getLowBox.set_rightbottom(bar_index + 5, minaoiL - ta.atr(14)), getLowBox.set_text("")
 drawAOE()
-var bool isBullish_ICHoch = false, var bool isBearish_ICHoch = false
+var bool isBullish_ICHoch = false
+var bool isBearish_ICHoch = false
 drawStructureInternals() => 
     if i_show_int_structure
         var keyValues = map.new<string, float>()
-        if keyValues.size() == 0, keyValues.put("movingSmall", 0)
-        if smallUpper != 0, keyValues.put("upsideSmall", 1), keyValues.put("upaxisSmall", smallUpper), keyValues.put("upaxis2Small", bar_index - i_int_sens)
-        if smallLower != 0, keyValues.put("downsideSmall", 1), keyValues.put("dnaxisSmall", smallLower), keyValues.put("dnaxis2Small", bar_index - i_int_sens)
-        isBullish_ICHoch := false, isBearish_ICHoch := false
+        if keyValues.size() == 0
+            keyValues.put("movingSmall", 0)
+        if smallUpper != 0
+            keyValues.put("upsideSmall", 1)
+            keyValues.put("upaxisSmall", smallUpper)
+            keyValues.put("upaxis2Small", bar_index - i_int_sens)
+        if smallLower != 0
+            keyValues.put("downsideSmall", 1)
+            keyValues.put("dnaxisSmall", smallLower)
+            keyValues.put("dnaxis2Small", bar_index - i_int_sens)
         if ta.crossover(close, keyValues.get("upaxisSmall")) 
             if keyValues.get("upsideSmall") != 0
                 str = keyValues.get("movingSmall") < 0 ? i_int_structure != "BoS" ? 'I-CHoCH' : "" : i_int_structure != "CHoCH" ? 'I-BoS' : ""
                 if i_int_structure == "All" or str.contains(str, i_int_structure)
                     drawChar(keyValues.get("upaxis2Small"), keyValues.get("upaxisSmall"), str, c_bullish, true)
-                    if str == 'I-CHoCH', isBullish_ICHoch := true
-                keyValues.put("upsideSmall", 0), keyValues.put("movingSmall", 1)
+                keyValues.put("upsideSmall", 0)
+                keyValues.put("movingSmall", 1)
         if ta.crossunder(close, keyValues.get("dnaxisSmall"))
             if keyValues.get("downsideSmall") != 0
                 str = keyValues.get("movingSmall") > 0 ? i_int_structure != "BoS" ? 'I-CHoCH' : "" : i_int_structure != "CHoCH" ? 'I-BoS' : ""
                 if i_int_structure == "All" or str.contains(str, i_int_structure)
                     drawChar(keyValues.get("dnaxis2Small"), keyValues.get("dnaxisSmall"), str, c_bearish, false)
-                    if str == 'I-CHoCH', isBearish_ICHoch := true
-                keyValues.put("downsideSmall", 0), keyValues.put("movingSmall", -1)
+                keyValues.put("downsideSmall", 0)
+                keyValues.put("movingSmall", -1)
 drawStructureInternals()
+// Handle I-CHoCH detection in global scope
+if i_show_int_structure
+    isBullish_ICHoch := false
+    isBearish_ICHoch := false
+    var keyValues = map.new<string, float>()
+    if keyValues.size() == 0
+        keyValues.put("movingSmall", 0)
+    if smallUpper != 0
+        keyValues.put("upsideSmall", 1)
+        keyValues.put("upaxisSmall", smallUpper)
+        keyValues.put("upaxis2Small", bar_index - i_int_sens)
+    if smallLower != 0
+        keyValues.put("downsideSmall", 1)
+        keyValues.put("dnaxisSmall", smallLower)
+        keyValues.put("dnaxis2Small", bar_index - i_int_sens)
+    if ta.crossover(close, keyValues.get("upaxisSmall")) and keyValues.get("upsideSmall") != 0
+        str = keyValues.get("movingSmall") < 0 ? i_int_structure != "BoS" ? 'I-CHoCH' : "" : i_int_structure != "CHoCH" ? 'I-BoS' : ""
+        if str == 'I-CHoCH'
+            isBullish_ICHoch := true
+    if ta.crossunder(close, keyValues.get("dnaxisSmall")) and keyValues.get("downsideSmall") != 0
+        str = keyValues.get("movingSmall") > 0 ? i_int_structure != "BoS" ? 'I-CHoCH' : "" : i_int_structure != "CHoCH" ? 'I-BoS' : ""
+        if str == 'I-CHoCH'
+            isBearish_ICHoch := true
 if i_show_cisd
-    ph = ta.pivothigh(i_cisd_swing_length, 1), pl = ta.pivotlow(i_cisd_swing_length, 1)
-    if not na(ph), cisd_swings_high.push(cisd_swing.new(bar_index - 1, ph)), cisd_last_ph_index := bar_index - 1, cisd_last_ph_price := ph
-    if not na(pl), cisd_swings_low.push(cisd_swing.new(bar_index - 1, pl)), cisd_last_pl_index := bar_index - 1, cisd_last_pl_price := pl
-    if cisd_bull_candle and cisd_bear_candle[1], cisd_track_bull_index := bar_index, cisd_track_bull_price := open
-    if cisd_bear_candle and cisd_bull_candle[1], cisd_track_bear_index := bar_index, cisd_track_bear_price := open
-    if not na(cisd_last_ph_price) and close > cisd_last_ph_price, cisd_last_ph_index := na, cisd_last_ph_price := na
-    if not na(cisd_last_pl_price) and close < cisd_last_pl_price, cisd_last_pl_index := na, cisd_last_pl_price := na
+    ph = ta.pivothigh(i_cisd_swing_length, 1)
+    pl = ta.pivotlow(i_cisd_swing_length, 1)
+    if not na(ph)
+        cisd_swings_high.push(cisd_swing.new(bar_index - 1, ph))
+        cisd_last_ph_index := bar_index - 1
+        cisd_last_ph_price := ph
+    if not na(pl)
+        cisd_swings_low.push(cisd_swing.new(bar_index - 1, pl))
+        cisd_last_pl_index := bar_index - 1
+        cisd_last_pl_price := pl
+    if cisd_bull_candle and cisd_bear_candle[1]
+        cisd_track_bull_index := bar_index
+        cisd_track_bull_price := open
+    if cisd_bear_candle and cisd_bull_candle[1]
+        cisd_track_bear_index := bar_index
+        cisd_track_bear_price := open
+    if not na(cisd_last_ph_price) and close > cisd_last_ph_price
+        cisd_last_ph_index := na
+        cisd_last_ph_price := na
+    if not na(cisd_last_pl_price) and close < cisd_last_pl_price
+        cisd_last_pl_index := na
+        cisd_last_pl_price := na
     if not cisd_is_sweep_mode      
         if barstate.isconfirmed and cisd_bull_candle and cisd_bear_candle[1]
-            if cisd_active_bull.active and not cisd_active_bull.broken, cisd_active_bull.ln.delete()
-            cisd_active_bull.active := true, cisd_active_bull.ln := line.new(cisd_track_bull_index, cisd_track_bull_price, bar_index, cisd_track_bull_price, color=color.new(i_cisd_bull_color, 40)), cisd_active_bull.start_index := not na(cisd_last_ph_index) ? cisd_last_ph_index : bar_index, cisd_active_bull.start_price := not na(cisd_last_ph_price) ? cisd_last_ph_price : high, cisd_active_bull.broken := false
+            if cisd_active_bull.active and not cisd_active_bull.broken
+                cisd_active_bull.ln.delete()
+            cisd_active_bull.active := true
+            cisd_active_bull.ln := line.new(cisd_track_bull_index, cisd_track_bull_price, bar_index, cisd_track_bull_price, color=color.new(i_cisd_bull_color, 40))
+            cisd_active_bull.start_index := not na(cisd_last_ph_index) ? cisd_last_ph_index : bar_index
+            cisd_active_bull.start_price := not na(cisd_last_ph_price) ? cisd_last_ph_price : high
+            cisd_active_bull.broken := false
         if barstate.isconfirmed and cisd_bear_candle and cisd_bull_candle[1] 
-            if cisd_active_bear.active and not cisd_active_bear.broken, cisd_active_bear.ln.delete() 
-            cisd_active_bear.active := true, cisd_active_bear.ln := line.new(cisd_track_bear_index, cisd_track_bear_price, bar_index, cisd_track_bear_price, color=color.new(i_cisd_bear_color, 40)), cisd_active_bear.start_index := not na(cisd_last_pl_index) ? cisd_last_pl_index : bar_index, cisd_active_bear.start_price := not na(cisd_last_pl_price) ? cisd_last_pl_price : low, cisd_active_bear.broken := false
+            if cisd_active_bear.active and not cisd_active_bear.broken
+                cisd_active_bear.ln.delete()
+            cisd_active_bear.active := true
+            cisd_active_bear.ln := line.new(cisd_track_bear_index, cisd_track_bear_price, bar_index, cisd_track_bear_price, color=color.new(i_cisd_bear_color, 40))
+            cisd_active_bear.start_index := not na(cisd_last_pl_index) ? cisd_last_pl_index : bar_index
+            cisd_active_bear.start_price := not na(cisd_last_pl_price) ? cisd_last_pl_price : low
+            cisd_active_bear.broken := false
         if cisd_active_bull.active         
             if bar_index - cisd_active_bull.ln.get_x1() <= i_cisd_max_validity
                 cisd_active_bull.ln.set_x2(bar_index)
                 if close < cisd_active_bull.ln.get_y2()
                     if bar_index - cisd_active_bull.ln.get_x1() >= i_cisd_min_duration
                         cisd_active_bull.ln.set_color(i_cisd_bear_color)
-                        if cisd_trend == -1, cisd_active_bull.ln.set_style(line.style_dashed)
-                        cisd_active_bull.active := false, cisd_active_bull.broken := true, cisd_trend := -1
+                        if cisd_trend == -1
+                            cisd_active_bull.ln.set_style(line.style_dashed)
+                        cisd_active_bull.active := false
+                        cisd_active_bull.broken := true
+                        cisd_trend := -1
                         x = math.ceil(math.avg(cisd_active_bull.ln.get_x1(), bar_index))
                         label.new(x, cisd_active_bull.ln.get_y2(), style=label.style_label_up, textcolor=i_cisd_bear_color, text='CISD', size=cisd_text_size, color=color.new(color.white, 100)) 
-                    else, cisd_active_bull.active := false, cisd_active_bull.ln.delete()
-            else, cisd_active_bull.active := false, cisd_active_bull.ln.delete()
+                    else
+                        cisd_active_bull.active := false
+                        cisd_active_bull.ln.delete()
+            else
+                cisd_active_bull.active := false
+                cisd_active_bull.ln.delete()
         if cisd_active_bear.active    
             if bar_index - cisd_active_bear.ln.get_x1() <= i_cisd_max_validity          
                 cisd_active_bear.ln.set_x2(bar_index)
                 if close > cisd_active_bear.ln.get_y2()  
                     if bar_index - cisd_active_bear.ln.get_x1() >= i_cisd_min_duration 
                         cisd_active_bear.ln.set_color(i_cisd_bull_color)
-                        if cisd_trend == 1, cisd_active_bear.ln.set_style(line.style_dashed)
-                        cisd_active_bear.active := false, cisd_active_bear.broken := true, cisd_trend := 1
+                        if cisd_trend == 1
+                            cisd_active_bear.ln.set_style(line.style_dashed)
+                        cisd_active_bear.active := false
+                        cisd_active_bear.broken := true
+                        cisd_trend := 1
                         x = math.ceil(math.avg(cisd_active_bear.ln.get_x1(), bar_index))
                         label.new(x, cisd_active_bear.ln.get_y2(), style=label.style_label_down, textcolor=i_cisd_bull_color, text='CISD', color=color.new(color.white, 100), size=cisd_text_size) 
-                    else, cisd_active_bear.active := false, cisd_active_bear.ln.delete()
-            else, cisd_active_bear.active := false, cisd_active_bear.ln.delete()
+                    else
+                        cisd_active_bear.active := false
+                        cisd_active_bear.ln.delete()
+            else
+                cisd_active_bear.active := false
+                cisd_active_bear.ln.delete()
     else 
         if cisd_swings_high.size() > 0 
             for i = cisd_swings_high.size() - 1 to 0 
-                get = cisd_swings_high.get(i), x = get.index, y = get.price        
-                if bar_index - x > i_cisd_max_validity, cisd_swings_high.remove(i)
-                else if not na(get.ln), if close > get.ln.get_y2(), cisd_swings_high.remove(i)
-                    else if close > y, cisd_swings_high.remove(i)
-                        else if not get.active and high > get.price and close < get.price
-                                    get.ln := line.new(x, get.price, bar_index, get.price, color=i_cisd_sweep_color), get.wick := line.new(bar_index, get.price, bar_index, high, color=i_cisd_sweep_color, width=3), get.active := true
-                                    if not na(cisd_track_bull_index) and not na(cisd_track_bull_price), cisd_bull_bins.push(cisd_bin.new(line.new(cisd_track_bull_index, cisd_track_bull_price, bar_index, cisd_track_bull_price, color=color.new(i_cisd_bull_color, 40)), true, cisd_track_bull_index, cisd_track_bull_price))
+                get = cisd_swings_high.get(i)
+                x = get.index
+                y = get.price
+                if bar_index - x > i_cisd_max_validity
+                    cisd_swings_high.remove(i)
+                else if not na(get.ln)
+                    if close > get.ln.get_y2()
+                        cisd_swings_high.remove(i)
+                    else if close > y
+                        cisd_swings_high.remove(i)
+                    else if not get.active and high > get.price and close < get.price
+                        get.ln := line.new(x, get.price, bar_index, get.price, color=i_cisd_sweep_color)
+                        get.wick := line.new(bar_index, get.price, bar_index, high, color=i_cisd_sweep_color, width=3)
+                        get.active := true
+                        if not na(cisd_track_bull_index) and not na(cisd_track_bull_price)
+                            cisd_bull_bins.push(cisd_bin.new(line.new(cisd_track_bull_index, cisd_track_bull_price, bar_index, cisd_track_bull_price, color=color.new(i_cisd_bull_color, 40)), true, cisd_track_bull_index, cisd_track_bull_price))
         if cisd_swings_low.size() > 0 
             for i = cisd_swings_low.size() - 1 to 0 
-                get = cisd_swings_low.get(i), x = get.index, y = get.price
-                if bar_index - x > i_cisd_max_validity, cisd_swings_low.remove(i)
-                else if not na(get.ln), if close < get.ln.get_y2(), cisd_swings_low.remove(i)
-                    else if close < y, cisd_swings_low.remove(i)
-                        else if not get.active and low < get.price and close > get.price
-                                    get.ln := line.new(x, get.price, bar_index, get.price, color=i_cisd_sweep_color), get.wick := line.new(bar_index, get.price, bar_index, low, color=i_cisd_sweep_color, width=3), get.active := true
-                                    if not na(cisd_track_bear_index) and not na(cisd_track_bear_price), cisd_bear_bins.push(cisd_bin.new(line.new(cisd_track_bear_index, cisd_track_bear_price, bar_index, cisd_track_bear_price, color=color.new(i_cisd_bear_color, 40)), true, cisd_track_bear_index, cisd_track_bear_price))
+                get = cisd_swings_low.get(i)
+                x = get.index
+                y = get.price
+                if bar_index - x > i_cisd_max_validity
+                    cisd_swings_low.remove(i)
+                else if not na(get.ln)
+                    if close < get.ln.get_y2()
+                        cisd_swings_low.remove(i)
+                    else if close < y
+                        cisd_swings_low.remove(i)
+                    else if not get.active and low < get.price and close > get.price
+                        get.ln := line.new(x, get.price, bar_index, get.price, color=i_cisd_sweep_color)
+                        get.wick := line.new(bar_index, get.price, bar_index, low, color=i_cisd_sweep_color, width=3)
+                        get.active := true
+                        if not na(cisd_track_bear_index) and not na(cisd_track_bear_price)
+                            cisd_bear_bins.push(cisd_bin.new(line.new(cisd_track_bear_index, cisd_track_bear_price, bar_index, cisd_track_bear_price, color=color.new(i_cisd_bear_color, 40)), true, cisd_track_bear_index, cisd_track_bear_price))
         if cisd_bull_bins.size() > 0 
             for i = cisd_bull_bins.size() - 1 to 0 
-                get = cisd_bull_bins.get(i), get.ln.set_x2(bar_index), x1 = get.ln.get_x1()
-                if bar_index - x1 > i_cisd_max_validity, get.ln.delete(), cisd_bull_bins.remove(i) 
+                get = cisd_bull_bins.get(i)
+                get.ln.set_x2(bar_index)
+                x1 = get.ln.get_x1()
+                if bar_index - x1 > i_cisd_max_validity
+                    get.ln.delete()
+                    cisd_bull_bins.remove(i) 
                 else if close < get.ln.get_y2() 
-                        if bar_index - x1 >= i_cisd_min_duration
-                            get.ln.set_color(i_cisd_bear_color)
-                            if cisd_trend == -1, get.ln.set_style(line.style_dashed)
-                            cisd_trend := -1 
-                            x = math.ceil(math.avg(x1, bar_index))
-                            label.new(x, get.ln.get_y2(), style=label.style_label_up, textcolor=i_cisd_bear_color, text='CISD', size=cisd_text_size, color=color.new(color.white, 100)), label.new(bar_index, high, style=label.style_label_down, textcolor=i_cisd_bear_color, text='▼', size=cisd_text_size, color=color.new(color.white, 100))
-                        else, get.ln.delete()
+                    if bar_index - x1 >= i_cisd_min_duration
+                        get.ln.set_color(i_cisd_bear_color)
+                        if cisd_trend == -1
+                            get.ln.set_style(line.style_dashed)
+                        cisd_trend := -1 
+                        x = math.ceil(math.avg(x1, bar_index))
+                        label.new(x, get.ln.get_y2(), style=label.style_label_up, textcolor=i_cisd_bear_color, text='CISD', size=cisd_text_size, color=color.new(color.white, 100))
+                        label.new(bar_index, high, style=label.style_label_down, textcolor=i_cisd_bear_color, text='▼', size=cisd_text_size, color=color.new(color.white, 100))
+                    else
+                        get.ln.delete()
                         cisd_bull_bins.remove(i)
         if cisd_bear_bins.size() > 0 
             for i = cisd_bear_bins.size() - 1 to 0 
-                get = cisd_bear_bins.get(i), get.ln.set_x2(bar_index), x1 = get.ln.get_x1()
-                if bar_index - x1 > i_cisd_max_validity, get.ln.delete(), cisd_bear_bins.remove(i) 
+                get = cisd_bear_bins.get(i)
+                get.ln.set_x2(bar_index)
+                x1 = get.ln.get_x1()
+                if bar_index - x1 > i_cisd_max_validity
+                    get.ln.delete()
+                    cisd_bear_bins.remove(i) 
                 else if close > get.ln.get_y2() 
-                        if bar_index - x1 >= i_cisd_min_duration
-                            get.ln.set_color(i_cisd_bull_color)
-                            if cisd_trend == 1, get.ln.set_style(line.style_dashed)
-                            cisd_trend := 1 
-                            x = math.ceil(math.avg(x1, bar_index))
-                            label.new(x, get.ln.get_y2(), style=label.style_label_down, textcolor=i_cisd_bull_color, text='CISD', size=cisd_text_size, color=color.new(color.white, 100)), label.new(bar_index, low, style=label.style_label_up, textcolor=i_cisd_bull_color, text='▲', size=cisd_text_size, color=color.new(color.white, 100))
-                        else, get.ln.delete()
+                    if bar_index - x1 >= i_cisd_min_duration
+                        get.ln.set_color(i_cisd_bull_color)
+                        if cisd_trend == 1
+                            get.ln.set_style(line.style_dashed)
+                        cisd_trend := 1 
+                        x = math.ceil(math.avg(x1, bar_index))
+                        label.new(x, get.ln.get_y2(), style=label.style_label_down, textcolor=i_cisd_bull_color, text='CISD', size=cisd_text_size, color=color.new(color.white, 100))
+                        label.new(bar_index, low, style=label.style_label_up, textcolor=i_cisd_bull_color, text='▲', size=cisd_text_size, color=color.new(color.white, 100))
+                    else
+                        get.ln.delete()
                         cisd_bear_bins.remove(i)
-var float breachedBullFVGTop_ifvg = na, var float breachedBullFVGBot_ifvg = na, var float breachedBearFVGTop_ifvg = na, var float breachedBearFVGBot_ifvg = na
-var float confirmedBullishIFVGLevel = na, var float confirmedBearishIFVGLevel = na
+var float breachedBullFVGTop_ifvg = na
+var float breachedBullFVGBot_ifvg = na
+var float breachedBearFVGTop_ifvg = na
+var float breachedBearFVGBot_ifvg = na
+var float confirmedBullishIFVGLevel = na
+var float confirmedBearishIFVGLevel = na
 isBullishIFVG_simple = low[2] > high[0] and low < low[2] and close > low[2]
 isBearishIFVG_simple = high[2] < low[0] and high > high[2] and close < high[2]
-if isBullishIFVG_simple, confirmedBullishIFVGLevel := low[2]
-if isBearishIFVG_simple, confirmedBearishIFVGLevel := high[2]
+if isBullishIFVG_simple
+    confirmedBullishIFVGLevel := low[2]
+if isBearishIFVG_simple
+    confirmedBearishIFVGLevel := high[2]
 f_detect_smt() =>
     [corr_h, corr_l] = request.security(i_corr_asset_ticker, timeframe.period, [high, low])
     main_higher_high = high > high[1], corr_lower_high = corr_h < corr_h[1]
@@ -689,21 +847,30 @@ isAnySMT = isBullishSMT or isBearishSMT
 // Reset state at the beginning of a new bar or if Killzone ends
 if not inAnyKZ or barstate.isfirst
     protocolStatus := inAnyKZ ? S_HUNTING : S_STANDBY
-    event1_manipulation := false, event2_structure_break := false, event3_htf_poi_return := false, event4_ltf_confirmation := false
-    sb_event1_sweep := false, sb_event2_fvg := false
-    mrev_event1_inducement := false, mrev_event2_reversal_confirm := false // --- NEW ---
+    event1_manipulation := false
+    event2_structure_break := false
+    event3_htf_poi_return := false
+    event4_ltf_confirmation := false
+    sb_event1_sweep := false
+    sb_event2_fvg := false
+    mrev_event1_inducement := false
+    mrev_event2_reversal_confirm := false // --- NEW ---
     if protocolStatus == S_STANDBY
-        activeKillzone := "None", activeStrategy := "None"
+        activeKillzone := "None"
+        activeStrategy := "None"
         
 // Determine active strategy for the current Killzone
 if inAnyKZ and protocolStatus == S_HUNTING and activeKillzone == "None"
     // --- NEW --- Prioritize Midnight session if it's active
     if inMidnightKZ
-        activeKillzone := "Midnight", activeStrategy := i_midnight_strategy
+        activeKillzone := "Midnight"
+        activeStrategy := i_midnight_strategy
     else if inLondonKZ
-        activeKillzone := "London", activeStrategy := i_london_strategy
+        activeKillzone := "London"
+        activeStrategy := i_london_strategy
     else if inNewYorkKZ
-        activeKillzone := "New York", activeStrategy := i_ny_strategy
+        activeKillzone := "New York"
+        activeStrategy := i_ny_strategy
 
 // Main State Machine Logic
 if inAnyKZ and protocolStatus != S_ARMED
@@ -715,22 +882,29 @@ if inAnyKZ and protocolStatus != S_ARMED
         // Event 1: Inducement Confirmed (CISD against the HTF Bias)
         if not mrev_event1_inducement
             if htfBias == "BULLISH" and ta.change(cisd_trend) and cisd_trend == -1
-                mrev_event1_inducement := true, protocolStatus := S_CONFIRMING, isBullishSignal := true
+                mrev_event1_inducement := true
+                protocolStatus := S_CONFIRMING
+                isBullishSignal := true
             if htfBias == "BEARISH" and ta.change(cisd_trend) and cisd_trend == 1
-                mrev_event1_inducement := true, protocolStatus := S_CONFIRMING, isBullishSignal := false
+                mrev_event1_inducement := true
+                protocolStatus := S_CONFIRMING
+                isBullishSignal := false
 
         // Event 2: Reversal Confirmed (CISD or I-CHoCH in direction of HTF Bias)
         if mrev_event1_inducement and not mrev_event2_reversal_confirm
             if isBullishSignal and ((ta.change(cisd_trend) and cisd_trend == 1) or isBullish_ICHoch)
                 mrev_event2_reversal_confirm := true
-                entryPrice := close, stopLossPrice := recentSwingLowForSL
+                entryPrice := close
+                stopLossPrice := recentSwingLowForSL
             if not isBullishSignal and ((ta.change(cisd_trend) and cisd_trend == -1) or isBearish_ICHoch)
                 mrev_event2_reversal_confirm := true
-                entryPrice := close, stopLossPrice := recentSwingHighForSL
+                entryPrice := close
+                stopLossPrice := recentSwingHighForSL
         
         // Final State Check: ARMED
         if mrev_event1_inducement and mrev_event2_reversal_confirm
-            protocolStatus := S_ARMED, signalBarIndex := bar_index
+            protocolStatus := S_ARMED
+            signalBarIndex := bar_index
             armedTrigger += 1
 
     // ---------------------------------------------------------------------------------------------------------------------------------
@@ -738,35 +912,53 @@ if inAnyKZ and protocolStatus != S_ARMED
     // ---------------------------------------------------------------------------------------------------------------------------------
     if activeStrategy == O_CORE
         if not event1_manipulation and (isAnyLiquiditySweep or isAnySMT)
-            event1_manipulation := true, protocolStatus := S_CONFIRMING
+            event1_manipulation := true
+            protocolStatus := S_CONFIRMING
         if event1_manipulation and not event2_structure_break and (isBullishMSS or isBearishMSS or isBullishBOS or isBearishBOS)
-            event2_structure_break := true, isBullishSignal := isBullishMSS or isBullishBOS
+            event2_structure_break := true
+            isBullishSignal := isBullishMSS or isBullishBOS
         if event2_structure_break and not event3_htf_poi_return
             if isBullishSignal and (lowBlock.size() > 0 and low <= lowBlock.last().get_top())
                 event3_htf_poi_return := true
             if not isBullishSignal and (highBlock.size() > 0 and high >= highBlock.last().get_bottom())
                 event3_htf_poi_return := true
         if event3_htf_poi_return and not event4_ltf_confirmation
-            if isBullishSignal and isBullishIFVG_simple, event4_ltf_confirmation := true, entryPrice := confirmedBullishIFVGLevel, stopLossPrice := recentSwingLowForSL
-            if not isBullishSignal and isBearishIFVG_simple, event4_ltf_confirmation := true, entryPrice := confirmedBearishIFVGLevel, stopLossPrice := recentSwingHighForSL
+            if isBullishSignal and isBullishIFVG_simple
+                event4_ltf_confirmation := true
+                entryPrice := confirmedBullishIFVGLevel
+                stopLossPrice := recentSwingLowForSL
+            if not isBullishSignal and isBearishIFVG_simple
+                event4_ltf_confirmation := true
+                entryPrice := confirmedBearishIFVGLevel
+                stopLossPrice := recentSwingHighForSL
         if event1_manipulation and event2_structure_break and event3_htf_poi_return and event4_ltf_confirmation
-            protocolStatus := S_ARMED, signalBarIndex := bar_index, armedTrigger += 1
+            protocolStatus := S_ARMED
+            signalBarIndex := bar_index
+            armedTrigger += 1
 
     // ---------------------------------------------------------------------------------------------------------------------------------
     // Strategy Module B: "ICT Silver Bullet"
     // ---------------------------------------------------------------------------------------------------------------------------------
     if activeStrategy == O_SILVER
         if not sb_event1_sweep and isAnyLiquiditySweep
-            sb_event1_sweep := true, protocolStatus := S_CONFIRMING, isBullishSignal := low < pdl or low < asiaLow
-        [currentFVGUp, ] = fvg(3)
-        [currentFVGDn, ] = fvg(-3)
+            sb_event1_sweep := true
+            protocolStatus := S_CONFIRMING
+            isBullishSignal := low < pdl or low < asiaLow
+        [currentFVGUp, _] = fvg(3)
+        [currentFVGDn, _] = fvg(-3)
         if sb_event1_sweep and not sb_event2_fvg
             if isBullishSignal and currentFVGUp.size() > 0
-                sb_event2_fvg := true, entryPrice := currentFVGUp.last().get_bottom(), stopLossPrice := recentSwingLowForSL
+                sb_event2_fvg := true
+                entryPrice := currentFVGUp.last().get_bottom()
+                stopLossPrice := recentSwingLowForSL
             if not isBullishSignal and currentFVGDn.size() > 0
-                sb_event2_fvg := true, entryPrice := currentFVGDn.last().get_top(), stopLossPrice := recentSwingHighForSL
+                sb_event2_fvg := true
+                entryPrice := currentFVGDn.last().get_top()
+                stopLossPrice := recentSwingHighForSL
         if sb_event1_sweep and sb_event2_fvg
-            protocolStatus := S_ARMED, signalBarIndex := bar_index, armedTrigger += 1 
+            protocolStatus := S_ARMED
+            signalBarIndex := bar_index
+            armedTrigger += 1 
             
 // ██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████
 // SECTION 5: ON-CHART DASHBOARD & VISUALS
@@ -802,7 +994,8 @@ if na(timetilchange2)
 [hours2, minutes2] = calculateTimeDifference(timenow, timetilchange2)
 
 if barstate.islast
-    table.cell(dashboard, 0, 0, "APEX PROTOCOL", text_color=color.white, text_size=size.normal, text_halign=text.align_left, colspan=2)
+    table.cell(dashboard, 0, 0, "APEX PROTOCOL", text_color=color.white, text_size=size.normal, text_halign=text.align_left)
+    table.merge_cells(dashboard, 0, 0, 1, 0)
     table.cell(dashboard, 0, 1, "Status:", text_color=c_dashboard_header, text_halign=text.align_left)
     table.cell(dashboard, 1, 1, protocolStatus, text_color=protocolStatus == S_ARMED ? color.green : c_dashboard_text, text_halign=text.align_left, text_size=size.normal)
     table.cell(dashboard, 0, 2, "HTF Bias:", text_color=c_dashboard_header, text_halign=text.align_left)
@@ -815,23 +1008,34 @@ if barstate.islast
     table.cell(dashboard, 1, 5, stringCol2, text_color=c_dashboard_text)
     table.cell(dashboard, 0, 6, "Next Session Open:", text_color=c_dashboard_header, text_halign=text.align_left)
     table.cell(dashboard, 1, 6, str.tostring(hours2) + "h:" + str.tostring(minutes2) + "m", text_color=c_dashboard_text)
-    table.cell(dashboard, 0, 7, " ", colspan=2)
-    table.cell(dashboard, 0, 8, "▼ " + activeStrategy + " CHECKLIST", text_color=c_dashboard_header, text_size=size.small, text_halign=text.align_left, colspan=2)
+    table.cell(dashboard, 0, 7, " ")
+    table.merge_cells(dashboard, 0, 7, 1, 7)
+    table.cell(dashboard, 0, 8, "▼ " + activeStrategy + " CHECKLIST", text_color=c_dashboard_header, text_size=size.small, text_halign=text.align_left)
+    table.merge_cells(dashboard, 0, 8, 1, 8)
     
     // --- NEW --- Add checklist for the new strategy
     if activeStrategy == O_MIDNIGHT
-        table.cell(dashboard, 0, 9, (mrev_event1_inducement ? CHECK : NO_CHECK) + " E1: Inducement Confirmed", text_color=c_dashboard_text, text_halign=text.align_left, text_size=size.small, colspan=2)
-        table.cell(dashboard, 0, 10, (mrev_event2_reversal_confirm ? CHECK : NO_CHECK) + " E2: Reversal Confirmed", text_color=c_dashboard_text, text_halign=text.align_left, text_size=size.small, colspan=2)
+        table.cell(dashboard, 0, 9, (mrev_event1_inducement ? CHECK : NO_CHECK) + " E1: Inducement Confirmed", text_color=c_dashboard_text, text_halign=text.align_left, text_size=size.small)
+        table.merge_cells(dashboard, 0, 9, 1, 9)
+        table.cell(dashboard, 0, 10, (mrev_event2_reversal_confirm ? CHECK : NO_CHECK) + " E2: Reversal Confirmed", text_color=c_dashboard_text, text_halign=text.align_left, text_size=size.small)
+        table.merge_cells(dashboard, 0, 10, 1, 10)
     else if activeStrategy == O_CORE
-        table.cell(dashboard, 0, 9, (event1_manipulation ? CHECK : NO_CHECK) + " E1: Manipulation", text_color=c_dashboard_text, text_halign=text.align_left, text_size=size.small, colspan=2)
-        table.cell(dashboard, 0, 10, (event2_structure_break ? CHECK : NO_CHECK) + " E2: Structure Break", text_color=c_dashboard_text, text_halign=text.align_left, text_size=size.small, colspan=2)
-        table.cell(dashboard, 0, 11, (event3_htf_poi_return ? CHECK : NO_CHECK) + " E3: Return to HTF POI", text_color=c_dashboard_text, text_halign=text.align_left, text_size=size.small, colspan=2)
-        table.cell(dashboard, 0, 12, (event4_ltf_confirmation ? CHECK : NO_CHECK) + " E4: LTF Confirmation", text_color=c_dashboard_text, text_halign=text.align_left, text_size=size.small, colspan=2)
+        table.cell(dashboard, 0, 9, (event1_manipulation ? CHECK : NO_CHECK) + " E1: Manipulation", text_color=c_dashboard_text, text_halign=text.align_left, text_size=size.small)
+        table.merge_cells(dashboard, 0, 9, 1, 9)
+        table.cell(dashboard, 0, 10, (event2_structure_break ? CHECK : NO_CHECK) + " E2: Structure Break", text_color=c_dashboard_text, text_halign=text.align_left, text_size=size.small)
+        table.merge_cells(dashboard, 0, 10, 1, 10)
+        table.cell(dashboard, 0, 11, (event3_htf_poi_return ? CHECK : NO_CHECK) + " E3: Return to HTF POI", text_color=c_dashboard_text, text_halign=text.align_left, text_size=size.small)
+        table.merge_cells(dashboard, 0, 11, 1, 11)
+        table.cell(dashboard, 0, 12, (event4_ltf_confirmation ? CHECK : NO_CHECK) + " E4: LTF Confirmation", text_color=c_dashboard_text, text_halign=text.align_left, text_size=size.small)
+        table.merge_cells(dashboard, 0, 12, 1, 12)
     else if activeStrategy == O_SILVER
-        table.cell(dashboard, 0, 9, (sb_event1_sweep ? CHECK : NO_CHECK) + " E1: Liquidity Sweep", text_color=c_dashboard_text, text_halign=text.align_left, text_size=size.small, colspan=2)
-        table.cell(dashboard, 0, 10, (sb_event2_fvg ? CHECK : NO_CHECK) + " E2: Displacement FVG", text_color=c_dashboard_text, text_halign=text.align_left, text_size=size.small, colspan=2)
+        table.cell(dashboard, 0, 9, (sb_event1_sweep ? CHECK : NO_CHECK) + " E1: Liquidity Sweep", text_color=c_dashboard_text, text_halign=text.align_left, text_size=size.small)
+        table.merge_cells(dashboard, 0, 9, 1, 9)
+        table.cell(dashboard, 0, 10, (sb_event2_fvg ? CHECK : NO_CHECK) + " E2: Displacement FVG", text_color=c_dashboard_text, text_halign=text.align_left, text_size=size.small)
+        table.merge_cells(dashboard, 0, 10, 1, 10)
     else
-        table.cell(dashboard, 0, 9, "No active strategy in this Killzone.", text_color=color.gray, text_halign=text.align_left, text_size=size.small, colspan=2)
+        table.cell(dashboard, 0, 9, "No active strategy in this Killzone.", text_color=color.gray, text_halign=text.align_left, text_size=size.small)
+        table.merge_cells(dashboard, 0, 9, 1, 9)
 
 nyHour2 = hour(time, "America/New_York"), nyMinute2 = minute(time, "America/New_York")
 timeIsInRange2(startHour, startMinute, endHour, endMinute) =>
@@ -854,10 +1058,14 @@ f_draw_trade_visuals(entry, sl, tp, isBull) =>
         label.new(signalBarIndex, tp, " TP", color=color.new(c_take_profit, 100), textcolor=c_take_profit, style=label.style_label_right)
 if protocolStatus == S_ARMED and bar_index == signalBarIndex
     riskDistance = math.abs(entryPrice - stopLossPrice)
-    if isBullishSignal, takeProfitPrice := entryPrice + (riskDistance * i_rr_ratio)
-    else, takeProfitPrice := entryPrice - (riskDistance * i_rr_ratio)
-    if barstate.islast, f_draw_trade_visuals(entryPrice, stopLossPrice, takeProfitPrice, isBullishSignal)
-if protocolStatus == S_ARMED and not na(signalBarIndex) and barstate.islast, f_draw_trade_visuals(entryPrice, stopLossPrice, takeProfitPrice, isBullishSignal)
+    if isBullishSignal
+        takeProfitPrice := entryPrice + (riskDistance * i_rr_ratio)
+    else
+        takeProfitPrice := entryPrice - (riskDistance * i_rr_ratio)
+    if barstate.islast
+        f_draw_trade_visuals(entryPrice, stopLossPrice, takeProfitPrice, isBullishSignal)
+if protocolStatus == S_ARMED and not na(signalBarIndex) and barstate.islast
+    f_draw_trade_visuals(entryPrice, stopLossPrice, takeProfitPrice, isBullishSignal)
 
 // ██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████
 // SECTION 6: ALERTING MECHANISM
