@@ -1,0 +1,156 @@
+Below is a ready-to-use rules file in Markdown for AI-assisted IDEs (Cursor-compatible) that encodes strict Pine Script v5 coding standards, including multiline and indentation requirements.[^1][^2][^3]
+For Cursor, place this file at .cursor/rules/pinescript.md (preferred) or use a legacy .cursorrules if still enabled; the Markdown format is supported by modern “Project Rules.” 
+
+## Scope and placement
+
+- These rules target Pine Script v5 indicators and strategies and are sourced from TradingView’s official language reference and concepts.[^3][^5]
+- The rules are designed for novice developers and meant to be applied by AI assistants to auto-correct and enforce standards during generation and edits.[^1][^2]
+- Use per-project rules for consistent enforcement across the codebase; prefer .cursor/rules over legacy root-level .cursorrules where possible.[^2][^1]
+
+
+## Enforcement principles
+
+- Enforce //@version=5 and the correct top-level declaration indicator() or strategy() at the beginning of every script.[^5][^6]
+- Enforce a canonical file structure: declaration, inputs, core calculations, visuals/alerts, and optional strategy orders.[^7][^3]
+- Prefer built-ins (ta.*) and explicit naming for clarity and consistency in type and behavior.[^8][^3]
+
+
+## Script template
+
+- Use this template as the starting point for all new scripts; it embodies non-repainting, HTF safety, and plotting best practices.[^9][^10]
+
+```pinescript
+//@version=5
+indicator("Title", shorttitle="TTL", overlay=true, timeframe="", timeframe_gaps=true)
+
+// Inputs
+src         = input.source(close, "Source")
+len         = input.int(20, "Length", minval=1)
+htf         = input.timeframe("", "HTF (optional)")
+showSignal  = input.bool(true, "Show signal")
+
+// State
+var float lastSignalPrice = na
+
+// Core calc
+ma  = ta.sma(src, len)
+sig = ta.crossover(src, ma)
+
+// External data (optional, HTF-safe)
+htfMa = htf == "" ? na : request.security(syminfo.tickerid, htf, ta.sma(src, len), barmerge.gaps_off, barmerge.lookahead_off)
+
+// Confirmed bar logic
+confirmedSig = sig and barstate.isconfirmed
+
+// Persist state on confirmation only
+if confirmedSig
+    lastSignalPrice := close
+
+// Visuals
+plot(ma, "MA", color=color.new(color.teal, 0), linewidth=2)
+plot(htfMa, "HTF MA", color=color.new(color.orange, 0), linewidth=2)
+plot(showSignal and confirmedSig ? close : na, "Signal", style=plot.style_cross, color=color.new(color.fuchsia, 0), size=size.large)
+
+// Alerts
+alertcondition(confirmedSig, title="Confirmed crossover", message="Crossover confirmed on {{ticker}} @ {{close}}")
+
+// Strategy (uncomment in strategies)
+// strategy("Title (Strategy)", overlay=true, pyramiding=1, initial_capital=10000)
+// if confirmedSig
+//     strategy.entry("Long", strategy.long)
+```
+
+
+## File header
+
+- Always begin with //@version=5 followed immediately by indicator() for studies or strategy() for backtests to activate the proper namespaces and behaviors.[^6][^5]
+- Set overlay explicitly to avoid confusion about pane rendering, and specify timeframe/timeframe_gaps when relying on aggregated data behavior.[^11][^5]
+
+
+## Structure
+
+- Keep the order: declaration → input.* → calculations → plots/alerts → strategy orders; this mirrors the official script structure and aids readability.[^3][^7]
+- Group related inputs, calculations, and visuals, and keep strategy.* calls physically separated from pure indicator code paths for clarity.[^6][^7]
+
+
+## Inputs
+
+- Use input.* functions at the top to define configuration, preferring typed variants such as input.int, input.float, input.bool, input.color, and input.timeframe.[^12]
+- Use inline and grouping for UI clarity, and set bounds/options to prevent invalid values for novice users.[^12]
+
+
+## Variables and state
+
+- Use var for values that must persist across bars and assign them once outside conditional updates to avoid accidental resets.[^8][^3]
+- For per-bar series calculations, avoid var so values recompute correctly with Pine’s series semantics.[^8][^3]
+
+
+## Non-repainting
+
+- Confirm signals on closed bars using barstate.isconfirmed; do not trigger entries or alerts off forming bar states.[^9]
+- Avoid logic based on barstate.isnew or timenow in signals, as they create historical vs realtime discrepancies.[^9]
+
+
+## External data
+
+- Fetch higher timeframe or external symbols via request.security with barmerge.lookahead_off to prevent forward-looking bias.[^10]
+- Preplan all request.* data needs so historical execution has fetched contexts before realtime ticks use them.[^10]
+
+
+## Plotting
+
+- Use plot() with clear titles so values appear correctly in the Data Window and alert creation dialogs.[^11]
+- Convert non-numeric or boolean series to numeric before plotting, and prefer explicit styles for readability.[^11]
+
+
+## Alerts
+
+- Use alertcondition() for UI-selectable alert triggers with const messages and titles; prefer alert() for dynamic content when needed.[^13]
+- Keep alert text short, unambiguous, and tied to confirmed signals to avoid noise and repainting confusion.[^13][^9]
+
+
+## Strategies
+
+- Use strategy() to enable strategy.*; strategy.entry() reverses by default when opposite direction is signaled, controlled by pyramiding and settings.[^6]
+- Separate signal generation from order placement and gate orders on confirmed conditions for reproducible results.[^6][^9]
+
+
+## Indentation and wrapping
+
+- Top-level statements start at column 1 with no leading spaces; local blocks are indented with exactly four spaces or one tab.[^7]
+- For multiline statements, every continuation line must use an indentation that is not a multiple of 4; otherwise Pine throws “end of line without line continuation.”[^14][^15]
+- Inside a block already indented by 4 spaces, add an extra 2–3 or 5 spaces for wrapped lines, not 4, 8, 12, etc., and align closing parentheses clearly.[^14][^8]
+
+
+## Defensive checks
+
+- Test indicators and strategies on multiple symbols/timeframes to ensure identical historical vs realtime behavior.[^9][^6]
+- When mixing HTF data and local signals, finalize decisions at bar close and ensure no forward-looking artifacts from aggregation.[^10][^9]
+
+
+## Prohibitions
+
+- Do not write trading logic dependent on intrabar-only artifacts that differ between historical and realtime bars.[^9]
+- Do not fetch dynamic symbols/timeframes at realtime without ensuring those contexts were requested historically first.[^10]
+
+
+## Review checklist
+
+- Uses //@version=5 and the correct indicator()/strategy() declaration, with inputs declared first and grouped.[^5][^12]
+- Signals are confirmed on bar close; no barstate.isnew or timenow dependencies; HTF security calls avoid lookahead.[^10][^9]
+- Plots are titled and numeric; alerts use alertcondition() for UI triggers or alert() for dynamic messages.[^13][^11]
+- Strategies define pyramiding and separate signals from orders; tested for historical and realtime parity.[^6][^9]
+
+
+## Cursor-specific guidance
+
+- Store this file under .cursor/rules/pinescript.md for project-scoped enforcement; legacy .cursorrules is supported in some versions but is being superseded.[^1][^2]
+- Keep rules Markdown-structured with headers and bullets for maximal comprehension by AI assistants.[^16][^2]
+
+
+## Examples: wrapping and blocks
+
+- For long function calls, wrap arguments with a non-multiple-of-4 indent; example: 2 or 6 spaces under the opening parenthesis.[^14][^8]
+- Align else/elseif with the parent if at the same indentation level and only indent block contents by four spaces.[^17][^7]
+
+ 
