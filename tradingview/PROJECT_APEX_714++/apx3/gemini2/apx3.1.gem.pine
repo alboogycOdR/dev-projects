@@ -29,10 +29,12 @@ string O_SILVER = "ICT Silver Bullet"
 // Define strategy options as compile-time constants for input.string()
 string[] strategyOptions = array.from(O_OFF, O_CORE, O_SILVER)
 
-i_london_session = input.session("08:00-11:00", "London Killzone", group=G_KILLZONES, tooltip="Time window for the London session strategy. Times are in the exchange's timezone.")
+// London session: 08:00-11:00 UTC
+i_london_session = input.session("0800-1100", "London Killzone", group=G_KILLZONES, tooltip="Time window for the London session strategy. Format: HHMM-HHMM")
 i_london_strategy = input.string(O_CORE, "   ↳ Strategy", options=[O_OFF, O_CORE, O_SILVER], group=G_KILLZONES)
 
-i_ny_session = input.session("15:00-18:00", "New York Killzone", group=G_KILLZONES, tooltip="Time window for the New York session strategy. Times are in the exchange's timezone.")
+// New York session: 15:00-18:00 UTC
+i_ny_session = input.session("1500-1800", "New York Killzone", group=G_KILLZONES, tooltip="Time window for the New York session strategy. Format: HHMM-HHMM")
 i_ny_strategy = input.string(O_SILVER, "   ↳ Strategy", options=[O_OFF, O_CORE, O_SILVER], group=G_KILLZONES)
 
 // =====================================================================================================================================
@@ -116,7 +118,7 @@ bool inNewYorkKZ = is_time_in_range(i_ny_session) and i_ny_strategy != O_OFF
 bool inAnyKZ = inLondonKZ or inNewYorkKZ
 
 // Asian Session hardcoded for liquidity purposes
-string asianSession = "00:00-07:00"
+string asianSession = "0000-0700"
 bool inAsianSession = is_time_in_range(asianSession)
 
 // ██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████
@@ -169,14 +171,62 @@ if isBearishBOS or isBearishMSS
     lastBearishBOSPrice := lastSwingLow
     lastSwingLow := na // Invalidate after break
 
-// Plotting Market Structure
+// =====================================================================================================================================
+// *** REVISION 5: Market Structure Labels using plot() for PERFECT price anchoring ***
+// =====================================================================================================================================
+
+// Variables to control when to show labels (must be in global scope)
+var int bullishStructureBar = na
+var float bullishStructurePrice = na
+var string bullishStructureText = na
+var int bearishStructureBar = na
+var float bearishStructurePrice = na
+var string bearishStructureText = na
+
+// Detect structure breaks and store information
 if i_show_bos_mss
     if ta.change(lastBullishBOSPrice)
-        line.new(bar_index - 5, lastBullishBOSPrice, bar_index, lastBullishBOSPrice, color=c_bullish, style=line.style_dashed)
-        label.new(bar_index, lastBullishBOSPrice, isBullishBOS ? "BOS" : "MSS", color=c_bullish, textcolor=color.white, style=label.style_label_lower_right)
+        // Draw a persistent line for the broken structure
+        line.new(bar_index[1], lastBullishBOSPrice, bar_index, lastBullishBOSPrice, color=color.new(c_bullish, 50), style=line.style_dotted, width=1)
+        
+        // Store structure break information
+        bullishStructureBar := bar_index
+        bullishStructurePrice := lastBullishBOSPrice
+        bullishStructureText := isBullishBOS ? "BOS" : "MSS"
+
     if ta.change(lastBearishBOSPrice)
-        line.new(bar_index - 5, lastBearishBOSPrice, bar_index, lastBearishBOSPrice, color=c_bearish, style=line.style_dashed)
-        label.new(bar_index, lastBearishBOSPrice, isBearishMSS ? "MSS" : "BOS", color=c_bearish, textcolor=color.white, style=label.style_label_upper_right)
+        // Draw a persistent line for the broken structure
+        line.new(bar_index[1], lastBearishBOSPrice, bar_index, lastBearishBOSPrice, color=color.new(c_bearish, 50), style=line.style_dotted, width=1)
+        
+        // Store structure break information
+        bearishStructureBar := bar_index
+        bearishStructurePrice := lastBearishBOSPrice
+        bearishStructureText := isBearishMSS ? "MSS" : "BOS"
+
+// Use plot() functions for perfect price anchoring - these NEVER shift
+plot(bullishStructureBar == bar_index ? bullishStructurePrice : na, "Bullish Structure", color=c_bullish, linewidth=0, display=display.none)
+plot(bearishStructureBar == bar_index ? bearishStructurePrice : na, "Bearish Structure", color=c_bearish, linewidth=0, display=display.none)
+
+// Create text markers that are permanently anchored to price levels
+if not na(bullishStructureBar) and bar_index == bullishStructureBar
+    label.new(x=bullishStructureBar, 
+      y=low, 
+      yloc=yloc.belowbar, 
+      text=bullishStructureText, 
+      color=color.new(c_bullish, 0), 
+      textcolor=color.white, 
+      style=label.style_circle, 
+      size=size.small)
+
+if not na(bearishStructureBar) and bar_index == bearishStructureBar
+    label.new(x=bearishStructureBar, 
+      y=high, 
+      yloc=yloc.abovebar, 
+      text=bearishStructureText, 
+      color=color.new(c_bearish, 0), 
+      textcolor=color.white, 
+      style=label.style_circle, 
+      size=size.small)
         
 // =====================================================================================================================================
 // 3.2 Liquidity Detection
@@ -184,14 +234,35 @@ if i_show_bos_mss
 // Session Liquidity
 var float asiaHigh = na
 var float asiaLow = na
-if not inAsianSession and inAsianSession[1]
-    asiaHigh := ta.highest(high, bar_index - ta.barssince(inAsianSession and not inAsianSession[1]))[1]
-    asiaLow := ta.lowest(low, bar_index - ta.barssince(inAsianSession and not inAsianSession[1]))[1]
 
-if i_show_session_ranges and not na(asiaHigh)
-    box.new(ta.barssince(not inAsianSession and inAsianSession[1]), asiaHigh, bar_index, asiaLow, border_color=na, bgcolor=c_session_range)
-    line.new(ta.barssince(not inAsianSession and inAsianSession[1]), asiaHigh, bar_index, asiaHigh, color=c_session_range, style=line.style_dotted)
-    line.new(ta.barssince(not inAsianSession and inAsianSession[1]), asiaLow, bar_index, asiaLow, color=c_session_range, style=line.style_dotted)
+// Extract ta.barssince calls to global scope for consistency (called on every bar)
+int asianSessionStartBar = ta.barssince(inAsianSession and not inAsianSession[1])
+int asianSessionEndBar = ta.barssince(not inAsianSession and inAsianSession[1])
+
+// Calculate Asian session length in global scope with safety checks
+int rawSessionLength = not na(asianSessionStartBar) and asianSessionStartBar >= 0 ?
+  math.max(1, bar_index - asianSessionStartBar) : 1
+
+// Limit session length to prevent historical buffer overflow (max 5000 bars)
+int asianSessionLength = math.min(rawSessionLength, 5000)
+
+// Extract ta.highest/ta.lowest calls to global scope for consistency
+float currentAsiaHigh = ta.highest(high, asianSessionLength)
+float currentAsiaLow = ta.lowest(low, asianSessionLength)
+
+// Update persistent variables conditionally and draw session range ONLY when session ends
+if not inAsianSession and inAsianSession[1] and not na(asianSessionLength) and asianSessionLength > 0 and asianSessionLength <= bar_index
+    asiaHigh := currentAsiaHigh[1]
+    asiaLow := currentAsiaLow[1]
+    
+    // Draw the Asian session range box ONLY when the session just ended
+    if i_show_session_ranges and not na(asiaHigh) and not na(asiaLow)
+        // Draw session range from session start to session end (not extending to current bar)
+        sessionStartBar = bar_index - asianSessionLength
+        sessionEndBar = bar_index
+        box.new(sessionStartBar, asiaHigh, sessionEndBar, asiaLow, border_color=na, bgcolor=c_session_range)
+        line.new(sessionStartBar, asiaHigh, sessionEndBar, asiaHigh, color=c_session_range, style=line.style_dotted)
+        line.new(sessionStartBar, asiaLow, sessionEndBar, asiaLow, color=c_session_range, style=line.style_dotted)
 
 // Structural Liquidity
 [pdh, pdl] = request.security(syminfo.tickerid, "D", [high[1], low[1]], lookahead=barmerge.lookahead_on)
