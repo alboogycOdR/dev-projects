@@ -26,13 +26,14 @@ string G_KILLZONES = "Killzone Strategy Selection & Times"
 string O_OFF = "OFF"
 string O_CORE = "The Core SMC Model"
 string O_SILVER = "ICT Silver Bullet"
+// Define strategy options as compile-time constants for input.string()
 string[] strategyOptions = array.from(O_OFF, O_CORE, O_SILVER)
 
 i_london_session = input.session("08:00-11:00", "London Killzone", group=G_KILLZONES, tooltip="Time window for the London session strategy. Times are in the exchange's timezone.")
-i_london_strategy = input.string(O_CORE, "   ↳ Strategy", options=strategyOptions, group=G_KILLZONES)
+i_london_strategy = input.string(O_CORE, "   ↳ Strategy", options=[O_OFF, O_CORE, O_SILVER], group=G_KILLZONES)
 
 i_ny_session = input.session("15:00-18:00", "New York Killzone", group=G_KILLZONES, tooltip="Time window for the New York session strategy. Times are in the exchange's timezone.")
-i_ny_strategy = input.string(O_SILVER, "   ↳ Strategy", options=strategyOptions, group=G_KILLZONES)
+i_ny_strategy = input.string(O_SILVER, "   ↳ Strategy", options=[O_OFF, O_CORE, O_SILVER], group=G_KILLZONES)
 
 // =====================================================================================================================================
 // Group: Low Timeframe Confirmation
@@ -41,7 +42,7 @@ string G_LTF = "Low Timeframe (LTF) Confirmation"
 string O_M1 = "1" // 1 Minute
 string O_S30 = "30S" // 30 Seconds
 string[] ltfOptions = array.from(O_M1, O_S30)
-i_ltf_timeframe_str = input.string(O_M1, "LTF Timeframe", options=ltfOptions, group=G_LTF, tooltip="The lower timeframe used for Event 4 (IFVG Confirmation) in The Core SMC Model.")
+i_ltf_timeframe_str = input.string(O_M1, "LTF Timeframe", options=[O_M1, O_S30], group=G_LTF, tooltip="The lower timeframe used for Event 4 (IFVG Confirmation) in The Core SMC Model.")
 
 // =====================================================================================================================================
 // Group: SMC Engine Visuals (Toggles)
@@ -91,6 +92,7 @@ var int signalBarIndex = na
 var float entryPrice = na
 var float stopLossPrice = na
 var float takeProfitPrice = na
+var int armedTrigger = 0  // Numeric variable for detecting armed state changes
 
 // Core SMC Model State
 var bool event1_manipulation = false
@@ -336,6 +338,7 @@ if inAnyKZ and protocolStatus != S_ARMED
                 entryPrice := confirmedBearishIFVGLevel, stopLossPrice := recentSwingHighForSL
         if event1_manipulation and event2_structure_break and event3_htf_poi_return and event4_ltf_confirmation
             protocolStatus := S_ARMED, signalBarIndex := bar_index
+            armedTrigger += 1  // Increment numeric trigger for alert detection
 
     // ---------------------------------------------------------------------------------------------------------------------------------
     // Strategy Module B: "ICT Silver Bullet"
@@ -354,6 +357,7 @@ if inAnyKZ and protocolStatus != S_ARMED
                 entryPrice := curBearTop, stopLossPrice := recentSwingHighForSL
         if sb_event1_sweep and sb_event2_fvg
             protocolStatus := S_ARMED, signalBarIndex := bar_index
+            armedTrigger += 1  // Increment numeric trigger for alert detection
             
 // ██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████
 // SECTION 5: ON-CHART DASHBOARD & VISUALS
@@ -416,5 +420,10 @@ if protocolStatus == S_ARMED and not na(signalBarIndex) and barstate.islast
 // As specified in Section 6 of the technical design document.
 // ██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████
 
-string alertMessage = str.format("APEX: {0} '{1}' {2} Signal! Entry: {3}, SL: {4}, TP: {5}", activeKillzone, activeStrategy, isBullishSignal ? "BUY" : "SELL", str.tostring(entryPrice, '#.#####'), str.tostring(stopLossPrice, '#.#####'), str.tostring(takeProfitPrice, '#.#####'))
-alertcondition(protocolStatus == S_ARMED and ta.change(protocolStatus), title="Apex Protocol v3.0 Alert", message=alertMessage)
+// Dynamic alert message using alert() instead of alertcondition() for series strings
+if protocolStatus == S_ARMED and ta.change(armedTrigger)
+    alert(str.format("APEX: {0} '{1}' {2} Signal! Entry: {3}, SL: {4}, TP: {5}",
+     activeKillzone, activeStrategy, isBullishSignal ? "BUY" : "SELL",
+     str.tostring(entryPrice, '#.#####'), str.tostring(stopLossPrice, '#.#####'),
+     str.tostring(takeProfitPrice, '#.#####')),
+     alert.freq_once_per_bar_close)
