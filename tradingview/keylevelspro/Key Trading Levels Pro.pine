@@ -1,0 +1,179 @@
+//@version=5
+// ██████╗░██╗░░██╗██╗░░░██╗███████╗██╗░░░░░  ██╗░░░██╗███████╗██╗░░██╗███████╗██╗░░░██╗████████╗███████╗
+// ██╔══██╗██║░░██║██║░░░██║██╔════╝██║░░░░░  ██║░░░██║██╔════╝██║░░██║██╔════╝██║░░░██║╚══██╔══╝██╔════╝
+// ██████╦╝███████║██║░░░██║█████╗░░██║░░░░░  ╚██╗░██╔╝█████╗░░███████║█████╗░░██║░░░██║░░░██║░░░█████╗░░
+// ██╔══██╗██╔══██║██║░░░██║██╔══╝░░██║░░░░░  ░╚████╔╝░██╔══╝░░██╔══██║██╔══╝░░██║░░░██║░░░██║░░░██╔══╝░░
+// ██████╦╝██║░░██║╚██████╔╝███████╗███████╗  ░░╚██╔╝░░███████╗██║░░██║███████╗╚██████╔╝░░░██║░░░███████╗
+// ╚═════╝░╚═╝░░╚═╝░╚═════╝░╚══════╝╚══════╝  ░░░╚═╝░░░╚══════╝╚═╝░░╚═╝╚══════╝░╚═════╝░░░░╚═╝░░░╚══════╝
+indicator("Key Trading Levels Pro", "Key Levels Pro", overlay=true, max_lines_count=500, max_labels_count=500)
+
+//==============================================================================
+// SECTION 1: USER INTERFACE (INPUTS)
+//==============================================================================
+
+// --- GENERAL SETTINGS ---
+tab_general = "General Settings"
+timezone_info = input.string("UTC-4", "Chart Timezone (Set to New York)", tooltip="IMPORTANT: For time-based levels to be accurate, your chart's timezone MUST be set to 'America/New York'. You can change this in the bottom-right corner of your chart screen.", group=tab_general)
+show_rejections = input.bool(true, title="Show Wick Rejection Symbols", group=tab_general, tooltip="When enabled, a symbol will appear when a candle's wick touches a level but its body closes on the other side, indicating a potential rejection.")
+
+// --- LEVEL SETTINGS ---
+tab_levels = "Level Settings"
+// Daily/Session Levels
+show_pd_levels = input.bool(true, "[DAILY] Previous Day High/Low", group=tab_levels, inline="day1")
+pd_color = input.color(color.new(#ffffff, 60), "", group=tab_levels, inline="day1")
+show_session_levels = input.bool(true, "[DAILY] Session Highs/Lows", group=tab_levels)
+asia_color = input.color(color.new(color.red, 75), "Asia Range", group=tab_levels, inline="sess1")
+london_color = input.color(color.new(color.yellow, 75), "London Range", group=tab_levels, inline="sess1")
+// Gap Levels
+show_ndog = input.bool(true, "[GAPS] Daily (NDOG)", group=tab_levels, inline="gap1")
+ndog_history = input.int(3, "History", minval=1, group=tab_levels, inline="gap1")
+ndog_color = input.color(color.new(color.blue, 70), "", group=tab_levels, inline="gap1")
+show_nwog = input.bool(true, "[GAPS] Weekly (NWOG)", group=tab_levels, inline="gap2")
+nwog_history = input.int(4, "History", minval=1, group=tab_levels, inline="gap2")
+nwog_color = input.color(color.new(color.orange, 70), "", group=tab_levels, inline="gap2")
+show_nmog = input.bool(true, "[GAPS] Monthly (NMOG)", group=tab_levels, inline="gap3")
+nmog_history = input.int(3, "History", minval=1, group=tab_levels, inline="gap3")
+nmog_color = input.color(color.new(color.purple, 70), "", group=tab_levels, inline="gap3")
+
+// --- STYLE SETTINGS ---
+tab_styles = "Style Settings"
+// Line and Label Styles
+line_style = input.string(line.style_dotted, "Line Style", options=[line.style_solid, line.style_dotted, line.style_dashed], group=tab_styles, inline="style1")
+line_width = input.int(1, "Line Width", minval=1, maxval=4, group=tab_styles, inline="style1")
+show_labels = input.bool(true, "Show Line Labels", group=tab_styles, inline="style1", tooltip="Toggles the text labels (e.g., 'PDH', 'Asia Low') next to each line.")
+// Rejection Symbol Styles
+bull_symbol_str = input.string("Triangle Up", "Bullish Symbol", options=["Triangle Up", "Circle", "Arrow Up", "Diamond"], group=tab_styles, inline="sym1")
+bull_color = input.color(color.new(color.lime, 0), "", group=tab_styles, inline="sym1")
+bear_symbol_str = input.string("Triangle Down", "Bearish Symbol", options=["Triangle Down", "Circle", "Arrow Down", "Diamond"], group=tab_styles, inline="sym2")
+bear_color = input.color(color.new(color.red, 0), "", group=tab_styles, inline="sym2")
+
+//==============================================================================
+// SECTION 2: CORE LOGIC & CALCULATIONS
+//==============================================================================
+
+// --- Independent arrays for managing drawing objects ---
+var line[] ndog_lines = array.new<line>()
+var float[] ndog_prices = array.new<float>()
+var label[] ndog_labels = array.new<label>()
+var line[] nwog_lines = array.new<line>()
+var float[] nwog_prices = array.new<float>()
+var label[] nwog_labels = array.new<label>()
+var line[] nmog_lines = array.new<line>()
+var float[] nmog_prices = array.new<float>()
+var label[] nmog_labels = array.new<label>()
+var line[] daily_lines = array.new<line>()
+var float[] daily_prices = array.new<float>()
+var label[] daily_labels = array.new<label>()
+
+// --- Time and Session Definitions (in 'America/New_York' Time) ---
+t = time(timeframe.period, "America/New_York")
+is_asia_session = hour(t) >= 20 or hour(t) < 2
+is_london_session = hour(t) >= 3 and hour(t) < 8
+is_ny_session = hour(t) >= 8 and hour(t) < 17
+
+// --- Drawing & History Management ---
+f_manage_lines(is_event, show_level, history_count, high_val, low_val, high_text, low_text, line_color, line_array, price_array, label_array) =>
+    if is_event and show_level and not na(high_val)
+        // Add new high line and label
+        array.unshift(line_array, line.new(bar_index - 1, high_val, bar_index, high_val, color=line_color, style=line_style, width=line_width, extend=extend.right))
+        array.unshift(price_array, high_val)
+        array.unshift(label_array, show_labels ? label.new(bar_index, high_val, text=high_text, xloc=xloc.bar_index, color=color(na), textcolor=color.new(line_color, 25), style=label.style_none, textalign=text.align_left, size=size.small) : na)
+        // Add new low line and label
+        if high_val != low_val and not na(low_val)
+            array.unshift(line_array, line.new(bar_index - 1, low_val, bar_index, low_val, color=line_color, style=line_style, width=line_width, extend=extend.right))
+            array.unshift(price_array, low_val)
+            array.unshift(label_array, show_labels ? label.new(bar_index, low_val, text=low_text, xloc=xloc.bar_index, color=color(na), textcolor=color.new(line_color, 25), style=label.style_none, textalign=text.align_left, size=size.small) : na)
+        // Garbage Collection: Delete oldest lines exceeding history
+        max_items = history_count * (na(low_val) or high_val == low_val ? 1 : 2)
+        while array.size(line_array) > max_items
+            line.delete(array.pop(line_array))
+            label.delete(array.pop(label_array))
+            array.pop(price_array)
+
+f_delete_all(line_array, price_array, label_array) =>
+    while array.size(line_array) > 0
+        line.delete(array.shift(line_array))
+        label.delete(array.shift(label_array))
+        array.shift(price_array)
+
+// --- Daily and Session Level Logic ---
+[pd_high, pd_low] = request.security(syminfo.tickerid, "D", [high[1], low[1]])
+is_new_day = ta.change(time("D"))
+if is_new_day
+    f_delete_all(daily_lines, daily_prices, daily_labels)
+    if show_pd_levels
+        array.push(daily_lines, line.new(bar_index - 1, pd_high, bar_index, pd_high, color=pd_color, style=line_style, width=line_width, extend=extend.right))
+        array.push(daily_labels, show_labels ? label.new(bar_index, pd_high, "PDH", xloc=xloc.bar_index, color=color(na), textcolor=color.new(pd_color, 25), style=label.style_none, textalign=text.align_left, size=size.small) : na)
+        array.push(daily_prices, pd_high)
+        array.push(daily_lines, line.new(bar_index - 1, pd_low, bar_index, pd_low, color=pd_color, style=line_style, width=line_width, extend=extend.right))
+        array.push(daily_labels, show_labels ? label.new(bar_index, pd_low, "PDL", xloc=xloc.bar_index, color=color(na), textcolor=color.new(pd_color, 25), style=label.style_none, textalign=text.align_left, size=size.small) : na)
+        array.push(daily_prices, pd_low)
+var float asia_high = na
+var float asia_low = na
+var float london_high = na
+var float london_low = na
+if is_asia_session and not is_asia_session[1]
+    asia_high := high, asia_low := low
+if is_asia_session
+    asia_high := math.max(asia_high, high), asia_low := math.min(asia_low, low)
+if is_london_session and not is_london_session[1]
+    london_high := high, london_low := low
+if is_london_session
+    london_high := math.max(london_high, high), london_low := math.min(london_low, low)
+is_asia_end = not is_asia_session and is_asia_session[1]
+is_london_end = not is_london_session and is_london_session[1]
+if show_session_levels and (is_london_session or is_ny_session) and not na(asia_high) and is_asia_end
+    array.push(daily_lines, line.new(bar_index - 1, asia_high, bar_index, asia_high, color=asia_color, style=line_style, width=line_width, extend=extend.right))
+    array.push(daily_labels, show_labels ? label.new(bar_index, asia_high, "Asia High", xloc=xloc.bar_index, color=color(na), textcolor=color.new(asia_color, 25), style=label.style_none, textalign=text.align_left, size=size.small) : na)
+    array.push(daily_prices, asia_high)
+    array.push(daily_lines, line.new(bar_index - 1, asia_low, bar_index, asia_low, color=asia_color, style=line_style, width=line_width, extend=extend.right))
+    array.push(daily_labels, show_labels ? label.new(bar_index, asia_low, "Asia Low", xloc=xloc.bar_index, color=color(na), textcolor=color.new(asia_color, 25), style=label.style_none, textalign=text.align_left, size=size.small) : na)
+    array.push(daily_prices, asia_low)
+if show_session_levels and is_ny_session and not na(london_high) and is_london_end
+    array.push(daily_lines, line.new(bar_index - 1, london_high, bar_index, london_high, color=london_color, style=line_style, width=line_width, extend=extend.right))
+    array.push(daily_labels, show_labels ? label.new(bar_index, london_high, "London High", xloc=xloc.bar_index, color=color(na), textcolor=color.new(london_color, 25), style=label.style_none, textalign=text.align_left, size=size.small) : na)
+    array.push(daily_prices, london_high)
+    array.push(daily_lines, line.new(bar_index - 1, london_low, bar_index, london_low, color=london_color, style=line_style, width=line_width, extend=extend.right))
+    array.push(daily_labels, show_labels ? label.new(bar_index, london_low, "London Low", xloc=xloc.bar_index, color=color(na), textcolor=color.new(london_color, 25), style=label.style_none, textalign=text.align_left, size=size.small) : na)
+    array.push(daily_prices, london_low)
+
+// --- Gap Level Logic ---
+is_new_week = ta.change(time("W"))
+is_new_month = ta.change(time("M"))
+ndog_h = is_new_day ? math.max(close[1], open) : na
+ndog_l = is_new_day ? math.min(close[1], open) : na
+f_manage_lines(is_new_day, show_ndog, ndog_history, ndog_h, ndog_l, "NDOG High", "NDOG Low", ndog_color, ndog_lines, ndog_prices, ndog_labels)
+nwog_h = is_new_week ? math.max(close[1], open) : na
+nwog_l = is_new_week ? math.min(close[1], open) : na
+f_manage_lines(is_new_week, show_nwog, nwog_history, nwog_h, nwog_l, "NWOG High", "NWOG Low", nwog_color, nwog_lines, nwog_prices, nwog_labels)
+nmog_h = is_new_month ? math.max(close[1], open) : na
+nmog_l = is_new_month ? math.min(close[1], open) : na
+f_manage_lines(is_new_month, show_nmog, nmog_history, nmog_h, nmog_l, "NMOG High", "NMOG Low", nmog_color, nmog_lines, nmog_prices, nmog_labels)
+
+// --- Wick Rejection Logic ---
+f_get_shape(s) => s=="Triangle Up"?shape.triangleup: s=="Triangle Down"?shape.triangledown: s=="Arrow Up"?shape.arrowup: s=="Arrow Down"?shape.arrowdown: s=="Diamond"?shape.diamond: shape.circle
+bull_shape = f_get_shape(bull_symbol_str)
+bear_shape = f_get_shape(bear_symbol_str)
+
+// Check for rejections and return signals
+f_check_rejections(price_array) =>
+    bearish_rejection = false
+    bullish_rejection = false
+    if show_rejections and array.size(price_array) > 0
+        for i = 0 to array.size(price_array) - 1
+            level = array.get(price_array, i)
+            if high > level and close < level
+                bearish_rejection := true
+            if low < level and close > level
+                bullish_rejection := true
+    [bearish_rejection, bullish_rejection]
+
+// Check all price arrays for rejections
+[ndog_bear, ndog_bull] = f_check_rejections(ndog_prices)
+[nwog_bear, nwog_bull] = f_check_rejections(nwog_prices)
+[nmog_bear, nmog_bull] = f_check_rejections(nmog_prices)
+[daily_bear, daily_bull] = f_check_rejections(daily_prices)
+
+// Plot rejection signals at global scope
+plotshape(ndog_bear or nwog_bear or nmog_bear or daily_bear, "Bearish Rejection", bear_shape, location.abovebar, bear_color, size=size.tiny)
+plotshape(ndog_bull or nwog_bull or nmog_bull or daily_bull, "Bullish Rejection", bull_shape, location.belowbar, bull_color, size=size.tiny)
