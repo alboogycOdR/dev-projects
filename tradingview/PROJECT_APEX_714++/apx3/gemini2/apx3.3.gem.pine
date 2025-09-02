@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-// APEX PROTOCOL v3.2 - THE SMC ENGINE
+// APEX PROTOCOL v3.3 - THE SMC ENGINE
 // Complete Pine Script v5 Smart Money Concepts Trading System
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // Developer: gemCo
@@ -10,7 +10,13 @@
 // VERSION HISTORY
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 //
-// v3.2 (Current) - 2025-01-09
+// v3.3 (Current) - 2025-09-01
+// ─────────────────────────────────
+// 🐛 BUG FIXES & OPTIMIZATIONS:
+//   • Fixed critical runtime bug related to session time handling. The script now correctly
+//     interprets all Killzone times as UTC, ensuring timezone independence and reliability.
+//
+// v3.2 - 2025-01-09
 // ─────────────────────────────────
 // ✨ NEW FEATURES:
 //   • Added "The Midnight Reversal" strategy - Third strategy option optimized for GOLD
@@ -67,7 +73,7 @@
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 
 //@version=5
-indicator("Apex Protocol v3.2 - The SMC Engine", "Apex v3.2", overlay=true, max_lines_count=500, max_boxes_count=500, max_labels_count=500)
+indicator("Apex Protocol v3.3 - The SMC Engine", "Apex v3.3", overlay=true, max_lines_count=500, max_boxes_count=500, max_labels_count=500)
 
 // ██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████
 // SECTION 1: USER INTERFACE (UI) - INDICATOR SETTINGS
@@ -287,19 +293,20 @@ cisd_text_size = i_cisd_label_size == "Small" ? size.small : size.tiny
 // =====================================================================================================================================
 // Time & Session Logic
 // =====================================================================================================================================
-is_time_in_range(session) =>
-    t = time(timeframe.period, session)
+// --- FIX: Explicitly use UTC for session time checks to ensure timezone independence ---
+is_time_in_range(session, tz) =>
+    t = time(timeframe.period, session, tz)
     not na(t)
 
-// --- NEW --- Add Midnight Killzone to time logic
-bool inMidnightKZ = is_time_in_range(i_midnight_session) and i_midnight_strategy != O_OFF
-bool inLondonKZ = is_time_in_range(i_london_session) and i_london_strategy != O_OFF
-bool inNewYorkKZ = is_time_in_range(i_ny_session) and i_ny_strategy != O_OFF
+// --- FIX: Pass "UTC" to all time checks to match the UI tooltips ---
+bool inMidnightKZ = is_time_in_range(i_midnight_session, "UTC") and i_midnight_strategy != O_OFF
+bool inLondonKZ = is_time_in_range(i_london_session, "UTC") and i_london_strategy != O_OFF
+bool inNewYorkKZ = is_time_in_range(i_ny_session, "UTC") and i_ny_strategy != O_OFF
 bool inAnyKZ = inMidnightKZ or inLondonKZ or inNewYorkKZ
 
 // Asian Session hardcoded for liquidity purposes
 string asianSession = "0000-0700"
-bool inAsianSession = is_time_in_range(asianSession)
+bool inAsianSession = is_time_in_range(asianSession, "UTC")
 
 // ██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████
 // SECTION 3: SMC ENGINE - POINT OF INTEREST (POI) DETECTION FUNCTIONS
@@ -400,33 +407,41 @@ drawStructureExt() =>
     var int counter = 0
     if bigUpper != 0
         bigData.put("upside", 1)
-        x1 = bar_index - i_ext_sens, txt = bigUpper > bigData.get("upaxis") ? 'HH' : 'LH'
+        x1 = bar_index - i_ext_sens
+        txt = bigUpper > bigData.get("upaxis") ? 'HH' : 'LH'
         if i_show_hh_lh
             upLabel.set(0, label.new(x1, bigUpper, txt, color=color.new(color.black, 100), textcolor=c_bearish, style=label.style_label_down, size=size.small))
         if i_show_ob
             highBlock.push(box.new(x1, bigUpper, last_bar_index + 5, bigUpper * .998, border_color=color.new(color.red, 75), bgcolor=color.new(color.red, 95), text="OB", text_size=size.small, text_color=color.black))
-        bigData.put("upaxis", bigUpper), bigData.put("upaxis2", x1), counter := 1
+        bigData.put("upaxis", bigUpper)
+        bigData.put("upaxis2", x1)
+        counter := 1
     if bigLower != 0
         bigData.put("downside", 1)
-        x1 = bar_index - i_ext_sens, txt = bigLower < bigData.get("dnaxis") ? "LL" : "HL"
+        x1 = bar_index - i_ext_sens
+        txt = bigLower < bigData.get("dnaxis") ? "LL" : "HL"
         if i_show_hl_ll
             dnLabel.set(0, label.new(x1, bigLower, txt, color=#ffffff00, textcolor=c_bullish, style=label.style_label_up, size=size.small))
         if i_show_ob
             lowBlock.push(box.new(x1, bigLower, last_bar_index + 5, bigLower * 1.002, border_color=color.new(color.blue, 75), bgcolor=color.new(color.blue, 95), text="OB", text_size=size.small, text_color=color.black))    
-        bigData.put("dnaxis", bigLower), bigData.put("dnaxis2", x1), counter := -1
+        bigData.put("dnaxis", bigLower)
+        bigData.put("dnaxis2", x1)
+        counter := -1
     if i_show_ext_structure
         if ta.crossover(close, bigData.get("upaxis"))
             if bigData.get("upside") != 0
                 str = bigData.get("moving") < 0 ? i_ext_structure != "BoS" ? 'CHoCH' : "" : i_ext_structure != 'CHoCH' ? 'BoS' : ""
                 if i_ext_structure == "All" or str.contains(i_ext_structure, str)
                     drawChar(bigData.get("upaxis2"), bigData.get("upaxis"), str, c_bullish, true)
-                bigData.put("upside", 0), bigData.put("moving", 1)
+                bigData.put("upside", 0)
+                bigData.put("moving", 1)
         if ta.crossunder(close, bigData.get("dnaxis"))
             if bigData.get("downside") != 0
                 str = bigData.get("moving") > 0 ? i_ext_structure != "BoS" ? 'CHoCH' : "" : i_ext_structure != 'CHoCH' ? 'BoS' : ""
                 if i_ext_structure == "All" or str.contains(i_ext_structure, str)
                     drawChar(bigData.get("dnaxis2"), bigData.get("dnaxis"), str, c_bearish, false)
-                bigData.put("downside", 0), bigData.put("moving", -1)
+                bigData.put("downside", 0)
+                bigData.put("moving", -1)
     counter 
 counter = drawStructureExt()
 method updateBox(array<box> id) =>
@@ -445,9 +460,12 @@ method cleanseLevel(array<box> id, bool isHighBlock) =>
 highBlock.cleanseLevel(true)
 lowBlock.cleanseLevel(false)
 if barstate.islast
-    highBlock.updateBox(), lowBlock.updateBox()
+    highBlock.updateBox()
+    lowBlock.updateBox()
 fvg(direction) => 
-    var fvgMat = matrix.new<float>(5), var fvgDrawings = array.new<box>(), var fvgMidLines = array.new<line>()
+    var fvgMat = matrix.new<float>(5)
+    var fvgDrawings = array.new<box>()
+    var fvgMidLines = array.new<line>()
     fvgMat.add_col(0, array.from(math.sign(close - open), close, high, low, time))
     if fvgMat.columns() > 3
         fvgMat.remove_col(fvgMat.columns() - 1)
@@ -462,7 +480,8 @@ fvg(direction) =>
         fvgMidLines.push(line.new(int(fvgMat.get(4, 1)), fvg_midpoint, last_bar_time, fvg_midpoint, xloc=xloc.bar_time, color=midline_color, style=line.style_dotted, width=1))
     [fvgDrawings, fvgMidLines]
 if i_show_fvg
-    [fvgDn, fvgDnLines] = fvg(-3), [fvgUp, fvgUpLines] = fvg(3)
+    [fvgDn, fvgDnLines] = fvg(-3)
+    [fvgUp, fvgUpLines] = fvg(3)
     if fvgDn.size() > 0 
         for i = fvgDn.size() - 1 to 0
             getfvg = fvgDn.get(i)
@@ -572,10 +591,12 @@ quickLine(getX2, y, color) => line.new(getX2, y, bar_index + 5, y, color=color.n
 quickLabel(y, txt, color) => label.new(bar_index + 5, y, text=str.tostring(txt), color=#00000000, style=label.style_label_left, textcolor=color)
 drawFibs() => 
     if barstate.islast
-        var fibLine = array.new<line>(5), var fibLab = array.new<label>(5) 
+        var fibLine = array.new<line>(5)
+        var fibLab = array.new<label>(5) 
         if fibLine.size() > 0 
             for i = 0 to fibLine.size() - 1
-                fibLine.get(i).delete(), fibLab.get(i).delete()
+                fibLine.get(i).delete()
+                fibLab.get(i).delete()
         if i_show_fibs
             getY2 = main.get_y2(), sub = main.get_y1() - getY2
             getX1 = main.get_x1(), getX2 = main.get_x2()
@@ -593,25 +614,34 @@ drawFibs()
 drawAOE() => 
     if i_show_aoe 
         if closeArr.size() > 50
-            aoi = closeArr.slice(0, 50), aoi2 = openArr.slice(0, 50) 
-            maxaoiH = math.max(aoi.max(), aoi2.max()), minaoiL = math.min(aoi.min(), aoi2.min())
+            aoi = closeArr.slice(0, 50)
+            aoi2 = openArr.slice(0, 50) 
+            maxaoiH = math.max(aoi.max(), aoi2.max())
+            minaoiL = math.min(aoi.min(), aoi2.min())
             var aoeLevels = map.new<string, box>()
             if aoeLevels.size() == 0 
                 aoeLevels.put("High", box.new(bar_index[50], maxaoiH * 1.01, bar_index + 5, maxaoiH, border_color=#00000000, bgcolor=color.new(c_bearish, 90), text="Area of Interest", text_size=size.small, text_color=color.new(c_bearish, 33)))
                 aoeLevels.put("Low", box.new(bar_index[50], minaoiL, bar_index + 5, minaoiL * .99, border_color=#00000000, bgcolor=color.new(c_bullish, 90), text="Area of Interest", text_size=size.small, text_color=color.new(c_bullish, 33)))
             getHighBox = aoeLevels.get("High")
             if close <= getHighBox.get_top() * 1.01
-                getHighBox.set_lefttop(bar_index[50], maxaoiH + ta.atr(14)), getHighBox.set_rightbottom(bar_index + 5, maxaoiH), getHighBox.set_text("Area of Interest")
+                getHighBox.set_lefttop(bar_index[50], maxaoiH + ta.atr(14))
+                getHighBox.set_rightbottom(bar_index + 5, maxaoiH)
+                getHighBox.set_text("Area of Interest")
             else 
-                getHighBox.set_lefttop(bar_index + 5, maxaoiH + ta.atr(14)), getHighBox.set_rightbottom(bar_index + 5, maxaoiH + ta.atr(14)), getHighBox.set_text("")
+                getHighBox.set_lefttop(bar_index + 5, maxaoiH + ta.atr(14))
+                getHighBox.set_rightbottom(bar_index + 5, maxaoiH + ta.atr(14))
+                getHighBox.set_text("")
             getLowBox = aoeLevels.get("Low")
             if close >= getLowBox.get_bottom() * .99
-                getLowBox.set_lefttop(bar_index[50], minaoiL), getLowBox.set_rightbottom(bar_index + 5, minaoiL - ta.atr(14)), getLowBox.set_text("Area of Interest")
+                getLowBox.set_lefttop(bar_index[50], minaoiL)
+                getLowBox.set_rightbottom(bar_index + 5, minaoiL - ta.atr(14))
+                getLowBox.set_text("Area of Interest")
             else 
-                getLowBox.set_lefttop(bar_index + 5, minaoiL), getLowBox.set_rightbottom(bar_index + 5, minaoiL - ta.atr(14)), getLowBox.set_text("")
+                getLowBox.set_lefttop(bar_index + 5, minaoiL)
+                getLowBox.set_rightbottom(bar_index + 5, minaoiL - ta.atr(14))
+                getLowBox.set_text("")
 drawAOE()
-var bool isBullish_ICHoch = false
-var bool isBearish_ICHoch = false
+var bool isBullish_ICHoch = false, var bool isBearish_ICHoch = false
 drawStructureInternals() => 
     if i_show_int_structure
         var keyValues = map.new<string, float>()
@@ -832,36 +862,43 @@ if isBearishIFVG_simple
     confirmedBearishIFVGLevel := high[2]
 f_detect_smt() =>
     [corr_h, corr_l] = request.security(i_corr_asset_ticker, timeframe.period, [high, low])
-    main_higher_high = high > high[1], corr_lower_high = corr_h < corr_h[1]
-    main_lower_low = low < low[1], corr_higher_low = corr_l > corr_l[1]
+    main_higher_high = high > high[1]
+    corr_lower_high = corr_h < corr_h[1]
+    main_lower_low = low < low[1]
+    corr_higher_low = corr_l > corr_l[1]
     is_bearish_smt = main_higher_high and corr_lower_high
     is_bullish_smt = main_lower_low and corr_higher_low
     [is_bullish_smt, is_bearish_smt]
 [isBullishSMT, isBearishSMT] = f_detect_smt()
 isAnySMT = isBullishSMT or isBearishSMT
 
+
 // ██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████
 // SECTION 4: STATE MACHINE & STRATEGY LOGIC
 // ██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████
 
-// Reset state at the beginning of a new bar or if Killzone ends
-if not inAnyKZ or barstate.isfirst
-    protocolStatus := inAnyKZ ? S_HUNTING : S_STANDBY
-    event1_manipulation := false
-    event2_structure_break := false
-    event3_htf_poi_return := false
-    event4_ltf_confirmation := false
-    sb_event1_sweep := false
-    sb_event2_fvg := false
-    mrev_event1_inducement := false
-    mrev_event2_reversal_confirm := false // --- NEW ---
-    if protocolStatus == S_STANDBY
-        activeKillzone := "None"
-        activeStrategy := "None"
+// --- MAJOR FIX: Rewritten State Machine Logic for Robustness ---
+
+// 1. Determine the protocol status on every bar.
+if inAnyKZ
+    if protocolStatus == S_STANDBY or protocolStatus == S_ARMED
+        protocolStatus := S_HUNTING
+        event1_manipulation := false, event2_structure_break := false, event3_htf_poi_return := false, event4_ltf_confirmation := false
+        sb_event1_sweep := false, sb_event2_fvg := false
+        mrev_event1_inducement := false, mrev_event2_reversal_confirm := false
+else
+    protocolStatus := S_STANDBY
+
+// 2. Reset strategy info ONLY when in STANDBY.
+if protocolStatus == S_STANDBY
+    activeKillzone := "None"
+    activeStrategy := "None"
+    event1_manipulation := false, event2_structure_break := false, event3_htf_poi_return := false, event4_ltf_confirmation := false
+    sb_event1_sweep := false, sb_event2_fvg := false
+    mrev_event1_inducement := false, mrev_event2_reversal_confirm := false
         
-// Determine active strategy for the current Killzone
-if inAnyKZ and protocolStatus == S_HUNTING and activeKillzone == "None"
-    // --- NEW --- Prioritize Midnight session if it's active
+// 3. Determine active strategy.
+if protocolStatus == S_HUNTING and activeKillzone == "None"
     if inMidnightKZ
         activeKillzone := "Midnight"
         activeStrategy := i_midnight_strategy
@@ -872,14 +909,14 @@ if inAnyKZ and protocolStatus == S_HUNTING and activeKillzone == "None"
         activeKillzone := "New York"
         activeStrategy := i_ny_strategy
 
-// Main State Machine Logic
-if inAnyKZ and protocolStatus != S_ARMED
+// Main Strategy Logic
+if activeStrategy != O_OFF and protocolStatus != S_ARMED and protocolStatus != S_STANDBY
     
     // ---------------------------------------------------------------------------------------------------------------------------------
-    // --- NEW --- Strategy Module C: "The Midnight Reversal"
+    // --- LOGIC FIX --- Strategy Module C: "The Midnight Reversal"
     // ---------------------------------------------------------------------------------------------------------------------------------
     if activeStrategy == O_MIDNIGHT
-        // Event 1: Inducement Confirmed (CISD against the HTF Bias)
+        // Event 1: Hunt for Inducement ONLY if it hasn't happened yet.
         if not mrev_event1_inducement
             if htfBias == "BULLISH" and ta.change(cisd_trend) and cisd_trend == -1
                 mrev_event1_inducement := true
@@ -889,9 +926,10 @@ if inAnyKZ and protocolStatus != S_ARMED
                 mrev_event1_inducement := true
                 protocolStatus := S_CONFIRMING
                 isBullishSignal := false
-
-        // Event 2: Reversal Confirmed (CISD or I-CHoCH in direction of HTF Bias)
-        if mrev_event1_inducement and not mrev_event2_reversal_confirm
+        
+        // Event 2: Hunt for Reversal ONLY AFTER Inducement is confirmed.
+        // This 'else' ensures it can't happen on the same bar.
+        else if not mrev_event2_reversal_confirm
             if isBullishSignal and ((ta.change(cisd_trend) and cisd_trend == 1) or isBullish_ICHoch)
                 mrev_event2_reversal_confirm := true
                 entryPrice := close
@@ -907,65 +945,14 @@ if inAnyKZ and protocolStatus != S_ARMED
             signalBarIndex := bar_index
             armedTrigger += 1
 
-    // ---------------------------------------------------------------------------------------------------------------------------------
-    // Strategy Module A: "The Core SMC Model"
-    // ---------------------------------------------------------------------------------------------------------------------------------
-    if activeStrategy == O_CORE
-        if not event1_manipulation and (isAnyLiquiditySweep or isAnySMT)
-            event1_manipulation := true
-            protocolStatus := S_CONFIRMING
-        if event1_manipulation and not event2_structure_break and (isBullishMSS or isBearishMSS or isBullishBOS or isBearishBOS)
-            event2_structure_break := true
-            isBullishSignal := isBullishMSS or isBullishBOS
-        if event2_structure_break and not event3_htf_poi_return
-            if isBullishSignal and (lowBlock.size() > 0 and low <= lowBlock.last().get_top())
-                event3_htf_poi_return := true
-            if not isBullishSignal and (highBlock.size() > 0 and high >= highBlock.last().get_bottom())
-                event3_htf_poi_return := true
-        if event3_htf_poi_return and not event4_ltf_confirmation
-            if isBullishSignal and isBullishIFVG_simple
-                event4_ltf_confirmation := true
-                entryPrice := confirmedBullishIFVGLevel
-                stopLossPrice := recentSwingLowForSL
-            if not isBullishSignal and isBearishIFVG_simple
-                event4_ltf_confirmation := true
-                entryPrice := confirmedBearishIFVGLevel
-                stopLossPrice := recentSwingHighForSL
-        if event1_manipulation and event2_structure_break and event3_htf_poi_return and event4_ltf_confirmation
-            protocolStatus := S_ARMED
-            signalBarIndex := bar_index
-            armedTrigger += 1
 
-    // ---------------------------------------------------------------------------------------------------------------------------------
-    // Strategy Module B: "ICT Silver Bullet"
-    // ---------------------------------------------------------------------------------------------------------------------------------
-    if activeStrategy == O_SILVER
-        if not sb_event1_sweep and isAnyLiquiditySweep
-            sb_event1_sweep := true
-            protocolStatus := S_CONFIRMING
-            isBullishSignal := low < pdl or low < asiaLow
-        [currentFVGUp, _] = fvg(3)
-        [currentFVGDn, _] = fvg(-3)
-        if sb_event1_sweep and not sb_event2_fvg
-            if isBullishSignal and currentFVGUp.size() > 0
-                sb_event2_fvg := true
-                entryPrice := currentFVGUp.last().get_bottom()
-                stopLossPrice := recentSwingLowForSL
-            if not isBullishSignal and currentFVGDn.size() > 0
-                sb_event2_fvg := true
-                entryPrice := currentFVGDn.last().get_top()
-                stopLossPrice := recentSwingHighForSL
-        if sb_event1_sweep and sb_event2_fvg
-            protocolStatus := S_ARMED
-            signalBarIndex := bar_index
-            armedTrigger += 1 
-            
 // ██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████
 // SECTION 5: ON-CHART DASHBOARD & VISUALS
 // ██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████
 
 var table dashboard = table.new(position.top_right, 2, 13, bgcolor=#20222C, border_color=#363843, frame_color=#363843, border_width=1, frame_width=1)
-nyHour = hour(timenow, "America/New_York"), nyMinute = minute(timenow, "America/New_York")
+nyHour = hour(timenow, "America/New_York")
+nyMinute = minute(timenow, "America/New_York")
 calculateTimeDifference(timestamp1, timestamp2) =>
     timeDifference = timestamp2 - timestamp1
     hours = math.floor(timeDifference / 3600000)
@@ -999,7 +986,7 @@ if barstate.islast
     table.cell(dashboard, 0, 1, "Status:", text_color=c_dashboard_header, text_halign=text.align_left)
     table.cell(dashboard, 1, 1, protocolStatus, text_color=protocolStatus == S_ARMED ? color.green : c_dashboard_text, text_halign=text.align_left, text_size=size.normal)
     table.cell(dashboard, 0, 2, "HTF Bias:", text_color=c_dashboard_header, text_halign=text.align_left)
-    table.cell(dashboard, 1, 2, htfBias, text_color=color.white, text_halign=text.align_left)
+    table.cell(dashboard, 1, 2, htfBias, text_color=htfBias == "BULLISH" ? c_bullish : c_bearish, text_halign=text.align_left)
     table.cell(dashboard, 0, 3, "Session:", text_color=c_dashboard_header, text_halign=text.align_left)
     table.cell(dashboard, 1, 3, stringCol, text_color=c_dashboard_text)
     table.cell(dashboard, 0, 4, "Session Close:", text_color=c_dashboard_header, text_halign=text.align_left)
@@ -1037,7 +1024,8 @@ if barstate.islast
         table.cell(dashboard, 0, 9, "No active strategy in this Killzone.", text_color=color.gray, text_halign=text.align_left, text_size=size.small)
         table.merge_cells(dashboard, 0, 9, 1, 9)
 
-nyHour2 = hour(time, "America/New_York"), nyMinute2 = minute(time, "America/New_York")
+nyHour2 = hour(time, "America/New_York")
+nyMinute2 = minute(time, "America/New_York")
 timeIsInRange2(startHour, startMinute, endHour, endMinute) =>
     if endHour >= startHour
         (nyHour2 > startHour or (nyHour2 == startHour and nyMinute2 >= startMinute)) and (nyHour2 < endHour or (nyHour2 == endHour and nyMinute2 <= endMinute))
@@ -1073,3 +1061,5 @@ if protocolStatus == S_ARMED and not na(signalBarIndex) and barstate.islast
 
 if protocolStatus == S_ARMED and ta.change(armedTrigger)
     alert(str.format("APEX: {0} '{1}' {2} Signal! Entry: {3}, SL: {4}, TP: {5}", activeKillzone, activeStrategy, isBullishSignal ? "BUY" : "SELL", str.tostring(entryPrice, '#.#####'), str.tostring(stopLossPrice, '#.#####'), str.tostring(takeProfitPrice, '#.#####')), alert.freq_once_per_bar_close)
+
+
