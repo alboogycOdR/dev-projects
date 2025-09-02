@@ -611,7 +611,7 @@ method updateMain(line id) =>
             counterFibs := 1
         if bigLowerFibs != 0
             counterFibs := -1
-        if counterFibs == 1
+        if counterFibs == 1 
             hi = 0.0
             lo = 1e8
             id.set_xy1(int(bigData.get("upaxis2")), bigData.get("upaxis"))
@@ -700,17 +700,17 @@ drawAOE()
 var bool isBullish_ICHoch = false
 var bool isBearish_ICHoch = false
 
-drawStructureInternals() =>
+drawStructureInternals() => 
     if i_show_int_structure
         var keyValues = map.new<string, float>()
-        if keyValues.size() == 0
+        if keyValues.size() == 0 
             keyValues.put("movingSmall", 0)
-        if smallUpper != 0
-            keyValues.put("upsideSmall", 1)
-            keyValues.put("upaxisSmall", smallUpper)
+        if smallUpper != 0 
+            keyValues.put("upsideSmall", 1)          
+            keyValues.put("upaxisSmall", smallUpper) 
             keyValues.put("upaxis2Small", bar_index - i_int_sens)
-        if smallLower != 0
-            keyValues.put("downsideSmall", 1)
+        if smallLower != 0 
+            keyValues.put("downsideSmall", 1)       
             keyValues.put("dnaxisSmall", smallLower)
             keyValues.put("dnaxis2Small", bar_index - i_int_sens)
 
@@ -766,15 +766,15 @@ if i_show_cisd
         if barstate.isconfirmed and cisd_bull_candle and cisd_bear_candle[1]
             if cisd_active_bull.active and not cisd_active_bull.broken
                 cisd_active_bull.ln.delete()
-            cisd_active_bull.active := true
+            cisd_active_bull.active := true 
             cisd_active_bull.ln := line.new(cisd_track_bull_index, cisd_track_bull_price, bar_index, cisd_track_bull_price, color=color.new(i_cisd_bull_color, 40))
             cisd_active_bull.start_index := not na(cisd_last_ph_index) ? cisd_last_ph_index : bar_index
             cisd_active_bull.start_price := not na(cisd_last_ph_price) ? cisd_last_ph_price : high
             cisd_active_bull.broken := false
         if barstate.isconfirmed and cisd_bear_candle and cisd_bull_candle[1] 
             if cisd_active_bear.active and not cisd_active_bear.broken
-                cisd_active_bear.ln.delete()
-            cisd_active_bear.active := true
+                cisd_active_bear.ln.delete() 
+            cisd_active_bear.active := true 
             cisd_active_bear.ln := line.new(cisd_track_bear_index, cisd_track_bear_price, bar_index, cisd_track_bear_price, color=color.new(i_cisd_bear_color, 40))
             cisd_active_bear.start_index := not na(cisd_last_pl_index) ? cisd_last_pl_index : bar_index
             cisd_active_bear.start_price := not na(cisd_last_pl_price) ? cisd_last_pl_price : low
@@ -825,15 +825,15 @@ if i_show_cisd
                     cisd_swings_high.remove(i)
                 else if not na(get.ln)
                     if close > get.ln.get_y2()
-                        cisd_swings_high.remove(i)
-                    else if close > y
-                        cisd_swings_high.remove(i)
-                    else if not get.active and high > get.price and close < get.price
-                        get.ln := line.new(x, get.price, bar_index, get.price, color=i_cisd_sweep_color)
-                        get.wick := line.new(bar_index, get.price, bar_index, high, color=i_cisd_sweep_color, width=3)
-                        get.active := true
-                        if not na(cisd_track_bull_index) and not na(cisd_track_bull_price)
-                            cisd_bull_bins.push(cisd_bin.new(line.new(cisd_track_bull_index, cisd_track_bull_price, bar_index, cisd_track_bull_price, color=color.new(i_cisd_bull_color, 40)), true, cisd_track_bull_index, cisd_track_bull_price))
+                    cisd_swings_high.remove(i)
+                else if close > y
+                    cisd_swings_high.remove(i)
+                else if not get.active and high > get.price and close < get.price
+                    get.ln := line.new(x, get.price, bar_index, get.price, color=i_cisd_sweep_color)
+                    get.wick := line.new(bar_index, get.price, bar_index, high, color=i_cisd_sweep_color, width=3)
+                    get.active := true
+                    if not na(cisd_track_bull_index) and not na(cisd_track_bull_price)
+                        cisd_bull_bins.push(cisd_bin.new(line.new(cisd_track_bull_index, cisd_track_bull_price, bar_index, cisd_track_bull_price, color=color.new(i_cisd_bull_color, 40)), true, cisd_track_bull_index, cisd_track_bull_price))
         if cisd_swings_low.size() > 0 
             for i = cisd_swings_low.size() - 1 to 0 
                 get = cisd_swings_low.get(i)
@@ -843,15 +843,15 @@ if i_show_cisd
                     cisd_swings_low.remove(i)
                 else if not na(get.ln)
                     if close < get.ln.get_y2()
-                        cisd_swings_low.remove(i)
-                    else if close < y
-                        cisd_swings_low.remove(i)
-                    else if not get.active and low < get.price and close > get.price
-                        get.ln := line.new(x, get.price, bar_index, get.price, color=i_cisd_sweep_color)
-                        get.wick := line.new(bar_index, get.price, bar_index, low, color=i_cisd_sweep_color, width=3)
-                        get.active := true
-                        if not na(cisd_track_bear_index) and not na(cisd_track_bear_price)
-                            cisd_bear_bins.push(cisd_bin.new(line.new(cisd_track_bear_index, cisd_track_bear_price, bar_index, cisd_track_bear_price, color=color.new(i_cisd_bear_color, 40)), true, cisd_track_bear_index, cisd_track_bear_price))
+                    cisd_swings_low.remove(i)
+                else if close < y 
+                    cisd_swings_low.remove(i)
+                else if not get.active and low < get.price and close > get.price
+                    get.ln := line.new(x, get.price, bar_index, get.price, color=i_cisd_sweep_color)
+                    get.wick := line.new(bar_index, get.price, bar_index, low, color=i_cisd_sweep_color, width=3)
+                    get.active := true
+                    if not na(cisd_track_bear_index) and not na(cisd_track_bear_price)
+                        cisd_bear_bins.push(cisd_bin.new(line.new(cisd_track_bear_index, cisd_track_bear_price, bar_index, cisd_track_bear_price, color=color.new(i_cisd_bear_color, 40)), true, cisd_track_bear_index, cisd_track_bear_price))
         if cisd_bull_bins.size() > 0 
             for i = cisd_bull_bins.size() - 1 to 0 
                 get = cisd_bull_bins.get(i)
@@ -1014,12 +1014,12 @@ if activeStrategy != O_OFF and protocolStatus != S_STANDBY
         if core_model_step == 2
             if isBullishSignal and lowBlock.size() > 0
                 if low <= lowBlock.last().get_top()
-                    event3_htf_poi_return := true
-                    core_model_step := 3
+                event3_htf_poi_return := true
+                core_model_step := 3
             if not isBullishSignal and highBlock.size() > 0
                 if high >= highBlock.last().get_bottom()
-                    event3_htf_poi_return := true
-                    core_model_step := 3
+                event3_htf_poi_return := true
+                core_model_step := 3
         
         // Step 3 -> 4: LTF Confirmation -> ARMED
         if core_model_step == 3
