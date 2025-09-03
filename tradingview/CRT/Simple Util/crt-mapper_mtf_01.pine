@@ -1,0 +1,277 @@
+//@version=5
+// Name: 3-Candle Time Pattern - Enhanced Multi-Timeframe (Fixed)
+indicator("3-Candle Time Pattern - Enhanced (Fixed)", overlay=true, max_lines_count=500, max_labels_count=500)
+
+// --- User Inputs ---
+startHourSAST = input.int(3, title="Range Candle Start Hour (SAST)", minval=0, maxval=23, tooltip="Enter the start hour for the first candle in SAST (UTC+2). The script will handle UTC conversion.")
+endAtHourSAST = input.int(11, title="End Hour (SAST)", minval=0, maxval=23, tooltip="Hour to end the CRT lines (SAST time)")
+showDebug = input.bool(true, title="Show Debug Information", tooltip="Display debug information on the chart")
+
+// --- Constants and Variables ---
+// Convert SAST input to UTC for reliable checking
+var int startHourUTC = (startHourSAST - 2 + 24) % 24
+var int endHourUTC = (startHourUTC + 4) % 24  // End of 4-hour period
+var int endAtHourUTC = (endAtHourSAST - 2 + 24) % 24  // Target end hour in UTC
+var int hoursSpanStartToEndAt = ((endAtHourUTC - startHourUTC + 24) % 24)
+if hoursSpanStartToEndAt == 0
+    hoursSpanStartToEndAt := 24
+
+// Original 4H logic variables
+var float rangeHigh = na
+var float rangeLow = na
+var int patternState = 0 // 0: Searching for Range, 1: Range Found, 2: Manipulation Found
+var int tradeBias = 0    // 1 for Bullish, -1 for Bearish, 0 for Neutral, 2 for Both Rejected
+
+// Variables for drawing lines - use arrays to handle multiple patterns
+var array<line> lineHighArray = array.new<line>()
+var array<line> lineLowArray = array.new<line>()
+
+// Debug variable
+var label debugLabel = na
+
+// Variables to track all patterns for historical display
+var array<float> allRangeHighs = array.new<float>()
+var array<float> allRangeLows = array.new<float>()
+var array<int> allPatternBars = array.new<int>()
+
+// Variables for rejection detection
+var bool bearishRejection = false
+var bool bullishRejection = false
+
+// Variables for temporary line creation
+var line newLineHigh = na
+var line newLineLow = na
+
+// Variables for line cleanup
+var line oldLineHigh = na
+var line oldLineLow = na
+
+// --- NEW: Multi-timeframe variables ---
+var float mtfPeriodHigh = na
+var float mtfPeriodLow = na
+var bool mtfPeriodActive = false
+var int mtfPeriodStartBar = na
+var line mtfHighLine = na
+var line mtfLowLine = na
+var bool mtfPeriodProcessed = false
+var int mtfPeriodStartTime = na
+var int barsToExtend = 0
+
+// --- Helper Functions ---
+// Function to check if current time is within the 4-hour period
+isWithinMTFPeriod() =>
+    currentHourUTC = hour(time, "UTC")
+    if startHourUTC < endHourUTC
+        currentHourUTC >= startHourUTC and currentHourUTC < endHourUTC
+    else  // Handle day boundary crossing (e.g., 22:00 to 02:00)
+        currentHourUTC >= startHourUTC or currentHourUTC < endHourUTC
+
+// Function to check if we're at the start of the 4-hour period
+isStartOfMTFPeriod() =>
+    currentHour = hour(time, "UTC")
+    prevHour = hour(time[1], "UTC")
+    // Check if we just entered the start hour or loading historical data
+    (currentHour == startHourUTC and prevHour != startHourUTC) or (currentHour == startHourUTC and (na(prevHour) or hour(time, "UTC") != hour(time[1], "UTC")))
+
+// Function to check if the 4-hour period just ended
+isMTFPeriodJustEnded() =>
+    currentHour = hour(time, "UTC")
+    prevHour = hour(time[1], "UTC")
+    // Check if we just entered the end hour or loading historical data
+    (currentHour == endHourUTC and prevHour != endHourUTC) or (currentHour == endHourUTC and (na(prevHour) or hour(time, "UTC") != hour(time[1], "UTC")))
+
+// --- Logic ---
+// Detect the start of a new Range Candle (every 4 hours at the specified time)
+isNewRangeCandle = timeframe.period == "240" and hour(time, "UTC") == startHourUTC
+
+// Check if we're on a lower timeframe (not 4H)
+isLowerTimeframe = timeframe.period != "240"
+
+// --- ORIGINAL 4H LOGIC (unchanged) ---
+if (isNewRangeCandle)
+    // --- 1. A New Range Candle is Found ---
+    
+    // Store the high and low of the range
+    rangeHigh := high
+    rangeLow := low
+    
+    // Set the state to indicate we have the range and are waiting for the manipulation candle
+    patternState := 1
+    tradeBias := 0
+    
+    // Store pattern data for historical display
+    array.push(allRangeHighs, high)
+    array.push(allRangeLows, low)
+    array.push(allPatternBars, bar_index)
+    
+    // Draw new horizontal lines for the range, extending for the next 3 bars (12 hours) to cover all 3 candles
+    newLineHigh := line.new(bar_index, high, bar_index + 3, high, color=color.new(color.black, 0), style=line.style_solid, width=2)
+    newLineLow := line.new(bar_index, low, bar_index + 3, low, color=color.new(color.black, 0), style=line.style_solid, width=2)
+    
+    // Add new lines to arrays for management
+    array.push(lineHighArray, newLineHigh)
+    array.push(lineLowArray, newLineLow)
+
+else if (patternState == 1)
+    // --- 2. This is the Manipulation Candle ---
+    
+    // Check for a bearish rejection of the high
+    bearishRejection := high > rangeHigh and close < rangeHigh
+
+    // Check for a bullish rejection of the low
+    bullishRejection := low < rangeLow and close > rangeLow
+
+    // Note: Both can be true simultaneously, indicating market indecision
+    
+    if (bearishRejection and bullishRejection)
+        tradeBias := 2  // Set bias to Both Rejected (Neutral) - Purple Circle
+    else if (bearishRejection)
+        tradeBias := -1 // Set bias to Bearish - Red Down Arrow
+    else if (bullishRejection)
+        tradeBias := 1  // Set bias to Bullish - Green Up Arrow
+    
+    // Move to the next state, ready for the distribution candle
+    patternState := 2
+
+else if (patternState == 2)
+    // --- 3. This is the Distribution Candle ---
+    
+    // Reset the pattern state to search for the next one
+    patternState := 0
+
+// Define arrays for CRT patterns
+var array<int> crtStartBars = array.new<int>()
+var array<float> crtHighs = array.new<float>()
+var array<float> crtLows = array.new<float>()
+var array<int> crtEndBars = array.new<int>()
+
+// --- NEW: Multi-timeframe logic for lower timeframes ---
+if (isLowerTimeframe)
+    
+    // Debug output
+    if barstate.islast and showDebug
+        debugText = "TF: " + timeframe.period + "\nCurrent UTC: " + str.tostring(hour(time, "UTC")) + ":" + str.tostring(minute(time, "UTC")) + "\nStart: " + str.tostring(startHourUTC) + " UTC, End Period: " + str.tostring(endHourUTC) + " UTC" + "\nEnd At: " + str.tostring(endAtHourUTC) + " UTC (" + str.tostring(endAtHourSAST) + " SAST)" + "\nActive: " + str.tostring(mtfPeriodActive) + "\nProcessed: " + str.tostring(mtfPeriodProcessed) + "\nWithin Period: " + str.tostring(isWithinMTFPeriod()) + "\nHigh: " + str.tostring(mtfPeriodHigh) + "\nLow: " + str.tostring(mtfPeriodLow) + "\nCRT Patterns: " + str.tostring(array.size(crtStartBars))
+        
+        if na(debugLabel)
+            debugLabel := label.new(bar_index, high + (ta.atr(14) * 3), text=debugText, color=color.new(color.gray, 50), textcolor=color.white, style=label.style_label_down, size=size.normal)
+        else
+            label.set_xy(debugLabel, bar_index, high + (ta.atr(14) * 3))
+            label.set_text(debugLabel, debugText)
+    
+    // Check if we're starting a new 4-hour period
+    if (isStartOfMTFPeriod())
+        // Reset for new period
+        mtfPeriodActive := true
+        mtfPeriodProcessed := false
+        mtfPeriodStartBar := bar_index
+        mtfPeriodStartTime := time
+        mtfPeriodHigh := high
+        mtfPeriodLow := low
+        
+        // Clean up previous lines
+        if not na(mtfHighLine)
+            line.delete(mtfHighLine)
+            mtfHighLine := na
+        if not na(mtfLowLine)
+            line.delete(mtfLowLine)
+            mtfLowLine := na
+    
+    // Update highs and lows during the active period
+    if (mtfPeriodActive and isWithinMTFPeriod())
+        mtfPeriodHigh := math.max(mtfPeriodHigh, high)
+        mtfPeriodLow := math.min(mtfPeriodLow, low)
+    
+    // Check if the 4-hour period just ended
+    if (isMTFPeriodJustEnded() and mtfPeriodActive and not mtfPeriodProcessed)
+        mtfPeriodActive := false
+        mtfPeriodProcessed := true
+        
+        // Compute target x2 from start bar using fixed span 03:00→endAtHour
+        tfSeconds = timeframe.in_seconds(timeframe.period)
+        barsTotalToTarget = na(tfSeconds) ? 0 : math.round((hoursSpanStartToEndAt * 3600) / tfSeconds)
+        extendToBar = mtfPeriodStartBar + barsTotalToTarget
+        
+        // Store CRT pattern data
+        if not na(mtfPeriodStartBar) and not na(mtfPeriodHigh) and not na(mtfPeriodLow)
+            array.push(crtStartBars, mtfPeriodStartBar)
+            array.push(crtHighs, mtfPeriodHigh)
+            array.push(crtLows, mtfPeriodLow)
+            array.push(crtEndBars, extendToBar)
+            
+            // Draw CRT-H line (high)
+            mtfHighLine := line.new(x1=mtfPeriodStartBar, y1=mtfPeriodHigh, x2=extendToBar, y2=mtfPeriodHigh, color=color.new(color.black, 0), style=line.style_solid, width=2)
+            
+            // Draw CRT-L line (low)
+            mtfLowLine := line.new(x1=mtfPeriodStartBar, y1=mtfPeriodLow, x2=extendToBar, y2=mtfPeriodLow, color=color.new(color.black, 0), style=line.style_solid, width=2)
+            
+            // Add labels for identification
+            label.new(x=extendToBar, y=mtfPeriodHigh, text="CRT-H", color=color.new(color.blue, 0), textcolor=color.white, style=label.style_label_left, size=size.normal)
+            
+            label.new(x=extendToBar, y=mtfPeriodLow, text="CRT-L", color=color.new(color.orange, 0), textcolor=color.white, style=label.style_label_left, size=size.normal)
+
+// --- ORIGINAL PLOTTING AND VISUALS (unchanged) ---
+
+// Plot arrows/circles ONLY on the first bar of the Distribution Candle, fixed to price levels with offset
+// Smaller, cleaner arrows on 4H timeframe
+arrowSize = timeframe.period == "240" ? size.tiny : size.small
+if tradeBias[1] == 1 and patternState == 0 and patternState[1] == 2
+    label.new(bar_index[1], low[1] - (ta.atr(14) * 0.25), "▲", color=color.new(color.green, 0), textcolor=color.white, style=label.style_triangleup, size=arrowSize, yloc=yloc.price)
+if tradeBias[1] == -1 and patternState == 0 and patternState[1] == 2
+    label.new(bar_index[1], high[1] + (ta.atr(14) * 0.25), "▼", color=color.new(color.red, 0), textcolor=color.white, style=label.style_triangledown, size=arrowSize, yloc=yloc.price)
+if tradeBias[1] == 2 and patternState == 0 and patternState[1] == 2
+    label.new(bar_index[1], close[1] - (ta.atr(14) * 0.2), "●", color=color.new(color.purple, 0), textcolor=color.white, style=label.style_circle, size=arrowSize, yloc=yloc.price)
+
+// Color the background for the Distribution Candle based on the bias
+bgcolor(patternState == 0 and tradeBias[1] == 1 ? color.new(color.green, 85) : na, title="Bullish Bias BG")
+bgcolor(patternState == 0 and tradeBias[1] == -1 ? color.new(color.red, 85) : na, title="Bearish Bias BG")
+bgcolor(patternState == 0 and tradeBias[1] == 2 ? color.new(color.purple, 85) : na, title="Neutral Bias BG")
+
+// --- Historical Pattern Lines ---
+// Draw trendlines for all historical patterns to ensure visibility (only for 4H timeframe)
+if barstate.islast and array.size(allPatternBars) > 0 and not isLowerTimeframe
+    for i = 0 to array.size(allPatternBars) - 1
+        if array.size(allPatternBars) > i and array.size(allRangeHighs) > i and array.size(allRangeLows) > i
+            patternBar = array.get(allPatternBars, i)
+            patternHigh = array.get(allRangeHighs, i)
+            patternLow = array.get(allRangeLows, i)
+            
+            // Only draw if not already drawn (check if within visible range)
+            if bar_index - patternBar <= 100  // Show last 100 bars of patterns
+                // Draw high line
+                line.new(patternBar, patternHigh, patternBar + 3, patternHigh, color=color.new(color.gray, 25), style=line.style_dashed)
+                // Draw low line  
+                line.new(patternBar, patternLow, patternBar + 3, patternLow, color=color.new(color.gray, 25), style=line.style_dashed)
+
+// --- Line Management ---
+// Clean up old lines to prevent memory issues (keep last 50 patterns)
+if array.size(lineHighArray) > 50
+    oldLineHigh := array.shift(lineHighArray)
+    oldLineLow := array.shift(lineLowArray)
+    line.delete(oldLineHigh)
+    line.delete(oldLineLow)
+
+// Draw historical CRT patterns
+if barstate.islast and isLowerTimeframe
+    for i = 0 to array.size(crtStartBars) - 1
+        if i < array.size(crtStartBars) and i < array.size(crtHighs) and i < array.size(crtLows) and i < array.size(crtEndBars)
+            startBar = array.get(crtStartBars, i)
+            highValue = array.get(crtHighs, i)
+            lowValue = array.get(crtLows, i)
+            endBar = array.get(crtEndBars, i)
+            
+            // Only draw if within visible range and not the current active pattern
+            if startBar != mtfPeriodStartBar
+                // Draw CRT lines
+                line.new(x1=startBar, y1=highValue, x2=endBar, y2=highValue, color=color.new(color.black, 0), style=line.style_solid, width=2)
+                line.new(x1=startBar, y1=lowValue, x2=endBar, y2=lowValue, color=color.new(color.black, 0), style=line.style_solid, width=2)
+                
+                // Add labels for identification
+                label.new(x=endBar, y=highValue, text="CRT-H", color=color.new(color.blue, 0), textcolor=color.white, style=label.style_label_left, size=size.normal)
+                label.new(x=endBar, y=lowValue, text="CRT-L", color=color.new(color.orange, 0), textcolor=color.white, style=label.style_label_left, size=size.normal)
+
+// Clean up old CRT data to prevent memory issues (keep last 30 CRT patterns)
+if array.size(crtStartBars) > 30
+    array.shift(crtStartBars)
+    array.shift(crtHighs)
+    array.shift(crtLows)
+    array.shift(crtEndBars)

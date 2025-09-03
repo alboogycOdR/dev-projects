@@ -1,0 +1,175 @@
+//@version=5
+// ============================================================================
+// 3-Candle Time Pattern Indicator v3.5
+// ============================================================================
+// 
+// DESCRIPTION:
+// Advanced Smart Money Concepts (SMC) indicator that identifies 3-candle time 
+// patterns: Range, Manipulation, and Distribution phases. Detects rejection 
+// signals and provides visual trendlines for trading decisions.
+//
+// KEY FEATURES:
+// - 3-Candle Pattern Detection (Range → Manipulation → Distribution)
+// - Rejection Signal Detection (Bullish, Bearish, Both Rejected)
+// - Historical Pattern Visualization with Configurable History
+// - ATR-based Signal Positioning for Optimal Visibility
+// - Multi-timeframe Compatibility with 4-Hour Block Detection
+//
+// TRADING LOGIC:
+// 1. Range Candle: Establishes high/low boundaries
+// 2. Manipulation Candle: Tests range levels for rejections
+// 3. Distribution Candle: Confirms bias and generates signals
+//
+// SIGNAL INTERPRETATION:
+// - Green Triangle (▲): Bullish rejection of range low
+// - Red Triangle (▼): Bearish rejection of range high  
+// - Purple Circle (●): Both levels rejected (neutral bias)
+//
+// VERSION HISTORY:
+// v1.0: Initial release with basic 3-candle pattern detection
+// v2.0: Added rejection signal detection and visualization
+// v3.0: Implemented historical pattern tracking and line management
+// v3.1: Added ATR-based signal positioning and background colors
+// v3.2: Enhanced multi-timeframe compatibility and 4-hour blocks
+// v3.3: Improved line management and memory optimization
+// v3.4: Added comprehensive error handling and syntax fixes
+// v3.5: Final optimization and client-ready version
+//
+// DEVELOPER: AI-Assisted Development
+// TIMEFRAME: Multi-timeframe compatible (optimized for 4H+)
+// OVERLAY: Yes - displays on price chart
+// ============================================================================
+
+indicator("3-Candle Time Pattern v3.5", overlay=true, shorttitle="3CTP v3.5")
+
+// --- User Inputs ---
+startHourSAST = input.int(3, title="Range Candle Start Hour (SAST)", minval=0, maxval=23, tooltip="Enter the start hour for the first candle in SAST (UTC+2). The script will handle UTC conversion.")
+maxHistoryDays = input.int(7, title="Maximum History Days", minval=1, maxval=30, tooltip="Number of days to keep historical patterns")
+
+// --- Constants and Variables ---
+// Convert SAST input to UTC for reliable checking
+var int startHourUTC = (startHourSAST - 2 + 24) % 24
+
+// Variables to store the state of the pattern
+var float rangeHigh = na
+var float rangeLow = na
+var int patternState = 0 // 0: Searching for Range, 1: Range Found, 2: Manipulation Found
+var int tradeBias = 0    // 1 for Bullish, -1 for Bearish, 0 for Neutral, 2 for Both Rejected
+
+// Variables for drawing lines - use arrays to handle multiple patterns
+var array<line> lineHighArray = array.new<line>()
+var array<line> lineLowArray = array.new<line>()
+
+// Variables to track all patterns for historical display
+var array<float> allRangeHighs = array.new<float>()
+var array<float> allRangeLows = array.new<float>()
+var array<int> allPatternBars = array.new<int>()
+
+// Variables for rejection detection
+var bool bearishRejection = false
+var bool bullishRejection = false
+
+// Variables for temporary line creation
+var line newLineHigh = na
+var line newLineLow = na
+
+// Variables for line cleanup
+var line oldLineHigh = na
+var line oldLineLow = na
+
+// --- Logic ---
+// Detect the start of a new Range Candle (works on any timeframe)
+isNewRangeCandle = hour(time, "UTC") == startHourUTC
+
+// Main logic to run on each bar
+if (isNewRangeCandle)
+    // --- 1. A New Range Candle is Found ---
+    
+    // Store the high and low of the range
+    rangeHigh := high
+    rangeLow := low
+    
+    // Set the state to indicate we have the range and are waiting for the manipulation candle
+    patternState := 1
+    tradeBias := 0
+    
+    // Store pattern data for historical display
+    array.push(allRangeHighs, high)
+    array.push(allRangeLows, low)
+    array.push(allPatternBars, bar_index)
+    
+    // Draw new horizontal lines for the range, extending for the next 3 bars (12 hours) to cover all 3 candles
+    newLineHigh := line.new(bar_index, high, bar_index + 3, high, color=color.new(color.gray, 25), style=line.style_dashed)
+    newLineLow := line.new(bar_index, low, bar_index + 3, low, color=color.new(color.gray, 25), style=line.style_dashed)
+    
+    // Add new lines to arrays for management
+    array.push(lineHighArray, newLineHigh)
+    array.push(lineLowArray, newLineLow)
+
+else if (patternState == 1)
+    // --- 2. This is the Manipulation Candle ---
+    
+    // Check for a bearish rejection of the high
+    bearishRejection := high > rangeHigh and close < rangeHigh
+
+    // Check for a bullish rejection of the low
+    bullishRejection := low < rangeLow and close > rangeLow
+
+    // Note: Both can be true simultaneously, indicating market indecision
+    
+    if (bearishRejection and bullishRejection)
+        tradeBias := 2  // Set bias to Both Rejected (Neutral) - Purple Circle
+    else if (bearishRejection)
+        tradeBias := -1 // Set bias to Bearish - Red Down Arrow
+    else if (bullishRejection)
+        tradeBias := 1  // Set bias to Bullish - Green Up Arrow
+    
+    // Move to the next state, ready for the distribution candle
+    patternState := 2
+
+else if (patternState == 2)
+    // --- 3. This is the Distribution Candle ---
+    
+    // Reset the pattern state to search for the next one
+    patternState := 0
+    
+// --- Plotting and Visuals ---
+
+// Plot arrows/circles ONLY on the first bar of the Distribution Candle, fixed to price levels with offset
+if tradeBias[1] == 1 and patternState == 0 and patternState[1] == 2
+    label.new(bar_index[1], low[1] - (ta.atr(14) * 0.5), "▲", color=color.new(color.green, 0), textcolor=color.white, style=label.style_triangleup, size=size.normal, yloc=yloc.price)
+if tradeBias[1] == -1 and patternState == 0 and patternState[1] == 2
+    label.new(bar_index[1], high[1] + (ta.atr(14) * 0.5), "▼", color=color.new(color.red, 0), textcolor=color.white, style=label.style_triangledown, size=size.normal, yloc=yloc.price)
+if tradeBias[1] == 2 and patternState == 0 and patternState[1] == 2
+    label.new(bar_index[1], close[1] - (ta.atr(14) * 0.3), "●", color=color.new(color.purple, 0), textcolor=color.white, style=label.style_circle, size=size.normal, yloc=yloc.price)
+
+// Color the background for the Distribution Candle based on the bias
+bgcolor(patternState == 0 and tradeBias[1] == 1 ? color.new(color.green, 85) : na, title="Bullish Bias BG")
+bgcolor(patternState == 0 and tradeBias[1] == -1 ? color.new(color.red, 85) : na, title="Bearish Bias BG")
+bgcolor(patternState == 0 and tradeBias[1] == 2 ? color.new(color.purple, 85) : na, title="Neutral Bias BG")
+
+// --- Historical Pattern Lines ---
+// Draw trendlines for all historical patterns to ensure visibility
+if barstate.islast and array.size(allPatternBars) > 0
+    for i = 0 to array.size(allPatternBars) - 1
+        if array.size(allPatternBars) > i and array.size(allRangeHighs) > i and array.size(allRangeLows) > i
+            patternBar = array.get(allPatternBars, i)
+            patternHigh = array.get(allRangeHighs, i)
+            patternLow = array.get(allRangeLows, i)
+            
+            // Only draw if not already drawn (check if within configurable days)
+            maxBars = maxHistoryDays * 24 * 4  // Convert days to bars (assuming 4-hour blocks)
+            if bar_index - patternBar <= maxBars  // Show patterns within configurable days
+                // Draw high line
+                line.new(patternBar, patternHigh, patternBar + 3, patternHigh, color=color.new(color.gray, 25), style=line.style_dashed)
+                // Draw low line  
+                line.new(patternBar, patternLow, patternBar + 3, patternLow, color=color.new(color.gray, 25), style=line.style_dashed)
+
+// --- Line Management ---
+// Clean up old lines to prevent memory issues (keep configurable days of patterns)
+maxPatterns = maxHistoryDays * 6  // 6 patterns per day (24 hours / 4 hours)
+if array.size(lineHighArray) > maxPatterns
+    oldLineHigh := array.shift(lineHighArray)
+    oldLineLow := array.shift(lineLowArray)
+    line.delete(oldLineHigh)
+    line.delete(oldLineLow)
