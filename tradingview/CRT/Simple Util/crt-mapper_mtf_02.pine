@@ -1,8 +1,8 @@
 //@version=5
 // Name: 3-Candle Time Pattern - Enhanced Multi-Timeframe (Fixed)
-indicator("3-Candle Time Pattern - Enhanced (Fixed)", overlay=true, max_lines_count=500, max_labels_count=500)
+indicator("3-Candle Time Pattern - Enhanced - v1.1", overlay=true, max_lines_count=500, max_labels_count=500)
 //author: https://t.me/NuburoFx (NuburoFX)
-//version: 1.0.0
+//version: 1.1.0
 //date: 2025-09-04
 //description: A simple indicator that detects 3-candle time patterns on the chart.
 //license: MIT
@@ -162,6 +162,7 @@ else if (patternState == 2)
 
 // Define arrays for CRT patterns
 var array<int> crtStartBars = array.new<int>()
+var array<int> crtStartTimes = array.new<int>()
 var array<float> crtHighs = array.new<float>()
 var array<float> crtLows = array.new<float>()
 var array<int> crtEndBars = array.new<int>()
@@ -216,6 +217,7 @@ if (isLowerTimeframe)
         // Store CRT pattern data
         if not na(mtfPeriodStartBar) and not na(mtfPeriodHigh) and not na(mtfPeriodLow)
             array.push(crtStartBars, mtfPeriodStartBar)
+            array.push(crtStartTimes, mtfPeriodStartTime)
             array.push(crtHighs, mtfPeriodHigh)
             array.push(crtLows, mtfPeriodLow)
             array.push(crtEndBars, extendToBar)
@@ -290,8 +292,7 @@ if isLowerTimeframe and array.size(crtStartBars) > 0 and array.size(crtHighs) > 
     for i = 0 to array.size(crtStartBars) - 1
         if i < array.size(crtStartBars) and i < array.size(crtHighs) and i < array.size(crtLows) and i < array.size(crtEndBars)
             sb = array.get(crtStartBars, i)
-            off = bar_index - sb
-            st = off >= 0 and off <= 2800 ? time[off] : na
+            st = array.get(crtStartTimes, i)
             if not na(st) and st >= cutoffTime
                 dk = year(st) * 10000 + month(st) * 100 + dayofmonth(st)
                 idx = array.indexof(tmpKeys, dk)
@@ -321,8 +322,7 @@ if isLowerTimeframe and array.size(crtStartBars) > 0 and array.size(crtHighs) > 
                 highValue = array.get(crtHighs, i2)
                 lowValue = array.get(crtLows, i2)
                 endBar = array.get(crtEndBars, i2)
-                off2 = bar_index - startBar
-                st2 = off2 >= 0 and off2 <= 2800 ? time[off2] : na
+                st2 = array.get(crtStartTimes, i2)
                 startTimeOk = not na(st2) and st2 >= cutoffTime
                 if startBar != mtfPeriodStartBar and startBar >= 0 and startBar <= bar_index and bar_index - startBar <= 2800 and endBar >= startBar and startTimeOk
                     line.new(x1=startBar, y1=highValue, x2=endBar, y2=highValue, color=color.new(color.black, 0), style=line.style_solid, width=2)
@@ -336,6 +336,7 @@ if isLowerTimeframe and array.size(crtStartBars) > 0 and array.size(crtHighs) > 
 // Clean up old CRT data to prevent memory issues (keep last 30 CRT patterns)
 if array.size(crtStartBars) > 30
     array.shift(crtStartBars)
+    array.shift(crtStartTimes)
     array.shift(crtHighs)
     array.shift(crtLows)
     array.shift(crtEndBars)
