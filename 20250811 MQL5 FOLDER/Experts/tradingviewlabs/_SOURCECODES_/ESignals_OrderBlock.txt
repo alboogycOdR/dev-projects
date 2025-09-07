@@ -1,0 +1,145 @@
+
+
+//@version=5
+indicator("ESignals Orderblock", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=350)
+
+
+box_ob            = input.bool(true, "Toggle Order Block", group="ORDER BLOCK")
+box_hide_gray     = input.bool(true, "Hide gray boxes", group="ORDER BLOCK")
+bos_type          = input.string("High and Low", "MSB trigger", ["High and Low", "Close and Open"], group="ORDER BLOCK")
+box_sv            = input.bool(true, "Plot Order Block boxes", group="ORDER BLOCK")
+box_test_delay    = input.int(3, "Delay to count test of Order Block box", 1, group="ORDER BLOCK")
+box_fill_delay    = input.int(3, "Delay to count fill of Order Block box", 1, group="ORDER BLOCK")
+box_test_sv       = input.bool(true, "Dim tested Order Block boxes", group="ORDER BLOCK")
+box_stop_sv       = input.bool(true, "Stop plotting filled Order Block boxes", group="ORDER BLOCK")
+
+
+
+// Get components
+
+var float[] pvh1_price     = array.new_float(1000, na)
+var int[]   pvh1_time      = array.new_int  (1000, na)
+var float[] pvl1_price     = array.new_float(1000, na)
+var int[]   pvl1_time      = array.new_int  (1000, na)
+var float[] pvh2_price     = array.new_float(1000, na)
+var int[]   pvh2_time      = array.new_int  (1000, na)
+var float[] pvl2_price     = array.new_float(1000, na)
+var int[]   pvl2_time      = array.new_int  (1000, na)
+var float   htcmrll_price  = na
+var int     htcmrll_time   = na
+var float   ltcmrhh_price  = na
+var int     ltcmrhh_time   = na
+var box[]   long_boxes     = array.new_box()
+var box[]   short_boxes    = array.new_box()
+var float   temp_pv_0      = na
+var float   temp_pv_1      = na
+var float   temp_pv_2      = na
+bool        pvh            = high < high[1] and high[1] > high[6]
+bool        pvl            = low  > low [1] and low [1] < low [6]
+int         pv1_time       = bar_index[1]
+float       pv1_high       = high[1]
+float       pv1_low        = low [1]
+float       trigger_high   = bos_type == "High and Low" ? high : math.max(open, close)
+float       trigger_low    = bos_type == "High and Low" ? low  : math.min(open, close)
+
+
+// Colors
+green    = #00DD00, green50  = color.new(green, 50),  green20  = color.new(green, 80)
+red      = #DD0000, red50    = color.new(red, 50),    red20    = color.new(red, 80)
+silver   = #B2B5BE, silver50 = color.new(silver, 50), silver20 = color.new(silver, 80)
+// Plots
+
+
+if box_ob and barstate.isconfirmed
+    if pvh
+        array.pop(pvh1_price)
+        array.pop(pvh1_time)
+        array.unshift(pvh1_price, pv1_high)
+        array.unshift(pvh1_time, pv1_time)
+        if array.size(pvh1_price) > 6
+            temp_pv_0 := array.get(pvh1_price, 0)
+            temp_pv_1 := array.get(pvh1_price, 1)
+            temp_pv_2 := array.get(pvh1_price, 6)
+            if temp_pv_0 > temp_pv_1
+                for i = 0 to array.size(pvl1_time) - 1 by 1
+                    temp_ltcmrhh_time = array.get(pvl1_time, i)
+                    if temp_ltcmrhh_time < array.get(pvh1_time, 0)
+                        ltcmrhh_price := array.get(pvl1_price, i)
+                        ltcmrhh_time := temp_ltcmrhh_time
+                        break
+            if temp_pv_0 < temp_pv_1 and temp_pv_1 > temp_pv_2
+                array.pop(pvh2_price)
+                array.pop(pvh2_time)
+                array.unshift(pvh2_price, temp_pv_1)
+                array.unshift(pvh2_time, array.get(pvh1_time, 1))
+    if pvl
+        array.pop(pvl1_price)
+        array.pop(pvl1_time)
+        array.unshift(pvl1_price, pv1_low)
+        array.unshift(pvl1_time, pv1_time)
+        if array.size(pvl1_price) > 6
+            temp_pv_0 := array.get(pvl1_price, 0)
+            temp_pv_1 := array.get(pvl1_price, 1)
+            temp_pv_2 := array.get(pvl1_price, 6)
+            if temp_pv_0 < temp_pv_1
+                for i = 0 to array.size(pvh1_time) - 1 by 1
+                    temp_htcmrll_time = array.get(pvh1_time, i)
+                    if temp_htcmrll_time < array.get(pvl1_time, 0)
+                        htcmrll_price := array.get(pvh1_price, i)
+                        htcmrll_time := temp_htcmrll_time
+                        break
+            if temp_pv_0 > temp_pv_1 and temp_pv_1 < temp_pv_2
+                array.pop(pvl2_price)
+                array.pop(pvl2_time)
+                array.unshift(pvl2_price, temp_pv_1)
+                array.unshift(pvl2_time, array.get(pvl1_time, 1))
+    if trigger_high > htcmrll_price
+        if box_sv
+            loBox = box.new(left=array.get(pvl1_time, 0), top=math.min(high[bar_index - array.get(pvl1_time, 0)], high[bar_index - array.get(pvl1_time, 0) + 1]), right=bar_index, bottom=array.get(pvl1_price, 0), bgcolor=color.rgb(0, 255, 0, 80), border_color=color.rgb(0, 255, 0, 80), extend=extend.right)
+            if array.size(long_boxes) >= 25
+                box.delete(array.shift(long_boxes))
+            array.push(long_boxes, loBox)
+        htcmrll_price := na
+        htcmrll_price
+    if trigger_low < ltcmrhh_price
+        if box_sv
+            hiBox = box.new(left=array.get(pvh1_time, 0), top=array.get(pvh1_price, 0), right=bar_index, bottom=math.max(low[bar_index - array.get(pvh1_time, 0)], low[bar_index - array.get(pvh1_time, 0) + 1]), bgcolor=color.rgb(255, 0, 0, 80), border_color=color.rgb(255, 0, 0, 80), extend=extend.right)
+            if array.size(short_boxes) >= 25
+                box.delete(array.shift(short_boxes))
+            array.push(short_boxes, hiBox)
+        ltcmrhh_price := na
+        ltcmrhh_price
+    if array.size(short_boxes) > 0
+        for i = array.size(short_boxes) - 1 to 0 by 1
+            tbox = array.get(short_boxes, i)
+            top = box.get_top(tbox)
+            bottom = box.get_bottom(tbox)
+            if trigger_high > bottom and box.get_left(tbox) + box_test_delay < bar_index and box_test_sv
+                if box_hide_gray
+                    box.set_bgcolor(tbox, #00000000)
+                    box.set_border_color(tbox, #00000000)
+                else
+                    box.set_bgcolor(tbox, color.rgb(192, 192, 192, 80))
+                    box.set_border_color(tbox, color.rgb(192, 192, 192, 80))
+            if trigger_high > top and box.get_left(tbox) + box_fill_delay < bar_index
+                if box_stop_sv
+                    box.set_right(tbox, bar_index)
+                    box.set_extend(tbox, extend.none)
+                    array.remove(short_boxes, i)
+    if array.size(long_boxes) > 0
+        for i = array.size(long_boxes) - 1 to 0 by 1
+            lbox = array.get(long_boxes, i)
+            top = box.get_top(lbox)
+            bottom = box.get_bottom(lbox)
+            if trigger_low < top and box.get_left(lbox) + box_test_delay < bar_index and box_test_sv
+                if box_hide_gray
+                    box.set_bgcolor(lbox, #00000000)
+                    box.set_border_color(lbox, #00000000)
+                else
+                    box.set_bgcolor(lbox, color.rgb(192, 192, 192, 80))
+                    box.set_border_color(lbox, color.rgb(192, 192, 192, 80))
+            if trigger_low < bottom and box.get_left(lbox) + box_fill_delay < bar_index
+                if box_stop_sv
+                    box.set_right(lbox, bar_index)
+                    box.set_extend(lbox, extend.none)
+                    array.remove(long_boxes, i)

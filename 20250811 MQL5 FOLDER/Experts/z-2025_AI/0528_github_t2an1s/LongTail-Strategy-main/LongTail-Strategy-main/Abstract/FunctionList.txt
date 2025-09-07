@@ -1,0 +1,7 @@
+
+Component: Sequence Builder
+    int build_sequence(int reward_multiplier, int sequence_length, double &progression_sequence[])
+    Helper func:
+        double ArraySum(double &array[]);
+
+Component: -

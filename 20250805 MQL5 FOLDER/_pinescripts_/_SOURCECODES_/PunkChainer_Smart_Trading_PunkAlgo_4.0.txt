@@ -1,0 +1,830 @@
+//@version=5
+
+indicator(title="PunkChainer™ Smart Trading [PunkAlgo 4.0]", overlay=true, precision=4, linktoseries=true, max_bars_back=1000, 
+ max_lines_count=500)
+
+///                     
+//      Pre-DEFINE     
+//                     
+//---------------------------------------------------
+var COLOR_TRANSP        = color.new(#ffffff,100)
+var COLOR_BLACK         = color.new(#000000,0)  
+//---------------------------------------------------
+var basicgr             = "🧊 PunkAlgo Smart Fibonacci" 
+var fb_tooltip     = "\nDepth ; The minimum number of bars that will be taken into account when calculating the indicator.\n\nDeviation ; a multiplier that affects how much the price should deviate from the previous pivot in order for the bar to become a new pivot.\n"
+
+
+//     INPUT                                                                                                                                                                     
+fb_depth            = input.int   (10   ,minval=1,maxval=20     ,title = "How Far   "                     ,inline='FBR1'       ,group=basicgr)
+fb_dev_ratio        = input.float (3.0  ,minval=1,step=0.5      ,title = "Wave Size "                     ,inline='FBR2'       ,group=basicgr   ,tooltip=fb_tooltip)
+//-----------------------------------------------------------------------------------------------------------------------------------------------------------------
+fb_dev_threshold    = (ta.atr(20)/close) * 100 * fb_dev_ratio
+//-----------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+fb236=input(false,"236 ",inline='fbl'   ,group=basicgr)
+fb382=input(true ,"382 ",inline='fbl'   ,group=basicgr)
+fb500=input(true ,"500 ",inline='fbl'   ,group=basicgr)
+fb618=input(true ,"618 ",inline='fbl'   ,group=basicgr)
+fb786=input(false,"786 ",inline='fbl'   ,group=basicgr)
+fb886=input(false,"886" ,inline='fbl'   ,group=basicgr)
+
+
+//---------------------------------------------------------------------------------------------------------------------------------------------------
+view_gr = '🔴🟠🟡🟢🔵'
+
+draw_pmark_c       = input.color (color.new(#ffffff,0)        ,""                       ,inline='pmark'    ,group=view_gr)
+draw_pmark         = input.bool  (false                          ,'◯  Pivot Point'        ,inline='pmark'    ,group=view_gr)
+
+draw_tline_c       = input.color (color.new(#9598a1,0)        ,""                       ,inline='tline'    ,group=view_gr)
+draw_tline         = input.bool  (true                          ,'-- Trend Line'         ,inline='tline'    ,group=view_gr)
+
+fb_guide_color      = input.color (color.new(#ffff00,0)       ,title = ""               ,inline='retlg'    ,group=view_gr )
+fb_guide_draw       = input.bool  (false                         ,'▮ Retracement Meter '  ,inline='retlg'    ,group=view_gr)
+
+fb_tag1             = input.color (color.new(#00dbff,0)       ,title = "General Label Color"     ,inline='tag'    ,group=view_gr )
+
+fb_col_1618N        = input.color (color.new(#00dbff,0)       ,title = "Level:   -1.618"     ,inline='g1'    ,group=view_gr )
+fb_col_1000N        = input.color (color.new(#00dbff,0)       ,title = "Level:   -1.000"                 ,inline='g1'    ,group=view_gr )
+fb_col_618N         = input.color (color.new(#00dbff,0)       ,title = "Level:   -0.618"     ,inline='g2'    ,group=view_gr )
+fb_col_0            = input.color (color.new(#5d606b,0)       ,title = "Level:   0"                      ,inline='g2'    ,group=view_gr )
+fb_col_236          = input.color (color.new(#00dbff,0)       ,title = "Level:   0.236"      ,inline='g3'    ,group=view_gr )
+fb_col_382          = input.color (color.new(#00dbff,0)       ,title = "Level:   0.382"                  ,inline='g3'    ,group=view_gr )
+fb_col_500          = input.color (color.new(#00dbff,0)       ,title = "Level:   0.500"      ,inline='g4'    ,group=view_gr )
+fb_col_618          = input.color (color.new(#00dbff,0)       ,title = "Level:   0.618"                  ,inline='g4'    ,group=view_gr )
+fb_col_786          = input.color (color.new(#00dbff,0)       ,title = "Level:   0.786"      ,inline='g5'    ,group=view_gr )
+fb_col_886          = input.color (color.new(#00dbff,0)       ,title = "Level:   0.886"                  ,inline='g5'    ,group=view_gr )
+fb_col_1000         = input.color (color.new(#b22833,0)       ,title = "Level:   1.000 "     ,inline='g6'    ,group=view_gr )
+fb_col_1618         = input.color (color.new(#00dbff,0)       ,title = "Projection    1.618 "     ,inline='g7'    ,group=view_gr )
+fb_col_2618         = input.color (color.new(#00dbff,0)       ,title = "Projection    2.618 "     ,inline='g7'    ,group=view_gr )
+
+f_getLabelColor(string _num) =>
+    switch _num
+        '-1618'   => fb_col_1618N
+        '-1000'   => fb_col_1000N
+        '-618'    => fb_col_618N
+        '0'       => fb_col_0
+        '236'     => fb_col_236
+        '500'     => fb_col_500
+        '618'     => fb_col_618
+        '786'     => fb_col_786
+        '886'     => fb_col_886
+        '1000'    => fb_col_1000
+        '1618'    => fb_col_1618
+        '2618'    => fb_col_2618
+       
+
+fb_color3           = input.color (color.new(#ffffff,0)       ,title = " Level: 0.5"    ,inline='g6'    ,group=view_gr )
+fb_color2           = input.color (color.new(#ffffff,0)       ,title = "Color Scheme"    ,inline='color1'    ,group=view_gr )
+fb_color1           = input.color (color.new(#ffffff,0)       ,title = "Color Framework"                      ,inline='color1'    ,group=view_gr )
+fb_label_position   = input.int   (23                           ,title = "Ruller position (X-axis Offset)"       ,inline='position'    ,group=view_gr )
+draw_simplelabel    = input.bool  (true                          ,' Extended Info. (Price, Delta Rate)'  ,inline=''    ,group=view_gr)
+//---------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+
+
+//---------------------------------------------------------------------------------------------------------------------------------------------------
+//---------------------------------------------------------------------------------------------------------------------------------------------------
+//---------------------------------------------------------------------------------------------------------------------------------------------------
+[k_volume,k_open,k_close,k_high,k_low,k_hlc3,k_hlcc4,k_ohlc4,k_hl2,k_close_mintick,k_trtrue,k_atr14,k_atr14_mintick,k_rsipvt14] 
+     = request.security(syminfo.tickerid ,'', [volume,open,close,high,low,hlc3,hlcc4,ohlc4,hl2,str.tostring(close,format.mintick),ta.tr(true),ta.atr(14),str.tostring(ta.atr(14),format.mintick),ta.rsi(ta.pvt,14)] )
+
+
+
+
+
+
+//                                                                                                                                                                                                                     
+//       Background                                                                                                                                                                                                    
+//                                                                                                                                                                                                                   
+
+//                                                                                                                                                                                                                     
+//      Fibonacci Retracement  - Logic Performance Tuned & Re-Designed Fresh-Drawing, Automatic Line on/off                                                                                                            
+//                                                                                                                                                                                                                     
+
+
+// pre-define --------------------------------------------------------------------------------------
+var line  fb_lineLast           = na
+var label fb_label_start_last   = na
+var label fb_label_end_last     = na
+var int   fb_iLast              = 0
+var int   fb_iPrev              = 0
+var float fb_pLast              = 0
+var fb_isHighLast               = false     // otherwise the last pivot is a low pivot
+// pivot --------------------------------------------------------------------------------------
+high_none   = ta.highest(high,fb_depth) > nz(high[fb_depth/2])
+fb_iH       = high_none ?   int(na) : bar_index[fb_depth/2]    
+fb_pH       = high_none ? float(na) :   nz(high[fb_depth/2])
+low_none    = ta.lowest (low ,fb_depth) < nz(low [fb_depth/2])
+fb_iL       = low_none  ?   int(na) : bar_index[fb_depth/2]
+fb_pL       = low_none  ? float(na) :   nz(low [fb_depth/2])
+//--------------------------------------------------------------------------------------
+calc_dev(_base_price, _price) => 100 * (_price - _base_price) / _price
+//--------------------------------------------------------------------------------------
+
+
+
+
+
+pivotFound(dev, isHigh, index, price) =>
+    if fb_isHighLast == isHigh and not na(fb_lineLast) 
+        // same direction
+        if fb_isHighLast ? price > fb_pLast : price < fb_pLast
+            line.set_xy2(fb_lineLast, index, price)
+            label.set_xy(fb_label_end_last, index, price)
+            [fb_lineLast, fb_isHighLast,fb_label_start_last,fb_label_end_last]
+        else
+            [line(na), bool(na), label(na), label(na)]
+    else // reverse the direction (or create the very first line)
+        if math.abs(dev) > fb_dev_threshold 
+            // price move is significant
+            id_fb_line = line.new(fb_iLast, fb_pLast, index, price, color=color.new(draw_tline_c,draw_tline?0:100), width=1, style=line.style_dashed)       // ------  FBR start -> end ; slopped line
+            id_fb_label_start = label.new(fb_iLast, fb_pLast ,color=COLOR_TRANSP, size=size.huge ,style=label.style_label_center, textcolor=color.new(draw_pmark_c,draw_pmark?0:100)  ,text= '◯' )    
+            id_fb_label_end   = label.new(index   , price    ,color=COLOR_TRANSP, size=size.huge ,style=label.style_label_center, textcolor=color.new(draw_pmark_c,draw_pmark?0:100)  ,text= '◯' )    
+            [id_fb_line, isHigh, id_fb_label_start, id_fb_label_end]
+        else
+            [line(na), bool(na),label(na),label(na)]
+//--------------------------------------------------------------------------------------
+fb_new_line = false
+if not na(fb_iH) 
+    fb_dev = calc_dev(fb_pLast, fb_pH)
+    [fb_id, fb_isHigh, fb_la_s_id, fb_la_e_id] = pivotFound(fb_dev, true, fb_iH, fb_pH)
+    if not na(fb_id)
+        if fb_id != fb_lineLast
+            line.delete (fb_lineLast)
+            label.delete(fb_label_start_last)
+            label.delete(fb_label_end_last)
+            fb_new_line     := true
+        fb_lineLast         := fb_id
+        fb_label_start_last := fb_la_s_id
+        fb_label_end_last   := fb_la_e_id
+        fb_isHighLast       := fb_isHigh
+        fb_iPrev            := fb_iLast
+        fb_iLast            := fb_iH
+        fb_pLast            := fb_pH
+else if not na(fb_iL) 
+    fb_dev = calc_dev(fb_pLast, fb_pL)
+    [fb_id, fb_isHigh, fb_la_s_id, fb_la_e_id] = pivotFound(fb_dev, false, fb_iL, fb_pL)
+    if not na(fb_id)
+        if fb_id != fb_lineLast
+            line.delete (fb_lineLast)
+            label.delete(fb_label_start_last)
+            label.delete(fb_label_end_last)
+            fb_new_line     := true
+        fb_lineLast         := fb_id
+        fb_label_start_last := fb_la_s_id
+        fb_label_end_last   := fb_la_e_id                
+        fb_isHighLast       := fb_isHigh
+        fb_iPrev            := fb_iLast
+        fb_iLast            := fb_iL
+        fb_pLast            := fb_pL
+//-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+fb_retracement (_show, _fib_level, _col ,_switch) =>
+    _price   = fb_pLast + ((line.get_y1(fb_lineLast)-fb_pLast))* _fib_level
+    _fbfb_id_line_show = false
+    _position           = bar_index -  line.get_x2(fb_lineLast)
+    _fbr_max_highest    = math.max( ta.highest(high, nz(math.max(1,_position),1))  , fb_pLast)
+    _fbr_min_lowest     = math.min( ta.lowest (low , nz(math.max(1,_position),1))  , fb_pLast)
+    _fbr_max            = fb_pLast < close ? _fbr_max_highest : fb_pLast > close  ? _fbr_min_lowest : fb_pLast
+    _fbr_line_max       = fb_pLast < _price? _fbr_max_highest : fb_pLast > _price ? _fbr_min_lowest : fb_pLast
+    _fbfb_id_line_show  := fb_pLast < _price and _price-(k_atr14/4) <= _fbr_line_max  ? true 
+                         : fb_pLast > _price and _price+(k_atr14/4) >= _fbr_line_max  ? true 
+                         : false 
+    if _switch =='auto' and not na(fb_lineLast)
+        fbfb_id_auto      = line.new(line.get_x2(fb_lineLast) ,_price ,bar_index + 6                    ,_price ,style=line.style_solid, color=color.new(_col, _fbfb_id_line_show ? 30 : 100) , width=1, extend=extend.none)    
+        fbfb_id_ext_auto  = line.new(bar_index+fb_label_position-4,_price ,bar_index+fb_label_position+1  ,_price , color=color.new(_col,0), width=1, extend=extend.none)     
+        fb_label_auto     = label.new(x=bar_index+fb_label_position+1 ,y=_price, text=str.tostring(_fib_level,"0.000")+(draw_simplelabel ? ('    ' + str.tostring(_price, format.mintick) + '   ' + str.tostring(((_price - fb_pLast)/fb_pLast)*100,format.percent )):''),textcolor=color.new(color.white,0) ,style=label.style_label_left  ,textalign=text.align_left , color=color.new(_col,0), size=size.normal)
+        line.delete(fbfb_id_auto[1]     )
+        line.delete(fbfb_id_ext_auto[1] )
+        label.delete(fb_label_auto[1]   )
+        if not _show 
+            line.delete(fbfb_id_auto     )
+            line.delete(fbfb_id_ext_auto )
+            label.delete(fb_label_auto   )
+    if _show and _switch ==''
+        var fbfb_id      = line.new(fb_iLast, _price, bar_index, _price, color=_col , width=1, extend=extend.none  ,style=line.style_solid )     //--- FBR | line = start to now 
+        var fbfb_id_ext  = line.new(fb_iLast, _price, bar_index, _price, color=_col , width=1, extend=extend.none)     //--- FBR | line = now to label position
+        var fb_label     = label.new(x=bar_index ,y=_price, text=''  ,textcolor=color.new(#ffffff,0) ,style=label.style_label_left  ,textalign=text.align_left , color=_col, size=size.normal) //aqui
+        if not na(fb_lineLast)
+            line.set_xy1  (fbfb_id  ,_fib_level==1.0? line.get_x1(fb_lineLast):line.get_x2(fb_lineLast), _price)             
+            line.set_xy2  (fbfb_id  ,_fib_level==1.0 or _fib_level==0.0? bar_index + fb_label_position-4 : bar_index + 6           , _price)                           
+            line.set_color(fbfb_id  ,color=_col)
+            line.set_style(fbfb_id  ,_fib_level==0.0 or _fib_level==1.0 ? line.style_dotted : line.style_solid)
+            //---------------------------------------------------------------------------------------------------    
+            line.set_xy1   (fbfb_id_ext    ,bar_index+fb_label_position-4  ,_price)                        
+            line.set_xy2   (fbfb_id_ext    ,bar_index+fb_label_position+1  ,_price)
+            line.set_width (fbfb_id_ext    ,1)
+            //---------------------------------------------------------------------------------------------------    
+            label.set_xy        (fb_label ,bar_index+fb_label_position+1  ,_price)
+            label.set_text      (fb_label , str.tostring(_fib_level,"0.000")+(draw_simplelabel ? '    ' + str.tostring(_price, format.mintick) + '   ' + str.tostring(((_price - fb_pLast)/fb_pLast)*100,format.percent ):''))
+            // label.set_tooltip   (fb_label ,str.tostring(((_price - fb_pLast)/fb_pLast)*100,format.percent ))
+            label.set_textcolor (fb_label ,color.white)    
+            
+            if _fib_level == 1.0 and fb_guide_draw == true
+                var fbfb_box_max  = box.new  (bar_index, close   ,bar_index, fb_pLast, border_color=color.new(fb_guide_color,80) ,border_width=1, bgcolor=color.new(fb_guide_color,90) )
+                var fbfb_line_max = line.new (bar_index, close   ,bar_index, fb_pLast, color=fb_guide_color ,width=2)
+                var fbfb_line_min = line.new (bar_index, close   ,bar_index, fb_pLast, color=fb_guide_color ,width=2)
+                var fbfb_box_ext  = box.new  (bar_index, close   ,bar_index, fb_pLast, border_color=color.new(fb_guide_color,80) ,border_width=0, bgcolor=color.new(fb_guide_color,70) )
+                var fbfb_line_ext = line.new (bar_index, close   ,bar_index, fb_pLast, color=fb_guide_color ,width=3)
+                //---------------------------------------------------------------------------------------------------    
+                box.set_lefttop     (fbfb_box_max  ,bar_index+fb_label_position-3 ,_fbr_max_highest)
+                box.set_rightbottom (fbfb_box_max  ,bar_index+fb_label_position-0 ,_fbr_min_lowest) 
+                //---------------------------------------------------------------------------------------------------    
+                line.set_xy1        (fbfb_line_max ,bar_index+fb_label_position-3 ,_fbr_max_highest)
+                line.set_xy2        (fbfb_line_max ,bar_index+fb_label_position-0 ,_fbr_max_highest)
+                line.set_xy1        (fbfb_line_min ,bar_index+fb_label_position-3 ,_fbr_min_lowest)
+                line.set_xy2        (fbfb_line_min ,bar_index+fb_label_position-0 ,_fbr_min_lowest)
+                //---------------------------------------------------------------------------------------------------    
+                box.set_lefttop     (fbfb_box_ext  ,bar_index+fb_label_position-3 ,close)
+                box.set_rightbottom (fbfb_box_ext  ,bar_index+fb_label_position-1 ,fb_pLast)
+                //---------------------------------------------------------------------------------------------------    
+                line.set_xy1        (fbfb_line_ext ,bar_index+fb_label_position-3 ,close)
+                line.set_xy2        (fbfb_line_ext ,bar_index+fb_label_position-1 ,close)
+//----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+fb_new = fb_pLast[1] != fb_pLast or fb_new_line or fb_iLast[1] != fb_iLast
+//----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+fb_over_1618    = false
+fb_over_1       = false
+fb_over_0786    = false
+fb_under_0      = false
+fb_under_0382   = false
+fb_under_0618   = false
+fb_under_m1     = false
+//-------------------------
+fb_height       = line.get_y1(fb_lineLast) - fb_pLast
+
+fb_k_low_cr     = ta.lowest (k_low,2)
+fb_k_high_cr    = ta.highest(k_high,2)
+
+fb_over_1618   := (fb_height < 0 and fb_k_low_cr < (fb_height  * 1.618) + fb_pLast  ) or (fb_height > 0 and fb_k_high_cr > (fb_height  * 1.618) + fb_pLast   ) 
+fb_over_1      := (fb_height < 0 and fb_k_low_cr < line.get_y1(fb_lineLast)         ) or (fb_height > 0 and fb_k_high_cr > line.get_y1(fb_lineLast)          ) 
+fb_over_0786   := (fb_height < 0 and fb_k_low_cr < (fb_height  * 0.786) + fb_pLast  ) or (fb_height > 0 and fb_k_high_cr > (fb_height  * 0.786) + fb_pLast   ) 
+fb_under_0     := (fb_height < 0 and fb_k_low_cr > fb_pLast                         ) or (fb_height > 0 and fb_k_high_cr < fb_pLast                          )
+// fb_under_0382  := (fb_height < 0 and fb_k_low_cr > (fb_height  *-0.382) + fb_pLast  ) or (fb_height > 0 and fb_k_high_cr < (fb_height  *-0.382) + fb_pLast   )
+fb_under_0618  := (fb_height < 0 and fb_k_low_cr > (fb_height  *-0.618) + fb_pLast  ) or (fb_height > 0 and fb_k_high_cr < (fb_height  *-0.618) + fb_pLast   )
+fb_under_m1    := (fb_height < 0 and fb_k_low_cr > (fb_height  *-1    ) + fb_pLast  ) or (fb_height > 0 and fb_k_high_cr < (fb_height  *-1    ) + fb_pLast   ) 
+//----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+fb_retracement (fb_under_m1   ,-1.618 ,f_getLabelColor('-1618') ,'auto')
+fb_retracement (fb_under_0618 ,-1.000 ,f_getLabelColor('-1000') ,'auto')
+fb_retracement (fb_under_0382 ,-0.618 ,f_getLabelColor('-618') ,'auto')
+// fb_retracement (fb_under_0    ,-0.382 ,fb_color1 ,'auto')
+// fb_retracement (true          ,-0.236 ,fb_color1 ,'auto')
+fb_retracement (true          , 0.000 ,f_getLabelColor('0') ,''    )
+// fb_retracement (fb236         , 0.236 ,fb_color1 ,''    )
+// fb_retracement (fb382         , 0.382 ,fb_color2 ,''    )
+fb_retracement (fb500         , 0.500 ,f_getLabelColor('500')  ,''   )
+fb_retracement (fb618         , 0.618 ,f_getLabelColor('618') ,''    )
+fb_retracement (fb786         , 0.786 ,f_getLabelColor('786') ,''    )
+// fb_retracement (fb886         , 0.886 ,fb_color1 ,''    )
+fb_retracement (true                          , 1.000 ,f_getLabelColor('1000') ,''    )
+// fb_retracement (fb_over_0786  , 1.272 ,fb_color1 ,'auto')
+
+fb_retracement (fb_over_1     , 1.618 ,f_getLabelColor('1618') ,'auto')
+fb_retracement (fb_over_1618  , 2.618 ,f_getLabelColor('2618') ,'auto')
+
+
+// Order Blocks
+
+const bool DEBUG = false
+const int maxBoxesCount = 500
+const float overlapThresholdPercentage = 0
+const int maxDistanceToLastBar = 1750 // Affects Running Time
+const int maxOrderBlocks = 60
+
+showInvalidated = input.bool(true, "Show Historic Zones", group = "🧊 Order Blocks", display = display.none)
+OBsEnabled = true
+breakBlockVolumetricInfo = input.bool(false, "Volumetric Info", group = "🧊 Order Blocks", inline="EV", display = display.none)
+obEndMethod = input.string("Close", "Order Block Invalidation", options = ["Wick", "Close"],  group = "🧊 Order Blocks", display = display.none)
+bbEndMethod = input.string("Close", "Breaker Block Invalidation", options = ["Wick", "Close"],  group = "🧊 Order Blocks", display = display.none)
+combineOBs = DEBUG ? input.bool(true, "Combine Zones", group = "🧊 Order Blocks", display = display.none) : true
+swingLength = input.int(10, 'Swing Length', minval = 3, tooltip="Swing length is used when finding breaker block formations. Smaller values will result in finding smaller breaker blocks.", group = "🧊 Order Blocks", display = display.none)
+zoneCount = input.string("Low", 'Zone Count', options = ["High", "Medium", "Low"], tooltip = "Number of Breaker Block Zones to be rendered. Higher options will result in older Breaker Blocks shown.",  group = "🧊 Order Blocks", display = display.none)
+bullishBreakerBlockColor = input(color.new(#00dbff, 80), "Bullish Breaker", inline = 'breakerColor', group = '🧊 Order Blocks', display = display.none)
+bearishBreakerBlockColor = input(color.new(#b22833, 80), "Bearish Breaker", inline = 'breakerColor', group = '🧊 Order Blocks', display = display.none)
+
+bullishBreakerBlocks = zoneCount == "Low" ? 3 : zoneCount == "Medium" ? 5 : 10
+bearishBreakerBlocks = zoneCount == "Low" ? 3 : zoneCount == "Medium" ? 5 : 10
+bullishOrderBlocks = zoneCount == "Low" ? 15 : zoneCount == "Medium" ? 30 : 60
+bearishOrderBlocks = zoneCount == "Low" ? 15 : zoneCount == "Medium" ? 30 : 60
+
+BBsEnabled = true
+
+timeframe1Enabled = true
+timeframe1 = ""
+
+breakersFull = DEBUG ? input.bool(true, "Breakers Full", group = "Style", display = display.none) : true
+textColor = DEBUG ? input.color(#ffffff80, "Text Color", group = "Style", inline = "BBcolors") : #ffffff80
+combinedText = DEBUG ? input.bool(false, "Combined Text", group = "Style", inline = "CombinedColor") : false
+
+
+type orderBlockInfo
+    float top
+    float bottom
+    float obVolume
+    string obType
+    int startTime
+    float bbVolume
+    float obLowVolume
+    float obHighVolume
+    bool breaker
+    int breakTime
+    string timeframeStr
+    bool disabled = false
+    string combinedTimeframesStr = na
+    bool combined = false
+
+type orderBlock
+    orderBlockInfo info
+    bool isRendered = false
+
+    box orderBox = na
+    box breakerBox = na
+
+    line orderBoxLineTop = na
+    line orderBoxLineBottom = na
+    line breakerBoxLineTop = na
+    line breakerBoxLineBottom = na
+    //
+    box orderBoxText = na
+    box orderBoxPositive = na
+    box orderBoxNegative = na
+
+    line orderSeperator = na
+    line orderTextSeperator = na
+
+createOrderBlock (orderBlockInfo orderBlockInfoF) =>
+    orderBlock newOrderBlock = orderBlock.new(orderBlockInfoF)
+    newOrderBlock
+
+safeDeleteOrderBlock (orderBlock orderBlockF) =>
+    orderBlockF.isRendered := false
+
+    box.delete(orderBlockF.orderBox)
+    box.delete(orderBlockF.breakerBox)
+    box.delete(orderBlockF.orderBoxText)
+    box.delete(orderBlockF.orderBoxPositive)
+    box.delete(orderBlockF.orderBoxNegative)
+
+    line.delete(orderBlockF.orderBoxLineTop)
+    line.delete(orderBlockF.orderBoxLineBottom)
+    line.delete(orderBlockF.breakerBoxLineTop)
+    line.delete(orderBlockF.breakerBoxLineBottom)
+    line.delete(orderBlockF.orderSeperator)
+    line.delete(orderBlockF.orderTextSeperator)
+
+type timeframeInfo
+    int index = na
+    string timeframeStr = na
+    bool isEnabled = false
+
+    orderBlockInfo[] bullishOrderBlocksList = na
+    orderBlockInfo[] bearishOrderBlocksList = na
+
+newTimeframeInfo (index, timeframeStr, isEnabled) =>
+    newTFInfo = timeframeInfo.new()
+    newTFInfo.index := index
+    newTFInfo.isEnabled := isEnabled
+    newTFInfo.timeframeStr := timeframeStr
+
+    newTFInfo
+
+type obSwing
+    int x = na    
+    float y = na
+    float swingVolume = na
+    bool crossed = false
+
+// ____ TYPES END ____
+
+var timeframeInfo[] timeframeInfos = array.from(newTimeframeInfo(1, timeframe1, timeframe1Enabled))
+var bullishOrderBlocksList = array.new<orderBlockInfo>(0)
+var bearishOrderBlocksList = array.new<orderBlockInfo>(0)
+
+var allOrderBlocksList = array.new<orderBlock>(0)
+
+moveLine(_line, _x, _y, _x2) =>
+    line.set_xy1(_line, _x,  _y)
+    line.set_xy2(_line, _x2, _y)
+
+moveBox (_box, _topLeftX, _topLeftY, _bottomRightX, _bottomRightY) =>
+    box.set_lefttop(_box, _topLeftX, _topLeftY)
+    box.set_rightbottom(_box, _bottomRightX, _bottomRightY)
+
+isTimeframeLower (timeframe1F, timeframe2F) =>
+    timeframe.in_seconds(timeframe1F) < timeframe.in_seconds(timeframe2F)
+
+getMinTimeframe (timeframe1F, timeframe2F) =>
+    if isTimeframeLower(timeframe1F, timeframe2F)
+        timeframe1F
+    else
+        timeframe2F
+
+getMaxTimeframe (timeframe1F, timeframe2F) =>
+    if isTimeframeLower(timeframe1F, timeframe2F)
+        timeframe2F
+    else
+        timeframe1F
+
+formatTimeframeString (formatTimeframe) =>
+    timeframeF = formatTimeframe == "" ? timeframe.period : formatTimeframe
+    
+    if str.contains(timeframeF, "D") or str.contains(timeframeF, "W") or str.contains(timeframeF, "S") or str.contains(timeframeF, "M")
+        timeframeF
+    else
+        seconds = timeframe.in_seconds(timeframeF)
+        if seconds >= 3600
+            hourCount = int(seconds / 3600)
+            str.tostring(hourCount) + " Hour" + (hourCount > 1 ? "s" : "")
+        else
+            timeframeF + " Min"
+
+betterCross(s1, s2) =>
+    string ret = na
+    if s1 >= s2 and s1[1] < s2
+        ret := "Bull"
+    if s1 < s2 and s1[1] >= s2
+        ret := "Bear"
+    ret
+
+colorWithTransparency (colorF, transparencyX) =>
+    color.new(colorF, color.t(colorF) * transparencyX)
+
+createOBBox (boxColor, transparencyX = 1.0, xlocType = xloc.bar_time) =>
+    box.new(na, na, na, na, text_size = size.normal, xloc = xlocType, extend = extend.none, bgcolor = colorWithTransparency(boxColor, transparencyX), text_color = textColor, text_halign = text.align_center, border_color = #00000000)
+
+renderOrderBlock (orderBlock ob) =>
+    orderBlockInfo info = ob.info
+    ob.isRendered := true
+    breakerBlockColor = ob.info.obType == "Bull" ? bearishBreakerBlockColor : bullishBreakerBlockColor
+
+    if info.breaker and BBsEnabled
+        startTime = (OBsEnabled and not breakersFull) ? info.breakTime : info.startTime
+        ob.breakerBox := box.new(startTime, info.top, time + 1, info.bottom, na, bgcolor = breakerBlockColor, extend = extend.none, xloc = xloc.bar_time, text_color = textColor, text_size = size.normal)
+       // BBText = (na(ob.info.combinedTimeframesStr) ? formatTimeframeString(ob.info.timeframeStr) : ob.info.combinedTimeframesStr) + " BB"
+        box.set_text(ob.breakerBox, (breakBlockVolumetricInfo ? str.tostring(ob.info.bbVolume, format.volume) + "\n" : "") + (combinedText and ob.info.combined ? "[Combined]\n" : "")) // + BBText)
+     //   ob.breakerBoxLineTop := line.new(startTime, info.top, time + 1, info.top, xloc.bar_time, extend.none, colorWithTransparency(breakerBlockColor, 0), line.style_dashed)
+     //   ob.breakerBoxLineBottom := line.new(startTime, info.bottom, time + 1, info.bottom, xloc.bar_time, extend.none, colorWithTransparency(breakerBlockColor, 0), line.style_dashed)
+
+
+findOBSwings(len) =>
+    var swingType = 0
+    var obSwing top = obSwing.new(na, na)
+    var obSwing bottom = obSwing.new(na, na)
+    
+    upper = ta.highest(len)
+    lower = ta.lowest(len)
+
+    swingType := high[len] > upper ? 0 : low[len] < lower ? 1 : swingType
+
+    if swingType == 0 and swingType[1] != 0
+        top := obSwing.new(bar_index[len], high[len], volume[len])
+    
+    if swingType == 1 and swingType[1] != 1
+        bottom := obSwing.new(bar_index[len], low[len], volume[len])
+
+    [top, bottom]
+
+findOrderBlocks () =>
+    if bar_index > last_bar_index - maxDistanceToLastBar
+        [top, btm] = findOBSwings(swingLength)
+        useBody = false
+        max = useBody ? math.max(close, open) : high
+        min = useBody ? math.min(close, open) : low
+
+        // Bullish Order Block
+        bullishBreaked = 0
+
+        if bullishOrderBlocksList.size() > 0
+            for i = bullishOrderBlocksList.size() - 1 to 0
+                currentOB = bullishOrderBlocksList.get(i)
+            
+                if not currentOB.breaker 
+                    if ((obEndMethod == "Wick" ? low : close) < currentOB.bottom)
+                        currentOB.breaker := true
+                        currentOB.breakTime := time
+                        currentOB.bbVolume := volume
+                else
+                    if (bbEndMethod == "Wick" ? high : close) > currentOB.top
+                        bullishOrderBlocksList.remove(i)
+                    else if i < bullishOrderBlocks and top.y < currentOB.top and top.y > currentOB.bottom 
+                        bullishBreaked := 1
+
+        if close > top.y and not top.crossed
+            top.crossed := true
+
+            boxBtm = max[1]
+            boxTop = min[1]
+            boxLoc = time[1]
+
+            for i = 1 to (bar_index - top.x) - 1
+                boxBtm := math.min(min[i], boxBtm)
+                boxTop := boxBtm == min[i] ? max[i] : boxTop
+                boxLoc := boxBtm == min[i] ? time[i] : boxLoc
+
+            newOrderBlockInfo = orderBlockInfo.new(boxTop, boxBtm, volume + volume[1] + volume[2], "Bull", boxLoc)
+            newOrderBlockInfo.obLowVolume := volume[2]
+            newOrderBlockInfo.obHighVolume := volume + volume[1]
+            bullishOrderBlocksList.unshift(newOrderBlockInfo)
+            if bullishOrderBlocksList.size() > maxOrderBlocks
+                bullishOrderBlocksList.pop()
+
+        // Bearish Order Block
+        
+        bearishBreaked = 0
+
+        if bearishOrderBlocksList.size() > 0
+            for i = bearishOrderBlocksList.size() - 1 to 0
+                currentOB = bearishOrderBlocksList.get(i)
+
+                if not currentOB.breaker 
+                    if (obEndMethod == "Wick" ? high : close) > currentOB.top
+                        currentOB.breaker := true
+                        currentOB.breakTime := time
+                        currentOB.bbVolume := volume
+                else
+                    if (bbEndMethod == "Wick" ? low : close) < currentOB.bottom
+                        bearishOrderBlocksList.remove(i)
+                    else if i < bearishOrderBlocks and btm.y > currentOB.bottom and btm.y < currentOB.top 
+                        bearishBreaked := 1
+
+        if close < btm.y and not btm.crossed
+            btm.crossed := true
+
+            boxBtm = min[1]
+            boxTop = max[1]
+            boxLoc = time[1]
+
+            for i = 1 to (bar_index - btm.x) - 1
+                boxTop := math.max(max[i], boxTop)
+                boxBtm := boxTop == max[i] ? min[i] : boxBtm
+                boxLoc := boxTop == max[i] ? time[i] : boxLoc
+
+            newOrderBlockInfo = orderBlockInfo.new(boxTop, boxBtm, volume + volume[1] + volume[2], "Bear", boxLoc)
+            newOrderBlockInfo.obLowVolume := volume + volume[1]
+            newOrderBlockInfo.obHighVolume := volume[2]
+            bearishOrderBlocksList.unshift(newOrderBlockInfo)
+            if bearishOrderBlocksList.size() > maxOrderBlocks
+                bearishOrderBlocksList.pop()
+    true
+
+areaOfOB (orderBlockInfo OBInfoF) =>
+    float XA1 = OBInfoF.startTime
+    float XA2 = na(OBInfoF.breakTime) ? time + 1 : OBInfoF.breakTime
+    float YA1 = OBInfoF.top
+    float YA2 = OBInfoF.bottom
+    float edge1 = math.sqrt((XA2 - XA1) * (XA2 - XA1) + (YA2 - YA2) * (YA2 - YA2))
+    float edge2 = math.sqrt((XA2 - XA2) * (XA2 - XA2) + (YA2 - YA1) * (YA2 - YA1))
+    float totalArea = edge1 * edge2
+    totalArea
+
+doOBsTouch (orderBlockInfo OBInfo1, orderBlockInfo OBInfo2) =>
+    float XA1 = OBInfo1.startTime
+    float XA2 = na(OBInfo1.breakTime) ? time + 1 : OBInfo1.breakTime
+    float YA1 = OBInfo1.top
+    float YA2 = OBInfo1.bottom
+
+    float XB1 = OBInfo2.startTime
+    float XB2 = na(OBInfo2.breakTime) ? time + 1 : OBInfo2.breakTime
+    float YB1 = OBInfo2.top
+    float YB2 = OBInfo2.bottom
+    float intersectionArea = math.max(0, math.min(XA2, XB2) - math.max(XA1, XB1)) * math.max(0, math.min(YA1, YB1) - math.max(YA2, YB2))
+    float unionArea = areaOfOB(OBInfo1) + areaOfOB(OBInfo2) - intersectionArea
+    
+    float overlapPercentage = (intersectionArea / unionArea) * 100.0
+
+    if overlapPercentage > overlapThresholdPercentage
+        true
+    else
+        false
+
+isOBValid (orderBlockInfo OBInfo) =>
+    valid = true
+    if OBInfo.disabled
+        valid := false
+    valid
+
+combineOBsFunc () =>
+    if allOrderBlocksList.size() > 0
+        lastCombinations = 999
+        while lastCombinations > 0
+            lastCombinations := 0
+            for i = 0 to allOrderBlocksList.size() - 1
+                curOB1 = allOrderBlocksList.get(i)
+                for j = 0 to allOrderBlocksList.size() - 1
+                    curOB2 = allOrderBlocksList.get(j)
+                    if i == j
+                        continue
+                    if not isOBValid(curOB1.info) or not isOBValid(curOB2.info)
+                        continue
+                    if curOB1.info.obType != curOB2.info.obType
+                        continue
+                    if doOBsTouch(curOB1.info, curOB2.info)
+                        curOB1.info.disabled := true
+                        curOB2.info.disabled := true
+                        orderBlock newOB = createOrderBlock(orderBlockInfo.new(math.max(curOB1.info.top, curOB2.info.top), math.min(curOB1.info.bottom, curOB2.info.bottom), curOB1.info.obVolume + curOB2.info.obVolume, curOB1.info.obType))
+                        newOB.info.startTime := math.min(curOB1.info.startTime, curOB2.info.startTime)
+                        newOB.info.breakTime := math.max(nz(curOB1.info.breakTime), nz(curOB2.info.breakTime))
+                        newOB.info.breakTime := newOB.info.breakTime == 0 ? na : newOB.info.breakTime
+                        newOB.info.timeframeStr := curOB1.info.timeframeStr
+
+                        newOB.info.obVolume := curOB1.info.obVolume + curOB2.info.obVolume
+                        newOB.info.obLowVolume := curOB1.info.obLowVolume + curOB2.info.obLowVolume
+                        newOB.info.obHighVolume := curOB1.info.obHighVolume + curOB2.info.obHighVolume
+                        newOB.info.bbVolume := nz(curOB1.info.bbVolume, 0) + nz(curOB2.info.bbVolume, 0)
+                        newOB.info.breaker := curOB1.info.breaker or curOB2.info.breaker
+                        
+                        newOB.info.combined := true
+                        if timeframe.in_seconds(curOB1.info.timeframeStr) != timeframe.in_seconds(curOB2.info.timeframeStr)
+                            newOB.info.combinedTimeframesStr := (na(curOB1.info.combinedTimeframesStr) ? formatTimeframeString(curOB1.info.timeframeStr) : curOB1.info.combinedTimeframesStr) + " & " + (na(curOB2.info.combinedTimeframesStr) ? formatTimeframeString(curOB2.info.timeframeStr) : curOB2.info.combinedTimeframesStr)
+                        allOrderBlocksList.unshift(newOB)
+                        lastCombinations += 1
+
+
+reqSeq (timeframeStr) =>
+    [bullishOrderBlocksListF, bearishOrderBlocksListF] = request.security(syminfo.tickerid, timeframeStr, [bullishOrderBlocksList, bearishOrderBlocksList])
+    [bullishOrderBlocksListF, bearishOrderBlocksListF]
+
+getTFData (timeframeInfo timeframeInfoF, timeframeStr) =>
+    if not isTimeframeLower(timeframeInfoF.timeframeStr, timeframe.period) and timeframeInfoF.isEnabled
+        [bullishOrderBlocksListF, bearishOrderBlocksListF] = reqSeq(timeframeStr)
+        [bullishOrderBlocksListF, bearishOrderBlocksListF]
+    else
+        [na, na]
+
+handleTimeframeInfo (timeframeInfo timeframeInfoF, bullishOrderBlocksListF, bearishOrderBlocksListF) =>
+    if not isTimeframeLower(timeframeInfoF.timeframeStr, timeframe.period) and timeframeInfoF.isEnabled
+        timeframeInfoF.bullishOrderBlocksList := bullishOrderBlocksListF
+        timeframeInfoF.bearishOrderBlocksList := bearishOrderBlocksListF
+
+
+handleOrderBlocksFinal () =>
+    if DEBUG
+        log.info("Bullish OB Count " + str.tostring(bullishOrderBlocksList.size()))
+        log.info("Bearish OB Count " + str.tostring(bearishOrderBlocksList.size()))
+
+    if allOrderBlocksList.size () > 0
+        for i = 0 to allOrderBlocksList.size() - 1
+            safeDeleteOrderBlock(allOrderBlocksList.get(i))
+    allOrderBlocksList.clear()    
+
+    for i = 0 to timeframeInfos.size() - 1
+        curTimeframe = timeframeInfos.get(i)
+        if not curTimeframe.isEnabled
+            continue
+        if curTimeframe.bullishOrderBlocksList.size() > 0
+            for j = 0 to math.min(curTimeframe.bullishOrderBlocksList.size() - 1, bullishOrderBlocks - 1)
+                orderBlockInfoF = curTimeframe.bullishOrderBlocksList.get(j)
+                orderBlockInfoF.timeframeStr := curTimeframe.timeframeStr
+                allOrderBlocksList.unshift(createOrderBlock(orderBlockInfo.copy(orderBlockInfoF)))
+
+        if curTimeframe.bearishOrderBlocksList.size() > 0
+            for j = 0 to math.min(curTimeframe.bearishOrderBlocksList.size() - 1, bearishOrderBlocks - 1)
+                orderBlockInfoF = curTimeframe.bearishOrderBlocksList.get(j)
+                orderBlockInfoF.timeframeStr := curTimeframe.timeframeStr
+                allOrderBlocksList.unshift(createOrderBlock(orderBlockInfo.copy(orderBlockInfoF)))
+
+    if combineOBs
+        combineOBsFunc()    
+
+    if allOrderBlocksList.size() > 0
+        for i = 0 to allOrderBlocksList.size() - 1
+            curOB = allOrderBlocksList.get(i)
+            if isOBValid(curOB.info)
+                renderOrderBlock(curOB)
+
+findOrderBlocks()
+
+[bullishOrderBlocksListTimeframe1, bearishOrderBlocksListTimeframe1] = getTFData(timeframeInfos.get(0), timeframe1)
+
+if barstate.isconfirmed
+    handleTimeframeInfo(timeframeInfos.get(0), bullishOrderBlocksListTimeframe1, bearishOrderBlocksListTimeframe1)
+    handleOrderBlocksFinal()    
+
+
+
+// Support and Resistances
+
+
+enableSR   = input(false, "SR On/Off", group="🧊 Support and Resistances")
+colorSup   = input(color.new(#00DBFF,20), "Support Color", group="Support and Resistances")
+colorRes   = input(color.new(#9598a1,50), "Resistance Color", group="Support and Resistances")
+strengthSR = input.int(2, "S/R Strength", 1, group="Support and Resistances")
+lineStyle  = input.string("Dotted", "Line Style", ["Solid", "Dotted", "Dashed"], group="Support and Resistances")
+lineWidth  = input.int(1, "S/R Line Width", 1, group="Support and Resistances")
+useZones   = input(true, "Zones On/Off", group="Support and Resistances")
+useHLZones = input(true, "High Low Zones On/Off", group="Support and ResistancesSR")
+zoneWidth  = input.int(1, "Zone Width %", 0, tooltip="it's calculated using % of the distance between highest/lowest in last 300 bars", group="Support and Resistances")
+expandSR   = input(true, "Expand Support and Resistances")
+// Functions
+percWidth(len, perc) => (ta.highest(len) - ta.lowest(len)) * perc / 100
+// Get components
+rb            = 10
+prd           = 284
+ChannelW      = 10
+label_loc     = 55
+style         = lineStyle == "Solid" ? line.style_solid : lineStyle == "Dotted" ? line.style_dotted : line.style_dashed
+ph            = ta.pivothigh(rb, rb)
+pl            = ta.pivotlow (rb, rb)
+sr_levels     = array.new_float(21, na)
+prdhighest    = ta.highest(prd)
+prdlowest     = ta.lowest(prd)
+cwidth        = percWidth(prd, ChannelW)
+zonePerc      = percWidth(300, zoneWidth)
+aas           = array.new_bool(41, true)
+u1            = 0.0, u1 := nz(u1[1])
+d1            = 0.0, d1 := nz(d1[1])
+highestph     = 0.0, highestph := highestph[1]
+lowestpl      = 0.0, lowestpl := lowestpl[1]
+var sr_levs   = array.new_float(21, na)
+label hlabel  = na, label.delete(hlabel[1])
+label llabel  = na, label.delete(llabel[1])
+var sr_lines  = array.new_line(21, na)
+var sr_linesH = array.new_line(21, na)
+var sr_linesL = array.new_line(21, na)
+var sr_linesF = array.new_linefill(21, na)
+var sr_labels = array.new_label(21, na)
+if ph or pl
+    for x = 0 to array.size(sr_levels) - 1
+        array.set(sr_levels, x, na)
+    highestph := prdlowest
+    lowestpl := prdhighest
+    countpp = 0
+    for x = 0 to prd
+        if na(close[x])
+            break
+        if not na(ph[x]) or not na(pl[x])
+            highestph := math.max(highestph, nz(ph[x], prdlowest), nz(pl[x], prdlowest))
+            lowestpl := math.min(lowestpl, nz(ph[x], prdhighest), nz(pl[x], prdhighest))
+            countpp += 1
+            if countpp > 40
+                break
+            if array.get(aas, countpp)
+                upl = (ph[x] ? high[x + rb] : low[x + rb]) + cwidth
+                dnl = (ph[x] ? high[x + rb] : low[x + rb]) - cwidth
+                u1 := countpp == 1 ? upl : u1
+                d1 := countpp == 1 ? dnl : d1
+                tmp = array.new_bool(41, true)
+                cnt = 0
+                tpoint = 0
+                for xx = 0 to prd
+                    if na(close[xx])
+                        break
+                    if not na(ph[xx]) or not na(pl[xx])
+                        chg = false
+                        cnt += 1
+                        if cnt > 40
+                            break
+                        if array.get(aas, cnt)
+                            if not na(ph[xx])
+                                if high[xx + rb] <= upl and high[xx + rb] >= dnl
+                                    tpoint += 1
+                                    chg := true
+                            if not na(pl[xx])
+                                if low[xx + rb] <= upl and low[xx + rb] >= dnl
+                                    tpoint += 1
+                                    chg := true
+                        if chg and cnt < 41
+                            array.set(tmp, cnt, false)
+                if tpoint >= strengthSR
+                    for g = 0 to 40 by 1
+                        if not array.get(tmp, g)
+                            array.set(aas, g, false)
+                    if ph[x] and countpp < 21
+                        array.set(sr_levels, countpp, high[x + rb])
+                    if pl[x] and countpp < 21
+                        array.set(sr_levels, countpp, low[x + rb])
+// Plot
+var line highest_ = na, line.delete(highest_)
+var line lowest_  = na, line.delete(lowest_)
+var line highest_fill1 = na, line.delete(highest_fill1)
+var line highest_fill2 = na, line.delete(highest_fill2)
+var line lowest_fill1  = na, line.delete(lowest_fill1)
+var line lowest_fill2  = na, line.delete(lowest_fill2)
+hi_col = close >= highestph ? colorSup : colorRes
+lo_col = close >= lowestpl  ? colorSup : colorRes
+if enableSR
+ //   highest_ := line.new(bar_index - 311, highestph, bar_index, highestph, xloc.bar_index, expandSR ? extend.both : extend.right, hi_col, style, lineWidth)
+ //   lowest_  := line.new(bar_index - 311, lowestpl , bar_index, lowestpl , xloc.bar_index, expandSR ? extend.both : extend.right, lo_col, style, lineWidth)
+    if useHLZones
+        highest_fill1 := line.new(bar_index - 311, highestph + zonePerc, bar_index, highestph + zonePerc, xloc.bar_index, expandSR ? extend.both : extend.right, na)
+        highest_fill2 := line.new(bar_index - 311, highestph - zonePerc, bar_index, highestph - zonePerc, xloc.bar_index, expandSR ? extend.both : extend.right, na)
+        lowest_fill1  := line.new(bar_index - 311, lowestpl + zonePerc , bar_index, lowestpl + zonePerc , xloc.bar_index, expandSR ? extend.both : extend.right, na)
+        lowest_fill2  := line.new(bar_index - 311, lowestpl - zonePerc , bar_index, lowestpl - zonePerc , xloc.bar_index, expandSR ? extend.both : extend.right, na)
+        linefill.new(highest_fill1, highest_fill2, color.new(hi_col, 80))
+        linefill.new(lowest_fill1 , lowest_fill2 , color.new(lo_col, 80))
+if ph or pl
+    for x = 0 to array.size(sr_lines) - 1
+        array.set(sr_levs, x, array.get(sr_levels, x))
+for x = 0 to array.size(sr_lines) - 1
+    line.delete(array.get(sr_lines, x))
+    line.delete(array.get(sr_linesH, x))
+    line.delete(array.get(sr_linesL, x))
+    linefill.delete(array.get(sr_linesF, x))
+    if array.get(sr_levs, x) and enableSR
+        line_col = close >= array.get(sr_levs, x) ? colorSup : colorRes
+    //    array.set(sr_lines, x, line.new(bar_index - 355, array.get(sr_levs, x), bar_index, array.get(sr_levs, x), xloc.bar_index, expandSR ? extend.both : extend.right, line_col, style, lineWidth))
+        if useZones
+            array.set(sr_linesH, x, line.new(bar_index - 355, array.get(sr_levs, x) + zonePerc, bar_index, array.get(sr_levs, x) + zonePerc, xloc.bar_index, expandSR ? extend.both : extend.right, na))
+            array.set(sr_linesL, x, line.new(bar_index - 355, array.get(sr_levs, x) - zonePerc, bar_index, array.get(sr_levs, x) - zonePerc, xloc.bar_index, expandSR ? extend.both : extend.right, na))
+            array.set(sr_linesF, x, linefill.new(array.get(sr_linesH, x), array.get(sr_linesL, x), color.new(line_col, 80)))

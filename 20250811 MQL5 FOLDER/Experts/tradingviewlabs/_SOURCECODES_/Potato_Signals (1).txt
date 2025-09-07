@@ -1,0 +1,1690 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+//
+// if you want to reach me and I do not respond on TradingView, google my username
+// 
+// I also have other private Indicators I'm always working on
+// Feel free to reach out to me here or on the Baked Potato server for info and links!
+// All comments, bugfixes, and suggestions welcome :)
+//
+// © trendespresso
+//@version=4
+
+// POTATO SCRIPT CREDITS
+// credit to DonovanWall                    for the original  Range Filter script                                           : https://www.tradingview.com/script/lut7sBgG-Range-Filter-DW/
+// credit to guikroth                       for the version 2 Range Filter script (incl Buy / Sell signals)                 : https://www.tradingview.com/script/vkyFo1sQ/
+// credit to TheBakedPotato                 for the Potato 'Triple Confirmation' Strategy                                   : https://www.tradingview.com/u/BakedPotato/
+
+
+// WOLFPACK CREDITS
+// credit to darrellfischer1                for the original wolfpack (id) script                                           : https://www.tradingview.com/script/9Brr8oCn-wolfpack-id-M/
+// credit and special thanks to CookDog     for the Taylor Series mathematical discovery and wolfpack refinement            : https://www.tradingview.com/u/Alex_3648/
+
+
+// MARKET LIBERATOR B CREDITS
+// credit to the Market Liberator community for the open-source Market Cipher indicator waves                               : https://www.tradingview.com/u/MarketLiberator/
+// credit and special thanks to Cole        for helping with the Market Liberator B waves, testing, and general guidance    : https://www.tradingview.com/u/OhitzCole
+
+
+// SPECIAL THANKS
+// credit and special thanks to SoupDragon  for helping with the Confirmed Signal option and general guidance               : https://www.tradingview.com/u/pw31018/
+// credit and special thanks to krollic     for helping with the Inputs tab and general GUI guidance                        : https://www.tradingview.com/u/krollic1/
+
+
+// credit to trendespresso                  for writing this highly flexible Potato 'Triple Confirmation' Strategy script   : https://www.tradingview.com/u/trendespresso
+
+
+
+study ( "Trendespresso Multi-Timeframe Potato Signal", "TE MTF PS", true, max_bars_back = 600 )
+
+
+
+
+
+/////////////////////////////////////////////////////////////////////////////////
+// VERSION + DEBUG
+
+varip version           = "v3.7\nPublished June 19, 2021\nby Trendespresso"
+
+//
+// Variables in Pine v4:
+//
+//      Writing a variable in global scope without 'var' or 'varip' will force
+//      the variable to be continously recalcuated in realtime.
+//
+//      Writing a variable within a function will only update the variable when
+//      the function is called. Using global variable names within a function
+//      will not work since Pine will grab the value of the global variable.
+//      However variables initialized and used within a function are local scope
+//      only meaning they cannot be accessed in global scope unless passed out
+//      of the function via return. Multiple variables can be returned from a
+//      function via tuple: [ return1, return2 ] = function ( arg1, arg2 )
+//      The number of returned variables and number of arguments need not match
+//      with a function. Also of note is that the 'security' call in Pine is
+//      technically a function and thus multiple variables can be returned
+//      via tuple from a single 'security call' – pretty cool!
+//
+//      Writing a variable in global scope with 'var' permits the variable to
+//      maintain its value across bars until an update is issues (ex. := or += )
+//
+//      Writing a variable in global scope with 'varip' forces the variable to
+//      maintain its value across bars. Updating the variable in any later bar
+//      will not affect a variable initialized with 'varip' for any future bar.
+//
+//      Common sense thus suggests that variables should be initialized without
+//      'var' or 'varip' if you desire them to be updated on every bar. Variables
+//      should be initialized with 'var' if you desire them to be updated
+//      occasionally but hold their value between changes; this setting thus assists
+//      in reducing runtime and system resources since the variable is not
+//      typically re-calculated on every bar. Lastly, variables should only be
+//      initialized with 'varip' if you desire them to retain their value across
+//      the entire script with no re-calculating required going forward; this
+//      setting greatly reduces runtime since variables are only calculated once.
+//      I've tried to write thie script to take advantage of these runtime
+//      reductions, especially since every 'security' call – every additional
+//      timeframe – results in immense increases in runtime and system resources.
+//      Anything I can do to increase efficiency is good in my book!
+//
+//      Also of note, most text and string variables are initialized with 'varip'
+//      since they do not change across bars. Pretty nifty especially if you want
+//      to change the text! Instead of using 'Replace All' which sometimes has
+//      unintended consequences, or trying to find each instance yourself which
+//      is a total pain, now the text is easily changeable from one place.
+//
+
+//
+// If you find this script helpful, educational, or otherwise engaging, please
+// leave a comment or drop me a line! Cheers
+//
+
+
+
+
+
+///////////////////////////////////////////////////////////////////////////////
+// USER INPUTS
+
+
+//
+// GROUPS
+//
+varip groupGlobal       = "Global"
+varip groupIcon         = "Text & Shape"
+varip groupColors       = "Color"
+varip groupPotato       = "Potato Signal"
+varip groupTC           = "Multiple Timeframes Label"
+varip groupEMA          = "Potato EMA's"
+varip groupBB           = "Bollinger Bands"
+varip groupRibbon       = "Ribbon"
+varip groupTEMA         = "Trendespresso"
+varip groupMA           = "Moving Averages"
+varip groupMAL          = "Moving Average Labels"
+
+
+//
+// STATIC TEXT
+//
+varip str_spc           = " "
+varip str_ln            = "\n\n"
+varip str_potato        = "Potato"
+varip str_signal        = "Signal"
+varip str_potatosig     = str_potato + str_spc + str_signal
+varip str_none          = "None"
+varip str_usr           = "User"
+varip str_preset1       = "The Baked Potato"
+varip str_preset2       = "Trendespresso"
+varip str_preset2_tt    = "Overrides the Color options below."
+varip str_confsig_tt    = "Just like the original " + str_potatosig + ",\nnormally this Indicator plots a signal\nwhen the conditions are met, but\nrequires the User to wait until\nthe candle has closed for confirmation.\n\nEnabling this option will only\ndisplay signals after they have\nbeen fully confirmed.\n\nSignals will be printed on the same candle\nbut only upon candle close, thus eliminating\nthe risk of false signals ('repainting')."
+varip str_tc            = "Triple Confirmations (Potato + Wolfpack + MLB Waves)"
+varip str_orig          = "Original"
+varip str_orig_potato   = str_orig + str_spc + str_potatosig
+
+
+//
+// SIGNAL METHOD
+//
+triple  = input ( str_tc, "Signal Method", group = groupGlobal, options = [ str_orig_potato, str_tc, str_none ], tooltip = version )
+confirm = input ( true, "Confirmed Signals Only", group = groupGlobal, tooltip = str_confsig_tt )
+
+
+//
+// STATIC COLORS
+//
+varip green               = color.new ( #388e3c,     0 )
+varip red                 = color.new ( #d32f2f,     0 )
+varip orange              = color.new ( #f57c00,    40 )
+
+varip braveBlue           = color.new ( #136d77,     0 ) // #178793 is old cyan
+varip ominousOrange       = color.new ( #924115,     0 )
+
+varip darkGreen           = color.new ( green,      40 )
+varip darkRed             = color.new ( red,        40 )
+varip darkOrange          = color.new ( orange,     40 )
+
+varip transparentGreen    = color.new ( green,      80 )
+varip transparentRed      = color.new ( red,        80 )
+varip transparentOrange   = color.new ( orange,     80 )
+
+varip color_none          = color.new ( color.white, 100 )
+
+
+//
+// POTATO SIGNAL APPEARANCE
+//
+//
+
+varip str_buy       = "Buy"
+varip str_sell      = "Sell"
+varip str_icon      = "Shape"
+varip str_label     = "Label"
+varip str_only      = "Only"
+varip str_up        = "Up"
+varip str_down      = "Down"
+varip str_left      = "Left"
+varip str_center    = "Center"
+varip str_right     = "Right"
+varip str_tiny      = "Tiny"
+varip str_small     = "Small"
+varip str_normal    = "Normal"
+varip str_large     = "Large"
+varip str_huge      = "Huge"
+
+varip str_potatoIcn     = "Potato" + str_spc + "Icon"
+varip str_colArw        = "Colored Arrow"
+varip str_arw           = "Arrow"
+varip str_lngsht        = "Long / Short"
+varip str_lrgIcn        = str_large + str_spc + str_icon + str_spc + str_only
+varip str_smlIcn        = str_small + str_spc + str_icon + str_spc + str_only
+varip str_preset1_tt    = "Overrides the '" + str_buy + "' / '" + str_sell +
+                             "'" + str_spc + str_icon + " options below."
+//varip str_icon_tt       = "NOTE:\nPrettier names aren't possible in Pine v4."
+varip str_icn_buy_tt    = str_icon + " to draw upon a '" + str_buy  + "' signal." //\n\n  //+ str_icon_tt
+varip str_icn_sell_tt   = str_icon + " to draw upon a '" + str_sell + "' signal." //\n\n  //+ str_icon_tt
+
+varip shape_x           = "X"
+varip shape_cross       = "+"
+varip shape_triup       = "▲"
+varip shape_tridown     = "▼"
+varip shape_flag        = "⚐"
+varip shape_circle      = "〇"
+varip shape_arrowup     = "↑"   // ↑ ⬆
+varip shape_arrowdown   = "↓"   // ↓ ⬇
+varip shape_labelup     = str_label + str_spc + str_up
+varip shape_labeldown   = str_label + str_spc + str_down
+varip shape_square      = "■"
+varip shape_diamond     = "♦"
+
+
+
+//
+// ICON PRESETS
+//
+presets             = input ( str_usr, "Preset", group = groupIcon, options = [ str_usr, str_preset1, str_preset2 ], tooltip = str_preset1_tt )
+var int preset      = presets == str_preset1 ? 1    : presets == str_preset2 ? 2    : 0
+
+
+//Possible values are: shape.xcross, shape.cross, shape.triangleup, shape.triangledown, shape.flag, shape.circle, shape.arrowup, shape.arrowdown, shape.labelup, shape.labeldown, shape.square, shape.diamond. Default value is shape.xcross.\
+displayOpts         = preset == 1 ? str_orig        : preset == 2 ? str_lngsht          : input ( str_orig,         "Background",
+                         group = groupIcon, options = [ str_orig, str_potatoIcn, str_colArw, str_arw, str_lngsht, str_lrgIcn, str_smlIcn, str_none ] )
+
+
+userShapeUp1        = preset == 1 ? shape_labelup   : preset == 2 ? shape_arrowup       : input ( shape_labelup,    str_buy  + str_spc + str_icon, group = groupIcon,
+                         options = [ shape_x, shape_cross, shape_triup, shape_tridown, shape_flag, shape_circle, shape_arrowup, shape_arrowdown, shape_labelup, shape_labeldown, shape_square, shape_diamond ], tooltip = str_icn_buy_tt )
+
+
+userShapeDown1      = preset == 1 ? shape_labeldown : preset == 2 ? shape_arrowdown     : input ( shape_labeldown,  str_sell + str_spc + str_icon, group = groupIcon,
+                         options = [ shape_x, shape_cross, shape_triup, shape_tridown, shape_flag, shape_circle, shape_arrowup, shape_arrowdown, shape_labelup, shape_labeldown, shape_square, shape_diamond ], tooltip = str_icn_sell_tt )
+
+
+var userShapeUp     = userShapeUp1 == shape_x ? shape.xcross : userShapeUp1 == shape_cross ? shape.cross : userShapeUp1 == shape_triup ? shape.triangleup :
+                         userShapeUp1 == shape_tridown ? shape.triangledown : userShapeUp1 == shape_flag ? shape.flag : userShapeUp1 == shape_circle ? shape.circle :
+                         userShapeUp1 == shape_arrowup ? shape.arrowup : userShapeUp1 == shape_arrowdown ? shape.arrowdown : userShapeUp1 == shape_labelup ? shape.labelup :
+                         userShapeUp1 == shape_labeldown ? shape.labeldown : userShapeUp1 == shape_square ? shape.square : shape.diamond
+
+
+var userShapeDown   = userShapeDown1 == shape_x ? shape.xcross : userShapeDown1 == shape_cross ? shape.cross : userShapeDown1 == shape_triup ? shape.triangleup :
+                         userShapeDown1 == shape_tridown ? shape.triangledown : userShapeDown1 == shape_flag ? shape.flag : userShapeDown1 == shape_circle ? shape.circle :
+                         userShapeDown1 == shape_arrowup ? shape.arrowup : userShapeDown1 == shape_arrowdown ? shape.arrowdown : userShapeDown1 == shape_labelup ? shape.labelup :
+                         userShapeDown1 == shape_labeldown ? shape.labeldown : userShapeDown1 == shape_square ? shape.square : shape.diamond
+
+
+//
+// COLOR INPUTS
+//
+varip str_bboo      = "Brave Blue & Ominous Orange"
+varip str_pdgr      = "Green & Red (Dark)"
+colorPallette       = input ( str_usr, "Preset", group = groupColors, options = [ str_usr, str_orig, str_pdgr, str_bboo ], tooltip = str_preset2_tt )
+var int calPa       = colorPallette == str_orig ? 1       : colorPallette == str_pdgr ? 2      : colorPallette == str_bboo ? 3        : 0
+
+userText            =                                                                                         input ( color.white,  "Text | Bull | Bear",   group = groupColors,  inline = groupColors )
+userGreen           = calPa == 2 ? darkGreen    : calPa == 3 ? braveBlue       : calPa == 1 ? color.green   : input ( darkGreen,    "",                     group = groupColors,  inline = groupColors )
+userRed             = calPa == 2 ? darkRed      : calPa == 3 ? ominousOrange   : calPa == 1 ? color.red     : input ( darkRed,      "",                     group = groupColors,  inline = groupColors )
+
+
+
+
+
+//
+// MULTIPLE TIMEFRAMES INPUTS
+//
+varip num_tfs           = 9
+varip str_lbl_alrt_tt   = "Writes a label to the right of price action\nshowing Triple Confirmations on different timeframes.\n\nHover your mouse cursor over the label to see Wolfpack\nand Market Liberator B wave values\n" +
+                             "for each timeframe.\n\nNote:\nTimesframes smaller than 1/2 the chart's\nresolution cannot be accurately calculated and thus\nwill be automatically removed.\n(Pine v4 limitation)\n\nNote:\nIf an <error> " +
+                             "is printed on the label,\nmost likely no Triple Confirmation\nhas ever occurred in history for that timeframe." +
+                             "\n\nNote:\nTimeframes measured in `Seconds` are not supported."
+varip str_lbl_tf1_tt    = "With both this option and\n'Include Smallest Calculable Timeframe' (below)\ndisabled, 'Timeframes' must be set to at least 2\nfor the label to appear."
+varip str_lbl_dyn_tt    = "As of Pine v4, the 1/2 sized timeframe\nis the smallest for which Triple Confirmations\nor the original Potato Signal\ncan be accurately be calculated"
+varip str_lbl_tf_tt     = "Number of Timeframes to display.\n\nTimeframes smaller than 2:1 to the current\n(ex. 30m is 2:1 with 1h, 4h is 2:1 with 8h)\nwill be removed since they cannot be accurately calculated with the Pine v4 engine."
+varip str_lbl_tf0_tt    = "Note:\nBuy / Sell labels print at this resolution.\n\nWill only be used if the selected\ntimeframe can be calculated accurately.\nTimeframes smaller than 1/2 the chart's\nresolution will not be used."
+varip str_lbl_4x_tt     = "Potato references the 4x timeframe as the\n'Goldilocks Trading Environment'\nsince trades that follow the\ntrend of their 4x timeframe counterparts,\nlend themselves to be much safer\nand more successful than otherwise."
+
+i_lbl_showAlert = input ( true,     "ENABLE",                                   input.bool,                             group = groupTC, tooltip = str_lbl_alrt_tt )
+i_lbl_inclChart = input ( true,     "Include Timeframe 1 (Signal)",             input.bool,                             group = groupTC, tooltip = str_lbl_tf1_tt )
+i_lbl_dynRes    = input ( true,     "Include 1/2 Size Timeframe",               input.bool,                             group = groupTC, tooltip = str_lbl_dyn_tt )
+i_lbl_4x        = input ( true,     "Include 4x Size Timeframe",                input.bool,                             group = groupTC, tooltip = str_lbl_4x_tt )
+i_lbl_order     = input ( true,     "Order Timeframes Smallest to Largest",     input.bool,                             group = groupTC )
+i_lbl_tf_disp   = input ( 1,        "Timeframes",                               input.integer, minval = 1, maxval = 9,  group = groupTC, tooltip = str_lbl_tf_tt )
+
+userRes0 = input ( "",      "Timeframe 1 (Signal)",     input.resolution,   group = groupTC, tooltip = str_lbl_tf0_tt )
+userRes1 = input ( "60",    "Timeframe 2",              input.resolution,   group = groupTC )
+userRes2 = input ( "90",    "Timeframe 3",              input.resolution,   group = groupTC )
+userRes3 = input ( "120",   "Timeframe 4",              input.resolution,   group = groupTC )
+userRes4 = input ( "360",   "Timeframe 5",              input.resolution,   group = groupTC )
+userRes5 = input ( "480",   "Timeframe 6",              input.resolution,   group = groupTC )
+userRes6 = input ( "720",   "Timeframe 7",              input.resolution,   group = groupTC )
+userRes7 = input ( "D",     "Timeframe 8",              input.resolution,   group = groupTC )
+userRes8 = input ( "W",     "Timeframe 9",              input.resolution,   group = groupTC )
+
+
+// FUNCTION: Determine the Dynamic Resolution 1 size
+//           which should be equal to half the size
+//           of the native (chart) resolution
+f_dynRes1() =>
+    return      = string ( na )
+    multiplier  = tostring ( ceil ( timeframe.multiplier / 2 ) )
+    if      timeframe.ismonthly
+        if timeframe.multiplier == 1
+            return := "2W"
+        else
+            return := multiplier + "M"
+    else if timeframe.isweekly
+        if timeframe.multiplier == 1
+            return := "4D"
+        else
+            return := multiplier + "W"
+    else if timeframe.isdaily
+        if timeframe.multiplier == 1
+            return := "720"
+        else
+            return := multiplier + "D"
+    else if timeframe.isseconds
+        return := multiplier + "S"
+    else if timeframe.isminutes and timeframe.multiplier < 2
+        return := timeframe.period
+    else
+        return := multiplier
+    return
+
+
+// FUNCTION: Determine the Dynamic Resolution 2 size
+//           which should be equal to 4x the size
+//           of the native (chart) resolution
+f_dynRes2() =>
+    return      = string ( na )
+    minutes     = timeframe.multiplier * 4
+    multiplier  = tostring ( ceil ( minutes ) )
+    if      timeframe.ismonthly
+        if timeframe.multiplier == 1
+            return := "4M"
+        else
+            return := multiplier + "M"
+    else if timeframe.isweekly
+        if timeframe.multiplier == 1
+            return := "M"
+        else
+            return := multiplier + "W"
+    else if timeframe.isdaily
+        if timeframe.multiplier == 1
+            return := "4D"
+        else
+            return := multiplier + "D"
+    else if timeframe.isseconds
+        return := multiplier + "S"
+    else if minutes == 1440
+        return := "D"
+    else if minutes > 1440
+        return := tostring ( ceil ( minutes / 1440 ) ) + "D"
+    else
+        return := multiplier
+    return
+
+
+varip userResH = f_dynRes1()
+varip userResQ = f_dynRes2()
+
+
+
+
+
+/////////////////////////////////////////////////////////////////////////////////
+// Multiple Timeframes Calculations
+
+
+varip userTfStr     = array.new_string ()
+varip userTfMins    = array.new_int    ()
+varip userTfhrsmins = array.new_string ()
+
+
+
+
+
+/////////////////////////////////////////////////////////////////////////////////
+// Multiple Timeframe Comparion (using Minutes as the base measure)
+
+
+// HELPER FUNCTION: Split the timeframe string into an integer number and its last letter
+f_split_tf_string ( tf_str ) =>
+    str_num         = 1
+    str_last_char   = ""
+    // split the string into an array with each chracter separated
+    str_as_array    = str.split  ( tf_str, "" )
+    str_length      = array.size ( str_as_array ) - 1
+    str_last_char  := array.get  ( str_as_array, str_length )
+    if na ( tonumber ( str_last_char ) )
+        // remove the last character of the string array if the 'str' is not an integer only
+        array.pop  ( str_as_array )
+        str_num         := str_last_char != tf_str ? ceil ( tonumber ( array.join ( str_as_array, ""  ) ) ) : 1      //str_length > 1 ? ceil ( tonumber ( array.join ( str_as_array, ""  ) ) ) : 1
+    else
+        str_num         := ceil ( tonumber ( tf_str ) )
+    [ str_num, str_last_char ]
+
+
+// HELPER FUNCTION: Convert Months and Weeks and Days into Minutes
+f_convert_to_minutes ( tf_str ) =>
+    [ str_num, str_last_char ]  = f_split_tf_string ( tf_str )
+    m                           = 0
+    d                           = 0.0
+    if      str_last_char == "M"
+        d := 30.4167 * str_num
+    else if str_last_char == "W"
+        d := 7       * str_num
+    else if str_last_char == "D"
+        d :=           str_num
+    // now figure out the days into minutes or return minutes
+    m := d > 0 ? ceil ( d * 24 * 60 ) : str_num
+
+
+// HELPER FUNCTION: Convert the default timeframe string into a more
+//                  readable 0h 00m form
+f_convert_minutes_to_hours ( tf_str, tf_mins ) =>
+    h       = 0
+    m       = tf_mins
+    rtn_h   = string(na)
+    rtn_m   = string(na)
+    if m >= 1440 and tf_str != "1440"
+        rtn_h := " " + tf_str
+    else
+        for i = 0 to m
+            if m >=  60
+                h := h +  1
+                m := m - 60
+                pine_limitation = ""
+        if h > 0
+            rtn_h := " " + tostring(h) + "h"
+        if m != 0
+            if m < 10
+                rtn_m := " 0" + tostring(m) + "m"
+            else
+                rtn_m :=  " " + tostring(m) + "m"
+    [ rtn_h, rtn_m ]
+
+
+// ratio is the maximum ratio allowed to display smaller timeframes
+// ex. 30m is 2:1 with 1h, 4h is 2:1 with 8h
+// smaller timeframes than 2:1, such as 15m being 4:1 with 1h,
+// cannot accurately be calculated with the Pine v4 engine
+// HELPER FUNCTION: Strike timeframes that are smaller than 2:1
+varip f_tf_filter_tf0 = f_convert_to_minutes ( timeframe.period )
+f_tf_filter ( f_tf_filter_tfi ) =>
+    // why is ratio 2.18 on large timeframes but 2.00 on small timeframes?
+    // because in the average month of the Gregarian calendar
+    // there are 30.4167 days
+    // meaning to permit 2W to display on a 1M chart
+    // we must permit 30.4167 / 14 = 2.1726214286 to be a valid ratio
+    // rounded up 2.18 for monthly and bigger timeframes
+    // whereas minutes and intraday can be 2.00
+    ratio           = timeframe.isdwm ? 2.18 : 2.00
+    // cannot use native in case User changes Timeframe 1 (Signal)
+    //tfi             = array.get ( userTfMins, index )
+    // trendespresso: with both native timeframe and timeframe input 'tfi' converted
+    // to minutes, compare if the native timeframe is greater than 2x larger than the 'tfi'
+    // skip the 'tfi' triple confirmation signals (do not print them on the label)
+    // reason: because Pine's v4 engine cannot accurately calculate significantly
+    // smaller timeframes, regardless of wrapping in 'security' or digging the 'close'
+    // price out of 'security' ... UGH! *frustration*
+    yesno          = f_tf_filter_tf0 / f_tf_filter_tfi <= ratio
+
+
+// remove these duplicative timeframes if User requested
+varip dup_tfs     = array.new_int    ()
+
+
+// HELPER FUNCTION: Add the values to the timeframe arrays
+f_use_timeframe ( operation, tf_str, mins, hoursmins, index ) =>
+    if operation == "push"
+        array.push ( userTfStr,         tf_str    )
+        array.push ( userTfMins,        mins      )
+        array.push ( userTfhrsmins,     hoursmins )
+    else if operation == "insert"
+        array.insert ( userTfStr,       index,  tf_str    )
+        array.insert ( userTfMins,      index,  mins      )
+        array.insert ( userTfhrsmins,   index,  hoursmins )
+    else if operation == "unshift"
+        array.unshift ( userTfStr,         tf_str    )
+        array.unshift ( userTfMins,        mins      )
+        array.unshift ( userTfhrsmins,     hoursmins )
+
+
+// HELPER FUNCTION: Only run on the first bar to fill in the timeframe arrays
+f_add_unique_entry ( tf_str, proposed_index, operation ) =>
+    mins        = f_convert_to_minutes ( tf_str )
+    [ h, m ]    = f_convert_minutes_to_hours ( tf_str, mins )
+    allowed     = f_tf_filter ( mins ) and not array.includes ( userTfStr, tf_str ) and not array.includes ( userTfMins, mins )
+    // give the User control over number of timeframes displayed on the breakout label
+    if i_lbl_tf_disp > proposed_index and ( operation == "push" )
+        if allowed
+            f_use_timeframe ( operation, tf_str, mins, h + m, int ( na ) )
+        else
+            array.push ( dup_tfs, mins )
+    allowed
+
+
+// HELPER FUNCTION: Filter Timeframe 1 (Signal)
+//                  If Timeframe 1 (Signal) is the same as the chart's
+//                  native 'timeframe.period' string, and if Timeframe 1 (Signal)
+//                  is no smaller than 1/2 the size, use it... otherwise,
+//                  fallback to default 'timeframe.period'
+varip allow_userRes0 = f_tf_filter ( f_convert_to_minutes ( userRes0 ) )
+f_return_userRes0 () => filteredUserRes0 = ( userRes0 == "" or userRes0 == timeframe.period ) or not allow_userRes0 ? timeframe.period : userRes0
+
+
+// HELPER FUNCTION: Add the native resolution at the beginning of the array.
+//                  When 'i_lbl_inclChart' is enabled, we can safely 'push'
+//                  the entry into the array since it will be the first.
+//                  Otherwise, we need to 'insert' to ensure it gets put
+//                  at the beginning of the array.
+f_setup_userRes0 () =>
+    res0            = f_return_userRes0 ()
+    res0mins        = f_convert_to_minutes ( res0 )
+    [ h0, m0 ]      = f_convert_minutes_to_hours ( res0, res0mins )
+    // before pushing 'userRes0' into the arrays, check to see if it's already included
+    return          = array.includes ( dup_tfs, res0mins ) or array.includes ( userTfMins, res0mins )
+    if i_lbl_inclChart 
+        f_use_timeframe ( "push",    res0, res0mins, h0 + m0, int ( na ) )
+    else
+        f_use_timeframe ( "unshift", res0, res0mins, h0 + m0, int ( na ) )
+    return
+
+
+// FUNCTION: Used on the first bar only; set up the 'userTfStr' and 'userTfMins' arrays
+//           Each one with matching indexes
+f_setup_userTfStr_and_userTfMins_arrays() =>
+    // add only unique entries if User requested
+    // here is where we tie each UserRes to each array index for identification
+    // and use throughout the entire script
+    f_add_unique_entry ( userRes1, 1, "push" )
+    f_add_unique_entry ( userRes2, 2, "push" )
+    f_add_unique_entry ( userRes3, 3, "push" )
+    f_add_unique_entry ( userRes4, 4, "push" )
+    f_add_unique_entry ( userRes5, 5, "push" )
+    f_add_unique_entry ( userRes6, 6, "push" )
+    f_add_unique_entry ( userRes7, 7, "push" )
+    f_add_unique_entry ( userRes8, 8, "push" )
+
+
+// include dynamic timeframe resolution in the Label
+varip nativeTfDupe = bool ( na )
+if bar_index == 0
+    // setup the timeframes string and minutes integer arrays
+    if i_lbl_inclChart
+        f_setup_userRes0 ()
+        f_setup_userTfStr_and_userTfMins_arrays()
+    else
+        f_setup_userTfStr_and_userTfMins_arrays()
+        nativeTfDupe := f_setup_userRes0 ()
+    
+    // expand the number of timeframes and shift them if dynamic is enabled
+    half_size_tf_enabled = i_lbl_dynRes and f_add_unique_entry ( userResH, -1, "bool" )
+    if half_size_tf_enabled
+        resHmins        = f_convert_to_minutes ( userResH )
+        [ hH, mH ]      = f_convert_minutes_to_hours ( userResH, resHmins )
+        index_num       = 1
+        f_use_timeframe ( "insert", userResH, resHmins, hH + mH, index_num )
+
+    //if not timeframe.isseconds
+    if i_lbl_4x and f_add_unique_entry ( userResQ, -1, "bool" )
+        resQmins        = f_convert_to_minutes ( userResQ )
+        [ hQ, mQ ]      = f_convert_minutes_to_hours ( userResQ, resQmins )
+        num_tfs_tmp     = array.size ( userTfMins ) - 1
+        index_num       = half_size_tf_enabled ? 2 : 1
+        f_use_timeframe ( "insert", userResQ, resQmins, hQ + mQ, index_num ) 
+    
+    num_tfs := array.size ( userTfStr )
+    
+    // final check to see if 'nativeTfDupe' is really not true
+    if not nativeTfDupe
+        nativeTfDupe := array.includes ( dup_tfs, array.get ( userTfMins, 0 ) )
+
+
+
+varip nativeTf              = array.get ( userTfStr, 0 )
+var copied_arr              = array.new_int ()
+var sorted_userTfStr        = array.new_string ()
+var sorted_userTfMins       = array.new_int    ()
+var sorted_userTfhrsmins    = array.new_string ()
+
+
+
+f_order_timeframes_smallest_to_largest () =>
+    
+    array.shift ( copied_arr )
+    array.sort  ( copied_arr )
+    
+    end = array.size ( copied_arr ) - 1
+    
+    if end >= 0
+        for i = 0 to end
+            index = array.indexof ( userTfMins, array.get ( copied_arr,     i     ) )
+            array.push ( sorted_userTfStr,      array.get ( userTfStr,      index ) )
+            array.push ( sorted_userTfMins,     array.get ( userTfMins,     index ) )
+            array.push ( sorted_userTfhrsmins,  array.get ( userTfhrsmins,  index ) )
+        
+        array.unshift ( sorted_userTfStr,       array.get ( userTfStr,      0 ) )
+        array.unshift ( sorted_userTfMins,      array.get ( userTfMins,     0 ) )
+        array.unshift ( sorted_userTfhrsmins,   array.get ( userTfhrsmins,  0 ) )
+        
+        array.clear ( userTfStr )
+        array.clear ( userTfMins )
+        array.clear ( userTfhrsmins )
+    
+    
+
+
+if bar_index == 0 and i_lbl_order and num_tfs > 1
+    copied_arr      := array.copy ( userTfMins )
+    f_order_timeframes_smallest_to_largest ()
+    userTfStr       := array.copy ( sorted_userTfStr )
+    userTfMins      := array.copy ( sorted_userTfMins )
+    userTfhrsmins   := array.copy ( sorted_userTfhrsmins )
+
+
+f_print_num_arr ( arr ) =>
+    output = string ( na )
+    end = array.size ( arr ) - 1
+    if end >= 0
+        for i = 0 to end
+            val = "[" + tostring ( i ) + "] " + tostring ( array.get ( arr, i ) )
+            if i == 0
+                output := val
+            else
+                output += "\n\n" + val
+    else
+        output := "<empty>"
+    output
+
+
+f_print_str_arr ( arr ) =>
+    output = string ( na )
+    end = array.size ( arr ) - 1
+    if end >= 0
+        for i = 0 to end
+            val = "[" + tostring ( i ) + "] " + array.get ( arr, i )
+            if i == 0
+                output := val
+            else
+                output += "\n\n" + val
+    else
+        output := "<empty>"
+    output
+
+
+
+
+
+///////////////////////////////////////////////////////////////////////////////
+// Label Inputs
+
+varip lbl_txt_col           = "Label Text Color"
+varip lbl_txt_col_tt        = "Checkbox changes Label Text Color\nbetween the solid color (first option)\nand the dynamic colors\n(second and third options).\n\nNote:\nWhen using dynamic text color,\nthe " +
+                                 "'Label Text Align' option\nwill not work as intended,\nand in rare instances the label\nbackground will print on top\nof the text, thereby darkening it.\n(Pine v4 limitations)"
+varip lbl_tc_tt             = "Assets whose price is less than\nthree integers will have their \nWolfpack value dynamically resized:\nprice > 100 : Wolfpack x1\nprice > 10 : Wolfpack x10\nprice < 10: Wolfpack x100"
+varip lbl_bg_col            = "Label Background Color"
+varip col_bullLabel         = color.new ( #2a2e39,  25 )
+varip col_bearLabel         = color.new ( #2a2e39,  25 )
+varip col_bullText          = color.new ( #7dde82,   0 )
+varip col_bearText          = color.new ( #ff6363,   0 )
+varip lbl_tritxt            = "Triangle + Text"
+varip lbl_tri_only          = "Triangle Only"
+varip lbl_txt_only          = "Text Only"
+
+
+i_lbl_offset        = input ( 16,                   "Label Offset",                     input.integer, minval = 0, maxval = 100,                                group=groupTC )
+i_lbl_txt_dispOpt   = input ( lbl_tritxt,           "Text Style",                       options = [ lbl_tritxt, lbl_tri_only, lbl_txt_only, str_none ],         group=groupTC )
+i_lbl_txt_size      = input ( str_normal,           "Text Size",                        options = [ str_tiny, str_small, str_normal, str_large, str_huge ],     group=groupTC )
+i_lbl_txt_align     = input ( str_center,           "Text Align",                       options = [ str_left, str_center, str_right ],                          group=groupTC )
+i_lbl_txt_color     = input ( #FFFFFF,              "Text",                             input.color, inline = lbl_txt_col,                                      group=groupTC )
+i_lbl_txt_bull      = input ( col_bullText,         "",                                 input.color, inline = lbl_txt_col,                                      group=groupTC )
+i_lbl_txt_bear      = input ( col_bearText,         "",                                 input.color, inline = lbl_txt_col,                                      group=groupTC )
+i_lbl_txt_col_tog   = input ( true,                 "Dynamic",                          input.bool,  inline = lbl_txt_col, tooltip = lbl_txt_col_tt,            group=groupTC )
+i_lbl_col_above     = input ( col_bullLabel,        "Background [ Buy | Sell ]",        input.color, inline = lbl_bg_col,                                       group=groupTC ) //  #178793
+i_lbl_col_below     = input ( col_bearLabel,        "",                                 input.color, inline = lbl_bg_col,                                       group=groupTC ) //  #EF5350
+i_lbl_tt_dec        = input ( 0,                    "Tooltip Decimals",                 input.integer, minval = 0, maxval = 12, tooltip = lbl_tc_tt,            group=groupTC )
+
+
+i_lbl_txt_size  := i_lbl_txt_size == str_tiny ? size.tiny : i_lbl_txt_size == str_small ? size.small : i_lbl_txt_size == str_normal ? size.normal : i_lbl_txt_size == str_large ? size.large : size.huge
+i_lbl_txt_align := i_lbl_txt_align == str_left ? text.align_left : i_lbl_txt_align == str_right ? text.align_right : text.align_center
+
+// no 'var' on purpose; want a full re-draw on each bar
+label_X_Loc         = time_close + ( ( time_close - time_close[1] ) * i_lbl_offset )
+label_Y_Loc         = percentile_linear_interpolation ( ohlc4, 10, 50 )
+label_tt_price      = abs ( label_Y_Loc )
+label_tt_multi      = label_tt_price > 9999 ? 1 : label_tt_price > 999 ? 10 : label_tt_price > 99 ? 100 : label_tt_price > 9 ? 1000 : label_tt_price > 0.9 ? 10000 : 100000
+varip labelCond     = i_lbl_showAlert and triple != str_none and i_lbl_txt_dispOpt != str_none and ( i_lbl_inclChart or nativeTfDupe or num_tfs > 1 )
+
+
+
+
+
+/////////////////////////////////////////////////////////////////////////////////
+// POTATO SIGNAL INPUTS
+
+
+//
+// POTATO SIGNAL INPUT 1
+//
+// Settings for 5min chart, BTCUSDC. For Other coin, change the paremeters  // trendespresso: Huh? Potato was originally designed around 5m chart? crazy
+varip per       = 27          //input ( 27,  "Sampling Period",  minval = 1,   group = groupPotato )
+
+
+//
+// POTATO SIGNAL INPUT 2
+//
+varip mult  = 1.0        //input ( 1.0, "Range Multiplier", minval = 0.1, group = groupPotato )
+
+
+
+
+
+/////////////////////////////////////////////////////////////////////////////////
+// BOLLINGER BANDS
+
+showBB      = input ( false, "ENABLE",                                                group = groupBB )
+BB_length   = input ( 20,    "BB - Length", input.integer, minval = 1,                group = groupBB )
+BB_mult     = input ( 2.0,   "BB - StdDev", input.float, minval = 0.001, maxval = 50, group = groupBB )
+
+f_bb_basis ( source ) => sma ( source, BB_length )
+f_bb_upper ( source ) => f_bb_basis ( source ) + ( BB_mult * stdev ( source, BB_length ) )
+f_bb_lower ( source ) => f_bb_basis ( source ) - ( BB_mult * stdev ( source, BB_length ) )
+    
+
+
+
+
+/////////////////////////////////////////////////////////////////////////////////
+// POTATO EMAS
+showEMA     = input ( false, "ENABLE",              group = groupEMA )
+emaLength1  = input ( 21,  "EMA 1", input.integer,  group = groupEMA )
+emaLength2  = input ( 50,  "EMA 2", input.integer,  group = groupEMA )
+emaLength3  = input ( 200, "EMA 3", input.integer,  group = groupEMA )
+
+f_ema1 ( source ) => ema ( source, emaLength1 )
+f_ema2 ( source ) => ema ( source, emaLength2 )
+f_ema3 ( source ) => ema ( source, emaLength3 )
+
+
+
+
+
+/////////////////////////////////////////////////////////////////////////////////
+// MOVING AVERAGE CALCULATION
+
+varip str_ema   = "EMA"
+varip str_hma   = "HMA"
+varip str_sma   = "SMA"
+varip str_wma   = "WMA"
+varip str_alma  = "ALMA"
+varip str_vwma  = "VWMA"
+
+f_wave_calc ( source, length, calculation ) =>
+    wave = float ( na )
+    if calculation == str_hma
+        wave := hma(source, length)
+    else
+        if calculation == str_ema
+            wave := ema(source, length)
+        else
+            if calculation == str_sma
+                wave := sma(source, length)
+            else
+                if calculation == str_wma
+                    wave := wma(source, length)
+                else
+                    if calculation == str_alma
+                        wave := alma(source, length, 0.85, 21)
+                    else
+                        if calculation == str_vwma
+                            wave := vwma(source, length)
+    wave
+
+
+
+
+
+/////////////////////////////////////////////////////////////////////////////////
+// MOVING AVERAGES
+
+varip MA_tf_tt  = "Hover your mouse cursor over\neach Moving Average label to\nsee the exact price for that\nMoving Average."
+varip MA_tt     = "Enable up to 5 Moving Averages\non any other Timeframe.\n\nDaily, Weekly, or Monthly are recommended.\n\n" + MA_tf_tt
+
+showMA          = input ( false, "ENABLE",                       group = groupMA, tooltip = MA_tt )
+MA_tf           = input ( "D", "MA Timeframe", input.resolution, group = groupMA, tooltip = MA_tf_tt )
+
+varip ma1_line  = "MA 1 Line"
+varip ma2_line  = "MA 2 Line"
+varip ma3_line  = "MA 3 Line"
+varip ma4_line  = "MA 4 Line"
+varip ma5_line  = "MA 5 Line"
+varip ma6_line  = "MA 6 Line"
+
+ma_input3calc   = input ( str_ema, "MA 1", options = [ str_ema, str_hma, str_sma, str_wma, str_alma, str_vwma, str_none ],    group = groupMA, inline = ma1_line )
+ma_input3       = input (  100,    "",                                                                                        group = groupMA, inline = ma1_line )
+ma_input4calc   = input ( str_ema, "MA 2", options = [ str_ema, str_hma, str_sma, str_wma, str_alma, str_vwma, str_none ],    group = groupMA, inline = ma2_line )
+ma_input4       = input ( 140,     "",                                                                                        group = groupMA, inline = ma2_line )
+ma_input5calc   = input ( str_ema, "MA 3", options = [ str_ema, str_hma, str_sma, str_wma, str_alma, str_vwma, str_none ],    group = groupMA, inline = ma3_line )
+ma_input5       = input ( 200,     "",                                                                                        group = groupMA, inline = ma3_line )
+ma_input6calc   = input ( str_ema, "MA 4", options = [ str_ema, str_hma, str_sma, str_wma, str_alma, str_vwma, str_none ],    group = groupMA, inline = ma4_line )
+ma_input6       = input ( 350,     "",                                                                                        group = groupMA, inline = ma4_line )
+ma_input7calc   = input ( str_ema, "MA 5", options = [ str_ema, str_hma, str_sma, str_wma, str_alma, str_vwma, str_none ],    group = groupMA, inline = ma5_line )
+ma_input7       = input ( 700,     "",                                                                                        group = groupMA, inline = ma5_line )
+ma_input8calc   = input ( str_ema, "MA 6", options = [ str_ema, str_hma, str_sma, str_wma, str_alma, str_vwma, str_none ],    group = groupMA, inline = ma6_line )
+ma_input8       = input ( 1400,    "",                                                                                        group = groupMA, inline = ma6_line )
+
+
+
+
+
+/////////////////////////////////////////////////////////////////////////////////
+// MOVING AVERAGE LABELS
+
+varip str_upper = "Lower"
+varip str_lower = "Upper"
+varip str_LL = str_lower + str_spc + str_left
+varip str_UL = str_upper + str_spc + str_left
+varip str_LR = str_lower + str_spc + str_right
+varip str_UR = str_upper + str_spc + str_right
+
+showMALabels            = input ( false,        "ENABLE",                       input.bool, tooltip = MA_tf_tt,                                                     group = groupMAL )
+i_ma_lbl_offsetX        = input ( 0,            "X Offset",                     input.integer, minval = -100, maxval = 100,                                         group = groupMAL )
+i_ma_lbl_offsetY        = input ( 0,            "Y Offset",                     input.integer, minval = -1000, maxval = 1000,                                       group = groupMAL )
+i_ma_lbl_arrow          = input ( str_left,     "Arrow",        options = [ str_left, str_right, str_up, str_down, str_center, str_LL, str_UL, str_LR, str_UR ],    group = groupMAL )
+i_ma_lbl_txt_size       = input ( str_normal,   "Text Size",    options = [ str_tiny, str_small, str_normal, str_large, str_huge ],                                 group = groupMAL )
+i_ma_lbl_txt_color      = input ( #FFFFFF,      "Text Color",                   input.color,                                                                        group = groupMAL )
+i_ma_lbl_col_bg         = input ( color_none,   "Background",                   input.color,                                                                        group = groupMAL )
+i_ma_lbl_length         = input ( true,         "Length",                       input.bool,                                                                         group = groupMAL )
+i_ma_lbl_price          = input ( true,         "Price",                        input.bool,                                                                         group = groupMAL )
+i_ma_lbl_percent        = input ( true,         "Percent",                      input.bool,                                                                         group = groupMAL )
+i_ma_lbl_k_val          = input ( true,         "1000's with ' K '",            input.bool,                                                                         group = groupMAL )
+
+
+i_ma_lbl_txt_size      := i_ma_lbl_txt_size == str_tiny ? size.tiny : i_ma_lbl_txt_size == str_small ? size.small : i_ma_lbl_txt_size == str_normal ? size.normal : i_ma_lbl_txt_size == str_large ? size.large : size.huge
+
+
+i_ma_lbl_arrow         := i_ma_lbl_arrow == str_left ? label.style_label_left : i_ma_lbl_arrow == str_right ? label.style_label_right : i_ma_lbl_arrow == str_down ? label.style_label_down : i_ma_lbl_arrow == str_up ?
+                             label.style_label_up : i_ma_lbl_arrow == str_center ? label.style_label_center : i_ma_lbl_arrow == str_LL ? label.style_label_lower_left : i_ma_lbl_arrow == str_UL ? label.style_label_upper_left :
+                             i_ma_lbl_arrow == str_LR ? label.style_label_lower_right : i_ma_lbl_arrow == str_UR ? label.style_label_upper_right : i_ma_lbl_arrow
+
+// no 'var' on purpose; want a full re-draw on each bar
+ma_label_X_Loc          = time_close + ( ( time_close - time_close[1] ) * i_ma_lbl_offsetX )
+ma_label_Y_Loc          = 1 + ( i_ma_lbl_offsetY / 1000 )
+
+
+
+
+
+/////////////////////////////////////////////////////////////////////////////////
+// Potato + Wolfpack + MLB calculations
+
+
+// HELPER FUNCTION: Smooth Average Range (for Potato Signal)
+smoothrng ( x, t, m ) =>
+    wper  = t * 2 - 1
+    avrng = ema ( abs ( x - x[1] ), t )
+    rtn_smooth = ema ( avrng, wper ) * m
+
+
+// HELPER FUNCTION: Range Filter (for Potato Signal)
+rngfilt ( x, r ) =>
+    rngfilt  = x
+    rngfilt := x > nz ( rngfilt[1] ) ? x - r < nz ( rngfilt[1] ) ? nz ( rngfilt[1] ) : x - r : 
+       x + r > nz ( rngfilt[1] ) ? nz ( rngfilt[1] ) : x + r
+
+
+// FUNCTION: Original Potato Signal
+f_PotatoSignal ( src ) =>
+    smrng = smoothrng ( src, per, mult )
+    filt  = rngfilt ( src, smrng )
+
+
+// FUNCTION: Standard Wolfpack ema 3 - ema 8 using 'close' from 'security' as the Source
+//           Wolfpack employs the Taylor Series
+f_wolfpack ( src ) =>
+    WP = ema ( src, 3 ) - ema ( src, 8 )
+    WPc = WP + ( WP / 1001.00000 ) + ( WP / 1002000.000 ) + ( WP / 1003000000 ) + ( WP / 1004000000000 )
+
+
+// FUNCTION: Calculate the MLB waves using 'hlc3' from 'security' and output if it changes
+f_MLBwaves ( hlc ) =>
+    n1  =  7      //input ( 8, "Channel Length") // 8
+    n2  = 10      //input ( 10, "Average Length") // 10
+    n3  =  4
+    esa = ema ( hlc, n1 )
+    d2  = ema ( abs ( hlc - esa ), n1 )
+    ci  = ( hlc - esa ) / (0.015 * d2 )
+    tci = ema ( ci, n2 )
+    wt1 = tci
+    wt2 = sma ( wt1, n3 )
+    // if wt1 is greater than wt2, BUY signal is given
+    MLB = wt1 - wt2
+
+
+
+
+
+
+/////////////////////////////////////////////////////////////////////////////////
+// Fetch Prices, Wolfpack, MLB, and Potato Signal for each Timeframe
+
+//
+// this seems to work! everything must be wrapped in the 'security' function and outputted as such
+//
+// EXPLANATION:
+// Normally digging 'close' out of each Resolution returns good results. In our
+// fringe Triple Confirmation case, the results are totally inaccurate and subject
+// to fluctuations depending on the user's chart resolution. The only way to obtain
+// static and accurate results is to run the wolfpack, mlb, and potato signal functions
+// directly inside the 'security' function. Think of it like wrapping the functions
+// or running them inside a sandbox of each resolution, rather than simply requesting
+// the 'closing price' of each and running at the user's native chart resolution.
+// For whatever reason, the results are dramatically different. Wrapping the functions
+// within 'security' is the best method for our use case. We also need the bar to be closed
+// and not currently written otherwise we risk obtaining results that are not yet static.
+// Remember, Triple Confirmations are only true and confirmed upon a bar close.
+//
+// many different attempts to enable lower timeframes to accurately be dispalyed on larger views...
+// unfortunately Pine doesn't do this very well in version 4 (hopefully it will in the future?)
+// thusly we are simply forced to remove inaccurate TC's as larger timeframes are used
+//
+// barmerge.gaps_on         makes grabbing the most recent data point much more difficult... no benefit
+// barmerge.lookahead_on    grabs the latest datapoint, but this also means it waits for additional closures before displaying... no benefit (verified no change either)
+//
+// line 621: Cannot call 'security' or 'financial' inside 'if' or 'for'
+// 'security' cannot have mutable variables inside it
+//
+//f_empty_values () => [ 0.0, 0.0, 0.0, 0.0 ]
+
+
+[ c_tfA, w_tfA, m_tfA, f_tfA, BB_basis, BB_upper, BB_lower, ema1, ema2, ema3 ] = security ( heikinashi ( syminfo.tickerid ), userRes0,
+                                                             [ close,
+                                                  f_wolfpack ( close ),
+                                                  f_MLBwaves ( hlc3  ),
+                                 f_PotatoSignal ( f_wolfpack ( close ) ),
+                                                  f_bb_basis ( close ),
+                                                  f_bb_upper ( close ),
+                                                  f_bb_lower ( close ),
+                                                  f_ema1     ( close ),
+                                                  f_ema2     ( close ),
+                                                  f_ema3     ( close ) ],
+                                                               barmerge.gaps_off, barmerge.lookahead_off )
+
+
+[ c_tfB, w_tfB, m_tfB, f_tfB ] = security ( heikinashi ( syminfo.tickerid ), timeframe.period,
+                                                             [ close,
+                                                  f_wolfpack ( close ),
+                                                  f_MLBwaves ( hlc3  ),
+                                 f_PotatoSignal ( f_wolfpack ( close ) ) ],
+                                                               barmerge.gaps_off, barmerge.lookahead_off )
+
+
+[ c_tf1, w_tf1, m_tf1, f_tf1 ] = security ( heikinashi ( syminfo.tickerid ), userRes1,
+                                                             [ close,
+                                                  f_wolfpack ( close ),
+                                                  f_MLBwaves ( hlc3 ),
+                                 f_PotatoSignal ( f_wolfpack ( close ) ) ],
+                                                               barmerge.gaps_off, barmerge.lookahead_off )                     
+
+
+[ c_tf2, w_tf2, m_tf2, f_tf2 ] = security ( heikinashi ( syminfo.tickerid ), userRes2,
+                                                             [ close,
+                                                  f_wolfpack ( close ),
+                                                  f_MLBwaves ( hlc3 ),
+                                 f_PotatoSignal ( f_wolfpack ( close ) ) ],
+                                                               barmerge.gaps_off, barmerge.lookahead_off )                     
+
+
+[ c_tf3, w_tf3, m_tf3, f_tf3 ] = security ( heikinashi ( syminfo.tickerid ), userRes3,
+                                                             [ close,
+                                                  f_wolfpack ( close ),
+                                                  f_MLBwaves ( hlc3 ),
+                                 f_PotatoSignal ( f_wolfpack ( close ) ) ],
+                                                               barmerge.gaps_off, barmerge.lookahead_off )                     
+
+
+[ c_tf4, w_tf4, m_tf4, f_tf4 ] = security ( heikinashi ( syminfo.tickerid ), userRes4,
+                                                             [ close,
+                                                  f_wolfpack ( close ),
+                                                  f_MLBwaves ( hlc3 ),
+                                 f_PotatoSignal ( f_wolfpack ( close ) ) ],
+                                                               barmerge.gaps_off, barmerge.lookahead_off )                     
+
+
+[ c_tf5, w_tf5, m_tf5, f_tf5 ] = security ( heikinashi ( syminfo.tickerid ), userRes5,
+                                                             [ close,
+                                                  f_wolfpack ( close ),
+                                                  f_MLBwaves ( hlc3 ),
+                                 f_PotatoSignal ( f_wolfpack ( close ) ) ],
+                                                               barmerge.gaps_off, barmerge.lookahead_off )                     
+
+
+[ c_tf6, w_tf6, m_tf6, f_tf6 ] = security ( heikinashi ( syminfo.tickerid ), userRes6,
+                                                             [ close,
+                                                  f_wolfpack ( close ),
+                                                  f_MLBwaves ( hlc3 ),
+                                 f_PotatoSignal ( f_wolfpack ( close ) ) ],
+                                                               barmerge.gaps_off, barmerge.lookahead_off )
+
+
+[ c_tf7, w_tf7, m_tf7, f_tf7 ] = security ( heikinashi ( syminfo.tickerid ), userRes7,
+                                                             [ close,
+                                                  f_wolfpack ( close ),
+                                                  f_MLBwaves ( hlc3 ),
+                                 f_PotatoSignal ( f_wolfpack ( close ) ) ],
+                                                               barmerge.gaps_off, barmerge.lookahead_off )
+
+
+[ c_tf8, w_tf8, m_tf8, f_tf8 ] = security ( heikinashi ( syminfo.tickerid ), userRes8,
+                                                             [ close,
+                                                  f_wolfpack ( close ),
+                                                  f_MLBwaves ( hlc3 ),
+                                 f_PotatoSignal ( f_wolfpack ( close ) ) ],
+                                                               barmerge.gaps_off, barmerge.lookahead_off )
+
+
+// Half-Sized timeframe's `close` will always be one candle behind native, thus we omit `[1]`
+[ c_tfH, w_tfH, m_tfH, f_tfH ] = security ( heikinashi ( syminfo.tickerid ), userResH,
+                                                             [ close,
+                                                  f_wolfpack ( close ),
+                                                  f_MLBwaves ( hlc3 ),
+                                 f_PotatoSignal ( f_wolfpack ( close ) ) ],
+                                                               barmerge.gaps_off, barmerge.lookahead_off )
+
+[ c_tfQ, w_tfQ, m_tfQ, f_tfQ ] = security ( heikinashi ( syminfo.tickerid ), userResQ,
+                                                             [ close,
+                                                  f_wolfpack ( close ),
+                                                  f_MLBwaves ( hlc3 ),
+                                 f_PotatoSignal ( f_wolfpack ( close ) ) ],
+                                                               barmerge.gaps_off, barmerge.lookahead_off )
+
+
+// Determine whether to use 'userRes0' or 'defRes' for the Signal(s)
+c_tf0 = allow_userRes0 ? c_tfA : c_tfB
+w_tf0 = allow_userRes0 ? w_tfA : w_tfB
+m_tf0 = allow_userRes0 ? m_tfA : m_tfB
+f_tf0 = allow_userRes0 ? f_tfA : f_tfB
+
+
+// setting the values obtained from each 'security' / Resolution
+// to their respective arrays
+// Pine should update their system to permit multiple variables in one line
+// or to enable 'security' outputs as an array, or to enable mutable
+// variable names in 'for' loops: ex. array.set(closes, index, c_tf<index>)
+
+
+var userTfBySl  = array.new_string ( num_tfs, string ( na ) )
+var closes      = array.new_float  ( num_tfs, 0. )
+var wolfpacks   = array.new_float  ( num_tfs, 0. )
+var mlbs        = array.new_float  ( num_tfs, 0. )
+var filts       = array.new_float  ( num_tfs, 0. )
+
+
+// HELPER FUNCTION: Check the 'dup_tfs' array for the index and check that the resolution is included
+//                  Ensure matching indexes beteween 'userTfStr' and all its respective data
+//                  In Pine v4, 'array.indexof' returns -1 if the 'resolution' is not found in 'userTfStr'
+f_set_data_arrs ( resolution, c_in, w_in, m_in, f_in, is_nativeTf ) =>
+    if is_nativeTf
+        array.set ( closes,     0, c_in )
+        array.set ( wolfpacks,  0, w_in )
+        array.set ( mlbs,       0, m_in )
+        array.set ( filts,      0, f_in )
+    else if i_lbl_inclChart
+        index = array.indexof ( userTfStr, resolution )
+        if index != -1
+            array.set ( closes,     index, c_in )
+            array.set ( wolfpacks,  index, w_in )
+            array.set ( mlbs,       index, m_in )
+            array.set ( filts,      index, f_in )
+    else
+        editedArr = array.copy ( userTfStr )
+        array.set ( editedArr, 0, "noVal" )
+        index = array.indexof ( editedArr, resolution )
+        if index != -1
+            array.set ( closes,     index, c_in )
+            array.set ( wolfpacks,  index, w_in )
+            array.set ( mlbs,       index, m_in )
+            array.set ( filts,      index, f_in )
+
+
+f_set_data_arrs ( userRes1,   c_tf1, w_tf1, m_tf1, f_tf1, false )
+f_set_data_arrs ( userRes2,   c_tf2, w_tf2, m_tf2, f_tf2, false )
+f_set_data_arrs ( userRes3,   c_tf3, w_tf3, m_tf3, f_tf3, false )
+f_set_data_arrs ( userRes4,   c_tf4, w_tf4, m_tf4, f_tf4, false )
+f_set_data_arrs ( userRes5,   c_tf5, w_tf5, m_tf5, f_tf5, false )
+f_set_data_arrs ( userRes6,   c_tf6, w_tf6, m_tf6, f_tf6, false )
+f_set_data_arrs ( userRes7,   c_tf7, w_tf7, m_tf7, f_tf7, false )
+f_set_data_arrs ( userRes8,   c_tf8, w_tf8, m_tf8, f_tf8, false )
+f_set_data_arrs ( userResH,   c_tfH, w_tfH, m_tfH, f_tfH, false )
+f_set_data_arrs ( userResQ,   c_tfQ, w_tfQ, m_tfQ, f_tfQ, false )
+f_set_data_arrs ( nativeTf,   c_tf0, w_tf0, m_tf0, f_tf0, true  )
+
+
+
+// for some reason 'upwards' and 'downwards' glitch out heavily when
+// put into an array sooooo instead we make a bunch of int var variables
+// that are guaranteed to maintain their value bar-to-bar *shrug*
+var upwards_tf0         = 0
+var downwards_tf0       = 0
+var upwards_tf1         = 0
+var downwards_tf1       = 0
+var upwards_tf2         = 0
+var downwards_tf2       = 0
+var upwards_tf3         = 0
+var downwards_tf3       = 0
+var upwards_tf4         = 0
+var downwards_tf4       = 0
+var upwards_tf5         = 0
+var downwards_tf5       = 0
+var upwards_tf6         = 0
+var downwards_tf6       = 0
+var upwards_tf7         = 0
+var downwards_tf7       = 0
+var upwards_tf8         = 0
+var downwards_tf8       = 0
+var upwards_tf9         = 0
+var downwards_tf9       = 0
+
+
+
+
+
+/////////////////////////////////////////////////////////////////////////////////
+// Confirmed Signals Only
+
+
+// milliseconds before candle close
+// used for "Confirmed Signals Only"
+// lower value is better for ensuring a confirmed signal
+// higher value is better for ensuring sufficient processing time
+//      and accurate label placement
+nativeMLB   = array.get ( mlbs,      0 )
+nativeWP    = array.get ( wolfpacks, 0 )
+
+
+// fancy maths to produce the desired effect of 2500 ms check when there's a clear
+// break across the zero line, or 1000 ms check when the break across is very close
+coeff       = timeframe.isdwm ? 0.25 : array.get ( userTfMins, 0 ) > 30 ? 0.50 : 1.00
+avg_MLB     = max ( ( abs ( percentile_linear_interpolation ( nativeMLB, 50, 50 ) ) * coeff ), 0.10 )
+avg_WP      = max ( ( abs ( percentile_linear_interpolation ( nativeWP,  50, 50 ) ) * coeff ), 0.10 )
+mid_MLB     = avg_MLB > nativeMLB and avg_MLB * -1 < nativeMLB
+mid_WP      = avg_WP  > nativeWP  and avg_WP  * -1 < nativeWP
+ms          = mid_MLB or mid_WP ? 1000 : 2500
+
+
+// this condition checks to ensure we are within 100 milliseconds of the bar close
+// if we are within 100 milliseconds of the bar close, then permit the Condition to run
+// no idea if this works as intended
+// is it better to 1 ms or 1000 ms or some other value?? no clue
+ms_until_bar_close = barstate.isrealtime ? time_close - timenow : -1
+bar_is_confirmed   = ms_until_bar_close <= ms
+
+
+
+
+
+/////////////////////////////////////////////////////////////////////////////////
+// Triple Confirmations
+
+
+// these 'upwards' and 'downwards' arrays don't work properly... quite frustrating
+//var upwards         = array.new_int(num_tfs, 0)
+//var downwards       = array.new_int(num_tfs, 0)
+var potatoes        = array.new_int ( num_tfs, 0 )
+var tcStates        = array.new_int ( num_tfs, 0 )
+var masterStates    = array.new_int ( num_tfs, 0 )
+label_text          = string ( na ) // no 'var' on purpose; want a full re-draw on each bar
+label_tt_text       = string ( na ) // no 'var' on purpose; want a full re-draw on each bar
+
+
+// ORIGINAL
+//upward := filt > filt[1] ? nz(upward[1]) + 1 : filt < filt[1] ? 0 : nz(upward[1])
+//downward := filt < filt[1] ? nz(downward[1]) + 1 : filt > filt[1] ? 0 : nz(downward[1])
+
+
+// FUNCTION: Trend Analysis for Potato Signal
+f_PotatoSignalTrend ( wolfpack, filt, upward, downward, potatoState ) =>
+    u = filt > filt[1] ? nz ( upward )   + 1 : filt < filt[1] ? 0 : nz ( upward )
+    d = filt < filt[1] ? nz ( downward ) + 1 : filt > filt[1] ? 0 : nz ( downward )
+    l = ( wolfpack > filt and wolfpack > wolfpack[1] and u > 0 ) or ( wolfpack > filt and wolfpack < wolfpack[1] and u > 0 )
+    s = ( wolfpack < filt and wolfpack < wolfpack[1] and d > 0 ) or ( wolfpack < filt and wolfpack > wolfpack[1] and d > 0 )
+    p = l ? 1 : s ? -1 : potatoState
+    [ u, d, p ]
+
+
+// HELPER FUNCTION: Triple Confirmation identification logic
+f_tripleConfirmationHelper ( tcState, potato, wolfpack, mlb ) =>
+    t = tcState
+    if      triple == str_tc
+        if      potato > 0 and wolfpack >= 0 and mlb >= 0
+            t :=  1
+        else if potato < 0 and wolfpack  < 0 and mlb  < 0
+            t := -1
+    else if triple == str_orig_potato
+        if      potato > 0
+            t :=  1
+        else if potato < 0
+            t := -1
+    else
+        t := 0
+    t
+
+
+// HELPER FUNCTION: Triple Confirmations master state holder (to prevent a signal every bar)
+f_tripleConfirmation ( tcState ) => rtn_T = tcState[1] == 1 and tcState == -1 ? -1 : tcState[1] == -1 and tcState == 1 ? 1 : 0
+
+varip str_sprtr     = str_ln + ( i_lbl_txt_dispOpt == lbl_tri_only ? " -   -   - " : " -   -   -   -   -" )
+varip str_error     = ": <error>"
+varip str_buy_tt    = ": ▲ BUY"
+varip str_sell_tt   = ": ▼ SELL"
+varip str_buy_tri   = ": ▲"
+varip str_sell_tri  = ": ▼"
+varip str_buy_txt   = ": BUY"
+varip str_sell_txt  = ": SELL"
+
+
+// HELPER FUNCTION: Generate label text output per line
+f_lbl_text ( tf, index, tc_prev, tc ) =>
+    rtn_txt = string ( na )
+    tc_up   = index == 0 and confirm ? ( bar_is_confirmed and tc ==  1 ) or ( tc_prev ==  1 ) : tc ==  1
+    tc_dn   = index == 0 and confirm ? ( bar_is_confirmed and tc == -1 ) or ( tc_prev == -1 ) : tc == -1
+    if      i_lbl_txt_dispOpt == lbl_tritxt
+        rtn_txt := tc_up ? tf + str_buy_tt     : tc_dn ? tf + str_sell_tt    : str_error
+    else if i_lbl_txt_dispOpt == lbl_tri_only
+        rtn_txt := tc_up ? tf + str_buy_tri    : tc_dn ? tf + str_sell_tri   : str_error
+    else if i_lbl_txt_dispOpt == lbl_txt_only
+        rtn_txt := tc_up ? tf + str_buy_txt    : tc_dn ? tf + str_sell_txt   : str_error
+    rtn_txt
+
+
+// FUNCTION: Convert the goven oscillator or number into a readable output
+//           with proper sign, decimal places, and zeroes.
+f_osc_as_text ( input_osc, dynamic_decimals, input_decimals ) =>
+    extra_zeroes = 0
+    // extra_zeroes is usually an input argument
+    osc         = input_osc < 0 ? abs ( input_osc ) : input_osc
+    osc        := dynamic_decimals ? osc * label_tt_multi : osc
+    num         = floor ( osc )
+    decimals    = input_decimals >= 0 ? input_decimals : label_tt_price >= 1000 ? 0 : label_tt_price >= 100 ? 1 : label_tt_price >= 1 ? 2 : label_tt_price >= 0.1 ? 3 : label_tt_price >= 0.01 ? 4 : 5
+    factor      = pow ( 10, decimals )
+    // there is a bug in Pine v4 !
+    // taking a number such as 99.6 and multiplying it by 100 then dividing it by 100
+    // does NOT return 99.6
+    // technically it returns 99.59999999999999430
+    // to get around this BUG, we must round to the 10th decimal place only
+    // the bug starts to occur around the 12th decimal place
+    dec         = floor ( ( round ( osc - num, 6 ) ) * factor ) / factor
+    return      = tostring ( num + dec )
+    if num < 10.0 and extra_zeroes > 0
+        for i = 1 to extra_zeroes
+            return := "0" + return
+    if decimals > 0
+        z = decimals
+        if ( num > 0.0 and ( osc % 1 == 0.0 or dec == 0.0 ) ) or ( num + dec ) == 0.0
+            return += "."
+        else
+            d = dec
+            for i = 1 to decimals
+                if d % 1 != 0.0
+                    d *= 10
+                    z -= 1
+                    continue
+                else
+                    break
+            pine = string ( na ) // Pine limitation
+        if z > 0
+            for i = 1 to z
+                return += "0"
+    return
+
+
+// HELPER FUNCTION: Add the correct negative or positive sign to the given string (requires the original value/number obviously)
+f_add_sign ( value, number_as_string ) => value < 0 ? "–" + number_as_string : "+" + number_as_string
+
+
+// HELPER FUNCTION: Generate text from Potato Signal
+f_potato_signal_text ( potato ) =>
+    rtn_txt = string ( na )
+    tc_up   = potato > 0
+    tc_dn   = potato < 0
+    if      i_lbl_txt_dispOpt == lbl_tritxt
+        rtn_txt := tc_up ? str_buy_tt     : tc_dn ? str_sell_tt    : str_error
+    else if i_lbl_txt_dispOpt == lbl_tri_only
+        rtn_txt := tc_up ? str_buy_tri    : tc_dn ? str_sell_tri   : str_error
+    else if i_lbl_txt_dispOpt == lbl_txt_only
+        rtn_txt := tc_up ? str_buy_txt    : tc_dn ? str_sell_txt   : str_error
+    rtn_txt
+
+
+// HELPER FUNCTION: Generate the Label tooltip with more verbose information (Wolfpack and MLB values)
+f_lbl_tt ( tf, potato, wolfpack, mlb ) =>
+    p = f_potato_signal_text ( potato )
+    w = f_add_sign ( wolfpack,  f_osc_as_text ( wolfpack, true,  i_lbl_tt_dec ) )
+    m = f_add_sign ( mlb,       f_osc_as_text ( mlb,      false, i_lbl_tt_dec ) )
+    tf + ": [ Potato" + p + " | Wolfpack: " + w + " | MLB: " + m + " ]"
+
+
+// THE BIG LOOP FUNCTION
+// Grabs price data for each Timeframe and calculates the Triple Confirmations
+// Afterwards, fills in the appropriate arrays with the current states
+// Also returns the Label text and the Label's Tooltip text (Wolfpack + MLB readout)
+// The Pine error requesting 'should be called on each calculation for consistency'
+// is not important. This function 't_tc_calc' IS called on each calculation
+// and does maintain consistancy, but since it's wrapped in a global scope 'FOR'
+// loop below, the Pine compiler doesn't understand or see that indeed 'f_tc_calc'
+// is calculated on each bar.
+varip ordered_nativeTf = nativeTfDupe and not i_lbl_inclChart
+f_tc_calc ( u, d, index ) =>
+    w = array.get ( wolfpacks,      index )
+    m = array.get ( mlbs,           index )
+    f = array.get ( filts,          index )
+    H = array.get ( userTfhrsmins,  index )
+    P = array.get ( potatoes,       index )
+    T = array.get ( tcStates,       index )
+    M = array.get ( masterStates,   index )
+    [ rtn_u, rtn_d, rtn_P ] = f_PotatoSignalTrend        ( w, f, u, d, P )
+    rtn_T                   = f_tripleConfirmationHelper ( T, rtn_P, w, m )
+    rtn_M                   = f_tripleConfirmation       ( rtn_T )
+    array.set ( potatoes,     index, rtn_P   )
+    array.set ( tcStates,     index, rtn_T   )
+    array.set ( masterStates, index, rtn_M   )
+    rtn_txt                 = labelCond ? index == 0 and ordered_nativeTf ?
+                             string ( na ) : f_lbl_text ( H, index, T, rtn_T ) : string ( na )
+    rtn_tt                  = labelCond ? index == 0 and ordered_nativeTf ?
+                             string ( na ) : f_lbl_tt   ( H, rtn_P, w, m )     : string ( na )
+    array.set ( userTfBySl,   index, rtn_txt )
+    if labelCond and num_tfs > 1
+        if index == 0
+            if i_lbl_inclChart
+                rtn_txt     += str_sprtr + str_ln
+                rtn_tt      += "\n"
+            //else if nativeTfDupe
+            //    rtn_txt    += str_ln
+            else
+                rtn_txt     := string ( na )
+        if index > 0 and index < ( num_tfs - 1 )
+            rtn_tt          += "\n"
+            rtn_txt         += str_ln
+    [ rtn_u, rtn_d, rtn_txt, rtn_tt ]
+
+
+// Tried this as a function and received a Pine error:
+// '    Cannot modify global variable 'upwards_tf0' in function.    '
+// employing a global 'for' loop instead
+// wrapping the 'for' loop in a Function would – on its merits and
+// academically – be better but at least this works!
+for index = 0 to ( num_tfs - 1 )
+    if index == 0
+        [u, d, lbl, tt]  = f_tc_calc ( upwards_tf0, downwards_tf0, index )
+        upwards_tf0     := u
+        downwards_tf0   := d
+        label_text      += lbl
+        label_tt_text   += tt
+    else if index == 1
+        [u, d, lbl, tt]  = f_tc_calc ( upwards_tf1, downwards_tf1, index )
+        upwards_tf1     := u
+        downwards_tf1   := d
+        label_text      += lbl
+        label_tt_text   += tt
+    else if index == 2
+        [u, d, lbl, tt]  = f_tc_calc ( upwards_tf2, downwards_tf2, index )
+        upwards_tf2     := u
+        downwards_tf2   := d
+        label_text      += lbl
+        label_tt_text   += tt
+    else if index == 3
+        [u, d, lbl, tt]  = f_tc_calc ( upwards_tf3, downwards_tf3, index )
+        upwards_tf3     := u
+        downwards_tf3   := d
+        label_text      += lbl
+        label_tt_text   += tt
+    else if index == 4
+        [u, d, lbl, tt]  = f_tc_calc ( upwards_tf4, downwards_tf4, index )
+        upwards_tf4     := u
+        downwards_tf4   := d
+        label_text      += lbl
+        label_tt_text   += tt
+    else if index == 5
+        [u, d, lbl, tt]  = f_tc_calc ( upwards_tf5, downwards_tf5, index )
+        upwards_tf5     := u
+        downwards_tf5   := d
+        label_text      += lbl
+        label_tt_text   += tt
+    else if index == 6
+        [u, d, lbl, tt]  = f_tc_calc ( upwards_tf6, downwards_tf6, index )
+        upwards_tf6     := u
+        downwards_tf6   := d
+        label_text      += lbl
+        label_tt_text   += tt
+    else if index == 7
+        [u, d, lbl, tt]  = f_tc_calc ( upwards_tf7, downwards_tf7, index )
+        upwards_tf7     := u
+        downwards_tf7   := d
+        label_text      += lbl
+        label_tt_text   += tt
+    else if index == 8
+        [u, d, lbl, tt]  = f_tc_calc ( upwards_tf8, downwards_tf8, index )
+        upwards_tf8     := u
+        downwards_tf8   := d
+        label_text      += lbl
+        label_tt_text   += tt
+    else if index == 9
+        [u, d, lbl, tt]  = f_tc_calc ( upwards_tf9, downwards_tf9, index )
+        upwards_tf9     := u
+        downwards_tf9   := d
+        label_text      += lbl
+        label_tt_text   += tt
+
+
+
+
+
+/////////////////////////////////////////////////////////////////////////////////
+// Background Label + Tooltip
+
+// see if all TC states for the available timeframes are positive for negative
+// if they are, instead of generating a uniquely colored label for each timeframe,
+// just change the color of the normal label (titled 'labelBG')
+// all TC's being up or down and coloring the entire label text that way will
+// result in the separator being colored as well but that's acceptable considering
+// the complicated trade-offs; maybe Pine v5 will be more flexible!
+
+nativeTf_TC_up  = confirm ? ( bar_is_confirmed and array.get ( tcStates, 0 ) ==  1 ) or array.get ( tcStates, 0 )[1] ==  1 : array.get ( tcStates, 0 ) ==  1
+nativeTf_TC_dn  = confirm ? ( bar_is_confirmed and array.get ( tcStates, 0 ) == -1 ) or array.get ( tcStates, 0 )[1] == -1 : array.get ( tcStates, 0 ) == -1
+
+lbl_all_pos     =     array.includes ( tcStates, 1 ) and not array.includes ( tcStates, 0 ) and not array.includes ( tcStates, -1 ) and nativeTf_TC_up
+lbl_all_neg     = not array.includes ( tcStates, 1 ) and not array.includes ( tcStates, 0 ) and     array.includes ( tcStates, -1 ) and nativeTf_TC_dn
+
+// Draw the Background / Solid Color label
+labelBGcolor    = i_lbl_txt_col_tog ? lbl_all_pos ? i_lbl_txt_bull : lbl_all_neg ? i_lbl_txt_bear : color_none : i_lbl_txt_color
+labelBGbg       = array.get ( tcStates, 0 ) == 1 ? i_lbl_col_above : i_lbl_col_below
+labelBG         = labelCond ? label.new ( label_X_Loc, label_Y_Loc, label_text, xloc.bar_time, yloc.price, labelBGbg, label.style_label_left, labelBGcolor, i_lbl_txt_size, i_lbl_txt_align, label_tt_text ) : label ( na )
+label.delete    ( labelBG[1] )
+
+
+
+
+
+///////////////////////////////////////////////////////////////////////////////
+// Dynamic Color Labels
+
+
+// HELPER FUNCTION: Looping function for generating the appropriate separation
+// between colored label lines – the input integer will return that many line breaks
+f_ln ( line_breaks ) =>
+    return = string ( na )
+    if line_breaks > 0
+        for i = 1 to line_breaks
+            return += "\n"
+    return
+
+
+// HELPER FUNCTIONS: Enables dynamically colored label text
+varip lbl_dyn_txt_spc1      =  ( num_tfs == 2 and ( i_lbl_dynRes or i_lbl_4x ) and not i_lbl_inclChart ) or ( num_tfs < 2 )
+varip lbl_dyn_txt_spc2      =  i_lbl_inclChart ? 4 : 0      // adjust top spacing depending on whether native timeframe is displayed on the label
+
+f_tc ( i )                  => i == 0 ? nativeTf_TC_up ? 1 : nativeTf_TC_dn ? -1 : 0 : array.get ( tcStates, i )
+f_lbl_dyn_txt_color ( tc )  => tc == 1 ? i_lbl_txt_bull : tc == -1 ? i_lbl_txt_bear : i_lbl_txt_color
+f_lbl_dyn_txt ( i )         => f_ln ( lbl_dyn_txt_spc1 or i < 1 ? 0 : ( i * 2 ) + lbl_dyn_txt_spc2 ) + array.get ( userTfBySl, i ) + f_ln ( lbl_dyn_txt_spc1 ? 0 : ( num_tfs - i ) * 2 )
+
+
+// FUNCTION: Determine if the given label should be created or not
+f_labelConD ( i )           => labelCond and labelBGcolor == color_none and i < num_tfs
+
+
+// Draw the Separator first if there are multiple timeframes
+// For 'lblNtvCond' include the native resolution if it's User selected but
+// "Included Timeframe 1 (Signal)" is disabled
+lblNtvCond      = i_lbl_inclChart and f_labelConD ( 0 )
+lblSepCond      = i_lbl_inclChart and f_labelConD ( 1 ) and num_tfs > 1
+varip labelSepText  = str_ln + str_sprtr + f_ln ( num_tfs * 2 )
+
+
+labelSep        = lblSepCond ?  label.new ( label_X_Loc, label_Y_Loc, labelSepText,             xloc.bar_time, yloc.price, color_none, label.style_label_left, i_lbl_txt_color,                     i_lbl_txt_size, i_lbl_txt_align, label_tt_text ) : label ( na )
+label.delete    ( labelSep[1] )
+
+
+// Other colored text labels
+// Generate the dynamic color label text
+label1      = lblNtvCond ?          label.new ( label_X_Loc, label_Y_Loc, f_lbl_dyn_txt ( 0 ),  xloc.bar_time, yloc.price, color_none, label.style_label_left, f_lbl_dyn_txt_color ( f_tc ( 0 ) ),  i_lbl_txt_size, i_lbl_txt_align, label_tt_text ) : label ( na )
+label2      = f_labelConD ( 1 ) ?   label.new ( label_X_Loc, label_Y_Loc, f_lbl_dyn_txt ( 1 ),  xloc.bar_time, yloc.price, color_none, label.style_label_left, f_lbl_dyn_txt_color ( f_tc ( 1 ) ),  i_lbl_txt_size, i_lbl_txt_align, label_tt_text ) : label ( na )
+label3      = f_labelConD ( 2 ) ?   label.new ( label_X_Loc, label_Y_Loc, f_lbl_dyn_txt ( 2 ),  xloc.bar_time, yloc.price, color_none, label.style_label_left, f_lbl_dyn_txt_color ( f_tc ( 2 ) ),  i_lbl_txt_size, i_lbl_txt_align, label_tt_text ) : label ( na )
+label4      = f_labelConD ( 3 ) ?   label.new ( label_X_Loc, label_Y_Loc, f_lbl_dyn_txt ( 3 ),  xloc.bar_time, yloc.price, color_none, label.style_label_left, f_lbl_dyn_txt_color ( f_tc ( 3 ) ),  i_lbl_txt_size, i_lbl_txt_align, label_tt_text ) : label ( na )
+label5      = f_labelConD ( 4 ) ?   label.new ( label_X_Loc, label_Y_Loc, f_lbl_dyn_txt ( 4 ),  xloc.bar_time, yloc.price, color_none, label.style_label_left, f_lbl_dyn_txt_color ( f_tc ( 4 ) ),  i_lbl_txt_size, i_lbl_txt_align, label_tt_text ) : label ( na )
+label6      = f_labelConD ( 5 ) ?   label.new ( label_X_Loc, label_Y_Loc, f_lbl_dyn_txt ( 5 ),  xloc.bar_time, yloc.price, color_none, label.style_label_left, f_lbl_dyn_txt_color ( f_tc ( 5 ) ),  i_lbl_txt_size, i_lbl_txt_align, label_tt_text ) : label ( na )
+label7      = f_labelConD ( 6 ) ?   label.new ( label_X_Loc, label_Y_Loc, f_lbl_dyn_txt ( 6 ),  xloc.bar_time, yloc.price, color_none, label.style_label_left, f_lbl_dyn_txt_color ( f_tc ( 6 ) ),  i_lbl_txt_size, i_lbl_txt_align, label_tt_text ) : label ( na )
+label8      = f_labelConD ( 7 ) ?   label.new ( label_X_Loc, label_Y_Loc, f_lbl_dyn_txt ( 7 ),  xloc.bar_time, yloc.price, color_none, label.style_label_left, f_lbl_dyn_txt_color ( f_tc ( 7 ) ),  i_lbl_txt_size, i_lbl_txt_align, label_tt_text ) : label ( na )
+label9      = f_labelConD ( 8 ) ?   label.new ( label_X_Loc, label_Y_Loc, f_lbl_dyn_txt ( 8 ),  xloc.bar_time, yloc.price, color_none, label.style_label_left, f_lbl_dyn_txt_color ( f_tc ( 8 ) ),  i_lbl_txt_size, i_lbl_txt_align, label_tt_text ) : label ( na )
+label10     = f_labelConD ( 9 ) ?   label.new ( label_X_Loc, label_Y_Loc, f_lbl_dyn_txt ( 9 ),  xloc.bar_time, yloc.price, color_none, label.style_label_left, f_lbl_dyn_txt_color ( f_tc ( 9 ) ),  i_lbl_txt_size, i_lbl_txt_align, label_tt_text ) : label ( na )
+
+
+// Delete Previous Labels
+label.delete ( label1[1] )
+label.delete ( label2[1] )
+label.delete ( label3[1] )
+label.delete ( label4[1] )
+label.delete ( label5[1] )
+label.delete ( label6[1] )
+label.delete ( label7[1] )
+label.delete ( label8[1] )
+label.delete ( label9[1] )
+label.delete ( label10[1] )
+
+
+
+
+
+/////////////////////////////////////////////////////////////////////////////////
+// Alerts and Plotshapes
+
+
+longCondition  = confirm ? bar_is_confirmed and array.get ( masterStates, 0 ) ==  1 : array.get ( masterStates, 0 ) ==  1
+shortCondition = confirm ? bar_is_confirmed and array.get ( masterStates, 0 ) == -1 : array.get ( masterStates, 0 ) == -1
+
+varip str_lngSignal = str_buy  + str_spc + str_signal
+varip str_shtSignal = str_sell + str_spc + str_signal
+
+alertcondition ( longCondition,   title = str_potato + str_spc + str_lngSignal, message = str_potato + str_spc + str_lngSignal + ' on {{ticker}} {{interval}} at {{close}}' )
+alertcondition ( shortCondition,  title = str_potato + str_spc + str_shtSignal, message = str_potato + str_spc + str_shtSignal + ' on {{ticker}} {{interval}} at {{close}}' )
+
+plotshape ( longCondition  and displayOpts == str_orig,       title = str_lngSignal + " (" + str_orig + ")",        text = "buy",   textcolor = userText,   style = userShapeUp,    size = size.small, location = location.belowbar, color = userGreen )
+plotshape ( shortCondition and displayOpts == str_orig,       title = str_shtSignal + " (" + str_orig + ")",        text = "sell",  textcolor = userText,   style = userShapeDown,  size = size.small, location = location.abovebar, color = userRed )
+
+plotshape ( longCondition  and displayOpts == str_potatoIcn,  title = str_lngSignal + " (" + str_potatoIcn + ")",   text = "🥔",    textcolor = userText,   style = userShapeUp,    size = size.small, location = location.belowbar, color = userGreen )
+plotshape ( shortCondition and displayOpts == str_potatoIcn,  title = str_shtSignal + " (" + str_potatoIcn + ")",   text = "🥔",    textcolor = userText,   style = userShapeDown,  size = size.small, location = location.abovebar, color = userRed )
+
+plotshape ( longCondition  and displayOpts == str_arw,        title = str_lngSignal + " (" + str_arw + ")",         text = "↑",     textcolor = userText,   style = userShapeUp,    size = size.small, location = location.belowbar, color = userGreen )
+plotshape ( shortCondition and displayOpts == str_arw,        title = str_shtSignal + " (" + str_arw + ")",         text = "↓",     textcolor = userText,   style = userShapeDown,  size = size.small, location = location.abovebar, color = userRed )
+
+plotshape ( longCondition  and displayOpts == str_colArw,     title = str_lngSignal + " (" + str_colArw + ")",      text = "↑",     textcolor = userGreen,  style = userShapeUp,    size = size.small, location = location.belowbar, color = color_none )
+plotshape ( shortCondition and displayOpts == str_colArw,     title = str_shtSignal + " (" + str_colArw + ")",      text = "↓",     textcolor = userRed,    style = userShapeDown,  size = size.small, location = location.abovebar, color = color_none )
+
+plotshape ( longCondition  and displayOpts == str_lngsht,     title = str_lngSignal + " (" + str_lngsht + ")",      text = "L",     textcolor = userText,   style = userShapeUp,    size = size.small, location = location.belowbar, color = userGreen )
+plotshape ( shortCondition and displayOpts == str_lngsht,     title = str_shtSignal + " (" + str_lngsht + ")",      text = "S",     textcolor = userText,   style = userShapeDown,  size = size.small, location = location.abovebar, color = userRed )
+
+plotshape ( longCondition  and displayOpts == str_lrgIcn,     title = str_lngSignal + " (" + str_lrgIcn + ")",                                              style = userShapeUp,    size = size.small, location = location.belowbar, color = userGreen )
+plotshape ( shortCondition and displayOpts == str_lrgIcn,     title = str_shtSignal + " (" + str_lrgIcn + ")",                                              style = userShapeDown,  size = size.small, location = location.abovebar, color = userRed )
+
+plotshape ( longCondition  and displayOpts == str_smlIcn,     title = str_lngSignal + " (" + str_smlIcn + ")",                                              style = userShapeUp,    size = size.tiny,  location = location.belowbar, color = userGreen )
+plotshape ( shortCondition and displayOpts == str_smlIcn,     title = str_shtSignal + " (" + str_smlIcn + ")",                                              style = userShapeDown,  size = size.tiny,  location = location.abovebar, color = userRed )
+
+
+
+
+
+/////////////////////////////////////////////////////////////////////////////////
+// BOLLINGER BAND plots
+
+BB_offset = input ( 0, "BB - Offset", input.integer, minval = -500, maxval = 500, group = groupBB )
+
+plot       ( showBB ? BB_basis : na, "Basis", color = #872323,    offset = BB_offset )
+bb1 = plot ( showBB ? BB_upper : na, "Upper", color = color.teal, offset = BB_offset )
+bb2 = plot ( showBB ? BB_lower : na, "Lower", color = color.teal, offset = BB_offset )
+fill       ( bb1, bb2, #198787, 95, "Background" )
+
+
+
+
+
+/////////////////////////////////////////////////////////////////////////////////
+// POTATO EMAS plots
+
+plot ( showEMA ? ema1 : na, "EMA 1", #FFFF00, 1 )
+plot ( showEMA ? ema2 : na, "EMA 2", #FF84D0, 1 )
+plot ( showEMA ? ema3 : na, "EMA 3", #9700FF, 1 )
+
+
+
+
+
+/////////////////////////////////////////////////////////////////////////////////
+// MOVING AVERAGES plots
+
+[ ma1, ma2, ma3, ma4, ma5, ma6 ] = security ( syminfo.tickerid, MA_tf, [ f_wave_calc ( close, ma_input3, ma_input3calc ), f_wave_calc ( close, ma_input4, ma_input4calc ), f_wave_calc ( close, ma_input5, ma_input5calc ), f_wave_calc ( close, ma_input6, ma_input6calc ), f_wave_calc ( close, ma_input7, ma_input7calc ), f_wave_calc ( close, ma_input8, ma_input8calc ) ] )
+
+plot ( showMA ? ma1 : na, "Moving Average 1", color = color.gray )
+plot ( showMA ? ma2 : na, "Moving Average 2", color = color.teal )
+plot ( showMA ? ma3 : na, "Moving Average 3", color = color.purple )
+plot ( showMA ? ma4 : na, "Moving Average 4", color = color.yellow )
+plot ( showMA ? ma5 : na, "Moving Average 5", color = color.orange )
+plot ( showMA ? ma6 : na, "Moving Average 6", color = color.green )
+
+varip MA_tf_mins        = f_convert_to_minutes ( MA_tf == "" or MA_tf == timeframe.period ? timeframe.period : MA_tf )
+[ MA_tf_h, MA_tf_m ]    = f_convert_minutes_to_hours ( MA_tf, MA_tf_mins )
+varip MA_tf_string      = MA_tf_h + MA_tf_m
+
+
+// HELPER FUNCTION: Hover mouse cursor over label to see % increase or decrease
+//                  required for price to match or cross the line
+f_ma_label_percent ( number ) =>
+    raw     = ( ( number - close ) / close ) * 100
+    return  = f_add_sign ( raw, f_osc_as_text ( raw, false, 2 ) ) + " %"
+
+
+// FUNCTION: Return the Moving Average price, optionally appending ' K ' if >1000
+f_ma_label_price ( number ) =>
+    return      = string ( na )
+    if i_ma_lbl_k_val and label_tt_price >= 1000
+        return := f_osc_as_text ( number / 1000, false,  1 ) + "k"
+    else
+        return := f_osc_as_text ( number,        false, -1 )
+    return
+
+
+// FUNCTION: Convert the Moving Average into readable label text
+f_ma_label_text ( enable_output, ma, length ) =>
+    return1             = string ( na )
+    return2             = string ( na )
+    if enable_output
+        label_price_text    = f_ma_label_price ( ma )
+        label_percent_text  = f_ma_label_percent ( ma )
+        if MA_tf_mins > 1440 or na ( tonumber ( MA_tf ) )
+            return1 := tostring ( length ) + str_spc + MA_tf
+            if MA_tf == "D" or MA_tf == "1D"
+                if ( length % 30 ) == 0
+                    return1 := tostring ( length / 30 ) + " M"
+                else if ( length % 7 ) == 0
+                    return1 := tostring ( length / 7 ) + " W"
+                else
+                    return1 := tostring ( length ) + " D"
+            else if MA_tf == "W" or MA_tf == "1W"
+                if ( length % 4 ) == 0
+                    return1 := tostring ( length / 4 ) + " M"
+        else
+            return1 := MA_tf_string
+        if i_ma_lbl_length
+            return2 := return1
+        if i_ma_lbl_price
+            if not na ( return2 ) or return2 != ""
+                return2 += "\n"
+            return2 += label_price_text
+        if i_ma_lbl_percent
+            if not na ( return2 ) or return2 != ""
+                return2 += "\n"
+            return2 += label_percent_text
+        return1 += "\n" + label_price_text + "\n" + label_percent_text
+    [ return1, return2 ]
+
+
+varip enable_ma1_label = showMALabels and ma_input3calc != str_none
+varip enable_ma2_label = showMALabels and ma_input4calc != str_none
+varip enable_ma3_label = showMALabels and ma_input5calc != str_none
+varip enable_ma4_label = showMALabels and ma_input6calc != str_none
+varip enable_ma5_label = showMALabels and ma_input7calc != str_none
+varip enable_ma6_label = showMALabels and ma_input8calc != str_none
+
+
+    
+[ ma_label1_tt, ma_label1_text ] = f_ma_label_text ( enable_ma1_label, ma1, ma_input3 )
+ma_label1       = enable_ma1_label ? label.new ( ma_label_X_Loc, ma1 * ma_label_Y_Loc, ma_label1_text,  xloc.bar_time, yloc.price, i_ma_lbl_col_bg, i_ma_lbl_arrow, i_ma_lbl_txt_color, i_ma_lbl_txt_size, text.align_center, ma_label1_tt ) : label ( na )
+label.delete    ( ma_label1[1] )
+
+[ ma_label2_tt, ma_label2_text ] = f_ma_label_text ( enable_ma2_label, ma2, ma_input4 )
+ma_label2       = enable_ma2_label ? label.new ( ma_label_X_Loc, ma2 * ma_label_Y_Loc, ma_label2_text,  xloc.bar_time, yloc.price, i_ma_lbl_col_bg, i_ma_lbl_arrow, i_ma_lbl_txt_color, i_ma_lbl_txt_size, text.align_center, ma_label2_tt ) : label ( na )
+label.delete    ( ma_label2[1] )
+
+[ ma_label3_tt, ma_label3_text ] = f_ma_label_text ( enable_ma3_label, ma3, ma_input5 )
+ma_label3       = enable_ma3_label ? label.new ( ma_label_X_Loc, ma3 * ma_label_Y_Loc, ma_label3_text,  xloc.bar_time, yloc.price, i_ma_lbl_col_bg, i_ma_lbl_arrow, i_ma_lbl_txt_color, i_ma_lbl_txt_size, text.align_center, ma_label3_tt ) : label ( na )
+label.delete    ( ma_label3[1] )
+
+[ ma_label4_tt, ma_label4_text ] = f_ma_label_text ( enable_ma4_label, ma4, ma_input6 )
+ma_label4       = enable_ma4_label ? label.new ( ma_label_X_Loc, ma4 * ma_label_Y_Loc, ma_label4_text,  xloc.bar_time, yloc.price, i_ma_lbl_col_bg, i_ma_lbl_arrow, i_ma_lbl_txt_color, i_ma_lbl_txt_size, text.align_center, ma_label4_tt ) : label ( na )
+label.delete    ( ma_label4[1] )
+
+[ ma_label5_tt, ma_label5_text ] = f_ma_label_text ( enable_ma5_label, ma5, ma_input7 )
+ma_label5       = enable_ma5_label ? label.new ( ma_label_X_Loc, ma5 * ma_label_Y_Loc, ma_label5_text,  xloc.bar_time, yloc.price, i_ma_lbl_col_bg, i_ma_lbl_arrow, i_ma_lbl_txt_color, i_ma_lbl_txt_size, text.align_center, ma_label5_tt ) : label ( na )
+label.delete    ( ma_label5[1] )
+
+[ ma_label6_tt, ma_label6_text ] = f_ma_label_text ( enable_ma6_label, ma6, ma_input8 )
+ma_label6       = enable_ma6_label ? label.new ( ma_label_X_Loc, ma6 * ma_label_Y_Loc, ma_label6_text,  xloc.bar_time, yloc.price, i_ma_lbl_col_bg, i_ma_lbl_arrow, i_ma_lbl_txt_color, i_ma_lbl_txt_size, text.align_center, ma_label6_tt ) : label ( na )
+label.delete    ( ma_label6[1] )
+
+
+
+
+
+
+
+
+
+
+/////////////////////////////////////////////////////////////////////////////////
+// end
+// (c) Trendespresso, 2021
+
+

@@ -1,0 +1,2294 @@
+//+------------------------------------------------------------------+
+//|                                                      ProjectName |
+//|                                      Copyright 2020, CompanyName |
+//|                                       http://www.companyname.net |
+//+------------------------------------------------------------------+
+#property copyright "Copyright © 2025, [kingdom financier]"
+#property link      "https://t.me/AlisterFx/"
+#property version   "1.00"
+#property description "\n\nMaverick EA"
+#property description "\n____________"
+#property description "\nHedging System"
+#property description "\nMain and Recovery Trades"
+//+------------------------------------------------------------------+
+//| Expert Advisor: MAVERICK                                         |
+//| Description: MT5 Hedge EA with main and recovery trades          |
+//| Version: 1.2 (with daily trade limits and next-day reset)        |
+//| Version: 1.3 chart displays        |
+//| Author: [Your Name]                                              |
+//+------------------------------------------------------------------+
+/*
+FEEDBACK ON 12-03-2025 WEDNESDAY
+https://www.notion.so/PROJECT-MAVERICK-EA-1b449e5416708052ae38fb0fcd7b0022?pvs=4
+*/
+//https://www.notion.so/MAVERICK-EA-1a220ee99bc280909117c8f6175abcc8?pvs=4
+#include <Trade/Trade.mqh>
+CTrade trade;
+//--------------------------------------------------//
+//               INPUT PARAMETERS
+//--------------------------------------------------//
+input group "Main Trade Settings"
+input double   InpLotSize = 0.2;                 // Lot Size for Main Trade
+input int      InpSLPointsMain = 250000;          // SL Points (Main Trade)
+input int      InpTPPointsMain = 1000000;         // TP Points (Main Trade)
+input string   InpTradeTime = "00:00";            // Main Trade Entry Time (HH:MM)
+ushort         InpTrailingFrequency = 6;          // Trailing, in seconds (< "10" -> only on a new bar)
+datetime       m_last_trailing            = 0;        // "0" -> D'1970.01.01 00:00';
+
+// NEW: Trailing 2 inputs for Main Trade
+input int      InpTrail2TriggerMain = 500000;  // Points to move before second trailing (was hard-coded 500000)
+input int      InpTrail2OffsetMain  = 250000;  // Points to move SL above/below entry after the trigger (was 250000)
+input int      InpMagicMain = 7777777;             // Magic Number (Main Trade)
+
+
+input group "Recovery Trade Settings"
+   input bool     UseRecoveryTrade        = true;     // Turn recovery trades on/off
+   input double   InpLotSizeRecovery      = 0.4;     // Lot Size for Recovery Trade
+   input int      InpSLPointsRecovery     = 500000;   // SL Points (Recovery Trade)
+   input int      InpTPPointsRecovery     = 1000000;  // TP Points (Recovery Trade)
+   input int      InpMagicRecovery        = 8888888;   // Magic Number (Recovery Trade)
+   int            InpTrail2TriggerRecovery = InpSLPointsRecovery;  // Points profit before moving recovery SL to entry
+   bool           InpEnableDebug        = true;     // Enable detailed debug output
+
+input group "Other"
+   // Add this input parameter
+   input int      UpdateFrequency = 1000; // Dashboard update frequency in milliseconds
+
+
+//--------------------------------------------------//
+//               GLOBAL VARIABLES
+//--------------------------------------------------//
+bool recoveryTradeActive = true;   // Flag to track if a recovery trade is active
+datetime mainTradeOpenTime = 0;     // Time when main trade was opened
+double adjustedLotSize = 0;         // Adjusted lot size for Main
+double adjustedLotSizeRecovery = 0; // Adjusted lot size for Recovery
+
+// Breakeven tracking variables
+bool BUY_BREAKEVEN_SET = false;    // Flag to track if breakeven has been set for buy position
+bool SELL_BREAKEVEN_SET = false;   // Flag to track if breakeven has been set for sell position
+
+// New daily tracking variables
+datetime currentTradeDate = 0;      // Current trading day date
+bool recoveryUsedToday = false;     // Flag to track if recovery trade used today
+bool dailyTradingEnded = false;     // Flag to indicate if trading ended for the day
+double dailyCumulativeProfit = 0.0; // Track daily P/L
+bool skipRecovery = false;
+
+// New global variables for chart display
+string infoLabelPrefix = "MAVERICK_";     // Prefix for chart objects
+bool InpIsLogging=true; // Verbose information for ontradetrans
+/*
+#include "includes/_tradetrans.mqh"
+*/
+
+// Add this after other global variables
+string tradingDayLineName = "MAVERICK_TRADING_DAY_LINE";  // Name for the vertical line
+
+// Add this to your global variables section
+string currentTradeGuid = "";  // Stores the current trade pair's GUID
+
+
+// Define a structure to hold trade information
+//20250310
+struct TradeInfo
+  {
+   double            profit;    // Profit or loss in dollars
+   datetime          time;    // Time the trade was closed
+  };
+TradeInfo lastFiveTrades[5]; // Array to store the last 5 closed trades
+double totalRealizedProfit = 0.0; // Total profit from all closed trades
+
+// Add this global variable to track combined trade results
+struct TradeResultPair
+  {
+   string            guid;          // Trade pair GUID
+   bool              buyHitSL;        // Whether the buy position hit stop loss
+   bool              sellHitSL;       // Whether the sell position hit stop loss
+   double            buyProfit;     // Profit from buy position
+   double            sellProfit;    // Profit from sell position
+   double            totalProfit;   // Combined profit
+  };
+TradeResultPair lastClosedPair; // Stores the most recently closed trade pair
+
+// Define a small threshold for what we consider "breakeven" to account for spreads
+input double BreakevenThreshold = -5.0; // Maximum allowed negative result to still consider as breakeven
+// Add tracked positions struct for trailing stop management
+struct TrackedPosition {
+    ulong ticket;           // Position ticket
+    string guid;            // Position GUID
+    double trailedSL;       // The updated SL value after trailing
+    bool slTriggered;       // Whether the SL has been hit
+    bool blockRecovery;     // Flag to block recovery for this hedge set
+    bool priceBelowEntry;   // Flag to track if price has gone below entry (for buy)
+    bool priceAboveEntry;   // Flag to track if price has gone above entry (for sell)
+    bool recoveryOpened;    // Flag to track if a recovery has been opened for this position
+};
+TrackedPosition trackedPositions[];  // Array to store tracked positions
+// Add this function to check if a trade pair closed at effective breakeven
+bool IsPairAtEffectiveBreakeven(double totalProfit)
+  {
+// Consider the pair at breakeven if the total profit is above the threshold
+   return totalProfit >= BreakevenThreshold;
+  }
+
+//--- check the expectation of transaction
+#define IS_TRANSACTION_ORDER_PLACED            (trans.type == TRADE_TRANSACTION_REQUEST && request.action == TRADE_ACTION_PENDING && OrderSelect(result.order) && (ENUM_ORDER_STATE)OrderGetInteger(ORDER_STATE) == ORDER_STATE_PLACED)
+#define IS_TRANSACTION_ORDER_MODIFIED          (trans.type == TRADE_TRANSACTION_REQUEST && request.action == TRADE_ACTION_MODIFY && OrderSelect(result.order) && (ENUM_ORDER_STATE)OrderGetInteger(ORDER_STATE) == ORDER_STATE_PLACED)
+#define IS_TRANSACTION_ORDER_DELETED           (trans.type == TRADE_TRANSACTION_HISTORY_ADD && (trans.order_type >= 2 && trans.order_type < 6) && trans.order_state == ORDER_STATE_CANCELED)
+#define IS_TRANSACTION_ORDER_EXPIRED           (trans.type == TRADE_TRANSACTION_HISTORY_ADD && (trans.order_type >= 2 && trans.order_type < 6) && trans.order_state == ORDER_STATE_EXPIRED)
+#define IS_TRANSACTION_ORDER_TRIGGERED         (trans.type == TRADE_TRANSACTION_HISTORY_ADD && (trans.order_type >= 2 && trans.order_type < 6) && trans.order_state == ORDER_STATE_FILLED)
+
+#define IS_TRANSACTION_POSITION_OPENED         (trans.type == TRADE_TRANSACTION_DEAL_ADD && HistoryDealSelect(trans.deal) && (ENUM_DEAL_ENTRY)HistoryDealGetInteger(trans.deal, DEAL_ENTRY) == DEAL_ENTRY_IN)
+#define IS_TRANSACTION_POSITION_STOP_TAKE      (trans.type == TRADE_TRANSACTION_DEAL_ADD && HistoryDealSelect(trans.deal) && (ENUM_DEAL_ENTRY)HistoryDealGetInteger(trans.deal, DEAL_ENTRY) == DEAL_ENTRY_OUT && ((ENUM_DEAL_REASON)HistoryDealGetInteger(trans.deal, DEAL_REASON) == DEAL_REASON_SL || (ENUM_DEAL_REASON)HistoryDealGetInteger(trans.deal, DEAL_REASON) == DEAL_REASON_TP))
+#define IS_TRANSACTION_POSITION_CLOSED         (trans.type == TRADE_TRANSACTION_DEAL_ADD && HistoryDealSelect(trans.deal) && (ENUM_DEAL_ENTRY)HistoryDealGetInteger(trans.deal, DEAL_ENTRY) == DEAL_ENTRY_OUT && ((ENUM_DEAL_REASON)HistoryDealGetInteger(trans.deal, DEAL_REASON) != DEAL_REASON_SL && (ENUM_DEAL_REASON)HistoryDealGetInteger(trans.deal, DEAL_REASON) != DEAL_REASON_TP))
+#define IS_TRANSACTION_POSITION_CLOSEBY        (trans.type == TRADE_TRANSACTION_DEAL_ADD && HistoryDealSelect(trans.deal) && (ENUM_DEAL_ENTRY)HistoryDealGetInteger(trans.deal, DEAL_ENTRY) == DEAL_ENTRY_OUT_BY)
+#define IS_TRANSACTION_POSITION_MODIFIED       (trans.type == TRADE_TRANSACTION_REQUEST && request.action == TRADE_ACTION_SLTP)
+//+------------------------------------------------------------------+
+//| Class CTradeTransaction.                                         |
+//| Purpose: Base class for trade transactions.                      |
+//+------------------------------------------------------------------+
+class CTradeTransaction
+  {
+public:
+                     CTradeTransaction(void)  {   }
+                    ~CTradeTransaction(void)  {   }
+   //--- event handler
+   void              OnTradeTransaction(const MqlTradeTransaction &trans,
+                                        const MqlTradeRequest &request,
+                                        const MqlTradeResult &result);
+protected:
+   //--- trade transactions
+   //--- these methods should be overridden in the derived class
+   virtual void      TradeTransactionOrderPlaced(ulong order)                      {   }
+   virtual void      TradeTransactionOrderModified(ulong order)                    {   }
+   virtual void      TradeTransactionOrderDeleted(ulong order)                     {   }
+   virtual void      TradeTransactionOrderExpired(ulong order)                     {   }
+   virtual void      TradeTransactionOrderTriggered(ulong order)                   {   }
+
+   virtual void      TradeTransactionPositionOpened(ulong position, ulong deal)    {   }
+   virtual void      TradeTransactionPositionStopTake(ulong position, ulong deal)  {   }
+   virtual void      TradeTransactionPositionClosed(ulong position, ulong deal)    {   }
+   virtual void      TradeTransactionPositionCloseBy(ulong position, ulong deal)   {   }
+   virtual void      TradeTransactionPositionModified(ulong position)              {   }
+  };
+//+------------------------------------------------------------------+
+//| Method of verification of trade transactions.                    |
+//+------------------------------------------------------------------+
+void CTradeTransaction::OnTradeTransaction(const MqlTradeTransaction &trans,
+      const MqlTradeRequest &request,
+      const MqlTradeResult &result)
+  {
+//---
+   //Print("=============================");
+   //Print("Classlevel OnTradeTransaction");
+   if(InpIsLogging)
+     {
+      if(trans.type!=TRADE_TRANSACTION_REQUEST)
+        {
+         // //--- displays information on transactions
+         // if(InpEnableDebug)
+         //    Print("---===Transaction===---");
+         // string desc="Type: "+EnumToString(trans.type)+"\n";
+         // desc += "Symbol: " + trans.symbol + "\n";
+         // desc += "Deal ticket: " + (string)trans.deal + "\n";
+         // desc += "Deal type: " + EnumToString(trans.deal_type) + "\n";
+         // desc += "Order ticket: " + (string)trans.order + "\n";
+         // desc += "Order type: " + EnumToString(trans.order_type) + "\n";
+         // desc += "Order state: " + EnumToString(trans.order_state) + "\n";
+         // desc += "Order time type: " + EnumToString(trans.time_type) + "\n";
+         // desc += "Order expiration: " + TimeToString(trans.time_expiration) + "\n";
+         // desc += "Price: " + StringFormat("%G", trans.price) + "\n";
+         // desc += "Price trigger: " + StringFormat("%G", trans.price_trigger) + "\n";
+         // desc += "Stop Loss: " + StringFormat("%G", trans.price_sl) + "\n";
+         // desc += "Take Profit: " + StringFormat("%G", trans.price_tp) + "\n";
+         // desc += "Volume: " + StringFormat("%G", trans.volume) + "\n";
+         // desc += "Position: " + (string)trans.position + "\n";
+         // desc += "Position by: " + (string)trans.position_by + "\n";
+         // if(InpEnableDebug)
+         //    Print(desc);
+        }
+      //--- if a request has been processed by server
+      if(trans.type==TRADE_TRANSACTION_REQUEST)
+        {
+         // //--- displays type of transaction
+         // if(InpEnableDebug)
+         //    Print("---===Transaction===---");
+         // string desc="Type: "+EnumToString(trans.type)+"\n";
+         // if(InpEnableDebug)
+         //    Print(desc);
+         // //--- displays information on the request
+         // if(InpEnableDebug)
+         //    Print("---===Request===---");
+         // desc="Action: "+EnumToString(request.action)+"\n";
+         // desc += "Symbol: " + request.symbol + "\n";
+         // desc += "Magic Number: " + StringFormat("%d", request.magic) + "\n";
+         // desc += "Order ticket: " + (string)request.order + "\n";
+         // desc += "Order type: " + EnumToString(request.type) + "\n";
+         // desc += "Order filling: " + EnumToString(request.type_filling) + "\n";
+         // desc += "Order time type: " + EnumToString(request.type_time) + "\n";
+         // desc += "Order expiration: " + TimeToString(request.expiration) + "\n";
+         // desc += "Price: " + StringFormat("%G", request.price) + "\n";
+         // desc += "Deviation points: " + StringFormat("%G", request.deviation) + "\n";
+         // desc += "Stop Loss: " + StringFormat("%G", request.sl) + "\n";
+         // desc += "Take Profit: " + StringFormat("%G", request.tp) + "\n";
+         // desc += "Stop Limit: " + StringFormat("%G", request.stoplimit) + "\n";
+         // desc += "Volume: " + StringFormat("%G", request.volume) + "\n";
+         // desc += "Comment: " + request.comment + "\n";
+         // desc += "Position: " + (string)request.position + "\n";
+         // desc += "Position by: " + (string)request.position_by + "\n";
+         // if(InpEnableDebug)
+         //    Print(desc);
+         //--- displays information about result
+         // if(InpEnableDebug)
+         //    Print("---===Result===---");
+         // desc="Retcode: "+(string)result.retcode+"\n";
+         // desc += "Order ticket: " + (string)result.order + "\n";
+         // desc += "Deal ticket: " + (string)result.deal + "\n";
+         // desc += "Volume: " + StringFormat("%G", result.volume) + "\n";
+         // desc += "Price: " + StringFormat("%G", result.price) + "\n";
+         // desc += "Bid: " + StringFormat("%G", result.bid) + "\n";
+         // desc += "Ask: " + StringFormat("%G", result.ask) + "\n";
+         // desc += "Comment: " + result.comment + "\n";
+         // desc += "Request ID: " + StringFormat("%d", result.request_id) + "\n";
+         // desc += "Retcode external: " + (string)result.retcode_external + "\n";
+         // if(InpEnableDebug)
+         //    Print(desc);
+        }
+     }
+//---
+   if(IS_TRANSACTION_ORDER_PLACED)
+      TradeTransactionOrderPlaced(result.order);
+   else
+      if(IS_TRANSACTION_ORDER_MODIFIED)
+         TradeTransactionOrderModified(result.order);
+      else
+         if(IS_TRANSACTION_ORDER_DELETED)
+            TradeTransactionOrderDeleted(trans.order);
+         else
+            if(IS_TRANSACTION_ORDER_EXPIRED)
+               TradeTransactionOrderExpired(trans.order);
+            else
+               if(IS_TRANSACTION_ORDER_TRIGGERED)
+                  TradeTransactionOrderTriggered(trans.order);
+               else
+                  if(IS_TRANSACTION_POSITION_OPENED)
+                     TradeTransactionPositionOpened(trans.position,trans.deal);
+                  else
+                     if(IS_TRANSACTION_POSITION_STOP_TAKE)
+                        TradeTransactionPositionStopTake(trans.position,trans.deal);
+                     else
+                        if(IS_TRANSACTION_POSITION_CLOSED)
+                           TradeTransactionPositionClosed(trans.position,trans.deal);
+                        else
+                           if(IS_TRANSACTION_POSITION_CLOSEBY)
+                              TradeTransactionPositionCloseBy(trans.position,trans.deal);
+                           else
+                              if(IS_TRANSACTION_POSITION_MODIFIED)
+                                 TradeTransactionPositionModified(request.position);
+  }
+
+// Define a function pointer type for our callback
+typedef void (*OnStopLossHitCallback)(int magicNumber);
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+class CExtTransaction : public CTradeTransaction
+  {
+protected:
+   // Add a callback member
+   OnStopLossHitCallback m_onStopLossHitCallback;
+
+public:
+   // Constructor - initialize callback to NULL
+                     CExtTransaction() : m_onStopLossHitCallback(NULL) {}
+
+   // Method to set the callback function
+   void              SetStopLossCallback(OnStopLossHitCallback callback)
+     {
+      m_onStopLossHitCallback = callback;
+     }
+
+protected:
+   //--- trade transactions
+   virtual void      TradeTransactionOrderPlaced(ulong order)
+     {
+      //if(OrderGetInteger(ORDER_MAGIC) == EAMAGIC) {
+      //   PrintFormat("Pending order is placed. (order %I64u)", order);
+      //}
+      if(OrderGetInteger(ORDER_MAGIC) == InpMagicMain)
+        {
+         PrintFormat("Pending order is placed. (order %I64u)", order);
+        }
+      if(OrderGetInteger(ORDER_MAGIC) == InpMagicRecovery)
+        {
+         PrintFormat("Pending order (recovery)is placed. (order %I64u)", order);
+        }
+     }
+   //+------------------------------------------------------------------+
+   //|                                                                  |
+   //+------------------------------------------------------------------+
+   virtual void      TradeTransactionOrderModified(ulong order)
+     {
+      //if(OrderGetInteger(ORDER_MAGIC) == EAMAGIC) {
+      //   PrintFormat("Pending order is modified. (order %I64u)", order);
+      //}
+      if(OrderGetInteger(ORDER_MAGIC) == InpMagicMain)
+        {
+         if(InpEnableDebug)
+            PrintFormat("Pending order (main) is modified. (order %I64u)", order);
+        }
+      if(OrderGetInteger(ORDER_MAGIC) == InpMagicRecovery)
+        {
+         if(InpEnableDebug)
+            PrintFormat("Pending order (recovery) is modified. (order %I64u)", order);
+        }
+     }
+   //+------------------------------------------------------------------+
+   //|                                                                  |
+   //+------------------------------------------------------------------+
+   virtual void      TradeTransactionOrderDeleted(ulong order)
+     {
+      if(InpEnableDebug)
+         PrintFormat("Pending order is deleted. (order %I64u)", order);
+     }
+   //+------------------------------------------------------------------+
+   //|                                                                  |
+   //+------------------------------------------------------------------+
+   virtual void      TradeTransactionOrderExpired(ulong order)
+     {
+      if(InpEnableDebug)
+         PrintFormat("Pending order is expired. (order %I64u)", order);
+     }
+   //+------------------------------------------------------------------+
+   //|                                                                  |
+   //+------------------------------------------------------------------+
+   virtual void      TradeTransactionOrderTriggered(ulong order)
+     {
+      if(OrderSelect(order))
+        {
+         ENUM_ORDER_TYPE order_type = (ENUM_ORDER_TYPE)OrderGetInteger(ORDER_TYPE);
+         if(order_type == ORDER_TYPE_BUY_STOP || order_type == ORDER_TYPE_SELL_STOP)
+           {
+            string order_type_str = (order_type == ORDER_TYPE_BUY_STOP) ? "BUY STOP" : "SELL STOP";
+            if(InpEnableDebug)
+               PrintFormat("STOP order triggered. (order %I64u, type: %s)", order, order_type_str);
+            // Add your specific logic for STOP orders here
+            // For example:
+            if(order_type == ORDER_TYPE_BUY_STOP)
+              {
+               // Logic for triggered BUY STOP order
+              }
+            else   // SELL STOP
+              {
+               // Logic for triggered SELL STOP order
+              }
+           }
+         else
+           {
+            // Optional: handle other order types or ignore them
+            if(InpEnableDebug)
+               PrintFormat("Non-STOP order triggered. (order %I64u, type: %s)", order, EnumToString(order_type));
+           }
+        }
+      else
+        {
+         if(InpEnableDebug)
+            Print("Failed to select order for details");
+        }
+     }
+
+   //+------------------------------------------------------------------+
+   //|                                                                  |
+   //+------------------------------------------------------------------+
+   virtual void      TradeTransactionPositionOpened(ulong position, ulong deal)
+     {
+      //if(HistoryDealGetInteger(deal, DEAL_MAGIC) == EAMAGIC) {
+      //   PrintFormat("Position is opened. (position %I64u, deal %I64u)", position, deal);
+      //}
+      if(HistoryDealGetInteger(deal, DEAL_MAGIC) == InpMagicMain)
+        {
+         if(InpEnableDebug)
+            PrintFormat("Position (main) is opened. (position %I64u, deal %I64u)", position, deal);
+        }
+      if(HistoryDealGetInteger(deal, DEAL_MAGIC) == InpMagicRecovery)
+        {
+         if(InpEnableDebug)
+            PrintFormat("Position (recovery) is opened. (position %I64u, deal %I64u)", position, deal);
+        }
+     }
+   //+------------------------------------------------------------------+
+   //|                                                                  |
+   //+------------------------------------------------------------------+
+   virtual void      TradeTransactionPositionStopTake(ulong position, ulong deal)
+     {
+      // Print("=============================");
+      // Print("                      TradeTransactionPositionStopTake");
+      // Print("=============================");
+      ENUM_DEAL_REASON closeReason = (ENUM_DEAL_REASON)HistoryDealGetInteger(deal, DEAL_REASON);
+      int magic = (int)HistoryDealGetInteger(deal, DEAL_MAGIC);
+      //Print("closeReason=", closeReason);
+      if(magic == InpMagicMain)
+        {
+         //Print("magic == InpMagicMain");
+         // if(closeReason == DEAL_REASON_SL)
+         //   {
+         //    Print("closeReason == DEAL_REASON_SL");
+         //    // Get the comment from the deal history instead of the position
+         //    string dealComment = HistoryDealGetString(deal, DEAL_COMMENT);
+         //    Print("dealComment=", dealComment);
+         //    // Extract GUID from position comment
+         //    string guid = "";
+         //    if(StringSubstr(dealComment, 0, 1) == "B")
+         //       guid = StringSubstr(dealComment, 1);
+         //    else
+         //       if(StringSubstr(dealComment, 0, 1) == "S")
+         //          guid = StringSubstr(dealComment, 1);
+         //    if(guid != "")
+         //      {
+         //       // Update lastClosedPair based on position type
+         //       lastClosedPair.guid = guid;
+         //       if(StringSubstr(dealComment, 0, 1) == "B")
+         //         {
+         //          lastClosedPair.buyHitSL = true;
+         //          // Get position profit
+         //          lastClosedPair.buyProfit = PositionGetDouble(POSITION_PROFIT);
+         //         }
+         //       else
+         //          if(StringSubstr(dealComment, 0, 1) == "S")
+         //            {
+         //             lastClosedPair.sellHitSL = true;
+         //             // Get position profit
+         //             lastClosedPair.sellProfit = PositionGetDouble(POSITION_PROFIT);
+         //            }
+         //       if(InpEnableDebug)
+         //          PrintFormat("Position (main) hit STOP LOSS. Position: %I64u, Comment: %s, GUID: %s",
+         //                      position, dealComment, guid);
+         //      }
+         //   }
+         if(closeReason == DEAL_REASON_SL)
+           {
+            //Print("closeReason == DEAL_REASON_SL");
+            // Get the position ticket that was closed
+            ulong positionTicket = HistoryDealGetInteger(deal, DEAL_POSITION_ID);
+            Print("Position ticket that was closed: ", positionTicket);
+            // Select the order that closed the position
+            ulong orderTicket = HistoryDealGetInteger(deal, DEAL_ORDER);
+            if(HistoryOrderSelect(orderTicket))
+              {
+               // Get the original position's comment
+               string positionComment = HistoryOrderGetString(orderTicket, ORDER_COMMENT);
+               //Print("Original position comment: ", positionComment);
+               // Extract GUID from position comment
+               string guid = "";
+               if(StringSubstr(positionComment, 0, 1) == "B")
+                  guid = StringSubstr(positionComment, 1);
+               else
+                  if(StringSubstr(positionComment, 0, 1) == "S")
+                     guid = StringSubstr(positionComment, 1);
+               if(guid != "")
+                 {
+                  // Update lastClosedPair based on position type
+                  lastClosedPair.guid = guid;
+                  if(StringSubstr(positionComment, 0, 1) == "B")
+                    {
+                     lastClosedPair.buyHitSL = true;
+                     lastClosedPair.buyProfit = HistoryDealGetDouble(deal, DEAL_PROFIT);
+                    }
+                  else
+                     if(StringSubstr(positionComment, 0, 1) == "S")
+                       {
+                        lastClosedPair.sellHitSL = true;
+                        lastClosedPair.sellProfit = HistoryDealGetDouble(deal, DEAL_PROFIT);
+                       }
+                  if(InpEnableDebug)
+                     PrintFormat("Position (main) hit STOP LOSS. Position: %I64u, Original Comment: %s, GUID: %s",
+                                 positionTicket, positionComment, guid);
+                 }
+              }
+           }
+         if(m_onStopLossHitCallback != NULL)
+           {
+            if(InpEnableDebug)
+               PrintFormat("Executing stop loss callback for main position");
+            m_onStopLossHitCallback(magic);
+           }
+        }
+      else
+         if(closeReason == DEAL_REASON_TP)
+           {
+            if(InpEnableDebug)
+               PrintFormat("Position (main) hit TAKE PROFIT. (position %I64u, deal %I64u)", position, deal);
+           }
+         else
+           {
+            if(InpEnableDebug)
+               PrintFormat("Position (main) closed on sl or tp. (position %I64u, deal %I64u)", position, deal);
+           }
+      if(magic == InpMagicRecovery)
+        {
+         if(closeReason == DEAL_REASON_SL)
+           {
+            if(InpEnableDebug)
+               PrintFormat("Position (recovery) hit STOP LOSS. (position %I64u, deal %I64u)", position, deal);
+           }
+         else
+            if(closeReason == DEAL_REASON_TP)
+              {
+               if(InpEnableDebug)
+                  PrintFormat("Position (recovery) hit TAKE PROFIT. (position %I64u, deal %I64u)", position, deal);
+              }
+            else
+              {
+               if(InpEnableDebug)
+                  PrintFormat("Position (recovery) closed on sl or tp. (position %I64u, deal %I64u)", position, deal);
+              }
+        }
+     }
+   //+------------------------------------------------------------------+
+   //|                                                                  |
+   //+------------------------------------------------------------------+
+   virtual void      TradeTransactionPositionClosed(ulong position, ulong deal)
+     {
+      //if(HistoryDealGetInteger(deal, DEAL_MAGIC) == EAMAGIC) {
+      //   PrintFormat("Position is closed. (position %I64u, deal %I64u)", position, deal);
+      //}
+      if(HistoryDealGetInteger(deal, DEAL_MAGIC) == InpMagicMain)
+        {
+         if(InpEnableDebug)
+            PrintFormat("Position (main) is closed. (position %I64u, deal %I64u)", position, deal);
+        }
+      if(HistoryDealGetInteger(deal, DEAL_MAGIC) == InpMagicRecovery)
+        {
+         if(InpEnableDebug)
+            PrintFormat("Position (recovery) is closed. (position %I64u, deal %I64u)", position, deal);
+        }
+     }
+   //+------------------------------------------------------------------+
+   //|                                                                  |
+   //+------------------------------------------------------------------+
+   virtual void      TradeTransactionPositionCloseBy(ulong position, ulong deal)
+     {
+      //if(HistoryDealGetInteger(deal, DEAL_MAGIC) == EAMAGIC) {
+      //   PrintFormat("Position is closed by opposite position. (position %I64u, deal %I64u)", position, deal);
+      //}
+      if(HistoryDealGetInteger(deal, DEAL_MAGIC) == InpMagicMain)
+        {
+         if(InpEnableDebug)
+            PrintFormat("Position (main) is closed by opposite position. (position %I64u, deal %I64u)", position, deal);
+        }
+      if(HistoryDealGetInteger(deal, DEAL_MAGIC) == InpMagicRecovery)
+        {
+         if(InpEnableDebug)
+            PrintFormat("Position (recovery) is closed by opposite position. (position %I64u, deal %I64u)", position, deal);
+        }
+     }
+   //+------------------------------------------------------------------+
+   //|                                                                  |
+   //+------------------------------------------------------------------+
+   virtual void      TradeTransactionPositionModified(ulong position)
+     {
+      if(InpEnableDebug)
+         PrintFormat("Position is modified. (position %I64u)", position);
+     }
+  };
+
+//+------------------------------------------------------------------+
+//| Global transaction object                                        |
+//+------------------------------------------------------------------+
+CExtTransaction ExtTransaction;
+
+
+//+------------------------------------------------------------------+
+//| TradeTransaction function                                        |
+//+------------------------------------------------------------------+
+void OnTradeTransaction(const MqlTradeTransaction &trans,
+                        const MqlTradeRequest &request,
+                        const MqlTradeResult &result)
+  {
+   //Print("=============================");
+   //Print("OnTradeTransaction");
+   if(trans.type == TRADE_TRANSACTION_DEAL_ADD)
+     {
+      //Print("trans.deal=", trans.deal);
+      ulong deal_ticket = trans.deal;
+      ENUM_DEAL_ENTRY entry = (ENUM_DEAL_ENTRY)HistoryDealGetInteger(deal_ticket, DEAL_ENTRY);
+      ENUM_DEAL_REASON reason = (ENUM_DEAL_REASON)HistoryDealGetInteger(deal_ticket, DEAL_REASON);
+      //long entry = HistoryDealGetInteger(trans.deal, DEAL_ENTRY);
+      long magic = HistoryDealGetInteger(trans.deal, DEAL_MAGIC);
+      
+
+      // Print("entry == DEAL_ENTRY_OUT=", (entry == DEAL_ENTRY_OUT));
+      // Print("entry=", EnumToString(entry));
+
+      // Print("reason == DEAL_REASON_SL=", (reason == DEAL_REASON_SL));
+      // Print("reason=", EnumToString(reason));
+
+      // Print("magic == InpMagicMain=", (magic == InpMagicMain));
+      // Print("magic=", magic);
+
+      // Print("InpMagicMain=", InpMagicMain);
+
+
+      if(entry == DEAL_ENTRY_OUT && reason == DEAL_REASON_SL && magic == InpMagicMain)
+        {
+         long position_id = HistoryDealGetInteger(deal_ticket, DEAL_POSITION_ID);
+         if(HistorySelectByPosition(position_id))
+           {
+            int total = HistoryDealsTotal();
+            for(int i = 0; i < total; i++)
+              {
+               ulong ticket = HistoryDealGetTicket(i);
+               if(HistoryDealGetInteger(ticket, DEAL_ENTRY) == DEAL_ENTRY_IN)
+                 {
+                  string comment = HistoryDealGetString(ticket, DEAL_COMMENT);
+                  //Print("Stop loss triggered, original comment: ", comment);
+                  break;
+                 }
+              }
+           }
+         //old code
+         //Print("entry == DEAL_ENTRY_OUT && magic == InpMagicMain");
+         double profit = HistoryDealGetDouble(trans.deal, DEAL_PROFIT);
+         string comment = HistoryDealGetString(trans.deal, DEAL_COMMENT);
+         ENUM_DEAL_REASON closeReason = (ENUM_DEAL_REASON)HistoryDealGetInteger(trans.deal, DEAL_REASON);
+         //guide handling
+         string guid = "";
+         if(StringSubstr(comment, 0, 1) == "B")
+            guid = StringSubstr(comment, 1);
+         else
+            if(StringSubstr(comment, 0, 1) == "S")
+               guid = StringSubstr(comment, 1);
+         //Print("guid=", guid);
+         // If this is part of a tracked pair
+         if(guid != "")
+           {
+            // if(InpEnableDebug)
+            //    Print("Tracked pair deal: ", guid, ", Profit: ", profit,
+            //          ", Close reason: ", EnumToString(closeReason),
+            //          ", Comment: ", comment);
+            // If this is a buy position
+            if(StringSubstr(comment, 0, 1) == "B")
+              {
+               lastClosedPair.guid = guid;
+               lastClosedPair.buyProfit = profit;
+               lastClosedPair.buyHitSL = (closeReason == DEAL_REASON_SL);
+               // if(InpEnableDebug)
+               //    Print("BUY side closed with profit: ", profit,
+               //          ", SL hit: ", lastClosedPair.buyHitSL ? "true" : "false");
+               // Check if we have both sides of the pair closed
+               if(lastClosedPair.guid == guid && lastClosedPair.sellProfit != 0)
+                 {
+                  lastClosedPair.totalProfit = lastClosedPair.buyProfit + lastClosedPair.sellProfit;
+                  // if(InpEnableDebug)
+                  //    Print("Both sides closed: Trade pair ", guid, " total profit: ",
+                  //          lastClosedPair.totalProfit,
+                  //          ", buyHitSL: ", lastClosedPair.buyHitSL ? "true" : "false",
+                  //          ", sellHitSL: ", lastClosedPair.sellHitSL ? "true" : "false");
+                 }
+              }
+            // If this is a sell position
+            else
+               if(StringSubstr(comment, 0, 1) == "S")
+                 {
+                  lastClosedPair.guid = guid;
+                  lastClosedPair.sellProfit = profit;
+                  lastClosedPair.sellHitSL = (closeReason == DEAL_REASON_SL);
+                  // if(InpEnableDebug)
+                  //    Print("SELL side closed with profit: ", profit,
+                  //          ", SL hit: ", lastClosedPair.sellHitSL ? "true" : "false");
+                  // Check if we have both sides of the pair closed
+                  if(lastClosedPair.guid == guid && lastClosedPair.buyProfit != 0)
+                    {
+                     lastClosedPair.totalProfit = lastClosedPair.buyProfit + lastClosedPair.sellProfit;
+                     // if(InpEnableDebug)
+                     //    Print("Both sides closed: Trade pair ", guid, " total profit: ",
+                     //          lastClosedPair.totalProfit,
+                     //          ", buyHitSL: ", lastClosedPair.buyHitSL ? "true" : "false",
+                     //          ", sellHitSL: ", lastClosedPair.sellHitSL ? "true" : "false");
+                    }
+                 }
+           }
+        }
+     }
+   ExtTransaction.OnTradeTransaction(trans,request,result);
+  }
+//+------------------------------------------------------------------+
+
+//+------------------------------------------------------------------+
+//| Callback function for stop loss hits                             |
+//+------------------------------------------------------------------+
+void OnStopLossHit(int magicNumber)
+  {
+   // if(InpEnableDebug)       Print(__FUNCTION__);
+   // if(magicNumber == InpMagicMain)
+   //   {
+   //    if(InpEnableDebug)      Print("Stop loss callback triggered for main trade");
+   //    // Check if there are still main positions open
+   //    int mainPositionsOpen = CountOpenPositionsMagic(InpMagicMain);
+   //    // First check: If both sides of the pair are closed, check if we're at effective breakeven
+   //    skipRecovery = false;
+   //    Print("mainPositionsOpen=", mainPositionsOpen);
+   //    Print("lastClosedPair.guid=", lastClosedPair.guid);
+   //    Print("lastClosedPair.buyProfit=", lastClosedPair.buyProfit);
+   //    Print("lastClosedPair.sellProfit=", lastClosedPair.sellProfit);
+      
+   //    // Check if recovery is blocked for this hedge set
+   //    bool recoveryBlockedForPair = false;
+   //    if(lastClosedPair.guid != "")
+   //    {
+   //       for(int i = 0; i < ArraySize(trackedPositions); i++)
+   //       {
+   //          if(trackedPositions[i].guid == lastClosedPair.guid && trackedPositions[i].blockRecovery)
+   //          {
+   //             recoveryBlockedForPair = true;
+   //             if(InpEnableDebug)
+   //                Print("Recovery blocked for GUID ", lastClosedPair.guid, " due to trailed SL hit");
+   //             break;
+   //          }
+   //       }
+   //    }
+      
+   //    //===============================================
+   //    if(mainPositionsOpen == 0
+   //       && lastClosedPair.guid != ""
+   //       && lastClosedPair.buyProfit != 0
+   //       && lastClosedPair.sellProfit != 0)
+   //      {
+   //       if(InpEnableDebug)
+   //          Print("Evaluating pair completion: totalProfit=", lastClosedPair.totalProfit,
+   //                ", threshold=", BreakevenThreshold,
+   //                ", buyHitSL=", lastClosedPair.buyHitSL ? "true" : "false",
+   //                ", sellHitSL=", lastClosedPair.sellHitSL ? "true" : "false");
+   //       // Special case for the specific scenario described:
+   //       // One position hits its initial SL, and the other moves SL to entry then hits it
+   //       if(IsPairAtEffectiveBreakeven(lastClosedPair.totalProfit) &&
+   //          (lastClosedPair.buyHitSL || lastClosedPair.sellHitSL))
+   //         {
+   //          if(InpEnableDebug)
+   //             Print("Trade pair ", lastClosedPair.guid, " closed at effective breakeven with profit ",
+   //                   lastClosedPair.totalProfit, ". No recovery trade needed.");
+   //          // Reset the lastClosedPair for the next pair
+   //          lastClosedPair.guid = "";
+   //          lastClosedPair.buyProfit = 0;
+   //          lastClosedPair.sellProfit = 0;
+   //          lastClosedPair.buyHitSL = false;
+   //          lastClosedPair.sellHitSL = false;
+   //          lastClosedPair.totalProfit = 0;
+   //          // Set flag to skip recovery
+   //          skipRecovery = true;
+   //         }
+   //      }
+   //    // Original recovery trade logic - only executed if we didn't skip due to breakeven and recovery isn't blocked
+   //    if(!skipRecovery && !recoveryBlockedForPair && UseRecoveryTrade && mainPositionsOpen == 0)
+   //      {
+   //       if(InpEnableDebug)
+   //          Print("Conditions met for recovery trade - opening now");
+   //       //----
+   //       OpenRecoveryTrade();
+   //      }
+   //    else
+   //      {
+   //       if(InpEnableDebug)
+   //          Print("Stop loss hit but recovery unavailable: ",
+   //                skipRecovery ? "breakeven detected, " : "",
+   //                recoveryBlockedForPair ? "recovery blocked due to trailed SL hit, " : "",
+   //                "UseRecoveryTrade=", UseRecoveryTrade ? "true" : "false",
+   //                ", mainPositionsOpen=", mainPositionsOpen);
+   //      }
+   //   }
+   // else
+   //    if(magicNumber == InpMagicRecovery)
+        {
+         // Handle recovery trade stop losses (unchanged)
+         if(InpEnableDebug)
+            Print("Stop loss callback triggered for recovery trade");
+         // Check if there's still a recovery position open
+         int recoveryPositionsOpen = CountOpenPositionsMagic(InpMagicRecovery);
+         // If there's exactly one recovery position left, move its SL to entry immediately
+         if(recoveryPositionsOpen == 1)
+           {
+            if(InpEnableDebug)
+               Print("One recovery position remaining - moving SL to entry immediately");
+            ModifySLToEntry(InpMagicRecovery);
+           }
+        }
+  }
+
+//+------------------------------------------------------------------+
+//| Expert initialization function                                    |
+//+------------------------------------------------------------------+
+int OnInit()
+  {
+// Initialize the lastFiveTrades array with zero times (indicating no trades)
+   for(int i = 0; i < 5; i++)
+     {
+      lastFiveTrades[i].time = 0;
+      lastFiveTrades[i].profit = 0.0;
+     }
+// Select all trade history from account start to current time
+   if(!HistorySelect(0, TimeCurrent()))
+     {
+      Print("Failed to select trade history");
+      return(INIT_FAILED);
+     }
+// Calculate initial total realized profit from all closed trades with specified magic numbers
+   int totalDeals = HistoryDealsTotal();
+   for(int i = 0; i < totalDeals; i++)
+     {
+      ulong dealTicket = HistoryDealGetTicket(i);
+      if(HistoryDealSelect(dealTicket))
+        {
+         long entry = HistoryDealGetInteger(dealTicket, DEAL_ENTRY);
+         long magic = HistoryDealGetInteger(dealTicket, DEAL_MAGIC);
+         if(entry == DEAL_ENTRY_OUT && (magic == InpMagicRecovery || magic == InpMagicMain))
+           {
+            totalRealizedProfit += HistoryDealGetDouble(dealTicket, DEAL_PROFIT);
+           }
+        }
+     }
+// Fill lastFiveTrades with the most recent 5 closed trades with specified magic numbers
+   int count = 0;
+   for(int i = totalDeals - 1; i >= 0 && count < 5; i--)
+     {
+      ulong dealTicket = HistoryDealGetTicket(i);
+      if(HistoryDealSelect(dealTicket))
+        {
+         long entry = HistoryDealGetInteger(dealTicket, DEAL_ENTRY);
+         long magic = HistoryDealGetInteger(dealTicket, DEAL_MAGIC);
+         if(entry == DEAL_ENTRY_OUT && (magic == InpMagicRecovery || magic == InpMagicMain))
+           {
+            lastFiveTrades[4 - count].profit = HistoryDealGetDouble(dealTicket, DEAL_PROFIT);
+            lastFiveTrades[4 - count].time = (datetime)HistoryDealGetInteger(dealTicket, DEAL_TIME);
+            count++;
+           }
+        }
+     }
+// Set magic number for main trade operations by default
+   trade.SetExpertMagicNumber(InpMagicMain);
+   trade.LogLevel(LOG_LEVEL_NO);
+// Check for valid input parameters
+   if(InpLotSize <= 0 || InpSLPointsMain <= 0 || InpTPPointsMain <= 0 ||
+      InpSLPointsRecovery <= 0 || InpTPPointsRecovery <= 0)
+     {
+      Print("Error: Invalid input parameters. Ensure lot size and SL/TP points are positive.");
+      return INIT_PARAMETERS_INCORRECT;
+     }
+// Validate main trade lot size
+   double minLot = SymbolInfoDouble(Symbol(), SYMBOL_VOLUME_MIN);
+   double maxLot = SymbolInfoDouble(Symbol(), SYMBOL_VOLUME_MAX);
+   double stepLot = SymbolInfoDouble(Symbol(), SYMBOL_VOLUME_STEP);
+// Ensure main trade lot is within allowed range
+   adjustedLotSize = MathMax(minLot, MathMin(InpLotSize, maxLot));
+   adjustedLotSize = NormalizeDouble(MathFloor(adjustedLotSize / stepLot) * stepLot, 2);
+   if(adjustedLotSize != InpLotSize)
+     {
+      if(InpEnableDebug)
+         Print("Main LotSize adjusted from ", InpLotSize, " to ", adjustedLotSize,
+               " (Min: ", minLot, ", Max: ", maxLot, ", Step: ", stepLot, ")");
+     }
+// Validate recovery trade lot size
+   adjustedLotSizeRecovery = MathMax(minLot, MathMin(InpLotSizeRecovery, maxLot));
+   adjustedLotSizeRecovery = NormalizeDouble(MathFloor(adjustedLotSizeRecovery / stepLot) * stepLot, 2);
+   if(adjustedLotSizeRecovery != InpLotSizeRecovery)
+     {
+      if(InpEnableDebug)
+         Print("Recovery LotSize adjusted from ", InpLotSizeRecovery, " to ", adjustedLotSizeRecovery,
+               " (Min: ", minLot, ", Max: ", maxLot, ", Step: ", stepLot, ")");
+     }
+// Check if hedging is enabled on the account
+   if(AccountInfoInteger(ACCOUNT_MARGIN_MODE) != ACCOUNT_MARGIN_MODE_RETAIL_HEDGING)
+     {
+      Print("Error: Account does not support hedging. Please enable hedging.");
+      return INIT_FAILED;
+     }
+// Initialize the current trade date
+   MqlDateTime time_struct;
+   TimeCurrent(time_struct);
+   currentTradeDate = StringToTime(StringFormat("%04d.%02d.%02d",
+                                   time_struct.year, time_struct.mon, time_struct.day));
+// Initialize chart display
+//if(ShowInfoOnChart)
+//  {
+//   CreateInfoObjects();
+//   UpdateInfoOnChart();
+//  }
+// Check if there are already recovery positions open
+   int recoveryOpen = CountOpenPositionsMagic(InpMagicRecovery);
+   if(recoveryOpen > 0)
+     {
+      recoveryTradeActive = true;
+      recoveryUsedToday = true;
+      if(InpEnableDebug)
+         Print("Recovery positions detected on startup. Setting recovery flags.");
+     }
+// Register the stop loss callback
+
+   //ExtTransaction.SetStopLossCallback(OnStopLossHit);
+
+
+
+   if(InpEnableDebug)
+      Print("MAVERICK EA initialized successfully.");
+   PrintTradeStatus();
+// Create a trading day line on startup if no positions are open
+   if(CountOpenPositionsMagic(InpMagicMain) == 0 && CountOpenPositionsMagic(InpMagicRecovery) == 0)
+     {
+      if(InpEnableDebug)
+         Print("Creating initial trading day line on startup");
+      CreateTradingDayLine();
+     }
+// In OnInit()
+   EventSetTimer(UpdateFrequency);
+// Initialize the lastClosedPair structure
+   lastClosedPair.guid = "";
+   lastClosedPair.buyProfit = 0;
+   lastClosedPair.sellProfit = 0;
+   lastClosedPair.buyHitSL = false;
+   lastClosedPair.sellHitSL = false;
+   lastClosedPair.totalProfit = 0;
+   
+   // Initialize the tracked positions array
+   ArrayResize(trackedPositions, 0);
+   
+   return INIT_SUCCEEDED;
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+bool NewBar()
+  {
+   datetime currentTime = iTime(Symbol(), PERIOD_CURRENT, 0);
+   static datetime previousTime= 0 ;//sèt to currentrime to avoid processing on current bar on start
+   if(currentTime == previousTime)
+      return (false);
+   previousTime =currentTime;
+   return (true);
+  }
+//+------------------------------------------------------------------+
+//| Expert tick function                                             |
+//+------------------------------------------------------------------+
+void OnTick()
+  {
+   static datetime lastUpdateTime = 0;
+   datetime currentTimeGUI  = TimeCurrent();
+   if(currentTimeGUI - lastUpdateTime >= 1) // Update once per second
+     {
+      UpdateRunningTotal();
+      CheckTrackedPositionsCrossed(); // Add this line to check tracked positions
+      lastUpdateTime = currentTimeGUI;
+     }
+   if(CountOpenPositions() > 0) ManagePositions();
+   if(!NewBar())
+     {
+      // Even when skipping bar processing, update chart info on every tick
+      //if(ShowInfoOnChart)
+      //   UpdateInfoOnChart();
+      return;
+     }
+   datetime currentTime = TimeCurrent();
+   string timeStr = TimeToString(currentTime, TIME_MINUTES);
+   CheckNewTradingDay(currentTime);
+   if(timeStr == InpTradeTime)
+     {
+      if(InpEnableDebug)
+         Print("Time condition met: current time is ", timeStr);
+      int positions = CountOpenPositions();
+      if(InpEnableDebug)
+         Print("Open positions: ", positions);
+      if(InpEnableDebug)
+         Print("Daily trading ended flag: ", dailyTradingEnded);
+      // Print overall condition result
+      if(InpEnableDebug)
+         Print("Will open trade: ", (timeStr == InpTradeTime && positions == 0 && !dailyTradingEnded));
+     }
+// Check if it's time to open the main trade (and no open positions exist)
+   if(timeStr == InpTradeTime /*&& CountOpenPositions() == 0 && !dailyTradingEnded*/)
+     {
+      OpenMainTrade();
+      mainTradeOpenTime = currentTime;
+      if(InpEnableDebug)
+         Print("Main trade opened at ", TimeToString(currentTime));
+     }
+   DeleteAllLinesIfNoPositions();
+   bool foundLine = false;
+   for(int i = 0; i < ObjectsTotal(0); i++)
+     {
+      string objName = ObjectName(0, i);
+      if(StringFind(objName, tradingDayLineName) == 0)
+        {
+         foundLine = true;
+         break;
+        }
+     }
+   if(!foundLine && CountOpenPositions() == 0 && !dailyTradingEnded)
+     {
+      if(InpEnableDebug)
+         Print("No trading day line found on chart - creating one");
+      CreateTradingDayLine();
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| CheckNewTradingDay: reset daily flags when day changes           |
+//+------------------------------------------------------------------+
+void CheckNewTradingDay(datetime currentTime)
+  {
+   MqlDateTime time_struct;
+   TimeToStruct(currentTime, time_struct);
+   datetime currentDay = StringToTime(StringFormat("%04d.%02d.%02d",
+                                      time_struct.year, time_struct.mon, time_struct.day));
+   if(currentDay > currentTradeDate)// If it's a new day, reset the daily flags
+     {
+      if(InpEnableDebug)
+         Print("Day change detected: ", TimeToString(currentTradeDate, TIME_DATE),  " -> ", TimeToString(currentDay, TIME_DATE));
+      if(InpEnableDebug)
+         Print("BEFORE day change:");
+      //PrintTradeStatus();
+      currentTradeDate = currentDay;
+      // Count open positions
+      int mainOpen = CountOpenPositionsMagic(InpMagicMain);
+      int recoveryOpen = CountOpenPositionsMagic(InpMagicRecovery);
+      if(InpEnableDebug)
+         Print("Open positions at day change: Main=", mainOpen, ", Recovery=", recoveryOpen);
+      // Reset dailyTradingEnded only if no positions are open
+      if(mainOpen == 0 && recoveryOpen == 0)
+        {
+         dailyTradingEnded = false;
+         recoveryUsedToday = false;
+         recoveryTradeActive = false;
+         // Reset the breakeven flags here
+         BUY_BREAKEVEN_SET = false;
+         SELL_BREAKEVEN_SET = false;
+         if(InpEnableDebug)
+            Print("No positions open - fully reset trading flags for new day");
+        }
+      else
+         if(recoveryOpen > 0)
+           {
+            // Recovery positions still open - maintain flags
+            //recoveryTradeActive = true;
+            //recoveryUsedToday = true;
+            // Reset the breakeven flags here if needed
+            BUY_BREAKEVEN_SET = false;
+            SELL_BREAKEVEN_SET = false;
+            if(InpEnableDebug)
+               Print("Recovery positions still open - maintaining recovery status");
+           }
+         else
+           {
+            // Only main positions are open
+            dailyTradingEnded = false;
+            recoveryUsedToday = false;
+            // Reset the breakeven flags here if needed
+            BUY_BREAKEVEN_SET = false;
+            SELL_BREAKEVEN_SET = false;
+            if(InpEnableDebug)
+               Print("Only main positions open - reset recovery flags for new day");
+           }
+      // Reset daily profit tracking
+      dailyCumulativeProfit = 0.0;
+      // Debug output after changes
+      if(InpEnableDebug)
+         Print("AFTER day change:");
+      //PrintTradeStatus();
+      // Add this after resetting the flags
+      // if(mainOpen == 0 && recoveryOpen == 0)
+      //   {
+      //    // Only create new line if we're starting fresh (no positions)
+      //    Print("CONDITIONS MET FOR CREATING TRADING DAY LINE");
+      CreateTradingDayLine();
+      //    Print("TRADING DAY LINE CREATED");
+      //   }
+      // else
+      //   {
+      //    Print("NOT CREATING TRADING DAY LINE - positions still open");
+      //   }
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| CountOpenPositions: count total open positions with our symbols  |
+//+------------------------------------------------------------------+
+int CountOpenPositions()
+  {
+   int count = 0;
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+     {
+      if(PositionSelectByTicket(PositionGetTicket(i)))
+        {
+         if(PositionGetString(POSITION_SYMBOL) == Symbol() &&
+            (PositionGetInteger(POSITION_MAGIC) == InpMagicMain ||
+             PositionGetInteger(POSITION_MAGIC) == InpMagicRecovery))
+           {
+            count++;
+           }
+        }
+     }
+   return count;
+  }
+
+//+------------------------------------------------------------------+
+//| CountOpenPositionsMagic: count positions by specific magic       |
+//+------------------------------------------------------------------+
+int CountOpenPositionsMagic(int magic)
+  {
+   int count = 0;
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+     {
+      if(PositionSelectByTicket(PositionGetTicket(i)))
+        {
+         if(PositionGetString(POSITION_SYMBOL) == Symbol() &&
+            PositionGetInteger(POSITION_MAGIC) == magic)
+           {
+            count++;
+           }
+        }
+     }
+   return count;
+  }
+
+//+------------------------------------------------------------------+
+//| GenerateTradeGuid: creates a short unique identifier for trades  |
+//+------------------------------------------------------------------+
+string GenerateTradeGuid()
+  {
+// Create a simple alphanumeric GUID (10 characters)
+   string chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+   string guid = "";
+// Generate 10 random characters
+   for(int i = 0; i < 10; i++)
+     {
+      int idx = MathRand() % StringLen(chars);
+      guid += StringSubstr(chars, idx, 1);
+     }
+   return guid;
+  }
+
+//+------------------------------------------------------------------+
+//| OpenMainTrade: opens both Buy and Sell with main inputs          |
+//+------------------------------------------------------------------+
+void OpenMainTrade()
+  {
+// Generate a new GUID for this trade pair
+   currentTradeGuid = GenerateTradeGuid();
+// Create the buy and sell comments with the same GUID
+   string buyComment = "B" + currentTradeGuid;
+   string sellComment = "S" + currentTradeGuid;
+   if(InpEnableDebug)
+      Print("Opening main trade pair with GUID: ", currentTradeGuid);
+   trade.SetExpertMagicNumber(InpMagicMain);
+   BUY_BREAKEVEN_SET = false;
+   SELL_BREAKEVEN_SET = false;
+// Buy position
+   double ask = SymbolInfoDouble(Symbol(), SYMBOL_ASK);
+   double slBuy = ask - InpSLPointsMain * Point();
+   double tpBuy = ask + InpTPPointsMain * Point();
+   if(!trade.Buy(adjustedLotSize, Symbol(), ask, slBuy, tpBuy, buyComment))
+     {
+      if(InpEnableDebug)
+         Print("Error opening main buy position: ", GetLastError());
+      return;
+     }
+// Sell position
+   double bid = SymbolInfoDouble(Symbol(), SYMBOL_BID);
+   double slSell = bid + InpSLPointsMain * Point();
+   double tpSell = bid - InpTPPointsMain * Point();
+   if(!trade.Sell(adjustedLotSize, Symbol(), bid, slSell, tpSell, sellComment))
+     {
+      if(InpEnableDebug)
+         Print("Error opening main sell position: ", GetLastError());
+      return;
+     }
+// Create trigger lines after opening trades
+   CreateTrailTriggerLines(ask, bid);
+  }
+
+//+------------------------------------------------------------------+
+//| OpenRecoveryTrade: opens both Buy and Sell for recovery          |
+//+------------------------------------------------------------------+
+void OpenRecoveryTrade()
+  {
+   // if(skipRecovery)
+   //   {
+   //    if(InpEnableDebug)
+   //       Print("skipRecovery is true - skipping recovery trade");
+   //    return;
+   //   }
+   if(InpEnableDebug)       Print(__FUNCTION__);
+   if(InpEnableDebug)       Print("OpenRecoveryTrade");
+
+   string recoveryGuid = GenerateTradeGuid();
+
+   string buyComment = "RB" + recoveryGuid;  // RB prefix for Recovery Buy
+   string sellComment = "RS" + recoveryGuid; // RS prefix for Recovery Sell
+   if(InpEnableDebug)       Print("Opening recovery trade pair with GUID: ", recoveryGuid);
+
+   if(!UseRecoveryTrade)
+     {
+      if(InpEnableDebug)
+         Print("Recovery trade skipped: disabled by user");
+      return;
+     }
+   trade.SetExpertMagicNumber(InpMagicRecovery);
+// Buy position
+   double ask = SymbolInfoDouble(Symbol(), SYMBOL_ASK);
+   double slBuy = ask - InpSLPointsRecovery * Point();
+   double tpBuy = ask + InpTPPointsRecovery * Point();
+   if(!trade.Buy(adjustedLotSizeRecovery, Symbol(), ask, slBuy, tpBuy, buyComment))
+     {
+      if(InpEnableDebug)
+         Print("Error opening recovery buy position: ", GetLastError());
+      return;
+     }
+// Sell position
+   double bid = SymbolInfoDouble(Symbol(), SYMBOL_BID);
+   double slSell = bid + InpSLPointsRecovery * Point();
+   double tpSell = bid - InpTPPointsRecovery * Point();
+   if(!trade.Sell(adjustedLotSizeRecovery, Symbol(), bid, slSell, tpSell, sellComment))
+     {
+      if(InpEnableDebug)
+         Print("Error opening recovery sell position: ", GetLastError());
+      return;
+     }
+// Mark that we've used recovery today and recovery is active
+   recoveryTradeActive = true;
+   if(InpEnableDebug)
+      Print("Recovery trade opened. No more recovery trades allowed today.");
+  }
+
+//+------------------------------------------------------------------+
+//| ManagePositions: handles trailing logic & recovery triggers      |
+//+------------------------------------------------------------------+
+void ManagePositions()
+  {
+   // if(InpEnableDebug)
+   //    Print("=== ManagePositions START ===");
+   // if(InpEnableDebug)
+   //    Print("Current flags: dailyTradingEnded=", dailyTradingEnded ? "true" : "false",
+   //          ", recoveryUsedToday=", recoveryUsedToday ? "true" : "false",
+   //          ", recoveryTradeActive=", recoveryTradeActive ? "true" : "false");
+// Count positions first
+   int mainOpen = CountOpenPositionsMagic(InpMagicMain);
+   int recoveryOpen = CountOpenPositionsMagic(InpMagicRecovery);
+   // if(InpEnableDebug)
+   //    Print("Position counts: mainOpen=", mainOpen, ", recoveryOpen=", recoveryOpen);
+//--- First handle RECOVERY TRADE positions closure ---
+   if(recoveryOpen == 0 && recoveryTradeActive)
+     {
+      // if(InpEnableDebug)
+      //    Print("DEBUG: Recovery trade closed detection - recoveryOpen=0 but recoveryTradeActive=true");
+      // Both recovery positions closed, calculate profit and reset flags
+      double totalProfit = GetTotalProfitMagic(InpMagicRecovery);
+      dailyCumulativeProfit += totalProfit;
+      // if(InpEnableDebug)
+      //    Print("DEBUG: Before flag reset - recoveryTradeActive=", recoveryTradeActive ? "true" : "false",
+      //          ", recoveryUsedToday=", recoveryUsedToday ? "true" : "false");
+      // Reset recovery active flag but KEEP recoveryUsedToday as true
+      recoveryTradeActive = false;
+      // Always keep recoveryUsedToday as true when a recovery trade closes
+      // This ensures no more recovery trades for today, regardless of when it started
+      recoveryUsedToday = true;
+      // if(InpEnableDebug)
+      //    Print("DEBUG: After flag reset - recoveryTradeActive=", recoveryTradeActive ? "true" : "false",
+      //          ", recoveryUsedToday=", recoveryUsedToday ? "true" : "false");
+      // Set daily trading ended based on profit
+      if(totalProfit < 0)
+        {
+         // if(InpEnableDebug)
+         //    Print("DEBUG: Recovery ended in loss, setting dailyTradingEnded=true");
+         dailyTradingEnded = true;
+         // if(InpEnableDebug)
+         //    Print("DEBUG: Recovery ended in loss, setting dailyTradingEnded=true");
+         //Print("Recovery trade ended in loss. Trading ended for today with cumulative loss: ", DoubleToString(dailyCumulativeProfit, 2));
+        }
+      else
+        {
+         // if(InpEnableDebug)
+         //    Print("DEBUG: Recovery ended in profit, setting dailyTradingEnded=true");
+         dailyTradingEnded = true;
+         // if(InpEnableDebug)
+         //    Print("DEBUG: Recovery ended in profit, setting dailyTradingEnded=true");
+         //Print("Recovery trade ended in profit. Day complete with cumulative profit: ", DoubleToString(dailyCumulativeProfit, 2));
+        }
+      // Debug output
+      PrintTradeStatus();
+     }
+   else
+      if(recoveryOpen > 0)
+        {
+         // if(InpEnableDebug)
+         //    Print("DEBUG: Recovery trades still open: ", recoveryOpen);
+        }
+//--- Now handle MAIN TRADE positions ---
+   if(mainOpen == 2)
+     {
+      // if(InpEnableDebug)
+      //    Print("DEBUG: Both main positions open, checking for trailing");
+      // Both main positions still open (buy & sell) - check for trailing
+      ModifyTrailingSL();
+     }
+   else
+      if(mainOpen == 1)
+        {
+         // if(InpEnableDebug)
+         //    Print("DEBUG: One main position closed, moving SL to entry and checking trailing");
+         // One main position closed, so move SL of the remaining to entry
+         ModifySLToEntry(InpMagicMain);
+         TrailSLMainTrade();// Then see if we can trail further
+        }
+      else
+         if(mainOpen == 0 && recoveryTradeActive == false)
+           {
+            // if(InpEnableDebug)
+            //    Print("DEBUG: Both main positions closed and no recovery active, calculating profit");
+            // Both main positions closed - check if there's a net loss
+            double totalProfit = GetTotalProfitMagic(InpMagicMain);
+            dailyCumulativeProfit += totalProfit;
+            // Debug output
+            // if(InpEnableDebug)
+            //    Print("DEBUG: Main trade ended with profit: ", DoubleToString(totalProfit, 2),
+            //          " | Recovery used today: ", recoveryUsedToday ? "Yes" : "No",
+            //          " | Recovery active: ", recoveryTradeActive ? "Yes" : "No",
+            //          " | Daily trading ended: ", dailyTradingEnded ? "Yes" : "No");
+            // Remove the totalProfit < 0 check here since recovery trades are handled by OnStopLossHit
+            // Just set trading ended flag regardless of profit
+            dailyTradingEnded = true;
+           // if(InpEnableDebug)
+              // Print("DEBUG: Main trade ended. Day complete with profit: ", DoubleToString(dailyCumulativeProfit, 2));
+            // Debug output
+            PrintTradeStatus();
+           }
+         else
+            if(mainOpen == 0 && recoveryTradeActive == true)
+              {
+               if(InpEnableDebug)
+                  Print("DEBUG: Both main positions closed but recovery is active - no further action needed");
+              }
+//--- Continue with recovery position management ---
+   if(recoveryOpen == 2)
+     {
+      if(InpEnableDebug)
+         Print("DEBUG: Both recovery positions open, applying trailing if configured");
+      // Both recovery positions open - apply trailing if configured
+      TrailSLRecoveryTrade();
+     }
+   else
+      if(recoveryOpen == 1)
+        {
+         // if(InpEnableDebug)
+         //    Print("DEBUG: One recovery position closed, moving SL of remaining to entry");
+         ModifySLToEntry(InpMagicRecovery); // One recovery position closed, move SL of remaining to entry
+        }
+   // if(InpEnableDebug)
+   //    Print("=== ManagePositions END ===");
+  }
+
+//+------------------------------------------------------------------+
+//| ModifySLToEntry: sets SL = Entry for any remaining position      |
+//+------------------------------------------------------------------+
+void ModifySLToEntry(int magic)
+  {
+   // if(InpEnableDebug)
+   //   {
+   //    Print("_____________________________________");
+   //    Print(__FUNCTION__, " magic: ", magic);
+   //    Print("_____________________________________");
+   //   }
+// Find the position that was closed (by looking at history)
+   string closedPositionComment = "";
+   string oppositePrefix = "";
+   if(!HistorySelect(TimeCurrent() - 60, TimeCurrent()))  // Look at last minute
+     {
+      if(InpEnableDebug)
+         Print("Error selecting history");
+      return;
+     }
+   for(int i = HistoryDealsTotal() - 1; i >= 0; i--)
+     {
+      ulong dealTicket = HistoryDealGetTicket(i);
+      if(dealTicket > 0)
+        {
+         if(HistoryDealGetString(dealTicket, DEAL_SYMBOL) == Symbol() &&
+            HistoryDealGetInteger(dealTicket, DEAL_MAGIC) == magic &&
+            HistoryDealGetInteger(dealTicket, DEAL_ENTRY) == DEAL_ENTRY_OUT)
+           {
+            // Get the comment from the closed position
+            closedPositionComment = HistoryDealGetString(dealTicket, DEAL_COMMENT);
+            // Determine the opposite position prefix
+            if(StringSubstr(closedPositionComment, 0, 1) == "B")
+               oppositePrefix = "S";
+            else
+               if(StringSubstr(closedPositionComment, 0, 1) == "S")
+                  oppositePrefix = "B";
+               else
+                  if(StringSubstr(closedPositionComment, 0, 2) == "RB")
+                     oppositePrefix = "RS";
+                  else
+                     if(StringSubstr(closedPositionComment, 0, 2) == "RS")
+                        oppositePrefix = "RB";
+            // if(InpEnableDebug)
+            //   {
+            //    Print("Found closed position with comment: ", closedPositionComment,
+            //          ", looking for opposite with prefix: ", oppositePrefix);
+            //   }
+            break;
+           }
+        }
+     }
+// If we found a closed position, look for its pair
+   string guidPart = "";
+   if(closedPositionComment != "")
+     {
+      // Extract the GUID part
+      if(StringSubstr(closedPositionComment, 0, 1) == "B" ||
+         StringSubstr(closedPositionComment, 0, 1) == "S")
+        {
+         guidPart = StringSubstr(closedPositionComment, 1);
+        }
+      else
+         if(StringSubstr(closedPositionComment, 0, 2) == "RB" ||
+            StringSubstr(closedPositionComment, 0, 2) == "RS")
+           {
+            guidPart = StringSubstr(closedPositionComment, 2);
+           }
+      // if(InpEnableDebug)
+      //    Print("Extracted GUID part: ", guidPart);
+     }
+// Now find and modify the opposite position
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+     {
+      if(PositionSelectByTicket(PositionGetTicket(i)))
+        {
+         if(PositionGetString(POSITION_SYMBOL) == Symbol() &&
+            PositionGetInteger(POSITION_MAGIC) == magic)
+           {
+            string posComment = PositionGetString(POSITION_COMMENT);
+            // If we have a GUID to match, check if this is the right position
+            if(guidPart != "" && oppositePrefix != "")
+              {
+               // Check if this position has the opposite prefix and same GUID
+               bool isMatch = false;
+               if(oppositePrefix == "B" || oppositePrefix == "S")
+                 {
+                  isMatch = (StringSubstr(posComment, 0, 1) == oppositePrefix &&
+                             StringSubstr(posComment, 1) == guidPart);
+                 }
+               else // RB or RS
+                 {
+                  isMatch = (StringSubstr(posComment, 0, 2) == oppositePrefix &&
+                             StringSubstr(posComment, 2) == guidPart);
+                 }
+               if(!isMatch)
+                 {
+                  if(InpEnableDebug)
+                     Print("Position ", PositionGetTicket(i), " with comment ", posComment,
+                           " does not match the opposite we're looking for");
+                  continue;
+                 }
+               if(InpEnableDebug)
+                  Print("Found matching opposite position: ", PositionGetTicket(i),                     " with comment: ", posComment);
+              }
+            // Check if breakeven has already been set for this position type
+            if((PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY && BUY_BREAKEVEN_SET) ||
+               (PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_SELL && SELL_BREAKEVEN_SET))
+              {
+               continue;
+              }
+            double entry = PositionGetDouble(POSITION_PRICE_OPEN);
+            double currentSL = PositionGetDouble(POSITION_SL);
+            // If the SL is not already at entry, move it
+            if(MathAbs(currentSL - entry) > Point())
+              {
+               if(!trade.PositionModify(PositionGetTicket(i), entry,
+                                        PositionGetDouble(POSITION_TP)))
+                 {
+                  if(InpEnableDebug)
+                     Print("Error modifying SL to entry for position ",
+                           PositionGetTicket(i), ": ", GetLastError());
+                 }
+               else
+                 {
+                  if(InpEnableDebug)
+                     Print(__FUNCTION__);
+                  if(InpEnableDebug)
+                     Print("Breakeven on position ", PositionGetTicket(i));
+                  // Set the appropriate breakeven flag
+                  if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY)
+                     BUY_BREAKEVEN_SET = true;
+                  else
+                     if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_SELL)
+                        SELL_BREAKEVEN_SET = true;
+                  // Display breakeven notification on chart
+                  //if(ShowInfoOnChart)
+                  //   Comment("Breakeven adjustment made at ", TimeToString(TimeCurrent()));
+                  // Update chart info
+                  //if(ShowInfoOnChart)
+                  //   UpdateInfoOnChart();
+                 }
+              }
+            // If we found a specific match, we can stop after modifying it
+            if(guidPart != "" && oppositePrefix != "")
+               break;
+           }
+        }
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| TrailSLMainTrade: second trailing after a bigger move           |
+//+------------------------------------------------------------------+
+void TrailSLMainTrade()
+  {
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+     {
+      if(PositionSelectByTicket(PositionGetTicket(i)))
+        {
+         if(PositionGetString(POSITION_SYMBOL) == Symbol() &&
+            PositionGetInteger(POSITION_MAGIC) == InpMagicMain)
+           {
+            double entry     = PositionGetDouble(POSITION_PRICE_OPEN);
+            double currentSL = PositionGetDouble(POSITION_SL);
+            double profitPoints = 0.0;
+            if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY)
+              {
+               double bid = SymbolInfoDouble(Symbol(), SYMBOL_BID);
+               profitPoints = (bid - entry) / Point();
+               // Skip if SL already above entry
+               if(currentSL > entry)
+                 {
+                  continue;
+                 }
+              }
+            else
+               if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_SELL)
+                 {
+                  double ask = SymbolInfoDouble(Symbol(), SYMBOL_ASK);
+                  profitPoints = (entry - ask) / Point();
+                  // Skip if SL already below entry
+                  if(currentSL < entry)
+                    {
+                     continue;
+                    }
+                 }
+            // Check if SL is at entry AND profit >= InpTrail2TriggerMain => move SL by InpTrail2OffsetMain
+            if(MathAbs(currentSL - entry) <= Point() && profitPoints >= InpTrail2TriggerMain)
+              {
+               double newSL;
+               if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY && currentSL <= entry)
+                  newSL = entry + InpTrail2OffsetMain * Point();
+               else
+                  if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_SELL && currentSL >= entry)
+                     newSL = entry - InpTrail2OffsetMain * Point();
+               if(!trade.PositionModify(PositionGetTicket(i), newSL, PositionGetDouble(POSITION_TP)))
+                 {
+                  if(InpEnableDebug)
+                     Print("Error trailing SL for position ", PositionGetTicket(i), ": ", GetLastError());
+                 }
+               else
+                 {
+                  if(InpEnableDebug)
+                     Print("SL trailed to ", newSL, " for position ", PositionGetTicket(i));
+                  
+                  // Track this position with trailed SL
+                  ulong ticket = PositionGetTicket(i);
+                  string comment = PositionGetString(POSITION_COMMENT);
+                  string guid = "";
+                  
+                  // Extract GUID from position comment
+                  if(StringSubstr(comment, 0, 1) == "B")
+                     guid = StringSubstr(comment, 1);
+                  else if(StringSubstr(comment, 0, 1) == "S")
+                     guid = StringSubstr(comment, 1);
+                  
+                  if(guid != "")
+                  {
+                     // Check if position is already tracked
+                     bool positionFound = false;
+                     for(int j = 0; j < ArraySize(trackedPositions); j++)
+                     {
+                        if(trackedPositions[j].ticket == ticket)
+                        {
+                           trackedPositions[j].trailedSL = newSL;
+                           positionFound = true;
+            break;
+           }
+                     }
+                     
+                     // If not tracked, add to array
+                     if(!positionFound)
+                     {
+                        int size = ArraySize(trackedPositions);
+                        ArrayResize(trackedPositions, size + 1);
+                        trackedPositions[size].ticket = ticket;
+                        trackedPositions[size].guid = guid;
+                        trackedPositions[size].trailedSL = newSL;
+                        trackedPositions[size].slTriggered = false;
+                        trackedPositions[size].blockRecovery = false;
+                        
+                  if(InpEnableDebug)
+                           Print("Position ", ticket, " with GUID ", guid, " tracked with trailed SL at ", newSL);
+                     }
+                  }
+                 }
+              }
+           }
+        }
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| TrailSLRecoveryTrade: moves SL to entry when profit reached      |
+//+------------------------------------------------------------------+
+void TrailSLRecoveryTrade()
+  {
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+     {
+      if(PositionSelectByTicket(PositionGetTicket(i)))
+        {
+         if(PositionGetString(POSITION_SYMBOL) == Symbol() &&
+            PositionGetInteger(POSITION_MAGIC) == InpMagicRecovery)
+           {
+            double entry     = PositionGetDouble(POSITION_PRICE_OPEN);
+            double currentSL = PositionGetDouble(POSITION_SL);
+            double profitPoints = 0.0;
+            // Skip if SL already modified (at entry or better)
+            if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY && currentSL >= entry)
+              {
+               continue;
+              }
+            else
+               if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_SELL && currentSL <= entry)
+                 {
+                  continue;
+                 }
+            // Calculate profit in points
+            if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY)
+              {
+               double bid = SymbolInfoDouble(Symbol(), SYMBOL_BID);
+               profitPoints = (bid - entry) / Point();
+              }
+            else
+               if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_SELL)
+                 {
+                  double ask = SymbolInfoDouble(Symbol(), SYMBOL_ASK);
+                  profitPoints = (entry - ask) / Point();
+                 }
+            // Check if profit >= InpTrail2TriggerRecovery => move SL to entry
+            if(profitPoints >= InpTrail2TriggerRecovery)
+              {
+               if(!trade.PositionModify(PositionGetTicket(i), entry, PositionGetDouble(POSITION_TP)))
+                 {
+                  if(InpEnableDebug)
+                     Print("Error moving recovery SL to entry for position ", PositionGetTicket(i), ": ", GetLastError());
+                 }
+               else
+                 {
+                  if(InpEnableDebug)
+                     Print("Recovery SL moved to entry for position ", PositionGetTicket(i),
+                           " after ", profitPoints, " points profit");
+                  // Update chart info
+                  //if(ShowInfoOnChart)
+                  //  {
+                  //   Comment("Recovery trade SL moved to entry at ", TimeToString(TimeCurrent()));
+                  //   UpdateInfoOnChart();
+                  //  }
+                 }
+              }
+           }
+        }
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| DeleteAllLinesIfNoPositions: removes HLines when no trades open  |
+//+------------------------------------------------------------------+
+void DeleteAllLinesIfNoPositions()
+  {
+// Check if there are no open positions for this symbol with our magic numbers
+   if(CountOpenPositions() == 0)
+     {
+      // Delete the trigger lines
+      DeleteTrailTriggerLine(infoLabelPrefix + "BuyTrailTrigger");
+      DeleteTrailTriggerLine(infoLabelPrefix + "SellTrailTrigger");
+      // Delete all trading day lines older than today
+      MqlDateTime today;
+      TimeCurrent(today);
+      datetime todayStart = StringToTime(StringFormat("%04d.%02d.%02d 00:00",
+                                         today.year, today.mon, today.day));
+      // Iterate through all objects
+      for(int i = ObjectsTotal(0) - 1; i >= 0; i--)
+        {
+         string objName = ObjectName(0, i);
+         if(StringFind(objName, tradingDayLineName) == 0)  // If object name starts with our prefix
+           {
+            datetime lineTime = (datetime)ObjectGetInteger(0, objName, OBJPROP_TIME);
+            if(lineTime < todayStart)  // If line is from previous day
+              {
+               ObjectDelete(0, objName);
+              }
+           }
+        }
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| PrintTradeStatus: outputs detailed EA status for debugging       |
+//+------------------------------------------------------------------+
+void PrintTradeStatus()
+  {
+   if(!InpEnableDebug)
+      return; // Skip this function entirely if debugging is disabled
+   if(InpEnableDebug)
+      Print("==== TRADE STATUS ====");
+   if(InpEnableDebug)
+      Print("Daily trading ended: ", dailyTradingEnded ? "Yes" : "No");
+   if(InpEnableDebug)
+      Print("Recovery used today: ", recoveryUsedToday ? "Yes" : "No");
+   if(InpEnableDebug)
+      Print("Recovery active: ", recoveryTradeActive ? "Yes" : "No");
+   if(InpEnableDebug)
+      Print("Daily cumulative profit: ", DoubleToString(dailyCumulativeProfit, 2));
+   if(InpEnableDebug)
+      Print("=====================");
+  }
+
+//+------------------------------------------------------------------+
+//| IsSameDay: Checks if two datetime values are on the same day     |
+//+------------------------------------------------------------------+
+bool IsSameDay(datetime time1, datetime time2)
+  {
+   MqlDateTime time_struct1, time_struct2;
+   TimeToStruct(time1, time_struct1);
+   TimeToStruct(time2, time_struct2);
+   return (time_struct1.year == time_struct2.year &&
+           time_struct1.mon == time_struct2.mon &&
+           time_struct1.day == time_struct2.day);
+  }
+
+//+------------------------------------------------------------------+
+//| GetLastDealTime: Gets the time of the last deal for given magic  |
+//+------------------------------------------------------------------+
+datetime GetLastDealTime(int magic)
+  {
+   datetime lastDealTime = 0;
+   if(!HistorySelect(0, TimeCurrent()))
+     {
+      if(InpEnableDebug)
+         Print("Error selecting history");
+      return 0;
+     }
+   for(int i = HistoryDealsTotal() - 1; i >= 0; i--)
+     {
+      ulong dealTicket = HistoryDealGetTicket(i);
+      if(dealTicket > 0)
+        {
+         if(HistoryDealGetString(dealTicket, DEAL_SYMBOL) == Symbol() &&
+            HistoryDealGetInteger(dealTicket, DEAL_MAGIC) == magic)
+           {
+            lastDealTime = (datetime)HistoryDealGetInteger(dealTicket, DEAL_TIME);
+            break;
+           }
+        }
+     }//for
+   return lastDealTime;
+  }
+
+//+------------------------------------------------------------------+
+//| CreateTradingDayLine: draws vertical line at trade entry time     |
+//+------------------------------------------------------------------+
+void CreateTradingDayLine()
+  {
+// Get current date
+   MqlDateTime time_struct;
+   TimeToStruct(TimeCurrent(), time_struct);
+// Create time string for today's trade entry time
+   string timeString = StringFormat("%04d.%02d.%02d %s",
+                                    time_struct.year,
+                                    time_struct.mon,
+                                    time_struct.day,
+                                    InpTradeTime);
+// Convert to datetime
+   datetime tradeTime = StringToTime(timeString);
+// Create unique line name using current timestamp
+   string lineName = tradingDayLineName + IntegerToString(TimeCurrent());
+// Create the vertical line - try a more visible style
+   ObjectCreate(0, lineName, OBJ_VLINE, 0, tradeTime, 0);
+   ObjectSetInteger(0, lineName, OBJPROP_COLOR, clrGreen);  // Brighter green
+   ObjectSetInteger(0, lineName, OBJPROP_STYLE, STYLE_DASH);  // Dashed instead of dotted
+   ObjectSetInteger(0, lineName, OBJPROP_WIDTH, 2);  // Thicker line
+   ObjectSetInteger(0, lineName, OBJPROP_BACK, false);  // Put line in foreground
+  }
+
+
+
+//+------------------------------------------------------------------+
+
+//+------------------------------------------------------------------+
+//| Function to update and display the dashboard                      |
+//+------------------------------------------------------------------+
+void UpdateRunningTotal()
+  {
+// Calculate unrealized profit for open positions with specified magic numbers
+   double unrealizedProfit = 0.0;
+   int totalPositions = PositionsTotal();
+   for(int i = 0; i < totalPositions; i++)
+     {
+      ulong positionTicket = PositionGetTicket(i);
+      if(PositionSelectByTicket(positionTicket))
+        {
+         long magic = PositionGetInteger(POSITION_MAGIC);
+         if(magic == InpMagicRecovery || magic == InpMagicMain)
+           {
+            unrealizedProfit += PositionGetDouble(POSITION_PROFIT);
+           }
+        }
+     }
+// Running total includes realized profit and unrealized profit from specified magic numbers
+   double runningTotal = totalRealizedProfit + unrealizedProfit;
+// Build the dashboard string with header
+   string dashboard = "================\n    MAVERICK EA PERFORMANCE\n================\n\n";
+   dashboard += "Last 5 Trades:\n";
+   for(int i = 4; i >= 0; i--)
+     {
+      if(lastFiveTrades[i].time > 0)   // Only display trades with valid timestamps
+        {
+         string tradeInfo = StringFormat("Trade %d (%s): %s %.2f %s\n",
+                                         5 - i,
+                                         TimeToString(lastFiveTrades[i].time, TIME_DATE | TIME_MINUTES),
+                                         lastFiveTrades[i].profit >= 0 ? "Profit" : "Loss",
+                                         MathAbs(lastFiveTrades[i].profit),
+                                         AccountInfoString(ACCOUNT_CURRENCY));
+         dashboard += tradeInfo;
+        }
+     }
+   dashboard += StringFormat("\nTotal Realized Profit: %.2f %s\n",
+                             totalRealizedProfit,
+                             AccountInfoString(ACCOUNT_CURRENCY));
+   dashboard += StringFormat("Running Total: %.2f %s\n\n",
+                             runningTotal,
+                             AccountInfoString(ACCOUNT_CURRENCY));
+// // Add section for open positions
+// dashboard += "Open Positions:\n";
+// // Create arrays to store position details for sorting
+// int posCount = 0;
+// int tickets[];
+// string comments[];
+// string posInfo[];
+// // Get all positions with our magic numbers
+// for(int i = 0; i < PositionsTotal(); i++)
+// {
+//    ulong posTicket = PositionGetTicket(i);
+//    if(PositionSelectByTicket(posTicket))
+//    {
+//       long magic = PositionGetInteger(POSITION_MAGIC);
+//       if(magic == InpMagicMain || magic == InpMagicRecovery)
+//       {
+//          // Resize arrays
+//          posCount++;
+//          ArrayResize(tickets, posCount);
+//          ArrayResize(comments, posCount);
+//          ArrayResize(posInfo, posCount);
+//          // Store ticket and comment
+//          tickets[posCount-1] = (int)posTicket;
+//          comments[posCount-1] = PositionGetString(POSITION_COMMENT);
+//          // Get position details
+//          ENUM_POSITION_TYPE posType = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
+//          double entry = PositionGetDouble(POSITION_PRICE_OPEN);
+//          double sl = PositionGetDouble(POSITION_SL);
+//          double profit = PositionGetDouble(POSITION_PROFIT);
+//          double currentPrice;
+//          // Determine current price based on position type
+//          if(posType == POSITION_TYPE_BUY)
+//             currentPrice = SymbolInfoDouble(Symbol(), SYMBOL_ASK);
+//          else
+//             currentPrice = SymbolInfoDouble(Symbol(), SYMBOL_BID);
+//          // Determine SL status
+//          string slStatus = "";
+//          if(MathAbs(sl - entry) < Point() * 2) // SL is at entry (with small tolerance)
+//             slStatus = "BE";
+//          else if((posType == POSITION_TYPE_BUY && sl > entry) ||
+//                  (posType == POSITION_TYPE_SELL && sl < entry))
+//             slStatus = "[Trail]";
+//          // Color code based on profit
+//          string colorCode = profit >= 0 ? "\033[32m" : "\033[31m"; // Green or Red
+//          // Format position info
+//          posInfo[posCount-1] = StringFormat("%s[%d]    %s    %.5f    %s\033[0m",
+//                                colorCode,
+//                                (int)posTicket,
+//                                slStatus,
+//                                currentPrice,
+//                                PositionGetString(POSITION_COMMENT));
+//       }
+//    }
+// }
+// // Sort positions by comment
+// if(posCount > 0)
+// {
+//    for(int i = 0; i < posCount - 1; i++)
+//    {
+//       for(int j = i + 1; j < posCount; j++)
+//       {
+//          if(StringCompare(comments[i], comments[j]) > 0)
+//          {
+//             // Swap position info
+//             string tempInfo = posInfo[i];
+//             posInfo[i] = posInfo[j];
+//             posInfo[j] = tempInfo;
+//             // Swap comments (needed for continued sorting)
+//             string tempComment = comments[i];
+//             comments[i] = comments[j];
+//             comments[j] = tempComment;
+//          }
+//       }
+//    }
+//    // Add sorted positions to dashboard
+//    for(int i = 0; i < posCount; i++)
+//    {
+//       dashboard += posInfo[i] + "\n";
+//    }
+// }
+// else
+// {
+//    dashboard += "No open positions\n";
+// }
+// Add footer
+   dashboard += "\n================";
+// Display the dashboard on the chart
+   Comment(dashboard);
+  }
+
+//+------------------------------------------------------------------+
+//| OnTimer function                                                 |
+//+------------------------------------------------------------------+
+void OnTimer()
+  {
+   UpdateRunningTotal();
+  }
+//+------------------------------------------------------------------+
+
+/*
+  20250310
+    profit and loss tracking and displaying
+
+*/
+/*
+  20250311
+    profit and loss tracking and displaying
+    -add a new input parameter for the update frequency
+    not updating on every tick, but now once per second.
+*/
+
+/*
+20250306
+0001  - guid comment tracking system
+0002 -
+*/
+
+/*
+
+-on trade trans
+
+-enable sounds
+
+-enable debug
+
+-enable chart display
+
+-enable sound alerts
+
+
+*/
+/*
+wip    2025 03 03
+
+trying to do this multiple tradess running and multiple recoveries
+
+
+EA is expected to open trade at 00:00 GMT (for instance)
+At 12am Deriv server time
+[
+the EA allows for the trader to input a trading time (hh:mm).
+ in backtesting , i will set as 00.00 deriv time to bring it more in line with your vision
+]
+
+ if there's  a trade still playing out from the previous day, as long as it is 00:00 a new trade (MAIN TRADE) must be opened please.
+[
+my take on this:  ignore other open trades, when it is time for a new trade ,allow a new trade on new dy
+}
+
+I believe that is not shown to be part of the EA operation from your backtest video
+[
+that's correct, my interpretation, and risk management as background in thinking, i limited the opening of a new trade, when we already have trades running (i.e. recovery or main of prev days ). however will amend that now to how you actually want it
+]
+
+*/
+
+/*
+ if after the sell position is taken out due to a 250k+ move to the upside and the
+         Buy position SL immediately moves to entry,
+
+the market then moves to the upside (hasnt touched 500k)  and then reverses back to entry,
+        buy trade will be closed for a -250k points loss incurred from the previously stopped out Sell Position.
+
+Immediately after this Buy Position is closed at entry for a 250k points loss,
+   the EA then makes another immediate hedged entry like the first time.
+
+  This will be called RECOVERY TRADE with
+   SL set to 500k and
+   TP still same at 1M
+
+[a section on the EA settings should be provided under RECOVERY TRADE SETTINGS which should have same set options as the MAIN TRADE SETTINGS section except 'Trade Entry Time' and 'Actual B.E SL Trailing';
+
+and Actual B.E SL Trailing activates after market has moved a certain specified distance which would often be twice the SL points..which in this case is already the TP for a recovery trade].
+
+After one of the hedged positions hits SL,
+ the SL for the remaining open position is moved to it's Entry for B.E  until trade hits TP at 1M points
+ or
+ reverses to SL at entry for an overall loss of -(250k + 500k) points.
+
+  */
+//+------------------------------------------------------------------+
+
+// Add this new function to check if price has crossed the trailed SL level
+void CheckTrackedPositionsCrossed()
+{
+   for(int i = 0; i < ArraySize(trackedPositions); i++)
+   {
+      // Skip positions that have already triggered their SL
+      if(trackedPositions[i].slTriggered)
+         continue;
+      
+      // Check if position is still open
+      if(PositionSelectByTicket(trackedPositions[i].ticket))
+      {
+         // Position is still open - check if price has crossed back over entry
+         double entryPrice = PositionGetDouble(POSITION_PRICE_OPEN);
+         double currentPrice;
+         bool priceReturnedToEntry = false;
+         
+         // Get current market price based on position type
+         if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY)
+         {
+            currentPrice = SymbolInfoDouble(Symbol(), SYMBOL_BID);
+            // For buy positions, check if price went below entry and then back above
+            if(currentPrice >= entryPrice && trackedPositions[i].priceBelowEntry)
+            {
+               priceReturnedToEntry = true;
+               if(InpEnableDebug)
+                  Print("Buy position ", trackedPositions[i].ticket, " price returned above entry after going below");
+            }
+            else if(currentPrice < entryPrice)
+            {
+               // Mark that price has been below entry
+               trackedPositions[i].priceBelowEntry = true;
+            }
+         }
+         else // SELL position
+         {
+            currentPrice = SymbolInfoDouble(Symbol(), SYMBOL_ASK);
+            // For sell positions, check if price went above entry and then back below
+            if(currentPrice <= entryPrice && trackedPositions[i].priceAboveEntry)
+            {
+               priceReturnedToEntry = true;
+               if(InpEnableDebug)
+                  Print("Sell position ", trackedPositions[i].ticket, " price returned below entry after going above");
+            }
+            else if(currentPrice > entryPrice)
+            {
+               // Mark that price has been above entry
+               trackedPositions[i].priceAboveEntry = true;
+            }
+         }
+         
+         // If price has returned to entry after crossing it, open a recovery hedge pair
+         if(priceReturnedToEntry && !trackedPositions[i].recoveryOpened)
+         {
+            if(InpEnableDebug)
+               Print("Opening recovery hedge pair for position ", trackedPositions[i].ticket, 
+                     " with GUID ", trackedPositions[i].guid, " as price returned to entry");
+            
+            // Mark this position as having opened a recovery so we don't do it again
+            trackedPositions[i].recoveryOpened = true;
+            
+            // Call OpenRecoveryTrade to open a new hedge pair
+            OpenRecoveryTrade();
+         }
+      }
+      else
+      {
+         // Position closed, check if it was due to SL hit
+         bool slTriggered = false;
+         
+         // We need to check position history to see if it was closed at the SL level
+         if(HistorySelectByPosition(trackedPositions[i].ticket))
+         {
+            for(int j = 0; j < HistoryDealsTotal(); j++)
+            {
+               ulong dealTicket = HistoryDealGetTicket(j);
+               if(HistoryDealGetInteger(dealTicket, DEAL_ENTRY) == DEAL_ENTRY_OUT &&
+                  HistoryDealGetInteger(dealTicket, DEAL_REASON) == DEAL_REASON_SL)
+               {
+                  slTriggered = true;
+                  break;
+               }
+            }
+         }
+         
+         if(slTriggered)
+         {
+            trackedPositions[i].slTriggered = true;
+            trackedPositions[i].blockRecovery = true;
+            
+            skipRecovery = true;
+            
+            // Block recovery for all positions with the same GUID
+            string currentGuid = trackedPositions[i].guid;
+            for(int j = 0; j < ArraySize(trackedPositions); j++)
+            {
+               if(trackedPositions[j].guid == currentGuid)
+                  trackedPositions[j].blockRecovery = true;
+            }
+            
+            if(InpEnableDebug)
+               Print("Position ", trackedPositions[i].ticket, " with GUID ", trackedPositions[i].guid, 
+                     " hit trailed SL - recovery blocked for this hedge set");
+         }
+      }
+   }
+}
+
+ 
+
+//+------------------------------------------------------------------+
+//| CreateTrailTriggerLines: creates dotted gray lines at trigger    |
+//+------------------------------------------------------------------+
+void CreateTrailTriggerLines(double buyEntry, double sellEntry)
+  {
+// Buy trigger line
+   string buyLineName = infoLabelPrefix + "BuyTrailTrigger";
+   double buyTriggerPrice = buyEntry + InpTrail2TriggerMain * Point();
+   ObjectCreate(0, buyLineName, OBJ_HLINE, 0, 0, buyTriggerPrice);
+   ObjectSetInteger(0, buyLineName, OBJPROP_COLOR, clrGray);
+   ObjectSetInteger(0, buyLineName, OBJPROP_STYLE, STYLE_DOT);
+   ObjectSetInteger(0, buyLineName, OBJPROP_WIDTH, 1);
+// Sell trigger line
+   string sellLineName = infoLabelPrefix + "SellTrailTrigger";
+   double sellTriggerPrice = sellEntry - InpTrail2TriggerMain * Point();
+   ObjectCreate(0, sellLineName, OBJ_HLINE, 0, 0, sellTriggerPrice);
+   ObjectSetInteger(0, sellLineName, OBJPROP_COLOR, clrGray);
+   ObjectSetInteger(0, sellLineName, OBJPROP_STYLE, STYLE_DOT);
+   ObjectSetInteger(0, sellLineName, OBJPROP_WIDTH, 1);
+  }
+
+//+------------------------------------------------------------------+
+//| DeleteTrailTriggerLine: deletes the specified trigger line       |
+//+------------------------------------------------------------------+
+void DeleteTrailTriggerLine(string lineName)
+  {
+   if(ObjectFind(0, lineName) >= 0)
+      ObjectDelete(0, lineName);
+  }
+//+------------------------------------------------------------------+
+//| GetTotalProfitMagic: sums closed profit for a specific magic     |
+//+------------------------------------------------------------------+
+double GetTotalProfitMagic(int magic)
+  {
+   double totalProfit = 0.0;
+   // We only count deals from the time we opened the main trade
+   if(!HistorySelect(mainTradeOpenTime, TimeCurrent()))
+     {
+      if(InpEnableDebug)
+         Print("Error selecting history: ", GetLastError());
+      return 0;
+     }
+   // Sum all profits from closed positions with the specified magic number
+   for(int i = HistoryDealsTotal() - 1; i >= 0; i--)
+     {
+      ulong dealTicket = HistoryDealGetTicket(i);
+      if(dealTicket > 0)
+        {
+         if(HistoryDealGetString(dealTicket, DEAL_SYMBOL) == Symbol() &&
+            HistoryDealGetInteger(dealTicket, DEAL_MAGIC) == magic &&
+            HistoryDealGetInteger(dealTicket, DEAL_ENTRY) == DEAL_ENTRY_OUT)
+           {
+            totalProfit += HistoryDealGetDouble(dealTicket, DEAL_PROFIT);
+           }
+        }
+     }
+   return totalProfit;
+  }
+
+//+------------------------------------------------------------------+
+//| ModifyTrailingSL: Checks price movement and moves SL accordingly |
+//+------------------------------------------------------------------+
+void ModifyTrailingSL()
+  {
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+     {
+      if(PositionSelectByTicket(PositionGetTicket(i)))
+        {
+         if(PositionGetString(POSITION_SYMBOL) == Symbol() &&
+            PositionGetInteger(POSITION_MAGIC) == InpMagicMain)
+           {
+            double entry = PositionGetDouble(POSITION_PRICE_OPEN);
+            double currentSL = PositionGetDouble(POSITION_SL);
+            // Skip if SL is already moved (not at initial SL placement)
+            if(MathAbs(currentSL - entry) < InpSLPointsMain * Point() * 0.9)
+               continue;
+            bool moveSL = false;
+            // For BUY positions - check if price moved up by InpTrail2OffsetMain points
+            if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY)
+              {
+               double bid = SymbolInfoDouble(Symbol(), SYMBOL_BID);
+               double priceMovement = bid - entry;
+               // If price moved up by the offset amount, move SL to entry
+               if(priceMovement >= InpTrail2OffsetMain * Point())
+                 {
+                  moveSL = true;
+                  if(InpEnableDebug)
+                     Print("Buy price moved up ", priceMovement / Point(), " points - moving SL to entry");
+                 }
+              }
+            // For SELL positions - check if price moved down by InpTrail2OffsetMain points
+            else
+               if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_SELL)
+                 {
+                  double ask = SymbolInfoDouble(Symbol(), SYMBOL_ASK);
+                  double priceMovement = entry - ask;
+                  // If price moved down by the offset amount, move SL to entry
+                  if(priceMovement >= InpTrail2OffsetMain * Point())
+                    {
+                     moveSL = true;
+                     if(InpEnableDebug)
+                        Print("Sell price moved down ", priceMovement / Point(), " points - moving SL to entry");
+                    }
+                 }
+            // If conditions met, modify SL to entry
+            if(moveSL)
+              {
+               if(!trade.PositionModify(PositionGetTicket(i), entry, PositionGetDouble(POSITION_TP)))
+                 {
+                  if(InpEnableDebug)
+                     Print("Error modifying SL to entry for position ",
+                           PositionGetTicket(i), ": ", GetLastError());
+                 }
+               else
+                 {
+                  if(InpEnableDebug)
+                     Print(__FUNCTION__);
+                  if(InpEnableDebug)
+                     Print("Breakeven on position ", PositionGetTicket(i));
+                  // Set the appropriate breakeven flag
+                  if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY)
+                     BUY_BREAKEVEN_SET = true;
+                  else
+                     if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_SELL)
+                        SELL_BREAKEVEN_SET = true;
+                 }
+              }
+           }
+        }
+     }
+  }
+

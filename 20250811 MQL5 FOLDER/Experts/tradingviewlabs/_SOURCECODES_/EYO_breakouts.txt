@@ -1,0 +1,506 @@
+//MAD MAD 
+// ALERT READY ON TELEGRAM ==> https://t.me/+UAk3hqvoD89jZTlk
+//@version=5
+indicator('EYO Breakouts', 'EYO Breakouts', overlay=true, max_lines_count=500, max_labels_count=500, max_bars_back=5000)
+tickername = syminfo.ticker  // Ticker adını al
+timeframe = str.tostring(timeframe.period)
+closingPrice = close
+AUTO = 'Auto'
+HOURLY = 'Hourly'
+DAILY = 'Daily'
+WEEKLY = 'Weekly'
+MONTHLY = 'Monthly'
+QUARTERLY = 'Quarterly'
+YEARLY = 'Yearly'
+BIYEARLY = 'Biyearly'
+TRIYEARLY = 'Triyearly'
+QUINQUENNIAL = 'Quinquennial'
+
+FIBONACCI = 'Fibonacci'
+CAMARILLA = 'Camarilla'
+
+kind = 'Camarilla'
+pivot_time_frame = AUTO
+look_back = 1
+
+show_labels = false 
+buySignal = false
+ColorSelector(c_) =>
+    c_ == 'aqua' ? color.aqua : c_ == 'black' ? color.black : c_ == 'blue' ? color.blue : c_ == 'fuchsia' ? color.fuchsia : c_ == 'gray' ? color.gray : c_ == 'green' ? color.green : c_ == 'lime' ? color.lime : c_ == 'maroon' ? color.maroon : c_ == 'navy' ? color.navy : c_ == 'olive' ? color.olive : c_ == 'orange' ? color.orange : c_ == 'purple' ? color.purple : c_ == 'red' ? color.red : c_ == 'silver' ? color.silver : c_ == 'teal' ? color.teal : c_ == 'white' ? color.white : c_ == 'yellow' ? color.yellow : color.black
+is_daily_based = true
+Ecandle = false
+
+
+//Pivot Settings 
+var DEF_COLOR = #ffffff
+var S3_COLOR = #6dc000
+var S4_COLOR = #c03d00
+var S5_COLOR = #008805
+var arr_time = array.new_int()
+var p = array.new_float()
+
+
+// var r1 = array.new_float()
+// var s1 = array.new_float()
+// s1r1_show = false
+// s1r1_color = input.color(color.green, '', inline='S1/R1')
+lines_color = input.color(color.rgb(97, 88, 108),"Line Color",inline="renk",group="Label & Color Settings")
+long_color = input.color(color.rgb(75, 139, 2),"Long Color",inline="renk",group="Label & Color Settings")
+short_color = input.color(color.rgb(201, 10, 4),"Short Color",inline="renk",group="Label & Color Settings")
+p_show = false
+p_bg_color = color.rgb(0, 162, 255)
+p_color = p_bg_color
+var r2 = array.new_float()
+var s2 = array.new_float()
+s2r2_show = input.bool(true, 'Show Support / Resistance Line 1', inline='S2/R2',group="Label & Color Settings")
+s2r2_color = lines_color
+
+var r3 = array.new_float()
+var s3 = array.new_float()
+s3r3_show = input.bool(true, 'Show Support / Resistance Line 2', inline='S3/R3',group="Label & Color Settings")
+s3r3_color = lines_color
+
+var r4 = array.new_float()
+var s4 = array.new_float()
+s4r4_show = input.bool(true, 'Show Support / Resistance Line 3', inline='S4/R4',group="Label & Color Settings")
+s4r4_color = lines_color
+
+var r5 = array.new_float()
+var s5 = array.new_float()
+s5r5_show = input.bool(true, 'Show Support / Resistance Line 4', inline='S5/R5',group="Label & Color Settings")
+s5r5_color = lines_color
+
+pivotX_open = float(na)
+pivotX_open := nz(pivotX_open[1], open)
+pivotX_high = float(na)
+pivotX_high := nz(pivotX_high[1], high)
+pivotX_low = float(na)
+pivotX_low := nz(pivotX_low[1], low)
+pivotX_prev_open = float(na)
+pivotX_prev_open := nz(pivotX_prev_open[1])
+pivotX_prev_high = float(na)
+pivotX_prev_high := nz(pivotX_prev_high[1])
+pivotX_prev_low = float(na)
+pivotX_prev_low := nz(pivotX_prev_low[1])
+pivotX_prev_close = float(na)
+pivotX_prev_close := nz(pivotX_prev_close[1])
+
+get_pivot_resolution() =>
+    resolution = 'M'
+    if pivot_time_frame == AUTO
+        if timeframe.isintraday
+            resolution := timeframe.multiplier <= 15 ? 'D' : 'W'
+            resolution
+        else if timeframe.isweekly or timeframe.ismonthly
+            resolution := '12M'
+            resolution
+    else if pivot_time_frame == HOURLY
+        resolution := '240'
+        resolution
+    else if pivot_time_frame == DAILY
+        resolution := 'D'
+        resolution
+    else if pivot_time_frame == WEEKLY
+        resolution := 'W'
+        resolution
+    else if pivot_time_frame == MONTHLY
+        resolution := 'M'
+        resolution
+    else if pivot_time_frame == QUARTERLY
+        resolution := '3M'
+        resolution
+    else if pivot_time_frame == YEARLY
+        resolution := '12M'
+        resolution
+    resolution
+
+var lines = array.new_line()
+var labels = array.new_label()
+
+draw_line(i, pivot, col) =>
+    if array.size(arr_time) > 1
+        array.push(lines, line.new(array.get(arr_time, i), array.get(pivot, i), array.get(arr_time, i + 1), array.get(pivot, i), color=col, xloc=xloc.bar_time))
+
+draw_label(i, y, txt, txt_color) =>
+    if show_labels
+        offset = '‏  ‏  ‏  ‏  ‏'
+
+camarilla() =>
+    pivotX_Median = (pivotX_prev_high + pivotX_prev_low + pivotX_prev_close) / 3
+    pivot_range = pivotX_prev_high - pivotX_prev_low
+    H4 = pivotX_prev_close + pivot_range * 1.1 / 2
+    H3 = pivotX_prev_close + pivot_range * 1.1 / 4
+    H2 = pivotX_prev_close + pivot_range * 1.1 / 6
+    H1 = pivotX_prev_close + pivot_range * 1.1 / 12
+    L1 = pivotX_prev_close - pivot_range * 1.1 / 12
+    L2 = pivotX_prev_close - pivot_range * 1.1 / 6
+    L3 = pivotX_prev_close - pivot_range * 1.1 / 4
+    L4 = pivotX_prev_close - pivot_range * 1.1 / 2
+    L5 = L4 - 1.168 * (L3 - L4)
+    H5 = H4 + 1.168 * (H4 - H3)
+    H6 = pivotX_prev_high / pivotX_prev_low * pivotX_prev_close
+    L6 = pivotX_prev_close - (H6 - pivotX_prev_close)
+    array.push(p, pivotX_Median)
+    // array.push(r1, H2)
+    // array.push(s1, L2)
+    array.push(r2, H3)
+    array.push(s2, L3)
+    array.push(r3, H4)
+    array.push(s3, L4)
+    array.push(r4, H5)
+    array.push(s4, L5)
+    array.push(r5, H6)
+    array.push(s5, L6)
+
+resolution = get_pivot_resolution()
+
+[sec_open, sec_high, sec_low, sec_close] = request.security(syminfo.tickerid, resolution, [open, high, low, close], lookahead=barmerge.lookahead_on)
+sec_open_gaps_on = request.security(syminfo.tickerid, resolution, open, gaps=barmerge.gaps_on, lookahead=barmerge.lookahead_on)
+
+var number_of_years = 0
+is_change_years = false
+var custom_years_resolution = pivot_time_frame == BIYEARLY or pivot_time_frame == TRIYEARLY or pivot_time_frame == QUINQUENNIAL
+if custom_years_resolution and ta.change(time(resolution))
+    number_of_years += 1
+    if pivot_time_frame == BIYEARLY and number_of_years % 2 == 0
+        is_change_years := true
+        number_of_years := 0
+        number_of_years
+    else if pivot_time_frame == TRIYEARLY and number_of_years % 3 == 0
+        is_change_years := true
+        number_of_years := 0
+        number_of_years
+    else if pivot_time_frame == QUINQUENNIAL and number_of_years % 5 == 0
+        is_change_years := true
+        number_of_years := 0
+        number_of_years
+
+var is_change = false
+var uses_current_bar = timeframe.isintraday
+var change_time = int(na)
+is_time_change = ta.change(time(resolution)) and not custom_years_resolution or is_change_years
+if is_time_change
+    change_time := time
+    change_time
+
+
+if not uses_current_bar and is_time_change or uses_current_bar and not na(sec_open_gaps_on)
+    if is_daily_based
+        pivotX_prev_open := sec_open[1]
+        pivotX_prev_high := sec_high[1]
+        pivotX_prev_low := sec_low[1]
+        pivotX_prev_close := sec_close[1]
+        pivotX_open := sec_open
+        pivotX_high := sec_high
+        pivotX_low := sec_low
+        pivotX_low
+    else
+        pivotX_prev_high := pivotX_high
+        pivotX_prev_low := pivotX_low
+        pivotX_prev_open := pivotX_open
+        pivotX_open := open
+        pivotX_high := high
+        pivotX_low := low
+        pivotX_prev_close := close[1]
+        pivotX_prev_close
+
+    if barstate.islast and not is_change and array.size(arr_time) > 0
+        array.set(arr_time, array.size(arr_time) - 1, change_time)
+    else
+        array.push(arr_time, change_time)
+
+    camarilla()
+
+    if array.size(arr_time) > look_back
+        if array.size(arr_time) > 0
+            array.shift(arr_time)
+        if array.size(p) > 0 and p_show
+            array.shift(p)
+        // if array.size(r1) > 0 and s1r1_show
+        //     array.shift(r1)
+        // if array.size(s1) > 0 and s1r1_show
+            // array.shift(s1)
+        if array.size(r2) > 0 and s2r2_show
+            array.shift(r2)
+        if array.size(s2) > 0 and s2r2_show
+            array.shift(s2)
+        if array.size(r3) > 0 and s3r3_show
+            array.shift(r3)
+        if array.size(s3) > 0 and s3r3_show
+            array.shift(s3)
+        if array.size(r4) > 0 and s4r4_show
+            array.shift(r4)
+        if array.size(s4) > 0 and s4r4_show
+            array.shift(s4)
+        if array.size(r5) > 0 and s5r5_show
+            array.shift(r5)
+        if array.size(s5) > 0 and s5r5_show
+            array.shift(s5)
+    is_change := true
+    is_change
+else
+    if is_daily_based
+        pivotX_high := math.max(pivotX_high, sec_high)
+        pivotX_low := math.min(pivotX_low, sec_low)
+        pivotX_low
+    else
+        pivotX_high := math.max(pivotX_high, high)
+        pivotX_low := math.min(pivotX_low, low)
+        pivotX_low
+
+if barstate.islast and array.size(arr_time) > 0 and is_change
+    is_change := false
+    if array.size(arr_time) > 2 and custom_years_resolution
+        last_pivot_time = array.get(arr_time, array.size(arr_time) - 1)
+        prev_pivot_time = array.get(arr_time, array.size(arr_time) - 2)
+        estimate_pivot_time = last_pivot_time - prev_pivot_time
+        array.push(arr_time, last_pivot_time + estimate_pivot_time)
+    else
+        array.push(arr_time, time_close(resolution))
+
+    for i = 0 to array.size(lines) - 1 by 1
+        if array.size(lines) > 0
+            line.delete(array.shift(lines))
+        if array.size(lines) > 0
+            label.delete(array.shift(labels))
+
+    for i = 0 to array.size(arr_time) - 2 by 1
+        if array.size(p) > 0 and p_show
+            draw_line(i, p, p_color)
+            draw_label(i, array.get(p, i), 'P', p_color)
+        // if array.size(r1) > 0 and s1r1_show
+        //     draw_line(i, r1, s1r1_color)
+        //     draw_label(i, array.get(r1, i), 'R1', s1r1_color)
+        // if array.size(s1) > 0 and s1r1_show
+        //     draw_line(i, s1, s1r1_color)
+        //     draw_label(i, array.get(s1, i), 'S1', s1r1_color)
+        if array.size(r2) > 0 and s2r2_show
+            draw_line(i, r2, s2r2_color)
+            draw_label(i, array.get(r2, i), 'R2', s2r2_color)
+        if array.size(s2) > 0 and s2r2_show
+            draw_line(i, s2, s2r2_color)
+            draw_label(i, array.get(s2, i), 'S2', s2r2_color)
+        if array.size(r3) > 0 and s3r3_show
+            draw_line(i, r3, s3r3_color)
+            draw_label(i, array.get(r3, i), 'R3', s3r3_color)
+        if array.size(s3) > 0 and s3r3_show
+            draw_line(i, s3, s3r3_color)
+            draw_label(i, array.get(s3, i), 'S3', s3r3_color)
+        if array.size(r4) > 0 and s4r4_show
+            draw_line(i, r4, s4r4_color)
+            draw_label(i, array.get(r4, i), 'R4', s4r4_color)
+        if array.size(s4) > 0 and s4r4_show
+            draw_line(i, s4, s4r4_color)
+            draw_label(i, array.get(s4, i), 'S4', s4r4_color)
+        if array.size(r5) > 0 and s5r5_show
+            draw_line(i, r5, s5r5_color)
+            draw_label(i, array.get(r5, i), 'R5', s5r5_color)
+        if array.size(s5) > 0 and s5r5_show
+            draw_line(i, s5, s5r5_color)
+            draw_label(i, array.get(s5, i), 'S5', s5r5_color)
+			
+			
+
+hhtf = request.security(syminfo.tickerid, resolution, high[1], lookahead=barmerge.lookahead_on)
+lhtf = request.security(syminfo.tickerid, resolution, low[1], lookahead=barmerge.lookahead_on)
+chtf = request.security(syminfo.tickerid, resolution, close[1], lookahead=barmerge.lookahead_on)
+rng = hhtf - lhtf
+
+
+// Line Style
+linestyleL = plot.style_line
+///////Calculation Camarilla
+H4 = chtf + rng * 1.1 / 2
+H3 = chtf + rng * 1.1 / 4
+H2 = chtf + rng * 1.1 / 6
+H1 = chtf + rng * 1.1 / 12
+L1 = chtf - rng * 1.1 / 12
+L2 = chtf - rng * 1.1 / 6
+L3 = chtf - rng * 1.1 / 4
+L4 = chtf - rng * 1.1 / 2
+L5 = L4 - 1.168 * (L3 - L4)  //L5 = chtf - (H5 - chtf)
+H5 = H4 + 1.168 * (H4 - H3)  //H5 = (hhtf / lhtf) * chtf
+H6 = hhtf / lhtf * chtf  //H6 = H5 + 1.168 * (H5 - H4) 
+L6 = chtf - (H6 - chtf)  //L6 = chtf - (H6 - chtf)
+SLbull = (H4 + H3) / 2
+SLbear = (L4 + L3) / 2
+mid = (H3 + L3) / 2
+
+// Label for S/R
+mndr = time - time[1]
+mndr := ta.change(mndr) > 0 ? mndr[1] : mndr
+
+Round_it(valu) =>
+    a = 0
+    num = syminfo.mintick
+    s = valu
+    if na(s)
+        s := syminfo.mintick
+        s
+    if num < 1
+        for i = 1 to 20 by 1
+            num *= 10
+            if num > 1
+                break
+            a += 1
+            a
+
+    for x = 1 to a by 1
+        s *= 10
+        s
+    s := math.round(s)
+    for x = 1 to a by 1
+        s /= 10
+        s
+    s := s < syminfo.mintick ? syminfo.mintick : s
+    s
+
+// Labels
+if kind == CAMARILLA
+    var label midlabel = na
+    var label s3label = na
+    var label s4label = na
+    var label s5label = na
+    var label s6label = na
+    var label r3label = na
+    var label r4label = na
+    var label r5label = na
+    var label r6label = na
+    label.delete(midlabel)
+    label.delete(s3label)
+    label.delete(s4label)
+    label.delete(s5label)
+    label.delete(s6label)
+    label.delete(r3label)
+    label.delete(r4label)
+    label.delete(r5label)
+    label.delete(r6label)
+
+    if p_show
+        midlabel := label.new(x=time + mndr * 20, y=mid, xloc=xloc.bar_time, yloc=yloc.price)
+        label.set_text(midlabel, text = "Flat Line " + str.tostring(Round_it(mid)))
+        label.set_textcolor(midlabel, color.white)
+        label.set_style(midlabel,label.style_label_left)
+        label.set_size(midlabel,size.small)
+        label.set_textalign(midlabel,text.align_center)
+        label.set_color(midlabel,p_bg_color)
+    if s2r2_show
+        s3label := label.new(x=time + mndr * 20, y=L3, xloc=xloc.bar_time, yloc=yloc.price)
+        label.set_text(s3label, text = "Get Ready for Sell " + str.tostring(Round_it(L3)))
+        label.set_textcolor(s3label, color.white)
+        label.set_style(s3label,label.style_label_left)
+        label.set_size(s3label,size.small)
+        label.set_textalign(s3label,text.align_center)
+        label.set_color(s3label,short_color)
+        
+    if s3r3_show
+	    
+        s4label := label.new(x=time + mndr * 20, y=L4, xloc=xloc.bar_time, yloc=yloc.price)
+        label.set_text(s4label, text = "Breakout " + str.tostring(Round_it(L4)))
+        label.set_textcolor(s4label, color.white)
+        label.set_style(s4label,label.style_label_left)
+        label.set_size(s4label,size.small)
+        label.set_textalign(s4label,text.align_center)
+        label.set_color(s4label,short_color)
+      
+    if s4r4_show
+		percentageChange = ((L4 - L5) / L4) * 100
+        s5label := label.new(x=time + mndr * 20, y=L5,xloc=xloc.bar_time, yloc=yloc.price)
+        label.set_text(s5label, text = "TP1 " + str.tostring(Round_it(L5))+ " ("+ str.tostring(percentageChange, format.percent)+")")
+        label.set_textcolor(s5label, color.white)
+        label.set_style(s5label,label.style_label_left)
+        label.set_size(s5label,size.small)
+        label.set_textalign(s5label,text.align_center)
+        label.set_color(s5label,short_color)
+    if s5r5_show    
+	    percentageChange = ((L4 - L6) / L4) * 100
+        s6label := label.new(x=time + mndr * 20, y=L6, xloc=xloc.bar_time, yloc=yloc.price)
+        label.set_text(s6label, text = "TP2 " + str.tostring(Round_it(L6))+ " ("+ str.tostring(percentageChange, format.percent)+")"  )
+        label.set_textcolor(s6label, color.white)
+        label.set_style(s6label,label.style_label_left)
+        label.set_size(s6label,size.small)
+        label.set_textalign(s6label,text.align_center)
+        label.set_color(s6label,short_color)
+    if s2r2_show
+        r3label := label.new(x=time + mndr * 20, y=H3, xloc=xloc.bar_time, yloc=yloc.price)
+        label.set_text(r3label, text = "Get Ready For Buy " + str.tostring(Round_it(H3)))
+        label.set_textcolor(r3label, color.white)
+        label.set_style(r3label,label.style_label_left)
+        label.set_size(r3label,size.small)
+        label.set_textalign(r3label,text.align_center)
+        label.set_color(r3label,long_color)
+     
+    if s3r3_show    
+        r4label := label.new(x=time + mndr * 20, y=H4, xloc=xloc.bar_time, yloc=yloc.price)
+        label.set_text(r4label, text = "Breakout " + str.tostring(Round_it(H4)))
+        label.set_textcolor(r4label, color.white)
+        label.set_style(r4label,label.style_label_left)
+        label.set_size(r4label,size.small)
+        label.set_textalign(r4label,text.align_center)
+        label.set_color(r4label,long_color)     
+
+    if s4r4_show
+	    percentageChange = ((H5 - H4) / H5) * 100
+        r5label := label.new(x=time + mndr * 20, y=H5,xloc=xloc.bar_time, yloc=yloc.price)
+        label.set_text(r5label, text = "TP1  " + str.tostring(Round_it(H5))+ " ("+ str.tostring(percentageChange, format.percent)+")"  )
+        label.set_textcolor(r5label, color.white)
+        label.set_style(r5label,label.style_label_left)
+        label.set_size(r5label,size.small)
+        label.set_textalign(r5label,text.align_center)
+        label.set_color(r5label,long_color)   
+    if s5r5_show         
+	    percentageChange = ((H6 - H4) / H6) * 100
+        r6label := label.new(x=time + mndr * 20, y=H6,xloc=xloc.bar_time, yloc=yloc.price)
+        label.set_text(r6label, text = "TP2 " + str.tostring(Round_it(H6))+ " ("+ str.tostring(percentageChange, format.percent)+")")
+        label.set_textcolor(r6label, color.white)
+        label.set_style(r6label,label.style_label_left)
+        label.set_size(r6label,size.small)
+        label.set_textalign(r6label,text.align_center)
+        label.set_color(r6label,long_color)      
+        r6label
+        
+
+
+//Volume Based Support Resistance
+vsr = false
+Vlength = 20
+Vchange = volume / volume[1] - 1
+stdev = ta.stdev(Vchange, Vlength)
+difference = Vchange / stdev[1]
+Treshold = 5
+zero = 0
+signal = math.abs(difference)
+vstylee = plot.style_circles
+
+leveluphi = ta.valuewhen(signal > Treshold, high[1], 0)
+leveluplo = ta.valuewhen(signal > Treshold, low[1], 0)
+
+//plot(UpperTreshold, color=black)
+
+cand = high - low
+bodyr = open - close
+candle = bodyr * 100 / cand
+
+///// 
+
+
+//RSI
+srcRSI = close
+rsicol = false
+lenRSI = 14
+up = ta.rma(math.max(ta.change(srcRSI), 0), lenRSI)
+down = ta.rma(-math.min(ta.change(srcRSI), 0), lenRSI)
+rsi = down == 0 ? 100 : up == 0 ? 0 : 100 - 100 / (1 + up / down)
+
+//coloring method below
+srcRSI1 = close
+lenRSI1 = 60
+srcRSI2 = close
+lenRSI2 = 40
+isup() =>
+    rsi > lenRSI1
+isdown() =>
+    rsi < lenRSI2
+
+
+

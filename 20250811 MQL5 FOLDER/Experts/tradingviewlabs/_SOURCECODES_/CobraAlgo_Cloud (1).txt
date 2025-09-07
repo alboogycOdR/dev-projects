@@ -1,0 +1,377 @@
+//@version=5
+
+
+indicator('CobraAlgo Cloud', shorttitle = 'CobraAlgo Cloud', overlay=true, timeframe = '', timeframe_gaps = false)
+source = input(ohlc4, 'Source')
+ma2 = input.string(title='Cloud MA Type', options=['sma', 'ema', 'wma', 'vwma', 'rma', 'alma', 'hma', 'jma', 'frama-o','frama-m','dema','tema','zlema','smma','kma','tma','gmma','vida','cma','rema'], defval='ema')
+ma = input.string(title='Ribbon MA Type', options=['sma', 'ema', 'wma', 'vwma', 'rma', 'alma', 'hma', 'jma', 'frama-o','frama-m','dema','tema','zlema','smma','kma','tma','gmma','vida','cma','rema'], defval='ema')
+Theme = input.string(title='Theme', options=['Theme 1', 'Theme 2', 'Theme 3', 'No fill'], defval='Theme 1')
+show_cross = input(title='Show Cross', defval=true)
+userib = input(title = 'use ribbon for cross', defval = false, tooltip = 'changes the longema cross(shown as circles by defualt) from the cloud {2,6} cross to ribbon {1,2} cross')
+
+show_seq = input.bool(defval=true,title='Show sequence', inline = 'show_seq', group = 'sequence')
+seq_back = input.int(4, title = ':lookback', inline = 'show_seq', group = 'sequence')
+
+
+//---Jurik MA
+phase = 0
+power = 1
+
+calc_jma(_src, _length, _phase, _power) =>
+    phaseRatio = _phase < -100 ? 0.5 : _phase > 100 ? 2.5 : _phase / 100 + 1.5
+
+    beta = 0.45 * (_length - 1) / (0.45 * (_length - 1) + 2)
+    alpha = math.pow(beta, _power)
+
+    e0 = 0.0
+    e0 := (1 - alpha) * _src + alpha * nz(e0[1])
+
+    e1 = 0.0
+    e1 := (_src - e0) * (1 - beta) + beta * nz(e1[1])
+
+    jma = 0.0
+    e2 = 0.0
+    e2 := (e0 + phaseRatio * e1 - nz(jma[1])) * math.pow(1 - alpha, 2) + math.pow(alpha, 2) * nz(e2[1])
+
+    jma := e2 + nz(jma[1])
+    jma
+
+
+FC = input.int(defval=5, minval=1, title='FRAMA FC', inline = 'FC', group = 'FRAMA')
+SC = input.int(defval=50, minval=1, title=': SC', inline = 'FC', group = 'FRAMA')
+//---FRAMA originale---
+frama(source, c) =>
+    out = 0.0
+    len1 = c / 2
+    e = 2.7182818284590452353602874713527
+    w = math.log(2 / (SC + 1)) / math.log(e)  // Natural logarithm (ln(2/(SC+1))) workaround
+    H1 = ta.highest(high, len1)
+    L1 = ta.lowest(low, len1)
+    N1 = (H1 - L1) / len1
+    H2 = ta.highest(high, len1)[len1]
+    L2 = ta.lowest(low, len1)[len1]
+    N2 = (H2 - L2) / len1
+    H3 = ta.highest(high, c)
+    L3 = ta.lowest(low, c)
+    N3 = (H3 - L3) / c
+    dimen1 = (math.log(N1 + N2) - math.log(N3)) / math.log(2)
+    dimen = N1 > 0 and N2 > 0 and N3 > 0 ? dimen1 : nz(dimen1[1])
+    alpha1 = math.exp(w * (dimen - 1))
+    oldalpha = alpha1 > 1 ? 1 : alpha1 < 0.01 ? 0.01 : alpha1
+    oldN = (2 - oldalpha) / oldalpha
+    N = (SC - FC) * (oldN - 1) / (SC - 1) + FC
+    alpha_ = 2 / (N + 1)
+    alpha = alpha_ < 2 / (SC + 1) ? 2 / (SC + 1) : alpha_ > 1 ? 1 : alpha_
+    out := (1 - alpha) * nz(out[1]) + alpha * source
+    out
+//------FRAMA modificato---------
+frama_mod(source, c) =>
+    float result = 0
+    int len1 = c / 2
+    frama_SC = 200
+    frama_FC = 1
+    e = 2.7182818284590452353602874713527
+    w = math.log(2 / (frama_SC + 1)) / math.log(e)  // Natural logarithm (ln(2/(SC+1))) workaround
+    H1 = ta.highest(high, len1)
+    L1 = ta.lowest(low, len1)
+    N1 = (H1 - L1) / len1
+    H2_ = ta.highest(high, len1)
+    H2 = H2_[len1]
+    L2_ = ta.lowest(low, len1)
+    L2 = L2_[len1]
+    N2 = (H2 - L2) / len1
+    H3 = ta.highest(high, c)
+    L3 = ta.lowest(low, c)
+    N3 = (H3 - L3) / c
+    dimen1 = (math.log(N1 + N2) - math.log(N3)) / math.log(2)
+    dimen = N1 > 0 and N2 > 0 and N3 > 0 ? dimen1 : nz(dimen1[1])
+    alpha1 = math.exp(w * (dimen - 1))
+    oldalpha = alpha1 > 1 ? 1 : alpha1 < 0.01 ? 0.01 : alpha1
+    oldN = (2 - oldalpha) / oldalpha
+    N = (frama_SC - frama_FC) * (oldN - 1) / (frama_SC - 1) + frama_FC
+    alpha_ = 2 / (N + 1)
+    alpha = alpha_ < 2 / (frama_SC + 1) ? 2 / (frama_SC + 1) : alpha_ > 1 ? 1 : alpha_
+    //frama = 0.0
+    result := (1 - alpha) * nz(result[1]) + alpha * source
+    result
+
+//------------------------------------    
+//---Double exp moving average (DEMA)
+calc_dema(source, c) =>
+    dema1 = ta.ema(source, c)
+    dema2 = ta.ema(dema1, c)
+    dExpoMA = 2 * dema1 - dema2
+    dExpoMA
+
+//---Triple exp moving average (TEMA)  
+calc_tema(source, c) =>
+    tExpo1 = ta.ema(source, c)
+    tExpo2 = ta.ema(tExpo1, c)
+    tExpo3 = ta.ema(tExpo2, c)
+    tExpoMA = 3 * tExpo1 - 3 * tExpo2 + tExpo3
+    tExpoMA
+
+//---Zero-Lag Exponential Moving Average (ZLEMA)
+calc_zlema(source, c) =>
+    zLagExpo1 = (c - 1) / 2
+    zLagExpo2 = source + source - source[zLagExpo1]
+    zLagExpoMA = ta.ema(zLagExpo2, c)
+    zLagExpoMA
+
+//---Smoothed Moving Average (SMMA)
+calc_smma(source, c) =>
+    smmaMA = 0.0
+    smmaMA := na(smmaMA[1]) ? ta.sma(source, c) : (smmaMA[1] * (c - 1) + source) / c
+    smmaMA
+
+//---Kaufman Adaptive Moving Average (KAMA)
+kaufmanFast = input(title='Kaufman Fast', defval=2, inline = 'kaufmanFast', group = 'KMA')
+kaufmanSlow = input(title=': Slow', defval=30, inline = 'kaufmanFast', group = 'KMA')
+
+calc_kama(source, c) =>
+    kaMA1 = math.abs(ta.change(source, c))
+    kaufmanVol = math.sum(math.abs(ta.change(source)), c)
+    kaufmanEff = kaufmanVol != 0 ? kaMA1 / kaufmanVol : 0
+    kaufmanFast2 = 2 / (kaufmanFast + 1)
+    kaufmanSlow2 = 2 / (kaufmanSlow + 1)
+    kaufmanSC = math.pow(kaufmanEff * (kaufmanFast2 - kaufmanSlow2) + kaufmanSlow2, 2)
+    kaMA = 0.0
+    kaMA := kaufmanSC * source + (1 - kaufmanSC) * nz(kaMA[1])
+    kaMA
+
+
+//---Triangular Moving Average (TMA)
+calc_tma(source, c) =>
+    triMA = ta.sma(ta.sma(source, math.ceil(c / 2)), math.floor(c / 2) + 1)
+    triMA
+
+
+//Geometric Mean Moving Average (GMMA)
+calc_gmma(source, c) =>
+    lmean = math.log(source)
+    smean = math.sum(lmean, c)
+    geoMA = math.exp(smean / c)
+    geoMA
+
+//---Variable Index Dynamic Average (VIDA)
+calc_vida(source, c) =>
+    mom = ta.change(source)
+    upSum = math.sum(math.max(mom, 0), c)
+    downSum = math.sum(-math.min(mom, 0), c)
+    cmo = math.abs((upSum - downSum) / (upSum + downSum))
+    F = 2 / (c + 1)
+    vida = 0.0
+    vida := source * F * cmo + nz(vida[1]) * (1 - F * cmo)
+    vida
+
+//---Corrective Moving average (CMA)
+calc_cma(source, c) =>
+    sma = ta.sma(source, c)
+    cma = sma
+    v1 = ta.variance(source, c)
+    v2 = math.pow(nz(cma[1], cma) - sma, 2)
+    v3 = v1 == 0 or v2 == 0 ? 1 : v2 / (v1 + v2)
+
+    var tolerance = math.pow(10, -5)
+    float err = 1
+
+    // Gain Factor
+    float kPrev = 1
+    float k = 1
+
+    for i = 0 to 5000 by 1
+        if err > tolerance
+            k := v3 * kPrev * (2 - kPrev)
+            err := kPrev - k
+            kPrev := k
+            kPrev
+
+    cma := nz(cma[1], source) + k * (sma - nz(cma[1], source))
+    cma
+
+//---Ramnge EMA (REMA)
+calc_range_ema(source, c) =>
+    alpha = 2 / (1 + c)
+    weight = high - low
+    weight := weight == 0 ? syminfo.pointvalue : weight
+    num = 0.0
+    den = 0.0
+    num := na(num[1]) ? weight * source : num[1] + alpha * (weight * source - num[1])
+    den := na(den[1]) ? weight : den[1] + alpha * (weight - den[1])
+    ma = num / den
+    ma
+
+// Ribbion
+
+getMa1(c) =>
+    switch ma 
+        'sma' => ta.sma(source,c)
+        'ema' => ta.ema(source,c)
+        'wma' => ta.wma(source,c)
+        'vwma' => ta.vwma(source,c)
+        'rma' => ta.rma(source,c)
+        'alma' => ta.alma(source,c, 0.85, 6)
+        'hma' => ta.hma(source,c)
+        'jma' => calc_jma(source,c, phase, power)
+        'frama-o' => frama(source, c)
+        'frama-m' => frama_mod(source, c)
+        'dema' => calc_dema(source, c)
+        'tema' => calc_tema(source, c)
+        'zlema' => calc_zlema(source, c)
+        'smma' => calc_smma(source, c)
+        'kma' => calc_kama(source, c)
+        'tma' => calc_tma(source, c)
+        'gmma' => calc_gmma(source, c)
+        'vida' => calc_vida(source, c)
+        'cma' => calc_cma(source, c)
+        'rema' => calc_range_ema(source, c)
+
+
+
+
+getMa(c) =>
+    switch ma2 
+        'sma' => ta.sma(source,c)
+        'ema' => ta.ema(source,c)
+        'wma' => ta.wma(source,c)
+        'vwma' => ta.vwma(source,c)
+        'rma' => ta.rma(source,c)
+        'alma' => ta.alma(source,c, 0.85, 6)
+        'hma' => ta.hma(source,c)
+        'jma' => calc_jma(source,c, phase, power)
+        'frama-o' => frama(source, c)
+        'frama-m' => frama_mod(source, c)
+        'dema' => calc_dema(source, c)
+        'tema' => calc_tema(source, c)
+        'zlema' => calc_zlema(source, c)
+        'smma' => calc_smma(source, c)
+        'kma' => calc_kama(source, c)
+        'tma' => calc_tma(source, c)
+        'gmma' => calc_gmma(source, c)
+        'vida' => calc_vida(source, c)
+        'cma' => calc_cma(source, c)
+        'rema' => calc_range_ema(source, c)
+
+
+colour1 = color.new(#008000, 85)
+colour2 = color.new(#7f0d0d, 85)
+colour3 = color.new(#807800, 85)
+colour4 = color.new(#290D7F, 85)
+colour5 = color.new(#00807C, 85)
+colour6 = color.new(#7F430D, 85)
+
+c01 = Theme == 'Theme 1' ? colour1 : Theme == 'Theme 2' ? colour3 : Theme == 'Theme 3' ? colour5 : Theme == 'No fill' ? #FFFFFF00 : na
+c02 = Theme == 'Theme 1' ? colour2 : Theme == 'Theme 2' ? colour4 : Theme == 'Theme 3' ? colour6 : Theme == 'N0 fill' ? #FFFFFF00 : na
+
+cl1 = input.int(2, title='Cloud', inline='Cloud', group='MA cloud')
+cl2 = input.int(6, title='/2', inline='Cloud', group='MA cloud')
+cl3 = input.int(11, title='/3', inline='Cloud', group='MA cloud')
+cl4 = input.int(18, title='/4', inline='Cloud', group='MA cloud')
+cl5 = input.int(21, title='/5', inline='Cloud', group='MA cloud')
+cl6 = input.int(24, title='/6', inline='Cloud', group='MA cloud')
+cl7 = input.int(28, title='/7', inline='Cloud', group='MA cloud')
+cl8 = input.int(34, title='/8', inline='Cloud', group='MA cloud')
+
+
+
+rl1 = input.int(6, title='Ribbon', inline='Ribbon', group='MA Ribbon')
+rl2 = input.int(13, title='/2', inline='Ribbon', group='MA Ribbon')
+rl3 = input.int(20, title='/3', inline='Ribbon', group='MA Ribbon')
+rl4 = input.int(28, title='/4', inline='Ribbon', group='MA Ribbon')
+rl5 = input.int(36, title='/5', inline='Ribbon', group='MA Ribbon')
+rl6 = input.int(45, title='/6', inline='Ribbon', group='MA Ribbon')
+rl7 = input.int(55, title='/7', inline='Ribbon', group='MA Ribbon')
+rl8 = input.int(444, title='/8', inline='Ribbon', group='MA Ribbon')
+
+
+rib1 = getMa1(rl1)
+rib2 = getMa1(rl2)
+rib3 = getMa1(rl3)
+rib4 = getMa1(rl4)
+rib5 = getMa1(rl5)
+rib6 = getMa1(rl6)
+rib7 = getMa1(rl7)
+rib8 = getMa1(rl8)
+
+plot(rib1, color=color.new(#F5B771, 0), title='1', linewidth=2, display=display.none)
+plot(rib2, color=color.new(#F5B056, 0), title='2', linewidth=2, display=display.none)
+plot(rib3, color=color.new(#F57B4E, 0), title='3', linewidth=2, display=display.none)
+plot(rib4, color=color.new(#F56D58, 0), title='4', linewidth=2, display=display.none)
+plot(rib5, color=color.new(#F57D51, 0), title='5', linewidth=2, display=display.none)
+plot(rib6, color=color.new(#F55151, 0), title='6', linewidth=2, display=display.none)
+plot(rib7, color=color.new(#AA2707, 0), title='7', linewidth=2, display=display.none)
+plot(rib8, color=color.new(#AA0000, 0), title='8', linewidth=2, display=display.none)
+
+sma8 = getMa(cl8)
+sma7 = getMa(cl7)
+sma6 = getMa(cl6)
+sma5 = getMa(cl5)
+sma4 = getMa(cl4)
+sma3 = getMa(cl3)
+sma2 = getMa(cl2)
+sma1 = getMa(cl1)
+
+l8 = plot(sma8, display=display.none, editable=false)
+l7 = plot(sma7, display=display.none, editable=false)
+l6 = plot(sma6, display=display.none, editable=false)
+l5 = plot(sma5, display=display.none, editable=false)
+l4 = plot(sma4, display=display.none, editable=false)
+l3 = plot(sma3, display=display.none, editable=false)
+l2 = plot(sma2, display=display.none, editable=false)
+l1 = plot(sma1, display=display.none, editable=false)
+// --> fill
+fill(l8, l1, color=sma7 <= source ? c01 : c02, editable=false)
+fill(l7, l1, color=sma7 <= source ? c01 : c02, editable=false)
+fill(l6, l1, color=sma6 <= source ? c01 : c02, editable=false)
+fill(l5, l1, color=sma5 <= source ? c01 : c02, editable=false)
+fill(l4, l1, color=sma4 <= source ? c01 : c02, editable=false)
+fill(l3, l1, color=sma3 <= source ? c01 : c02, editable=false)
+fill(l2, l1, color=sma2 <= source ? c01 : c02, editable=false)
+
+
+// Signals
+LongEmacross = ta.crossover(sma1, sma8)
+ShortEmacross = ta.crossunder(sma1, sma8)
+longEma = userib ? ta.crossover(rib1, rib2) : ta.crossover(sma2, sma6)
+shortEma = userib ? ta.crossover(rib2, rib1) : ta.crossover(sma6, sma2)
+
+// SETUP
+sellSetup = 0
+sellSetup := close < close[seq_back] ? sellSetup[1] == 9 ? 1 : sellSetup[1] + 1 : 0
+sellPerfected = close < close[1] and close < close[2] ? true : false
+
+buySetup = 0
+buySetup := close > close[seq_back] ? buySetup[1] == 9 ? 1 : buySetup[1] + 1 : 0
+buyPerfected = close > close[1] and close > close[2] ? true : false
+
+setupCount = math.max(sellSetup, buySetup)
+setupCountColor = sellSetup > 7 and sellPerfected ? color.yellow : sellSetup > 0 ? color.red : buySetup > 7 and buyPerfected ? color.yellow : buySetup > 0 ? color.green : color.green
+
+//plotchar(show_seq ? setupCount == 1 : na, char='', text='1', textcolor=setupCountColor, color=setupCountColor, location=location.abovebar, size=size.tiny)
+//plotchar(show_seq ? setupCount == 2 : na, char='', text='2', textcolor=setupCountColor, color=setupCountColor, location=location.abovebar, size=size.tiny, display = display.none)
+//plotchar(show_seq ? setupCount == 3 : na, char='', text='3', textcolor=setupCountColor, color=setupCountColor, location=location.abovebar, size=size.tiny, display = display.none)
+//plotchar(show_seq ? setupCount == 4 : na, char='', text='4', textcolor=setupCountColor, color=setupCountColor, location=location.abovebar, size=size.tiny, display = display.none)
+//plotchar(show_seq ? setupCount == 5 : na, char='', text='5', textcolor=setupCountColor, color=setupCountColor, location=location.abovebar, size=size.tiny, display = display.none)
+//plotchar(show_seq ? setupCount == 6 : na, char='', text='6', textcolor=setupCountColor, color=setupCountColor, location=location.abovebar, size=size.tiny, display = display.none)
+//plotchar(show_seq ? setupCount == 7 : na, char='', text='7', textcolor=setupCountColor, color=setupCountColor, location=location.abovebar, size=size.tiny, display = display.none)
+//plotchar(show_seq ? setupCount == 8 : na, char='', text='8', textcolor=setupCountColor, color=setupCountColor, location=location.abovebar, size=size.tiny)
+//plotchar(show_seq ? setupCount == 9 : na, char='', text='9', textcolor=setupCountColor, color=setupCountColor, location=location.abovebar, size=size.tiny)
+
+
+// show crosses
+plotshape(show_cross ? LongEmacross : na, style=shape.arrowup, textcolor=color.new(color.white, 0), color=color.new(color.green, 0), location=location.belowbar, size=size.auto, title='buy')
+plotshape(show_cross ? ShortEmacross : na, style=shape.arrowdown, textcolor=color.new(color.white, 0), color=color.new(color.red, 0), location=location.abovebar, size=size.auto, title='sell')
+plotshape(longEma, style=shape.circle, color=color.new(#00ff00, 50), location=location.abovebar, size=size.tiny, title='Long EMA Signal')
+plotshape(shortEma, style=shape.circle, color=color.new(#ff0000, 50), location=location.abovebar, size=size.tiny, title='Short EMA Signal')
+
+// ALERTS {
+
+alertcondition(LongEmacross != 0, 'long', 'long')
+alertcondition(ShortEmacross != 0, 'short', 'short')
+alertcondition(longEma != 0, 'Longema', 'Longema')
+alertcondition(shortEma != 0, 'shorema', 'shortema')
+
+// } ALERTS
+
+
+

@@ -1,0 +1,292 @@
+
+ //@version=5
+indicator(title="NY SMC Suite Multi-Killzone", shorttitle="714 SMC Multi-Killzone", overlay=true, max_boxes_count=500, max_labels_count=500, max_lines_count=500)
+
+// ================= USER INPUTS =================
+// --- Session visuals & label text ---
+lookbackDays = input.int(5, title="Session: Number of Days to Show", minval=1, maxval=365, group="Session Visuals")
+killzoneColor = input.color(color.new(color.aqua, 85), "Killzone Box Color", group="Session Visuals")
+killzoneLabelSize = input.string("normal", "Killzone Label Size", options=["tiny", "small", "normal", "large"], group="Session Visuals")
+killzoneLabelColor = input.color(color.gray, "Killzone Label Text Color", group="Session Visuals")
+trendLineColor = input.color(color.black, "Trend Line Color", group="Session Visuals")
+trendLineWidth = input.int(2, "Trend Line Width", minval=1, maxval=4, group="Session Visuals")
+trendPriceLabelColor = input.color(color.black, "Trend Line Price Label Bg", group="Session Visuals")
+trendPriceLabelTextColor = input.color(color.white, "Trend Line Price Label Text", group="Session Visuals")
+trendPriceLabelSize = input.string("small", "Trend Line Price Label Size", options=["tiny", "small", "normal", "large"], group="Session Visuals")
+
+showRejectionMarkers = input.bool(true, "Show Wick Rejection Markers", group="Session Visuals")
+rejectionUpColor = input.color(color.green, "Lower Wick Rejection (Triangle Up)", group="Session Visuals")
+rejectionDownColor = input.color(color.red, "Upper Wick Rejection (Triangle Down)", group="Session Visuals")
+
+// ========== VISUAL LIMITS PER FEATURE ==========
+maxCISD = input.int(50, "Max CISD Marks", minval=10, maxval=100, group="CISD")
+maxOBs  = input.int(50, "Max Order Blocks", minval=10, maxval=100, group="Order Blocks")
+maxFVGs = input.int(50, "Max FVGs", minval=10, maxval=100, group="Fair Value Gaps")
+maxOBFVGInteractions = input.int(40, "Max OB/FVG Interactions", minval=10, maxval=100, group="Interactions")
+
+// --- OB/FVG/CISD Controls ---
+showOB = input.bool(true, "Show Order Blocks", group="Order Blocks")
+showFVG = input.bool(true, "Show Fair Value Gaps", group="Fair Value Gaps")
+showCISD = input.bool(true, "Show CISD Structure", group="CISD")
+showOBFVGInteractions = input.bool(true, "Show OB/FVG Interactions", group="Interactions")
+
+// --- OB/FVG/CISD Text/Style ---
+obBullColor = input.color(color.new(#3179f5, 80), "Bullish OB Color", group="Order Blocks")
+obBearColor = input.color(color.new(#f77c80, 80), "Bearish OB Color", group="Order Blocks")
+obLabelTextColor = input.color(color.black, "OB Label Text Color", group="Order Blocks")
+obLabelSize = input.string("tiny", "OB Label Size", options=["tiny", "small", "normal", "large"], group="Order Blocks")
+
+fvgBullColor = input.color(color.new(#00ff68, 65), "Bullish FVG Color", group="Fair Value Gaps")
+fvgBearColor = input.color(color.new(#ff0008, 65), "Bearish FVG Color", group="Fair Value Gaps")
+fvgLabelTextColor = input.color(color.black, "FVG Label Text Color", group="Fair Value Gaps")
+fvgLabelSize = input.string("tiny", "FVG Label Size", options=["tiny", "small", "normal", "large"], group="Fair Value Gaps")
+
+cisdBullColor = input.color(#089981, "CISD Bullish Color", group="CISD")
+cisdBearColor = input.color(#f23645, "CISD Bearish Color", group="CISD")
+cisdLabelTextColor = input.color(color.black, "CISD Label Text Color", group="CISD")
+cisdLabelSize = input.string("tiny", "CISD Label Size", options=["tiny", "small", "normal", "large"], group="CISD")
+
+obFvgInteractionColor = input.color(color.orange, "OB/FVG Interaction Marker Color", group="Interactions")
+obFvgInteractionLabelSize = input.string("tiny", "Interaction Marker Size", options=["tiny", "small", "normal", "large"], group="Interactions")
+
+// --- OB/FVG Timeframe ---
+obFvgTimeframe = input.timeframe("15", "OB/FVG Detection Timeframe", group="Order Blocks & FVG")
+
+// --- ALERTS ---
+enableAlerts = input.bool(true, "Enable Alerts & Webhooks", group="Alerts")
+alertOBMitigatedMsg = input.string("Order Block Mitigated!", "OB Mitigated Alert Message", group="Alerts")
+alertFVGFillMsg = input.string("FVG Filled!", "FVG Fill Alert Message", group="Alerts")
+alertCISDMsg = input.string("CISD State Change!", "CISD Alert Message", group="Alerts")
+
+// ================= MULTI-KILLZONE SESSIONS (rectangles, labels, trend lines) =================
+tz = "America/New_York"
+getSessionKey() =>
+    year(time, tz) * 10000 + month(time, tz) * 100 + dayofmonth(time, tz)
+
+killzoneLabels_ = array.from("714AM", "714AM-EXT", "714AFTERNOON", "714AFTERNOON-EXT")
+killzoneStartH = array.from(1, 2, 10, 11)
+killzoneStartM = array.from(0, 0, 0, 0)
+killzoneEndH   = array.from(2, 3, 11, 12)
+killzoneEndM   = array.from(0, 30, 0, 0)
+
+var box[] kzone1Boxes = array.new_box()
+var box[] kzone2Boxes = array.new_box()
+var box[] kzone3Boxes = array.new_box()
+var box[] kzone4Boxes = array.new_box()
+var label[] kzone1Labels = array.new<label>()
+var label[] kzone2Labels = array.new<label>()
+var label[] kzone3Labels = array.new<label>()
+var label[] kzone4Labels = array.new<label>()
+var line[] kzone1TrendLines = array.new_line()
+var line[] kzone2TrendLines = array.new_line()
+var line[] kzone3TrendLines = array.new_line()
+var line[] kzone4TrendLines = array.new_line()
+var label[] kzone1PriceLabels = array.new<label>()
+var label[] kzone2PriceLabels = array.new<label>()
+var label[] kzone3PriceLabels = array.new<label>()
+var label[] kzone4PriceLabels = array.new<label>()
+
+var float[] sessionOpenPrices = array.new_float(4, na)
+var int[] lastSessionKeys = array.new_int(4, na)
+var float[] sessionHighs = array.new_float(4, na)
+var float[] sessionLows  = array.new_float(4, na)
+
+for i = 0 to 3
+    lbl = array.get(killzoneLabels_, i)
+    sH = array.get(killzoneStartH, i)
+    sM = array.get(killzoneStartM, i)
+    eH = array.get(killzoneEndH, i)
+    eM = array.get(killzoneEndM, i)
+    hNY = hour(time, tz)
+    mNY = minute(time, tz)
+    currentSessionKey = getSessionKey()
+
+    isNewSession = (hNY == sH and mNY == sM and (na(array.get(lastSessionKeys, i)) or currentSessionKey != array.get(lastSessionKeys, i)))
+    if isNewSession
+        array.set(sessionOpenPrices, i, open)
+        array.set(lastSessionKeys, i, currentSessionKey)
+        array.set(sessionHighs, i, high)
+        array.set(sessionLows, i, low)
+    else if (hNY > sH or (hNY == sH and mNY >= sM)) and (hNY < eH or (hNY == eH and mNY < eM))
+        array.set(sessionHighs, i, na(array.get(sessionHighs, i)) ? high : math.max(array.get(sessionHighs, i), high))
+        array.set(sessionLows, i,  na(array.get(sessionLows, i))  ? low  : math.min(array.get(sessionLows, i), low))
+
+    endSession = (hNY == eH and mNY == eM)
+    if endSession and not na(array.get(sessionHighs, i)) and not na(array.get(sessionLows, i))
+        boxes = i==0?kzone1Boxes:i==1?kzone2Boxes:i==2?kzone3Boxes:kzone4Boxes
+        labels= i==0?kzone1Labels:i==1?kzone2Labels:i==2?kzone3Labels:kzone4Labels
+        tlines= i==0?kzone1TrendLines:i==1?kzone2TrendLines:i==2?kzone3TrendLines:kzone4TrendLines
+        plabels= i==0?kzone1PriceLabels:i==1?kzone2PriceLabels:i==2?kzone3PriceLabels:kzone4PriceLabels
+        // CORRECTED: Use > instead of >= for precise array size management
+        if array.size(boxes) > lookbackDays
+            box.delete(array.shift(boxes))
+            label.delete(array.shift(labels))
+        if array.size(tlines) > lookbackDays
+            line.delete(array.shift(tlines))
+            label.delete(array.shift(plabels))
+            label.delete(array.shift(plabels))
+        sessStart = timestamp(tz, year(time, tz), month(time, tz), dayofmonth(time, tz), sH, sM)
+        sessEnd   = timestamp(tz, year(time, tz), month(time, tz), dayofmonth(time, tz), eH, eM)
+        b = box.new(sessStart, array.get(sessionHighs, i), sessEnd, array.get(sessionLows, i), xloc=xloc.bar_time, bgcolor=killzoneColor, border_color=killzoneColor)
+        l = label.new(sessStart, array.get(sessionHighs, i), lbl, xloc=xloc.bar_time, color=killzoneColor, style=label.style_label_down, textcolor=killzoneLabelColor, size=killzoneLabelSize)
+        array.push(boxes, b)
+        array.push(labels, l)
+        t = line.new(sessStart, array.get(sessionOpenPrices, i), sessEnd, array.get(sessionOpenPrices, i), color=trendLineColor, width=trendLineWidth, xloc=xloc.bar_time)
+        pl1 = label.new(sessStart, array.get(sessionOpenPrices, i), str.tostring(array.get(sessionOpenPrices, i), format.mintick), xloc=xloc.bar_time, style=label.style_label_left, color=trendPriceLabelColor, textcolor=trendPriceLabelTextColor, size=trendPriceLabelSize)
+        pl2 = label.new(sessEnd, array.get(sessionOpenPrices, i), str.tostring(array.get(sessionOpenPrices, i), format.mintick), xloc=xloc.bar_time, style=label.style_label_right, color=trendPriceLabelColor, textcolor=trendPriceLabelTextColor, size=trendPriceLabelSize)
+        array.push(tlines, t)
+        array.push(plabels, pl1)
+        array.push(plabels, pl2)
+        array.set(sessionHighs, i, na)
+        array.set(sessionLows, i, na)
+
+var float[] todayOpenPrices = array.new_float(4, na)
+for i = 0 to 3
+    sH = array.get(killzoneStartH, i)
+    sM = array.get(killzoneStartM, i)
+    hNY = hour(time, tz)
+    mNY = minute(time, tz)
+    if (hNY == sH and mNY == sM)
+        array.set(todayOpenPrices, i, open)
+
+// ========== Wick Rejection Logic (Global Scope) ==========
+bool plotUpperRejection = false
+bool plotLowerRejection = false
+
+if showRejectionMarkers
+    for i = 0 to 3
+        sH = array.get(killzoneStartH, i)
+        sM = array.get(killzoneStartM, i)
+        eH = array.get(killzoneEndH, i)
+        eM = array.get(killzoneEndM, i)
+        hNY = hour(time, tz)
+        mNY = minute(time, tz)
+        
+        inSession = (hNY > sH or (hNY == sH and mNY >= sM)) and (hNY < eH or (hNY == eH and mNY < eM))
+        sessionOpenPrice = array.get(todayOpenPrices, i)
+
+        if inSession and not na(sessionOpenPrice)
+            if high >= sessionOpenPrice and open < sessionOpenPrice and close < sessionOpenPrice
+                plotUpperRejection := true
+            if low <= sessionOpenPrice and open > sessionOpenPrice and close > sessionOpenPrice
+                plotLowerRejection := true
+
+plotshape(series=plotUpperRejection, style=shape.triangledown, location=location.abovebar, color=rejectionDownColor, size=size.tiny, offset=0, title="Upper Wick Rejection")
+plotshape(series=plotLowerRejection, style=shape.triangleup, location=location.belowbar, color=rejectionUpColor, size=size.tiny, offset=0, title="Lower Wick Rejection")
+
+// ========== SMC, OB/FVG, CISD, Interactions, Alerts ==========
+
+f_close = request.security(syminfo.tickerid, obFvgTimeframe, close)
+f_open = request.security(syminfo.tickerid, obFvgTimeframe, open)
+f_high = request.security(syminfo.tickerid, obFvgTimeframe, high)
+f_low = request.security(syminfo.tickerid, obFvgTimeframe, low)
+
+// CISD LABELS: Per-feature safe array
+var label[] cisdLabels = array.new<label>()
+// OB/FVG Arrays
+var box[] fvgBoxes = array.new_box()
+var label[] fvgLabels = array.new<label>()
+var box[] obBoxes = array.new_box()
+var label[] obLabels = array.new<label>()
+// INTERACTION ARRAY
+var label[] interactionLabels = array.new<label>()
+
+// FVG DETECTION
+bullFVG = showFVG and (f_low > f_high[2] and f_close[1] > f_open[1])
+bearFVG = showFVG and (f_high < f_low[2] and f_close[1] < f_open[1])
+
+if bullFVG
+    b = box.new(left=bar_index[2], top=f_low, right=bar_index, bottom=f_high[2], bgcolor=fvgBullColor, border_color=fvgBullColor)
+    array.unshift(fvgBoxes, b)
+    lbl = label.new(bar_index, f_low, "FVG", style=label.style_label_down, color=fvgBullColor, textcolor=fvgLabelTextColor, size=fvgLabelSize)
+    array.unshift(fvgLabels, lbl)
+    if array.size(fvgBoxes) > maxFVGs
+        box.delete(array.pop(fvgBoxes))
+        label.delete(array.pop(fvgLabels))
+
+if bearFVG
+    b = box.new(left=bar_index[2], top=f_high, right=bar_index, bottom=f_low[2], bgcolor=fvgBearColor, border_color=fvgBearColor)
+    array.unshift(fvgBoxes, b)
+    lbl = label.new(bar_index, f_high, "FVG", style=label.style_label_up, color=fvgBearColor, textcolor=fvgLabelTextColor, size=fvgLabelSize)
+    array.unshift(fvgLabels, lbl)
+    if array.size(fvgBoxes) > maxFVGs
+        box.delete(array.pop(fvgBoxes))
+        label.delete(array.pop(fvgLabels))
+
+// OB DETECTION
+ob_bull = showOB and (f_close[1] < f_open[1] and f_close > f_open and f_high[1] < f_high and f_low[1] < f_low)
+ob_bear = showOB and (f_close[1] > f_open[1] and f_close < f_open and f_low[1] > f_low and f_high[1] > f_high)
+
+if ob_bull
+    ob = box.new(left=bar_index, top=f_open, right=bar_index+10, bottom=f_low, bgcolor=obBullColor, border_color=obBullColor, xloc=xloc.bar_index)
+    array.unshift(obBoxes, ob)
+    lbl = label.new(bar_index, f_open, "OB", style=label.style_label_down, color=obBullColor, textcolor=obLabelTextColor, size=obLabelSize)
+    array.unshift(obLabels, lbl)
+    if array.size(obBoxes) > maxOBs
+        box.delete(array.pop(obBoxes))
+        label.delete(array.pop(obLabels))
+
+if ob_bear
+    ob = box.new(left=bar_index, top=f_high, right=bar_index+10, bottom=f_open, bgcolor=obBearColor, border_color=obBearColor, xloc=xloc.bar_index)
+    array.unshift(obBoxes, ob)
+    lbl = label.new(bar_index, f_high, "OB", style=label.style_label_up, color=obBearColor, textcolor=obLabelTextColor, size=obLabelSize)
+    array.unshift(obLabels, lbl)
+    if array.size(obBoxes) > maxOBs
+        box.delete(array.pop(obBoxes))
+        label.delete(array.pop(obLabels))
+
+// OB/FVG INTERACTIONS - CORRECTED SECTION
+if showOBFVGInteractions
+    // Check FVG interactions
+    if array.size(fvgBoxes) > 0
+        for i = 0 to array.size(fvgBoxes) - 1
+            b = array.get(fvgBoxes, i)
+            if not na(b)
+                // CORRECTED: Separate variable declarations
+                t = box.get_top(b)
+                bot = box.get_bottom(b)
+                if ((high >= bot and low <= t) or (close >= bot and close <= t))
+                    lbl = label.new(bar_index, t, "INT", color=obFvgInteractionColor, style=label.style_label_down, textcolor=color.black, size=obFvgInteractionLabelSize)
+                    array.unshift(interactionLabels, lbl)
+                    if array.size(interactionLabels) > maxOBFVGInteractions
+                        label.delete(array.pop(interactionLabels))
+                    // CORRECTED: Alert placement for actual FVG interaction
+                    if enableAlerts
+                        alert(alertFVGFillMsg, alert.freq_once_per_bar_close)
+    
+    // Check OB interactions
+    if array.size(obBoxes) > 0
+        for i = 0 to array.size(obBoxes) - 1
+            ob = array.get(obBoxes, i)
+            if not na(ob)
+                // CORRECTED: Separate variable declarations
+                t = box.get_top(ob)
+                bot = box.get_bottom(ob)
+                if ((high >= bot and low <= t) or (close >= bot and close <= t))
+                    lbl = label.new(bar_index, t, "INT", color=obFvgInteractionColor, style=label.style_label_down, textcolor=color.black, size=obFvgInteractionLabelSize)
+                    array.unshift(interactionLabels, lbl)
+                    if array.size(interactionLabels) > maxOBFVGInteractions
+                        label.delete(array.pop(interactionLabels))
+                    // CORRECTED: Alert placement for actual OB interaction
+                    if enableAlerts
+                        alert(alertOBMitigatedMsg, alert.freq_once_per_bar_close)
+
+// CISD LOGIC
+if showCISD
+    swingLen = 10
+    ph = ta.pivothigh(swingLen, 1)
+    pl = ta.pivotlow(swingLen, 1)
+    if not na(ph)
+        lbl = label.new(bar_index-1, ph, "CISD", style=label.style_label_down, color=cisdBullColor, textcolor=cisdLabelTextColor, size=cisdLabelSize)
+        array.unshift(cisdLabels, lbl)
+        if array.size(cisdLabels) > maxCISD
+            label.delete(array.pop(cisdLabels))
+        if enableAlerts
+            alert(alertCISDMsg, alert.freq_once_per_bar_close)
+    if not na(pl)
+        lbl = label.new(bar_index-1, pl, "CISD", style=label.style_label_up, color=cisdBearColor, textcolor=cisdLabelTextColor, size=cisdLabelSize)
+        array.unshift(cisdLabels, lbl)
+        if array.size(cisdLabels) > maxCISD
+            label.delete(array.pop(cisdLabels))
+        if enableAlerts
+            alert(alertCISDMsg, alert.freq_once_per_bar_close)

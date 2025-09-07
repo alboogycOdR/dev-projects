@@ -1,0 +1,124 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © responsibleHar20059
+
+//@version=5
+indicator(title="Dashboard + Trendy Bands + Reversel Signals by AZ", overlay=true)
+length = input.int(20, minval=1,group ="Bollinger Band 1")
+src = input(close, title="Source",group ="Bollinger Band 1")
+mult = input.float(2.0, minval=0.001, maxval=50, title="StdDev",group ="Bollinger Band 1")
+basis = ta.sma(src, length)
+dev = mult * ta.stdev(src, length)
+upper = basis + dev
+lower = basis - dev
+offset = input.int(0, "Offset", minval = -500, maxval = 500)
+plot(basis, "Basis", color=#FF6D00, offset = offset)
+p1 = plot(upper, "Upper", color=#d12f2a00, offset = offset)
+p2 = plot(lower, "Lower", color=#0c5e1900, offset = offset)
+
+length2 = input.int(20, minval=1,group ="Bollinger Band 2")
+src2 = input(close, title="Source",group ="Bollinger Band 2")
+mult2 = input.float(3.0, minval=0.001, maxval=50, title="StdDev",group ="Bollinger Band 2")
+basis2 = ta.sma(src2, length2)
+dev2 = mult2 * ta.stdev(src2, length2)
+upper2 = basis + dev2
+lower2 = basis - dev2
+offset2 = input.int(0, "Offset2", minval = -500, maxval = 500)
+plot(basis2, "Basis2", color=#FF6D00, offset = offset)
+p3 = plot(upper2, "Upper2", color=#ff2929, offset = offset)
+p4 = plot(lower2, "Lower2", color=#0cf13e, offset = offset)
+fill(p1, p3, color.rgb(0,190,0,70))
+fill(p2, p4, color=color.rgb(180,0,0,70))
+// reversals
+enableReversal = input.bool(true, 'Show Reversal Signals?', group='Reversal Settings')
+ReversalInputs = input.int(18, minval=1, title="Reversals Sensitivity", group="Reversal Settings")
+overbought     = input(73, 'Reversal Down Level', group='Reversal Settings')
+oversold       = input(30, 'Reversal Up Level', group='Reversal Settings')
+
+upward = ta.rma(math.max(ta.change(close), 0), ReversalInputs)
+dnward = ta.rma(-math.min(ta.change(close), 0), ReversalInputs)
+source = dnward == 0 ? 100 : upward == 0 ? 0 : 100 - (100 / (1 + upward / dnward))
+
+revdn = ta.crossunder(source, overbought)
+revup = ta.crossover(source, oversold)
+
+plotshape(revup and enableReversal, 'Reversal Up Signal', shape.labelup, location.belowbar, color.new(#2157f9, 65), text='Can Be Reversal Up', size=size.small, textcolor=color.white)
+plotshape(revdn and enableReversal, 'Reversal Down Signal', shape.labeldown, location.abovebar, color.new(#ff1100, 65), text='Can Be Reversal Down', size=size.small, textcolor=color.white)
+///
+
+
+showDashboard     = input(true, "Show Dashboard", group="TREND DASHBOARD")
+locationDashboard = input.string("Middle Right", "Table Location", ["Top Right", "Middle Right", "Bottom Right", "Top Center", "Middle Center", "Bottom Center", "Top Left", "Middle Left", "Bottom Left"], group="TREND DASHBOARD")
+tableTextColor    = input(color.white, "Table Text Color", group="TREND DASHBOARD")
+tableBgColor      = input(#2A2A2A, "Table Background Color", group="TREND DASHBOARD")
+sizeDashboard     = input.string("Normal", "Table Size", ["Large", "Normal", "Small", "Tiny"], group="TREND DASHBOARD")
+
+// Functions
+f_chartTfInMinutes() =>
+    float _resInMinutes = timeframe.multiplier * (
+      timeframe.isseconds ? 1. / 60             :
+      timeframe.isminutes ? 1.                  :
+      timeframe.isdaily   ? 60. * 24            :
+      timeframe.isweekly  ? 60. * 24 * 7        :
+      timeframe.ismonthly ? 60. * 24 * 30.4375  : na)
+
+// Get components
+ema  = ta.ema(close, 144)
+emaBull = close > ema
+equal_tf(res) => str.tonumber(res) == f_chartTfInMinutes()
+higher_tf(res) => str.tonumber(res) > f_chartTfInMinutes()
+too_small_tf(res) => (timeframe.isweekly and res=="1") or (timeframe.ismonthly and str.tonumber(res) < 10)
+securityNoRep1(sym, res, src) =>
+    bool bull = na
+    bull := equal_tf(res) ? src : bull
+    bull := higher_tf(res) ? request.security(sym, res, src, barmerge.gaps_off, barmerge.lookahead_on) : bull
+    bull_array = request.security_lower_tf(syminfo.tickerid, higher_tf(res) ? str.tostring(f_chartTfInMinutes()) : too_small_tf(res) ? (timeframe.isweekly ? "3" : "10") : res, src)
+    if array.size(bull_array) > 1 and not equal_tf(res) and not higher_tf(res)
+        bull := array.pop(bull_array)
+    array.clear(bull_array)
+    bull
+TF1Bull   = securityNoRep1(syminfo.tickerid, "1"   , emaBull)
+TF3Bull   = securityNoRep1(syminfo.tickerid, "3"   , emaBull)
+TF5Bull   = securityNoRep1(syminfo.tickerid, "5"   , emaBull)
+TF15Bull  = securityNoRep1(syminfo.tickerid, "15"  , emaBull)
+TF30Bull  = securityNoRep1(syminfo.tickerid, "30"  , emaBull)
+TF60Bull  = securityNoRep1(syminfo.tickerid, "60"  , emaBull)
+TF120Bull = securityNoRep1(syminfo.tickerid, "120" , emaBull)
+TF240Bull = securityNoRep1(syminfo.tickerid, "240" , emaBull)
+TF480Bull = securityNoRep1(syminfo.tickerid, "480" , emaBull)
+TFDBull   = securityNoRep1(syminfo.tickerid, "1440", emaBull)
+
+var dashboard_loc  = locationDashboard == "Top Right" ? position.top_right : locationDashboard == "Middle Right" ? position.middle_right : locationDashboard == "Bottom Right" ? position.bottom_right : locationDashboard == "Top Center" ? position.top_center : locationDashboard == "Middle Center" ? position.middle_center : locationDashboard == "Bottom Center" ? position.bottom_center : locationDashboard == "Top Left" ? position.top_left : locationDashboard == "Middle Left" ? position.middle_left : position.bottom_left
+var dashboard_size = sizeDashboard == "Large" ? size.large : sizeDashboard == "Normal" ? size.normal : sizeDashboard == "Small" ? size.small : size.tiny
+var dashboard      = showDashboard ? table.new(dashboard_loc, 2, 15, tableBgColor, #000000, 2, tableBgColor, 1) : na
+dashboard_cell(column, row, txt, signal=false) => table.cell(dashboard, column, row, txt, 0, 0, signal ? #000000 : tableTextColor, text_size=dashboard_size)
+dashboard_cell_bg(column, row, col) => table.cell_set_bgcolor(dashboard, column, row, col)
+if barstate.islast and showDashboard
+    dashboard_cell(0, 0 , "EzAlgo")
+    dashboard_cell(0, 1 , "Current Position")
+    dashboard_cell(0, 2 , "Current Trend")
+    dashboard_cell(0, 3 , "Volume")
+    dashboard_cell(0, 4 , "Timeframe")
+    dashboard_cell(0, 5 , "1 min:")
+    dashboard_cell(0, 6 , "3 min:")
+    dashboard_cell(0, 7 , "5 min:")
+    dashboard_cell(0, 8 , "15 min:")
+    dashboard_cell(0, 9 , "30 min:")
+    dashboard_cell(0, 10, "1 H:")
+    dashboard_cell(0, 11, "2 H:")
+    dashboard_cell(0, 12, "4 H:")
+    dashboard_cell(0, 13, "8 H:")
+    dashboard_cell(0, 14, "Daily:")
+    dashboard_cell(1, 0 , "V.5")
+    dashboard_cell(1, 1 , emaBull ? "Bullish" : "Bearish", true), dashboard_cell_bg(1, 1, emaBull ? color.green : color.red)
+    dashboard_cell(1, 2 , str.tostring(math.round_to_mintick(volume)))
+    dashboard_cell(1, 3 , "Trends")
+    dashboard_cell(1, 4 , TF1Bull   ? "Bullish" : "Bearish", true), dashboard_cell_bg(1, 4 , TF1Bull   ? color.green : color.red)
+    dashboard_cell(1, 5 , TF3Bull   ? "Bullish" : "Bearish", true), dashboard_cell_bg(1, 5 , TF3Bull   ? color.green : color.red)
+    dashboard_cell(1, 6 , TF5Bull   ? "Bullish" : "Bearish", true), dashboard_cell_bg(1, 6 , TF5Bull   ? color.green : color.red)
+    dashboard_cell(1, 7 , TF15Bull  ? "Bullish" : "Bearish", true), dashboard_cell_bg(1, 7 , TF15Bull  ? color.green : color.red)
+    dashboard_cell(1, 8 , TF30Bull  ? "Bullish" : "Bearish", true), dashboard_cell_bg(1, 8 , TF30Bull  ? color.green : color.red)
+    dashboard_cell(1, 9, TF60Bull  ? "Bullish" : "Bearish", true), dashboard_cell_bg(1, 9, TF60Bull  ? color.green : color.red)
+    dashboard_cell(1, 10, TF120Bull ? "Bullish" : "Bearish", true), dashboard_cell_bg(1, 10, TF120Bull ? color.green : color.red)
+    dashboard_cell(1, 11, TF240Bull ? "Bullish" : "Bearish", true), dashboard_cell_bg(1, 11, TF240Bull ? color.green : color.red)
+    dashboard_cell(1, 12, TF480Bull ? "Bullish" : "Bearish", true), dashboard_cell_bg(1, 12, TF480Bull ? color.green : color.red)
+    dashboard_cell(1, 13, TFDBull   ? "Bullish" : "Bearish", true), dashboard_cell_bg(1, 13, TFDBull   ? color.green : color.red)

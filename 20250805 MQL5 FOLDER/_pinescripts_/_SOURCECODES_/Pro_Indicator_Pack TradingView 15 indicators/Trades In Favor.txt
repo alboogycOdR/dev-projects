@@ -1,0 +1,192 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// ©Trade Confident
+
+// License Agreement: You are granted a personal license agreement to the following script for use on ONE TrdingView account. 
+// You may NOT resell or distribute this script in any way, this is strictly prohibited and is tracked on TradingView.
+// PLEASE READ: We will take legal action if this script is shared with another TradingView account or modified and reposted on TradingView IN ANY WAY.
+
+//@version=5
+indicator(title="Trades in Favor")
+calculations = close==high and close==low or high==low ? 0 : ((2*close-low-high)/(high-low))*volume
+trendstrength = math.sum(calculations, 1) / math.sum(volume, 1)
+toptrend = math.sum(volume * (ta.change(ohlc4) <= 0 ? 0 : ohlc4), 8)
+lowertrend = math.sum(volume * (ta.change(ohlc4) >= 0 ? 0 : ohlc4), 8)
+paramaters(upper, lower) =>
+    if lower == 0
+        100
+    if upper == 0
+        0
+	100.0 - (100.0 / (1.0 + toptrend / lowertrend))
+trendline = paramaters(toptrend, lowertrend)
+
+calculations2 = close==high and close==low or high==low ? 0 : ((2*close-low-high)/(high-low))*volume
+trendstrength2 = math.sum(calculations2, 1) / math.sum(volume, 1)
+toptrend2 = math.sum(volume * (ta.change(close) <= 0 ? 0 : close), 20)
+lowertrend2 = math.sum(volume * (ta.change(close) >= 0 ? 0 : close), 20)
+paramaters2(upper2, lower2) =>
+    if lower2 == 0
+        100
+    if upper2 == 0
+        0
+	100.0 - (100.0 / (1.0 + toptrend2 / lowertrend2))
+trendline2 = paramaters2(toptrend2, lowertrend2)
+
+One=hline(100, title='Red', color=color.new(#ff2a3b,55), linestyle=hline.style_solid, linewidth=2)
+Two=hline(80, title='Red', color=color.new(#ff5252, 100), linestyle=hline.style_solid, linewidth=1)
+Five=hline(20, title='Green', color=color.new(#0dee83, 100), linestyle=hline.style_solid, linewidth=1)
+Six=hline(0, title='Green', color=color.new(#0dee83, 50), linestyle=hline.style_solid, linewidth=2)
+
+
+fill(Five, Six, color = color.new(#0dee83, 70))
+fill(One, Two, color = color.new(#ff2a3c34, 70))
+
+plot(trendline+trendstrength/trendline2+trendstrength2, "Trend", color=color.white, linewidth=1)
+
+DropAlert=ta.crossover(trendline+trendstrength/trendline2+trendstrength2, 80)
+PumpAlert=ta.crossunder(trendline+trendstrength/trendline2+trendstrength2, 20)
+
+alertcondition(DropAlert, title='Watch for Drop', message='Watch for Drop')
+alertcondition(PumpAlert, title='Watch for Pump', message='Watch for Pump')
+
+
+dist            = input(10, "Label Distance")
+labelSize       = input.string(title='All Label Size', defval='Normal', options=['Small', 'Normal', 'Large'])
+lSize           = labelSize == 'Normal' ? size.normal : labelSize == 'Small' ? size.small : size.large
+
+makelabel(x, y, msg, col=color.white)=>
+    var label _la = label.new(x, y, msg, color=#00000000, style=label.style_label_left, size = lSize)
+    
+    label.set_xy(_la, x, y)
+    label.set_text(_la, msg)
+    label.set_textcolor(_la, col)
+    _la
+
+os = 10
+makelabel(bar_index+dist, os, 'Long Trade Zone ↑')
+
+makelabel2(x, y, msg, col=color.white)=>
+    var label _la = label.new(x, y, msg, color=#00000000, style=label.style_label_left, size = lSize)
+    
+    label.set_xy(_la, x, y)
+    label.set_text(_la, msg)
+    label.set_textcolor(_la, col)
+    _la
+
+ob = 90
+makelabel2(bar_index+dist, ob, 'Short Trade Zone ↓ ')
+
+
+/////////
+
+
+
+
+tc = trendline+trendstrength/trendline2+trendstrength2
+
+TC_CondText = tc >= 99 ? str.format("🔴 99% Chance of Drop/Squeeze", tc):   
+      tc > 98 and tc < 98.99 ? str.format("🔴 98% Chance of Drop/Squeeze", tc) :
+      tc > 97 and tc < 97.99 ? str.format("🔴 97% Chance of Drop", tc) :
+      tc > 96 and tc < 96.99 ? str.format("🔴 96% Chance of Drop", tc) :
+      tc > 95 and tc < 95.99 ? str.format("🔴 95% Chance of Drop", tc) :
+      tc > 94 and tc < 94.99 ? str.format("🔴 94% Chance of Drop", tc) :
+      tc > 93 and tc < 93.99 ? str.format("🔴 93% Chance of Drop", tc) :
+      tc > 92 and tc < 92.99 ? str.format("🔴 92% Chance of Drop", tc) :
+      tc > 91 and tc < 91.99 ? str.format("🔴 91% Chance of Drop", tc) :
+      tc > 90 and tc < 90.99 ? str.format("🔴 90% Chance of Drop", tc) :
+      tc > 89 and tc < 89.99 ? str.format("🔴 89% Chance of Drop", tc) :
+      tc > 88 and tc < 88.99 ? str.format("🔴 88% Chance of Drop", tc) :
+      tc > 87 and tc < 87.99 ? str.format("🔴 87% Chance of Drop", tc) :
+      tc > 86 and tc < 86.99 ? str.format("🔴 86% Chance of Drop", tc) :
+      tc > 85 and tc < 85.99 ? str.format("🔴 85% Chance of Drop", tc) :
+      tc > 84 and tc < 84.99 ? str.format("🔴 84% Chance of Drop", tc) :
+      tc > 83 and tc < 83.99 ? str.format("🔴 83% Chance of Drop", tc) :
+      tc > 82 and tc < 82.99 ? str.format("🔴 82% Chance of Drop", tc) :
+      tc > 81 and tc < 81.99 ? str.format("🔴 81% Chance of Drop", tc) :
+      tc > 80 and tc < 80.99 ? str.format("80% Chance of Drop", tc) :
+      tc > 79 and tc < 79.99 ? str.format("79% Chance of Drop", tc) :
+      tc > 78 and tc < 78.99 ? str.format("78% Chance of Drop", tc) :  
+      tc > 77 and tc < 77.99 ? str.format("77% Chance of Drop", tc) :      
+      tc > 76 and tc < 76.99 ? str.format("76% Chance of Drop", tc) :      
+      tc > 75 and tc < 75.99 ? str.format("75% Chance of Drop", tc) :      
+      tc > 74 and tc < 74.99 ? str.format("74% Chance of Drop", tc) :      
+      tc > 73 and tc < 73.99 ? str.format("73% Chance of Drop", tc) :      
+      tc > 72 and tc < 72.99 ? str.format("72% Chance of Drop", tc) :      
+      tc > 71 and tc < 71.99 ? str.format("71% Chance of Drop", tc) :      
+      tc > 70 and tc < 70.99 ? str.format("70% Chance of Drop", tc) :
+      tc > 69 and tc < 69.99 ? str.format("69% Chance of Drop", tc) :
+      tc > 68 and tc < 68.99 ? str.format("68% Chance of Drop", tc) :
+      tc > 67 and tc < 67.99 ? str.format("67% Chance of Drop", tc) :
+      tc > 66 and tc < 66.99 ? str.format("66% Chance of Drop", tc) :
+      tc > 65 and tc < 65.99 ? str.format("65% Chance of Drop", tc) :
+      tc > 64 and tc < 64.99 ? str.format("64% Chance of Drop", tc) :
+      tc > 63 and tc < 63.99 ? str.format("63% Chance of Drop", tc) :
+      tc > 62 and tc < 62.99 ? str.format("62% Chance of Drop", tc) :
+      tc > 61 and tc < 61.99 ? str.format("61% Chance of Drop", tc) :
+      tc > 60 and tc < 60.99 ? str.format("60% Chance of Drop", tc) :
+      tc > 59 and tc < 59.99 ? str.format("59% Chance of Drop", tc) :
+      tc > 58 and tc < 58.99 ? str.format("58% Chance of Drop", tc) :  
+      tc > 57 and tc < 57.99 ? str.format("57% Chance of Drop", tc) :      
+      tc > 56 and tc < 56.99 ? str.format("56% Chance of Drop", tc) :      
+      tc > 55 and tc < 55.99 ? str.format("55% Chance of Drop", tc) :      
+      tc > 54 and tc < 54.99 ? str.format("54% Chance of Drop", tc) :      
+      tc > 53 and tc < 53.99 ? str.format("53% Chance of Drop", tc) :      
+      tc > 52 and tc < 52.99 ? str.format("52% Chance of Drop", tc) :      
+      tc > 51 and tc < 51.99 ? str.format("51% Chance of Drop", tc) :   
+      tc > 50.5 and tc < 50.99 ? str.format("50% Chance of Drop", tc) :  
+      tc > 50 and tc < 50.49 ? str.format("50% Chance of Pump", tc) :
+      tc > 49 and tc < 49.99 ? str.format("51% Chance of Pump", tc) :
+      tc > 48 and tc < 48.99 ? str.format("52% Chance of Pump", tc) :
+      tc > 47 and tc < 47.99 ? str.format("53% Chance of Pump", tc) :
+      tc > 46 and tc < 46.99 ? str.format("54% Chance of Pump", tc) :
+      tc > 45 and tc < 45.99 ? str.format("55% Chance of Pump", tc) :
+      tc > 44 and tc < 44.99 ? str.format("56% Chance of Pump", tc) :
+      tc > 43 and tc < 43.99 ? str.format("57% Chance of Pump", tc) :
+      tc > 42 and tc < 42.99 ? str.format("58% Chance of Pump", tc) :
+      tc > 41 and tc < 41.99 ? str.format("59% Chance of Pump", tc) :
+      tc > 40 and tc < 40.99 ? str.format("60% Chance of Pump", tc) :
+      tc > 39 and tc < 39.99 ? str.format("61% Chance of Pump", tc) :
+      tc > 38 and tc < 38.99 ? str.format("62% Chance of Pump", tc) :
+      tc > 37 and tc < 37.99 ? str.format("63% Chance of Pump", tc) :
+      tc > 36 and tc < 36.99 ? str.format("64% Chance of Pump", tc) :
+      tc > 35 and tc < 35.99 ? str.format("65% Chance of Pump", tc) :
+      tc > 34 and tc < 34.99 ? str.format("66% Chance of Pump", tc) :
+      tc > 33 and tc < 33.99 ? str.format("67% Chance of Pump", tc) :
+      tc > 32 and tc < 32.99 ? str.format("68% Chance of Pump", tc) :
+      tc > 31 and tc < 31.99 ? str.format("69% Chance of Pump", tc) :
+      tc > 30 and tc < 30.99 ? str.format("70% Chance of Pump", tc) :  
+      tc > 29 and tc < 29.99 ? str.format("71% Chance of Pump", tc) :      
+      tc > 28 and tc < 28.99 ? str.format("72% Chance of Pump", tc) :      
+      tc > 27 and tc < 27.99 ? str.format("73% Chance of Pump", tc) :      
+      tc > 26 and tc < 26.99 ? str.format("74% Chance of Pump", tc) :      
+      tc > 25 and tc < 25.99 ? str.format("75% Chance of Pump", tc) :      
+      tc > 24 and tc < 24.99 ? str.format("76% Chance of Pump", tc) :      
+      tc > 23 and tc < 23.99 ? str.format("77% Chance of Pump", tc) :      
+      tc > 22 and tc < 22.99 ? str.format("78% Chance of Pump", tc) :
+      tc > 21 and tc < 21.99 ? str.format("79% Chance of Pump", tc) :
+      tc > 20 and tc < 20.99 ? str.format("80% Chance of Pump", tc) :
+      tc > 19 and tc < 19.99 ? str.format("🟢 81% Chance of Pump", tc) :
+      tc > 18 and tc < 18.99 ? str.format("🟢 82% Chance of Pump", tc) :
+      tc > 17 and tc < 17.99 ? str.format("🟢 83% Chance of Pump", tc) :
+      tc > 16 and tc < 16.99 ? str.format("🟢 84% Chance of Pump", tc) :
+      tc > 15 and tc < 15.99 ? str.format("🟢 85% Chance of Pump", tc) :
+      tc > 14 and tc < 14.99 ? str.format("🟢 86% Chance of Pump", tc) :
+      tc > 13 and tc < 13.99 ? str.format("🟢 87% Chance of Pump", tc) :
+      tc > 12 and tc < 12.99 ? str.format("🟢 88% Chance of Pump", tc) :
+      tc > 11 and tc < 11.99 ? str.format("🟢 89% Chance of Pump", tc) :
+      tc > 10 and tc < 10.99 ? str.format("🟢 90% Chance of Pump", tc) :  
+      tc > 9 and tc < 9.99 ? str.format("🟢 91% Chance of Pump", tc) :      
+      tc > 8 and tc < 8.99 ? str.format("🟢 92% Chance of Pump", tc) :      
+      tc > 7 and tc < 7.99 ? str.format("🟢 93% Chance of Pump", tc) :      
+      tc > 6 and tc < 6.99 ? str.format("🟢 94% Chance of Pump", tc) :      
+      tc > 5 and tc < 5.99 ? str.format("🟢 95% Chance of Pump", tc) :      
+      tc > 4 and tc < 4.99 ? str.format("🟢 96% Chance of Pump", tc) :      
+      tc > 3 and tc < 3.99 ? str.format("🟢 97% Chance of Pump", tc) :   
+      tc > 2 and tc < 2.99 ? str.format("🟢 98% Chance of Pump/Squeeze", tc) :     
+      tc < 2 ? str.format("🟢 99% Chance of Pump/Squeeze", tc) :              
+
+      str.format("", tc)
+
+if true
+    label tclabel = label.new(bar_index+dist, 50,text= TC_CondText,color=color.rgb(0, 0, 0, 100), xloc= xloc.bar_index, style=label.style_label_left, textcolor=tc > 50 ? color.red : tc < 50 ? color.green : na, textalign=text.align_left, size = lSize)
+    label.set_x(tclabel, bar_index+dist)
+    label.delete(tclabel[1])

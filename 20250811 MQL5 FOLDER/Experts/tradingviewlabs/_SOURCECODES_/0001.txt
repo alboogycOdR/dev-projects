@@ -1,0 +1,57 @@
+//@version=4 
+study("Supply and Demand Zones", overlay=true) 
+ 
+// Define input parameters 
+minFactor = input(title="Min. Factor", type=integer, defval=3) 
+invalidationMethod = input(title="Invalidation Method", type=string, options=["wick", "close"], defval="wick") 
+confirmationBars = input(title="Confirmation Bars", type=integer, defval=3) 
+minVolumeChange = input(title="Min. Volume Change(%)", type=float, defval=50.0) 
+prevPeriods = input(title="Previous Periods", type=integer, defval=50) 
+showLast = input(title="Show Last", type=integer, defval=3) 
+demandColor = color(title="Demand", defval="#00FF00") 
+supplyColor = color(title="Supply", defval="#FF0000") 
+indecisionColor = color(title="Indecision", defval="#808080") 
+ 
+// Define variables 
+volumeChange = change(volume, prevPeriods) 
+body = abs(close - open) 
+zoneStart = 0 
+zoneEnd = 0 
+zoneType = "" 
+ 
+// Loop through all bars to detect zones 
+for i = 0 to bar_index do 
+    maxWick = max(high[i]-max(open[i], close[i]), max(open[i], close[i])-low[i]) 
+    minWick = min(high[i]-min(open[i], close[i]), min(open[i], close[i])-low[i]) 
+    if body[i] * minFactor <= maxWick and body[i] * minFactor <= minWick and (not zoneStart) 
+        zoneStart = i 
+    else if body[i] * minFactor > maxWick or body[i] * minFactor > minWick 
+        if zoneStart 
+            zoneEnd = i 
+            if invalidationMethod == "wick" 
+                for j = i to i + confirmationBars 
+                    if low[j] >= low[zoneStart] and high[j] <= high[zoneStart] 
+                        zoneType = "indecision" 
+                        break 
+                    else if low[j] > low[zoneStart] 
+                        zoneType = "supply" 
+                        break 
+                    else if high[j] < high[zoneStart] 
+                        zoneType = "demand" 
+                        break 
+                if volumeChange[zoneEnd] >= minVolumeChange 
+                    if zoneType == "demand" 
+                        plot(zoneStart, low[zoneStart], color=demandColor) 
+                        plot(zoneEnd, low[zoneEnd], color=demandColor) 
+                    else if zoneType == "supply" 
+                        plot(zoneStart, high[zoneStart], color=supplyColor) 
+                        plot(zoneEnd, high[zoneEnd], color=supplyColor) 
+                    else if zoneType == "indecision" 
+                        plot(zoneStart, high[zoneStart], color=indecisionColor) 
+                        plot(zoneEnd, high[zoneEnd], color=indecisionColor) 
+                zoneStart = 0 
+                zoneEnd = 0 
+                zoneType = "" 
+            else if invalidationMethod == "close" 
+                for j = i to i + confirmationBars 
+                    if low[j]

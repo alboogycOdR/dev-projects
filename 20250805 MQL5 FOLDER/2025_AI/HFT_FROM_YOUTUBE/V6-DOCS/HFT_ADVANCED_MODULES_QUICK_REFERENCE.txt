@@ -1,0 +1,180 @@
+================================================================================
+                    HFT ADVANCED MODULES - QUICK REFERENCE CARD
+================================================================================
+
+GETTING STARTED (Recommended First Steps):
+1. Enable only: InpEnableLotSizeDiagnostics = true (default)
+2. Test with: InpEnableEmergencyHandler = true  
+3. Add gradually: InpEnableAdaptiveExit = true
+4. Advanced users: Enable entry modules one at a time
+
+================================================================================
+SECTION I: ADVANCED ENTRY STRATEGIES
+================================================================================
+
+MICRO-BREAKOUT ENTRY (Best for: M1 scalping, active sessions)
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ InpEnableMicroBreakoutEntry = false    // START WITH FALSE, TEST FIRST      │
+│ InpMB_RangeBars = 4                    // 3-5 for M1, 5-8 for M5           │
+│ InpMB_MinVolatilityATR = 0.0001        // Adjust based on symbol            │
+│ InpMB_MaxVolatilityATR = 0.0050        // 0 = no limit                      │
+│ InpMB_OrderDistanceFactor = 0.2        // 0.1-0.3 typical range             │
+│ InpMB_UseMomentumConfirm = true        // Recommended for quality           │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+ORDER FLOW ENTRY (Best for: Liquid markets, news events)
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ InpEnableOrderFlowEntry = false        // HIGH CPU USAGE - TEST CAREFULLY   │
+│ InpOF_DeltaTicksLookback = 8           // 5-15 range, lower = faster        │
+│ InpOF_MinDeltaThreshold = 100.0        // Adjust based on symbol volume     │
+│ InpOF_PriceActionBars = 2              // 1-3 bars for confirmation         │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+FADE SPIKE ENTRY (Best for: Ranging markets, mean reversion)
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ InpEnableFadeSpikeEntry = false        // COUNTER-TREND - USE WITH CAUTION  │
+│ InpFS_BBPeriod = 15                    // 10-20 typical                     │
+│ InpFS_BBDeviations = 2.8               // 2.5-3.5 range                     │
+│ InpFS_SL_SpikeOffsetPips = 3.0         // Tight SL - adjust for symbol      │
+│ InpFS_TP_TargetPips = 8.0              // Fixed TP - 2:1 to 3:1 R:R         │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+SECTION II: ADVANCED EXIT STRATEGIES
+================================================================================
+
+ADAPTIVE EXIT MANAGER (Recommended for most users)
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ InpEnableAdaptiveExit = false          // ENABLE AFTER TESTING              │
+│ InpAE_InitialSLFactor = 0.5            // 0.3-0.7 range                     │
+│ InpAE_ProfitTarget1_FactorSL = 1.0     // 1.0-2.0 for first partial        │
+│ InpAE_PartialClose1_Percent = 0.5      // 0.3-0.7 typical                   │
+│ InpAE_SL_LockIn1_FactorSL = 0.25       // 0.1-0.5 profit lock              │
+│ InpAE_AdaptiveTrail_SensitivityFactor = 1.5  // 1.0-2.5 range              │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+OPPORTUNITY COST EXIT (For trade management)
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ InpEnableOpportunityCostExit = false   // ENABLE FOR BETTER TRADE MGMT     │
+│ InpOCE_MinHoldingTimeSecs = 900        // 15 mins default, adjust as needed │
+│ InpOCE_MinProfitFactorR = 0.3          // 0.2-0.5 range                     │
+│ InpOCE_CheckRegimeChange = true        // Recommended                       │
+│ InpOCE_CheckVolatilityDrop = true      // Recommended                       │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+EMERGENCY SPIKE HANDLER (Highly recommended)
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ InpEnableEmergencyHandler = false      // ENABLE FOR SAFETY                 │
+│ InpEH_SpreadSpikeFactor = 3.0          // 2.5-4.0 range                     │
+│ InpEH_RangeSpikeFactor = 3.0           // 2.5-4.0 range                     │
+│ InpEH_PanicSL_Pips = 3.0               // Tight emergency SL                │
+│ InpEH_PauseNewEntriesSecs = 120        // 60-300 seconds pause              │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+SECTION III: DYNAMIC PARAMETER ADJUSTMENTS
+================================================================================
+
+REGIME-SPECIFIC PARAMETERS (Auto-adjusts based on market conditions)
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ TRENDING: Delta=1.5, Stop=25.0, Trail=6.0, Interval=3s                    │
+│ RANGING:  Delta=0.8, Stop=35.0, Trail=10.0, Interval=6s                   │
+│ VOLATILE: Delta=2.0, Stop=40.0, Trail=8.0, Interval=8s                    │
+│ QUIET:    Delta=0.5, Stop=20.0, Trail=12.0, Interval=10s                  │
+│                                                                             │
+│ NOTE: These override your base Delta/Stop/MaxTrailing settings             │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+ADAPTIVE ORDER INTERVAL (Smart timing between trades)
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ InpEnableAdaptiveInterval = false      // ENABLE FOR SMARTER TIMING         │
+│ InpAOI_IntervalIncreasePostLossSecs = 45    // Slow down after losses      │
+│ InpAOI_IntervalDecreasePostWinFactor = 0.8  // Speed up after wins         │
+│ InpAOI_WinStreakForDecrease = 2        // Wins needed to speed up           │
+│ InpAOI_LowVolIntervalMultiplier = 1.5  // Slower in low volatility          │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+LOT SIZE DIAGNOSTICS (Safety features - RECOMMENDED)
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ InpEnableLotSizeDiagnostics = true     // KEEP ENABLED FOR SAFETY           │
+│ InpLSD_LossStreakForRiskReduction = 3  // Auto-reduce risk after 3 losses  │
+│ InpLSD_RiskPercentReductionFactor = 0.5     // Cut risk by 50%             │
+│ InpLSD_MaxLotSizeCapFactorAccount = 0.05    // Max 5% of account per trade │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+RECOMMENDED PROGRESSION FOR NEW USERS
+================================================================================
+
+WEEK 1: Safety First
+✓ InpEnableLotSizeDiagnostics = true
+✓ InpEnableEmergencyHandler = true
+✓ Test with small lot sizes
+✓ Monitor EA logs daily
+
+WEEK 2: Add Exit Management  
+✓ InpEnableAdaptiveExit = true
+✓ InpEnableOpportunityCostExit = true
+✓ InpEnableAdaptiveInterval = true
+✓ Fine-tune exit parameters
+
+WEEK 3: Advanced Entries (Choose ONE)
+✓ InpEnableMicroBreakoutEntry = true (safest)
+OR InpEnableFadeSpikeEntry = true (for ranging markets)
+✓ Monitor performance impact
+
+WEEK 4: Optimization
+✓ InpEnableOrderFlowEntry = true (if CPU allows)
+✓ Optimize regime parameters
+✓ Fine-tune all settings
+
+================================================================================
+PERFORMANCE MONITORING
+================================================================================
+
+WATCH FOR:
+- CPU usage increase (especially with Order Flow module)
+- Memory usage (position state tracking)
+- Execution speed (tick processing time)
+- Emergency pause activations
+- Risk reduction triggers
+
+LOG MESSAGES TO MONITOR:
+- "EMERGENCY SPIKE DETECTED"
+- "LotSizeDiagnostic: consecutive losses"
+- "Breakeven triggered"
+- "Advanced entry signal detected"
+
+================================================================================
+TROUBLESHOOTING QUICK FIXES
+================================================================================
+
+PROBLEM: EA not placing trades
+SOLUTION: Check if emergency pause is active, verify trading hours
+
+PROBLEM: High CPU usage
+SOLUTION: Disable Order Flow module, increase calculation periods
+
+PROBLEM: Unexpected lot sizes
+SOLUTION: Check lot size diagnostics warnings in logs
+
+PROBLEM: Too many/few trades
+SOLUTION: Adjust regime-specific order intervals
+
+PROBLEM: Poor performance
+SOLUTION: Start with conservative settings, enable modules gradually
+
+================================================================================
+SUPPORT CHECKLIST
+================================================================================
+
+BEFORE ASKING FOR HELP:
+□ Check EA logs for error messages
+□ Verify all input parameters are within valid ranges  
+□ Test in demo environment first
+□ Document specific issue with screenshots
+□ Note which modules are enabled
+□ Check emergency pause status
+□ Verify symbol specifications (point value, spread, etc.)
+
+================================================================================ 

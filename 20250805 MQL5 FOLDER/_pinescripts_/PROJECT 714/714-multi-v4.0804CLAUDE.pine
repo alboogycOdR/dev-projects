@@ -1,0 +1,399 @@
+//@version=5
+// Filename: 714-multi-v4.0804CLAUDE.pine
+
+indicator(title="NY SMC Suite Multi-Killzone", shorttitle="714 SMC Multi-Killzone", overlay=true, max_boxes_count=500, max_labels_count=500, max_lines_count=500)
+//
+
+//six killzones:
+//714AM (1:00-2:00 AM NY time)
+//714AM-EXT (2:00-3:30 AM NY time)
+//714AFTERNOON (10:00-11:00 AM NY time)
+//714AFTERNOON-EXT (11:00 AM-12:00 PM NY time)
+//ny-open (7:00-8:00 AM NY time)
+//ny-open-ext (8:00-9:00 AM NY time)
+
+// ======================== INPUTS ========================
+// ------ General Settings ------
+grp_general = "General Settings"
+lookbackDays = input.int(3, title="Days to Show Sessions", minval=1, maxval=365, group=grp_general, tooltip="Number of historical days to display session boxes for.")
+obFvgTimeframe = input.timeframe("15", "SMC Detection Timeframe", group=grp_general, tooltip="Timeframe for detecting Order Blocks and Fair Value Gaps.")
+
+// ------ Session & Killzone Visuals ------
+grp_visuals = "Session & Killzone Visuals"
+killzoneColor = input.color(color.new(color.aqua, 85), "Killzone Box Color", group=grp_visuals)
+extKillzoneColor = input.color(color.new(color.gray, 85), "Extended Killzone Box Color", group=grp_visuals)
+killzoneLabelSize = input.string("normal", "Label Size", options=["tiny", "small", "normal", "large"], group=grp_visuals)
+killzoneLabelColor = input.color(color.gray, "Label Text Color", group=grp_visuals)
+trendLineColor = input.color(color.black, "Trend Line Color", group=grp_visuals)
+trendLineWidth = input.int(2, "Trend Line Width", minval=1, maxval=4, group=grp_visuals)
+trendPriceLabelColor = input.color(color.black, "Price Label Background", group=grp_visuals)
+trendPriceLabelTextColor = input.color(color.white, "Price Label Text", group=grp_visuals)
+trendPriceLabelSize = input.string("small", "Price Label Size", options=["tiny", "small", "normal", "large"], group=grp_visuals)
+showRejectionMarkers = input.bool(true, "Show Wick Rejection Markers", group=grp_visuals)
+rejectionUpColor = input.color(color.green, "⏶ Lower Wick Rejection", group=grp_visuals)
+rejectionDownColor = input.color(color.red, "⏷ Upper Wick Rejection", group=grp_visuals)
+
+// ------ SMC: Order Blocks (OB) ------
+grp_ob = "SMC: Order Blocks (OB)"
+showOB = input.bool(true, "Show Order Blocks", group=grp_ob, inline="ob_show")
+maxOBs = input.int(20, "", minval=10, maxval=100, group=grp_ob, inline="ob_show", tooltip="Maximum number of Order Blocks to display.")
+obBullColor = input.color(color.new(#3179f5, 80), "Bullish Color", group=grp_ob)
+obBearColor = input.color(color.new(#f77c80, 80), "Bearish Color", group=grp_ob)
+obLabelTextColor = input.color(color.black, "Label Text Color", group=grp_ob)
+obLabelSize = input.string("tiny", "Label Size", options=["tiny", "small", "normal", "large"], group=grp_ob)
+
+// ------ SMC: Fair Value Gaps (FVG) ------
+grp_fvg = "SMC: Fair Value Gaps (FVG)"
+showFVG = input.bool(true, "Show FVGs", group=grp_fvg, inline="fvg_show")
+maxFVGs = input.int(20, "", minval=10, maxval=100, group=grp_fvg, inline="fvg_show", tooltip="Maximum number of FVGs to display.")
+fvgBullColor = input.color(color.new(#00ff68, 65), "Bullish Color", group=grp_fvg)
+fvgBearColor = input.color(color.new(#ff0008, 65), "Bearish Color", group=grp_fvg)
+fvgLabelTextColor = input.color(color.black, "Label Text Color", group=grp_fvg)
+fvgLabelSize = input.string("tiny", "Label Size", options=["tiny", "small", "normal", "large"], group=grp_fvg)
+
+// ------ SMC: Change in State of Delivery (CISD) ------
+grp_cisd = "SMC: Change in State of Delivery (CISD)"
+showCISD = input.bool(true, "Show CISD", group=grp_cisd, inline="cisd_show")
+maxCISD = input.int(20, "", minval=10, maxval=100, group=grp_cisd, inline="cisd_show", tooltip="Maximum number of CISD markers to display.")
+cisdBullColor = input.color(#089981, "Bullish Color", group=grp_cisd)
+cisdBearColor = input.color(#f23645, "Bearish Color", group=grp_cisd)
+cisdLabelTextColor = input.color(color.white, "Label Text Color", group=grp_cisd)
+cisdLabelSize = input.string("small", "Label Size", options=["tiny", "small", "normal", "large"], group=grp_cisd)
+
+// ------ SMC: Feature Interactions ------
+grp_interactions = "SMC: Feature Interactions"
+showOBFVGInteractions = input.bool(false, "Show OB/FVG Interactions", group=grp_interactions, inline="int_show")
+maxOBFVGInteractions = input.int(40, "", minval=10, maxval=100, group=grp_interactions, inline="int_show", tooltip="Maximum number of interaction markers to display.")
+obFvgInteractionColor = input.color(color.orange, "Marker Color", group=grp_interactions)
+obFvgInteractionLabelSize = input.string("tiny", "Marker Size", options=["tiny", "small", "normal", "large"], group=grp_interactions)
+
+// ------ Alerts ------
+grp_alerts = "Alerts"
+enableAlerts = input.bool(false, "Enable All Alerts", group=grp_alerts)
+alertOBMitigatedMsg = input.string("Order Block Mitigated!", "OB Mitigated Message", group=grp_alerts)
+alertFVGFillMsg = input.string("FVG Filled!", "FVG Fill Message", group=grp_alerts)
+alertCISDMsg = input.string("CISD State Change!", "CISD Alert Message", group=grp_alerts)
+
+// ================= MULTI-KILLZONE SESSIONS (rectangles, labels, trend lines) =================
+tz = "America/New_York"
+getSessionKey() =>
+    year(time, tz) * 10000 + month(time, tz) * 100 + dayofmonth(time, tz)
+
+killzoneLabels_ = array.from("714AM", "714AM-EXT", "714AFTERNOON", "714AFTERNOON-EXT", "ny-open", "ny-open-ext")
+killzoneStartH = array.from(1, 2, 10, 11, 7, 8)
+killzoneStartM = array.from(0, 0, 0, 0, 0, 0)
+killzoneEndH   = array.from(2, 3, 11, 12, 8, 9)
+killzoneEndM   = array.from(0, 30, 0, 0, 0, 0)
+
+var box[] kzone1Boxes = array.new_box()
+var box[] kzone2Boxes = array.new_box()
+var box[] kzone3Boxes = array.new_box()
+var box[] kzone4Boxes = array.new_box()
+var box[] kzone5Boxes = array.new_box()
+var box[] kzone6Boxes = array.new_box()
+var label[] kzone1Labels = array.new<label>()
+var label[] kzone2Labels = array.new<label>()
+var label[] kzone3Labels = array.new<label>()
+var label[] kzone4Labels = array.new<label>()
+var label[] kzone5Labels = array.new<label>()
+var label[] kzone6Labels = array.new<label>()
+var line[] kzone1TrendLines = array.new_line()
+var line[] kzone2TrendLines = array.new_line()
+var line[] kzone3TrendLines = array.new_line()
+var line[] kzone4TrendLines = array.new_line()
+var line[] kzone5TrendLines = array.new_line()
+var line[] kzone6TrendLines = array.new_line()
+var label[] kzone1PriceLabels = array.new<label>()
+var label[] kzone2PriceLabels = array.new<label>()
+var label[] kzone3PriceLabels = array.new<label>()
+var label[] kzone4PriceLabels = array.new<label>()
+var label[] kzone5PriceLabels = array.new<label>()
+var label[] kzone6PriceLabels = array.new<label>()
+
+var float[] sessionOpenPrices = array.new_float(6, na)
+var int[] lastSessionKeys = array.new_int(6, na)
+var float[] sessionHighs = array.new_float(6, na)
+var float[] sessionLows  = array.new_float(6, na)
+
+for i = 0 to 5
+    lbl = array.get(killzoneLabels_, i)
+    sH = array.get(killzoneStartH, i)
+    sM = array.get(killzoneStartM, i)
+    eH = array.get(killzoneEndH, i)
+    eM = array.get(killzoneEndM, i)
+    hNY = hour(time, tz)
+    mNY = minute(time, tz)
+    currentSessionKey = getSessionKey()
+
+    isNewSession = (hNY == sH and mNY == sM and (na(array.get(lastSessionKeys, i)) or currentSessionKey != array.get(lastSessionKeys, i)))
+    if isNewSession
+        array.set(sessionOpenPrices, i, open)
+        array.set(lastSessionKeys, i, currentSessionKey)
+        array.set(sessionHighs, i, high)
+        array.set(sessionLows, i, low)
+    else if (hNY > sH or (hNY == sH and mNY >= sM)) and (hNY < eH or (hNY == eH and mNY < eM))
+        array.set(sessionHighs, i, na(array.get(sessionHighs, i)) ? high : math.max(array.get(sessionHighs, i), high))
+        array.set(sessionLows, i,  na(array.get(sessionLows, i))  ? low  : math.min(array.get(sessionLows, i), low))
+
+    endSession = (hNY == eH and mNY == eM)
+    if endSession and not na(array.get(sessionHighs, i)) and not na(array.get(sessionLows, i))
+        boxes = i==0?kzone1Boxes:i==1?kzone2Boxes:i==2?kzone3Boxes:i==3?kzone4Boxes:i==4?kzone5Boxes:kzone6Boxes
+        labels= i==0?kzone1Labels:i==1?kzone2Labels:i==2?kzone3Labels:i==3?kzone4Labels:i==4?kzone5Labels:kzone6Labels
+        tlines= i==0?kzone1TrendLines:i==1?kzone2TrendLines:i==2?kzone3TrendLines:i==3?kzone4TrendLines:i==4?kzone5TrendLines:kzone6TrendLines
+        plabels= i==0?kzone1PriceLabels:i==1?kzone2PriceLabels:i==2?kzone3PriceLabels:i==3?kzone4PriceLabels:i==4?kzone5PriceLabels:kzone6PriceLabels
+
+        if array.size(boxes) > lookbackDays
+            box.delete(array.shift(boxes))
+            label.delete(array.shift(labels))
+        if array.size(tlines) > lookbackDays
+            line.delete(array.shift(tlines))
+            label.delete(array.shift(plabels))
+
+        sessStart = timestamp(tz, year(time, tz), month(time, tz), dayofmonth(time, tz), sH, sM)
+        sessEnd   = timestamp(tz, year(time, tz), month(time, tz), dayofmonth(time, tz), eH, eM)
+        
+        isExt = lbl == "714AM-EXT" or lbl == "714AFTERNOON-EXT" or lbl == "ny-open-ext"
+        boxColor = isExt ? extKillzoneColor : killzoneColor
+        
+        b = box.new(sessStart, array.get(sessionHighs, i), sessEnd, array.get(sessionLows, i), xloc=xloc.bar_time, bgcolor=boxColor, border_color=boxColor)
+        
+        labelY = isExt ? array.get(sessionLows, i) : array.get(sessionHighs, i)
+        labelStyle = isExt ? label.style_label_up : label.style_label_down
+        l = label.new(sessStart, labelY, lbl, xloc=xloc.bar_time, color=killzoneColor, style=labelStyle, textcolor=killzoneLabelColor, size=killzoneLabelSize)
+        
+        array.push(boxes, b)
+        array.push(labels, l)
+        
+        if not isExt
+            // Only create trendlines for the first killzone in each pair
+            if lbl == "714AM"
+                // 714AM trendline extends to end of 714AM-EXT (3:30 AM)
+                pairedEndH = 3
+                pairedEndM = 30
+                pairedEnd = timestamp(tz, year(time, tz), month(time, tz), dayofmonth(time, tz), pairedEndH, pairedEndM)
+                // Convert timestamps to bar indices for line.get_price compatibility
+                startBarIndex = bar_index - (time - sessStart) / (time - time[1])
+                endBarIndex = bar_index - (time - pairedEnd) / (time - time[1])
+                t = line.new(startBarIndex, array.get(sessionOpenPrices, i), endBarIndex, array.get(sessionOpenPrices, i), color=trendLineColor, width=trendLineWidth, xloc=xloc.bar_index)
+                pl2 = label.new(pairedEnd, array.get(sessionOpenPrices, i), str.tostring(array.get(sessionOpenPrices, i), format.mintick), xloc=xloc.bar_time, style=label.style_label_down, color=color.new(color.white, 100), textcolor=color.black, size=trendPriceLabelSize)
+                array.push(tlines, t)
+                array.push(plabels, pl2)
+            else if lbl == "714AFTERNOON"
+                // 714AFTERNOON trendline extends to end of 714AFTERNOON-EXT (12:00 PM)
+                pairedEndH = 12
+                pairedEndM = 0
+                pairedEnd = timestamp(tz, year(time, tz), month(time, tz), dayofmonth(time, tz), pairedEndH, pairedEndM)
+                // Convert timestamps to bar indices for line.get_price compatibility
+                startBarIndex = bar_index - (time - sessStart) / (time - time[1])
+                endBarIndex = bar_index - (time - pairedEnd) / (time - time[1])
+                t = line.new(startBarIndex, array.get(sessionOpenPrices, i), endBarIndex, array.get(sessionOpenPrices, i), color=trendLineColor, width=trendLineWidth, xloc=xloc.bar_index)
+                pl2 = label.new(pairedEnd, array.get(sessionOpenPrices, i), str.tostring(array.get(sessionOpenPrices, i), format.mintick), xloc=xloc.bar_time, style=label.style_label_down, color=color.new(color.white, 100), textcolor=color.black, size=trendPriceLabelSize)
+                array.push(tlines, t)
+                array.push(plabels, pl2)
+            else if lbl == "ny-open"
+                // ny-open trendline extends to end of ny-open-ext (9:00 AM)
+                pairedEndH = 9
+                pairedEndM = 0
+                pairedEnd = timestamp(tz, year(time, tz), month(time, tz), dayofmonth(time, tz), pairedEndH, pairedEndM)
+                // Convert timestamps to bar indices for line.get_price compatibility
+                startBarIndex = bar_index - (time - sessStart) / (time - time[1])
+                endBarIndex = bar_index - (time - pairedEnd) / (time - time[1])
+                t = line.new(startBarIndex, array.get(sessionOpenPrices, i), endBarIndex, array.get(sessionOpenPrices, i), color=trendLineColor, width=trendLineWidth, xloc=xloc.bar_index)
+                pl2 = label.new(pairedEnd, array.get(sessionOpenPrices, i), str.tostring(array.get(sessionOpenPrices, i), format.mintick), xloc=xloc.bar_time, style=label.style_label_down, color=color.new(color.white, 100), textcolor=color.black, size=trendPriceLabelSize)
+                array.push(tlines, t)
+                array.push(plabels, pl2)
+
+        array.set(sessionHighs, i, na)
+        array.set(sessionLows, i, na)
+
+var float[] todayOpenPrices = array.new_float(6, na)
+for i = 0 to 5
+    sH = array.get(killzoneStartH, i)
+    sM = array.get(killzoneStartM, i)
+    hNY = hour(time, tz)
+    mNY = minute(time, tz)
+    if (hNY == sH and mNY == sM)
+        array.set(todayOpenPrices, i, open)
+// ========== Wick Rejection Logic (Per Killzone Pair) - CORRECTED ==========
+// Arrays to track rejections for each killzone pair
+var bool[] upperRejections = array.new_bool(3, false)  // 3 pairs: 714AM, 714AFTERNOON, ny-open
+var bool[] lowerRejections = array.new_bool(3, false)
+
+// Function to check if current time is within a killzone pair's FULL time range (including extension)
+isInKillzonePairFullRange(pairIndex) =>
+    hNY = hour(time, tz)
+    mNY = minute(time, tz)
+    
+    if pairIndex == 0  // 714AM pair (1:00 AM - 3:30 AM) - includes both 714AM and 714AM-EXT
+        (hNY == 1 or hNY == 2 or (hNY == 3 and mNY < 30))
+    else if pairIndex == 1  // 714AFTERNOON pair (10:00 AM - 12:00 PM) - includes both sessions
+        (hNY == 10 or hNY == 11)
+    else if pairIndex == 2  // ny-open pair (7:00 AM - 9:00 AM) - includes both sessions
+        (hNY == 7 or hNY == 8)
+    else
+        false
+
+if showRejectionMarkers
+    // Reset rejection flags for the current bar before any checks
+    for pair = 0 to 2
+        array.set(upperRejections, pair, false)
+        array.set(lowerRejections, pair, false)
+
+    // Loop through each of the 3 killzone pairs
+    for pair = 0 to 2
+        // Check if the current bar's time falls within the active range for this pair
+        if isInKillzonePairFullRange(pair)
+            // Select the correct trendline array based on the pair index
+            // Pair 0 -> 714AM -> kzone1TrendLines
+            // Pair 1 -> 714AFTERNOON -> kzone3TrendLines
+            // Pair 2 -> ny-open -> kzone5TrendLines
+            trendlineArray = pair == 0 ? kzone1TrendLines : pair == 1 ? kzone3TrendLines : kzone5TrendLines
+
+            // Proceed only if a trendline for today has been created and stored in the array
+            if array.size(trendlineArray) > 0
+                // KEY FIX: Get only the MOST RECENT (current day's) trendline.
+                // The latest trendline is always the last one added to the array.
+                latestTrendline = array.get(trendlineArray, array.size(trendlineArray) - 1)
+                
+                if not na(latestTrendline)
+                    // Get the price level of this specific trendline at the current bar's position
+                    trendlinePrice = line.get_price(latestTrendline, bar_index)
+
+                    if not na(trendlinePrice)
+                        priceTolerance = syminfo.mintick * 10 // A small buffer for price interaction
+
+                        // Check for Upper Wick Rejection:
+                        // The high must interact with the line, but the candle body must stay below it.
+                        if high >= trendlinePrice - priceTolerance and close < trendlinePrice and open < trendlinePrice
+                            array.set(upperRejections, pair, true)
+
+                        // Check for Lower Wick Rejection:
+                        // The low must interact with the line, but the candle body must stay above it.
+                        if low <= trendlinePrice + priceTolerance and close > trendlinePrice and open > trendlinePrice
+                            array.set(lowerRejections, pair, true)
+
+// Plot rejections for each killzone pair
+plotshape(series=array.get(upperRejections, 0), style=shape.triangledown, location=location.abovebar, color=rejectionDownColor, size=size.tiny, offset=0, title="714AM Upper Wick Rejection")
+plotshape(series=array.get(lowerRejections, 0), style=shape.triangleup, location=location.belowbar, color=rejectionUpColor, size=size.tiny, offset=0, title="714AM Lower Wick Rejection")
+
+plotshape(series=array.get(upperRejections, 1), style=shape.triangledown, location=location.abovebar, color=rejectionDownColor, size=size.tiny, offset=0, title="714AFTERNOON Upper Wick Rejection")
+plotshape(series=array.get(lowerRejections, 1), style=shape.triangleup, location=location.belowbar, color=rejectionUpColor, size=size.tiny, offset=0, title="714AFTERNOON Lower Wick Rejection")
+
+plotshape(series=array.get(upperRejections, 2), style=shape.triangledown, location=location.abovebar, color=rejectionDownColor, size=size.tiny, offset=0, title="ny-open Upper Wick Rejection")
+plotshape(series=array.get(lowerRejections, 2), style=shape.triangleup, location=location.belowbar, color=rejectionUpColor, size=size.tiny, offset=0, title="ny-open Lower Wick Rejection")
+// ========== SMC, OB/FVG, CISD, Interactions, Alerts ==========
+
+f_close = request.security(syminfo.tickerid, obFvgTimeframe, close)
+f_open = request.security(syminfo.tickerid, obFvgTimeframe, open)
+f_high = request.security(syminfo.tickerid, obFvgTimeframe, high)
+f_low = request.security(syminfo.tickerid, obFvgTimeframe, low)
+
+// CISD LABELS: Per-feature safe array
+var label[] cisdLabels = array.new<label>()
+// OB/FVG Arrays
+var box[] fvgBoxes = array.new_box()
+var label[] fvgLabels = array.new<label>()
+var box[] obBoxes = array.new_box()
+var label[] obLabels = array.new<label>()
+// INTERACTION ARRAY
+var label[] interactionLabels = array.new<label>()
+
+// FVG DETECTION
+bullFVG = showFVG and (f_low > f_high[2] and f_close[1] > f_open[1])
+bearFVG = showFVG and (f_high < f_low[2] and f_close[1] < f_open[1])
+
+if bullFVG
+    b = box.new(left=bar_index[2], top=f_low, right=bar_index, bottom=f_high[2], bgcolor=fvgBullColor, border_color=fvgBullColor)
+    array.unshift(fvgBoxes, b)
+    lbl = label.new(bar_index, f_low, "FVG", style=label.style_label_down, color=fvgBullColor, textcolor=fvgLabelTextColor, size=fvgLabelSize)
+    array.unshift(fvgLabels, lbl)
+    if array.size(fvgBoxes) > maxFVGs
+        box.delete(array.pop(fvgBoxes))
+        label.delete(array.pop(fvgLabels))
+
+if bearFVG
+    b = box.new(left=bar_index[2], top=f_high, right=bar_index, bottom=f_low[2], bgcolor=fvgBearColor, border_color=fvgBearColor)
+    array.unshift(fvgBoxes, b)
+    lbl = label.new(bar_index, f_high, "FVG", style=label.style_label_up, color=fvgBearColor, textcolor=fvgLabelTextColor, size=fvgLabelSize)
+    array.unshift(fvgLabels, lbl)
+    if array.size(fvgBoxes) > maxFVGs
+        box.delete(array.pop(fvgBoxes))
+        label.delete(array.pop(fvgLabels))
+
+// OB DETECTION
+ob_bull = showOB and (f_close[1] < f_open[1] and f_close > f_open and f_high[1] < f_high and f_low[1] < f_low)
+ob_bear = showOB and (f_close[1] > f_open[1] and f_close < f_open and f_low[1] > f_low and f_high[1] > f_high)
+
+if ob_bull
+    ob = box.new(left=bar_index, top=f_open, right=bar_index+10, bottom=f_low, bgcolor=obBullColor, border_color=obBullColor, xloc=xloc.bar_index)
+    array.unshift(obBoxes, ob)
+    lbl = label.new(bar_index, f_open, "OB", style=label.style_label_down, color=obBullColor, textcolor=obLabelTextColor, size=obLabelSize)
+    array.unshift(obLabels, lbl)
+    if array.size(obBoxes) > maxOBs
+        box.delete(array.pop(obBoxes))
+        label.delete(array.pop(obLabels))
+
+if ob_bear
+    ob = box.new(left=bar_index, top=f_high, right=bar_index+10, bottom=f_open, bgcolor=obBearColor, border_color=obBearColor, xloc=xloc.bar_index)
+    array.unshift(obBoxes, ob)
+    lbl = label.new(bar_index, f_high, "OB", style=label.style_label_up, color=obBearColor, textcolor=obLabelTextColor, size=obLabelSize)
+    array.unshift(obLabels, lbl)
+    if array.size(obBoxes) > maxOBs
+        box.delete(array.pop(obBoxes))
+        label.delete(array.pop(obLabels))
+
+// OB/FVG INTERACTIONS - CORRECTED SECTION
+if showOBFVGInteractions
+    // Check FVG interactions
+    if array.size(fvgBoxes) > 0
+        for i = 0 to array.size(fvgBoxes) - 1
+            b = array.get(fvgBoxes, i)
+            if not na(b)
+                // CORRECTED: Separate variable declarations
+                t = box.get_top(b)
+                bot = box.get_bottom(b)
+                if ((high >= bot and low <= t) or (close >= bot and close <= t))
+                    lbl = label.new(bar_index, t, "INT", color=obFvgInteractionColor, style=label.style_label_down, textcolor=color.black, size=obFvgInteractionLabelSize)
+                    array.unshift(interactionLabels, lbl)
+                    if array.size(interactionLabels) > maxOBFVGInteractions
+                        label.delete(array.pop(interactionLabels))
+                    // CORRECTED: Alert placement for actual FVG interaction
+                    if enableAlerts
+                        alert(alertFVGFillMsg, alert.freq_once_per_bar_close)
+    
+    // Check OB interactions
+    if array.size(obBoxes) > 0
+        for i = 0 to array.size(obBoxes) - 1
+            ob = array.get(obBoxes, i)
+            if not na(ob)
+                // CORRECTED: Separate variable declarations
+                t = box.get_top(ob)
+                bot = box.get_bottom(ob)
+                if ((high >= bot and low <= t) or (close >= bot and close <= t))
+                    lbl = label.new(bar_index, t, "INT", color=obFvgInteractionColor, style=label.style_label_down, textcolor=color.black, size=obFvgInteractionLabelSize)
+                    array.unshift(interactionLabels, lbl)
+                    if array.size(interactionLabels) > maxOBFVGInteractions
+                        label.delete(array.pop(interactionLabels))
+                    // CORRECTED: Alert placement for actual OB interaction
+                    if enableAlerts
+                        alert(alertOBMitigatedMsg, alert.freq_once_per_bar_close)
+
+// CISD LOGIC
+if showCISD
+    swingLen = 10
+    ph = ta.pivothigh(swingLen, 1)
+    pl = ta.pivotlow(swingLen, 1)
+    if not na(ph)
+        lbl = label.new(bar_index-1, ph, "CISD", style=label.style_label_down, color=cisdBullColor, textcolor=cisdLabelTextColor, size=cisdLabelSize)
+        array.unshift(cisdLabels, lbl)
+        if array.size(cisdLabels) > maxCISD
+            label.delete(array.pop(cisdLabels))
+        if enableAlerts
+            alert(alertCISDMsg, alert.freq_once_per_bar_close)
+    if not na(pl)
+        lbl = label.new(bar_index-1, pl, "CISD", style=label.style_label_up, color=cisdBearColor, textcolor=cisdLabelTextColor, size=cisdLabelSize)
+        array.unshift(cisdLabels, lbl)
+        if array.size(cisdLabels) > maxCISD
+            label.delete(array.pop(cisdLabels))
+        if enableAlerts
+            alert(alertCISDMsg, alert.freq_once_per_bar_close)

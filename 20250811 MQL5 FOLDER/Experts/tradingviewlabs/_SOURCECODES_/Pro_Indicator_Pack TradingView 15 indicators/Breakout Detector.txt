@@ -1,0 +1,97 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// ©Trade Confident
+
+// License Agreement: You are granted a personal license agreement to the following script for use on ONE TrdingView account. 
+// You may NOT resell or distribute this script in any way, this is strictly prohibited and is tracked on TradingView.
+// PLEASE READ: We will take legal action if this script is shared with another TradingView account or modified and reposted on TradingView IN ANY WAY.
+
+//@version=5
+tag0 = "TC Breakout Detector"
+indicator("Breakout Detector")
+
+pi = 3.14159265359
+src0 = hlc3
+
+volatility_length = input(8,title="Volatility Length")
+
+no_type = "Standard"
+simp_harmon_type = "Simple Harmonic"
+rsi_type = "RSI"
+karo_type = "Karobein"
+m_type = "M-Oscillator"
+typ5 = rsi_type
+
+_pv(_src, _len) => 
+    math.sqrt((_src / ((_len * 4) * math.log(2))) * math.sum(math.pow(math.log(high / low), 2), _len))
+
+_rma(_src, _len) =>
+    ta.sma(_src, _len * 3) + ta.sma(_src, _len * 2) - ta.sma(_src, _len)
+
+_rsi(_src, _len) => 
+    u = math.max(_src - _src[1], 0)
+    d = math.max(_src[1] - _src, 0) 
+    rs = ta.rma(u, _len) / ta.rma(d, _len)
+    res = 100 - 100 / (1 + rs)
+    res
+
+_simple_harmonic(_src, _len) =>
+    c0 = _src
+    c1 = c0[1]
+    c2 = c0[2]
+    v0 = c0 - c1
+    v1 = c1 - c2
+    a0 = v0 - v1
+    a1 = ta.ema(a0, _len)
+    t0 = 2 * pi * (math.sqrt(math.abs(v0 / a1)))
+    t1 = c0 > c1 ? t0 : t0 * -1
+    v3 = ta.ema(t1, _len)
+    t3 = ta.ema(t0, _len)
+    sho = (v3 / t3) * 100
+
+_karo(_src, _len) =>
+    src = ta.ema(_src, _len)
+    a = ta.ema(src < src[1] ? src / src[1] : 0, _len)
+    b = ta.ema(src > src[1] ? src / src[1] : 0, _len)
+    c = (src / src[1]) / (src / src[1] + b)
+    d = 2 * ((src / src[1]) / (src / src[1] + c * a)) - 1
+
+_moscillator(_src, _len) =>
+    tt_c = 0
+    for i = 1 to _len
+        s0 = _src[0]
+        si = _src[i]
+        t_c = s0 > si ? 1 :s0 < si ? -1 : 0
+        tt_c := tt_c + t_c
+        tt_c
+    tt_c    
+
+typ7(_typ1, _src, _len) =>
+  _typ1 == no_type ? _pv(src0, volatility_length) :
+  _typ1 == rsi_type ? _rsi(_pv(src0, volatility_length), _len) : 
+  _typ1 == simp_harmon_type ? _simple_harmonic(_pv(src0, volatility_length), _len) :
+  _typ1 == karo_type ? _karo(_pv(src0, volatility_length), _len) :
+  _typ1 == m_type ? ta.ema(ta.ema(_moscillator(_pv(src0, volatility_length), _len), 5), 3) : na
+
+cond0 = typ5
+cond1 = cond0 == no_type ? src0 : _pv(src0, volatility_length)
+cond2 = cond0 == no_type ? volatility_length : volatility_length
+
+volatility_rsi = typ7(cond0, cond1, cond2)
+
+plot(volatility_rsi, tag0, #f5ab0c, 1, style=plot.style_line,transp=5)
+h1=hline(30, color=#f5ab0c21, linestyle=hline.style_solid, linewidth=2)
+h2=hline(4, color=#806732, linestyle=hline.style_solid, linewidth=2)
+fill(h1, h2, color = color.new(#ff9900, 85))
+
+makelabel(x, y, msg, col=color.white)=>
+    var label _la = label.new(x, y, msg, color=#00000000, style=label.style_label_left)
+    
+    label.set_xy(_la, x, y)
+    label.set_text(_la, msg)
+    label.set_textcolor(_la, col)
+    _la
+
+bc = 16
+makelabel(bar_index+10, bc, 'Breakout Zone ↑↓')
+
+alertcondition(ta.crossunder(volatility_rsi,15), title='Breakout Zone', message='Breakout Zone')

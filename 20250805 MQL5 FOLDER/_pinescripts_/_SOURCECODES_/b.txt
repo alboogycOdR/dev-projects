@@ -1,0 +1,8 @@
+indicatorTF = input.string("Chart", "Indicator Timeframe", ["Chart", "1 minute", "3 minutes", "5 minutes", "10 minutes", "15 minutes", "30 minutes", "45 minutes", "1 hour", "2 hours", "3 hours", "4 hours", "12 hours", "1 day", "1 week", "1 month"])
+
+cond(_offset) =>
+    osc = ta.wma(hl2, 5) - ta.wma(hl2, 34)
+    [_, _, tvr] = ta.dmi(14, 14)
+    [osc[_offset], oscRis[_offset], oscFal[_offset], oscA0[_offset], oscB0[_offset], pivL[_offset], pivH[_offset], bullR[_offset], bearR[_offset], bullH[_offset], bearH[_offset], sqzOn[_offset], sqzOff[_offset], _hist1[_offset], upper1[_offset], lower1[_offset], _hist2[_offset], _line2[_offset], tvr[_offset]]
+tf = indicatorTF == "Chart" ? timeframe.period : indicatorTF == "1 minute" ? "1" : indicatorTF == "3 minutes" ? "3" : indicatorTF == "5 minutes" ? "5" : indicatorTF == "10 minutes" ? "10" : indicatorTF == "15 minutes" ? "15" : indicatorTF == "30 minutes" ? "30" : indicatorTF == "45 minutes" ? "45" : indicatorTF == "1 hour" ? "60" : indicatorTF == "2 hours" ? "120" : indicatorTF == "3 hours" ? "180" : indicatorTF == "4 hours" ? "240" : indicatorTF == "12 hours" ? "720" : indicatorTF == "1 day" ? "1D" : indicatorTF == "1 week" ? "1W" : indicatorTF == "1 month" ? "1M" : na
+[osc, tvr] = request.security(syminfo.tickerid, tf, cond(indicatorTF != "Chart" and barstate.isrealtime ? 1 : 0))

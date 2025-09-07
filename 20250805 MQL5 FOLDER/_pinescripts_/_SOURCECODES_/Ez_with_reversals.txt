@@ -1,0 +1,82 @@
+//     THIS CODE USES CODE FROM AI SIGNALS GOLD!!!
+//why ?    because i was bored and i was lazy so i did not want to put all my freetime on this but i did add extra options
+//     disclaimer : this does nt contain all options... if there is something you would like me to add dm me
+// @hawkeye#6019 <----------- discord id
+//    
+//-----------------------------------------====================================================-------------------------------\\
+//                                                                                                                             \\
+//@version=5
+indicator("EzAlgo V.5", shorttitle='EzTrades V.5', overlay=true)
+ 
+// -------------------------- user inputs ----------------------- \\
+enSignals = input.bool(true, 'Enable Signals', group='Buy & Sell')
+sens      = input.float(2, 'Sensitivity', group='Buy & Sell')
+enrev = input.bool(true, 'Diamond Signals', group='Signals', tooltip='IDK what this s called so Ijust called it diamond signals')
+enrevser = input.bool(true, 'Reversal Signals', group='Signals')
+ 
+RSI_Period = input(14, title='Overall Reversal Sensitivitiy', group='Reversal Signals')
+SF = input(5, title='Reversal Agility', group='Reversal Signals')
+KQE = input(4.238, title='Reversal Fast Senstivity', group='Reversal Signals')
+ThreshHold = input(10, title='Reversal Thresh-hold', group='Reversal Signals')
+ 
+ensr = input.bool(true, 'Enable Support And Resistance', group='S & R')
+ensra = input.bool(true, 'Enable Support And Resistance Zones', group='S & R')
+ 
+enCloud   = input.bool(true, 'Enable Trend Ribbon', group='Cloud')
+volBands = input.bool(true, 'Show Bands', group='Cloud')
+mal       = input.bool(false, 'Show Trend Moving Average Line', inline='s')
+mals      = input.int(80, '', inline='s')
+ 
+levelsl      = input.bool(false, "Sl 1", group="TP & SL")
+levels1      = input.bool(false, "TP 1", group="TP & SL", inline='tp1')
+r1           = input.float(0.7, '', group='TP & SL', inline='tp1')
+levels2      = input.bool(false, "TP 2", group="TP & SL", inline='tp2')
+r2           = input.float(1.2, '', group='TP & SL', inline='tp2')
+levels3      = input.bool(false, "TP 3", group="TP & SL", inline='tp3')
+r3           = input.float(1.5, '', group='TP & SL', inline='tp3')
+atrRisk     = input.int(defval=4, minval=1, maxval=4, title="Risk To Reward", group="TP & SL")
+ 
+// -------------------------- signal function ------------------------ \\ based on free algo's ai signal gold
+supertrend(_src, factor, atrLen) =>
+    atr = ta.atr(atrLen)
+    upperBand = _src + factor * atr
+    lowerBand = _src - factor * atr
+    prevLowerBand = nz(lowerBand[1])
+    prevUpperBand = nz(upperBand[1])
+    lowerBand := lowerBand > prevLowerBand or close[1] < prevLowerBand ? lowerBand : prevLowerBand
+    upperBand := upperBand < prevUpperBand or close[1] > prevUpperBand ? upperBand : prevUpperBand
+    int direction = na
+    float superTrend = na
+    prevSuperTrend = superTrend[1]
+    if na(atr[1])
+        direction := 1
+    else if prevSuperTrend == prevUpperBand
+        direction := close > upperBand ? -1 : 1
+    else
+        direction := close < lowerBand ? 1 : -1
+    superTrend := direction == -1 ? lowerBand : upperBand
+    [superTrend, direction]
+[supertrend, direction] = supertrend(close, sens, 11)
+sma9 = ta.sma(close, 13)
+ 
+bull = ta.crossover(close, supertrend)
+bear = ta.crossunder(close, supertrend)
+ 
+y1 = low - (ta.atr(30) * 2)
+y2 = high + (ta.atr(30) * 2)
+ 
+// ---------------------------------- plot buy & sell signal -------------------------- \\ based on free ai signal gold
+ 
+buy  = enSignals and bull ? label.new(bar_index, y1, "Buy", xloc.bar_index, yloc.price, #00DBFF, label.style_label_up, color.white, size.normal) : na
+sell = enSignals and bear ? label.new(bar_index, y2, "Sell", xloc.bar_index, yloc.price, #E93E63, label.style_label_down, color.white, size.normal) : na
+ 
+// ---------------------------- cloud ---------------------------- \\
+candle  = ta.sma(close, 7)
+reach   = ta.sma(close, 13)
+candlep = plot(enCloud ? candle : na, color=color.new(color.white, 100))
+reachp  = plot(enCloud ? reach  : na, color=color.new(color.white, 100))
+fill(reachp, candlep, color= candle > reach ? color.new(#00DBFF, 75) : color.new(#E93E63, 75))
+ 
+barcolor(close > supertrend ? #00DBFF99 : #E93E6399)
+ 
+// ====================--------------------- tp & sl -----------------=================== \\ based on free algo's ai signal gold

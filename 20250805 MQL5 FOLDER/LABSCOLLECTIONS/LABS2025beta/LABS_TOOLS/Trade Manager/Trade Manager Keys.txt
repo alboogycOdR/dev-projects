@@ -1,0 +1,34 @@
+
+<Ctrl> Activates and Deactivates the Command Mode
+
+   Keys in Command Mode:
+   
+   <1> Open a Buy Trade
+   <3> Open a Sell Trade
+   <5> Activate/Deactivate Hard Single Break Even Mode
+   <6> Activate/Deactivate Soft Basket Break Even Mode
+   <8> Activate/Deactivate Close Basket at Break Even
+   <0> Close all Trades
+   <,> Decrease Trade Volume
+   <.> Increase Trade Volume
+   <A> Decrease Stop Loss
+   <S> Increase Stop Loss
+   <D> Decrease Take Profit
+   <F> Increase Take Profit
+   <X> Toggle Currency to open Buy/Sell Bag (7 Trades)
+   <Y> Reset open Buy/Sell Bag to current Pair
+   <V> Toggle View of opened Trades by Pairs or Currencies
+
+
+<Shift> Activates and Deactivates the Single Trade Management Mode
+
+   Keys in Single Trade Management Mode:
+
+   <A> Decrease Stop Loss
+   <S> Increase Stop Loss
+   <D> Decrease Take Profit
+   <F> Increase Take Profit
+   <G> Activate Previous Trade
+   <H> Activate Next Trade
+
+   

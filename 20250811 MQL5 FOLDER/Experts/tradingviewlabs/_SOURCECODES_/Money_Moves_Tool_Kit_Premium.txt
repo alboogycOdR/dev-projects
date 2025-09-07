@@ -1,0 +1,2705 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// @version=5
+//@ moneymovesalgo
+
+//Security
+///////////////////////////////////////////////////////////////////////////////////////////////////////////
+info = input.bool(true, title="Developer - Aryan Singh",group="Money Moves [Tool Kit Premium]")
+
+_v = input.string("0.1", title="Version", options=["0.1"], group="Money Moves [Tool Kit Premium]")
+
+//User has to agree to have the indi loading on the chart.
+var user_consensus = input.string(defval="", title="TYPE  'agree'  TO ADD TO CHART. \nTrading involves a risk of loss, and may not be appropriate for every one. Please consider carefully if trading is appropriate for you. Past performance is not indicative of future results. Any and all indicator signals provided by 'Money Moves Algo' are for educational purposes only\nCopyRight - @Money Moves Algo", confirm = true, group="Money Moves [Tool Kit Premium]")
+var PassCorrect = false
+if user_consensus == "agree"
+    PassCorrect := true
+else
+    PassCorrect := false
+
+
+colors = input.string(title='Color Scheme', defval='DARK', options=['DARK', 'LIGHT'] , group="Money Moves [Tool Kit Premium]")
+bullcolor = colors == 'DARK' ? #00DBFF : color.rgb(0, 255, 8) 
+bearcolor = colors == 'DARK' ? #E91E63 : color.rgb(255, 0, 0)
+
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+indicator("Money Moves [Tool Kit Premium]", overlay = true, max_labels_count = 500, max_boxes_count = 500, max_lines_count = 500, max_bars_back = 100)
+
+//
+//------------------- Money Move Smc  ----------------------//
+
+
+//
+//------------------- Money Move SR  ----------------------//
+// Get user input
+enableSR   = input(true, "SR On/Off", group="Money Move [SR]")
+strengthSR = input.int(5, "S/R Strength", 1, group="Money Move [SR]")
+lineStyle  = input.string("Solid", "Line Style", ["Solid", "Dotted", "Dashed"], group="Money Move [SR]")
+lineWidth  = input.int(1, "S/R Line Width", 1, group="Money Move [SR]")
+useZones   = input(true, "Zones", group="Money Move [SR]")
+useHLZones = input(true, "Strong S/R Zones", group="Money Move [SR]")
+expandSR   = input(true, "Expand SR", group="Money Move [SR]")
+zoneWidth  = input.int(2, "Zone Width %", 0, tooltip="it's calculated using % of the distance between highest/lowest in last 300 bars", group="Money Move [SR]")
+
+//
+//------------------- Money Move TrendLine  ----------------------//
+// Get user input
+var string GROUP_ATL    = "Money Moves [TrendLine V2]"
+var bool show_tl   = input.bool(false, title="Show TrendLine", tooltip="Shows lower/upper trendlines", group=GROUP_ATL)
+var int n = input.int(15, title="Trendline Sensitivity", minval=2, group=GROUP_ATL)
+// A Fractal is always a Pivot H/L (but a Pivot H/L is not always a Fractal):
+float pivtHigh = ta.pivothigh(n, n)[1]
+float PivtLow = ta.pivotlow(n, n)[1]
+bool upfract = not na(pivtHigh)
+bool downfract = not na(PivtLow)
+var string LINE_WIDTH1_STR = "Width 1"
+var string LINE_WIDTH2_STR = "Width 2"
+// @function : _get_width(), a map {string:int}
+_get_width(string str_input) =>
+    return_int = switch str_input
+        LINE_WIDTH1_STR => 1
+        LINE_WIDTH2_STR => 2
+    return_int
+var string subgroup1    = "recent line"
+var color ln_col_up = color.new(bearcolor , 0)
+var color ln_col_down = color.new(bullcolor , 0)
+var int lnwidth_recent  = _get_width(input.string(LINE_WIDTH1_STR, options=[LINE_WIDTH1_STR, LINE_WIDTH2_STR], title="", inline=subgroup1, group=GROUP_ATL))
+var string subgroup2    = "historical line"
+var color ln_col_prev   = input.color(color.new(color.gray, 50), title="Historical Line", group=GROUP_ATL, inline=subgroup2)
+var int lnwidth_prev    = _get_width(input.string(LINE_WIDTH1_STR, options=[LINE_WIDTH1_STR, LINE_WIDTH2_STR], title="", inline=subgroup2, group=GROUP_ATL))
+
+var int max_tl          = input.int(1, title="Max pair of lines", maxval=250, minval=1, group=GROUP_ATL)*2
+var string _str_extend  = input.string("Right", options=["Right", "Both ways"], title="Which way to extend lines", group=GROUP_ATL)
+var string str_extend   = _str_extend == "Both ways" ? extend.both : extend.right
+
+//
+//------------------- Money Moves [Order Blocks]  ----------------------//
+// Get user input
+
+var bool show_OBls  = input.bool(false, title="Show Order Blocks", tooltip="Show lower/upper trendlines" , group = "Money Moves [OrderBlocks]")
+length = input.int(5, 'Sensitivity' , minval = 1, group = "Money Moves [OrderBlocks]")
+line_style = input.string('Dotted', 'Order Block Line Style' , options = ['Solid', 'Dashed', 'Dotted'] , group = "Money Moves [OrderBlocks]")
+line_width = input.int(1, 'Order Block Line Width' , minval = 1 , group = "Money Moves [OrderBlocks]")
+mitigation = input.string('Wick', 'Confirmation Type' , options = ['Wick', 'Close'] , group = "Money Moves [OrderBlocks]")
+
+bull_ext_last = input.int(1, 'Bullish OB ' , minval = 1 , inline = 'bull' , group = "Money Moves [OrderBlocks]")
+bear_ext_last = input.int(1, 'Bearish OB' , minval = 1 , inline = 'bear' , group = "Money Moves [OrderBlocks]")
+bg_bull_css = color.new(bullcolor, 80)
+bull_css = bullcolor
+bull_avg_css = color.new(bullcolor, 37)
+bg_bear_css = color.new(bearcolor, 80)
+bear_css = bearcolor
+bear_avg_css = color.new(bearcolor, 37)
+//-----------------------------------------------------------------------------}
+
+
+//----------------------------------------}
+//Money Moves [EQH/EQL]
+//----------------------------------------{
+color TRANSP_CSS = #ffffff00
+string ModeSmc_TOOLTIP          = 'Allows to display historical [EQH/EQL] or only the recent ones'
+string STYLE_TOOLTIP         = 'Indicator color theme'
+string SHOW_EQHL             = 'Display equal highs and equal lows on the chart'
+string EQHL_BARS             = 'Number of bars used to confirm equal highs and equal lows'
+string EQHL_THRESHOLD        = 'Sensitivity threshold in a range (0, 1) used for the detection of equal highs & lows\n\nLower values will return fewer but more pertinent results'
+show_eq = input(false, 'Equal High/Low', group = 'Money Moves [EQH/EQL]', tooltip = SHOW_EQHL)
+Mode = input.string(  'Historical', title = "Mode" ,options = ['Historical', 'Present'], group = 'Money Moves [EQH/EQL]', tooltip = ModeSmc_TOOLTIP)
+styleSwing = input.string('Colored',  title = "Style" , options = ['Colored', 'Monochrome'], group = 'Money Moves [EQH/EQL]', tooltip = STYLE_TOOLTIP)
+eq_len = input.int(3, 'Bars Confirmation', minval = 1, group = 'Money Moves [EQH/EQL]', tooltip = EQHL_BARS)
+eq_threshold = input.float(0.1, 'Threshold', minval = 0, maxval = 0.5, step = 0.1, group = 'Money Moves [EQH/EQL]', tooltip = EQHL_THRESHOLD)
+
+//
+//------------------- Money Move Clear Trend V2  ----------------------//
+// Get user input
+// Getting inputs (calculation from tradingview)
+
+var bool show_ct   = input.bool(true, title="Show Clear Trend V2", tooltip="It Enables And Colour The Bars/Candles According To Real Trend" , group="Money Moves [Clear Trend v2]")
+// Getting inputs (calculation from tradingview)
+fast_length = input(title='Fast Length', defval=18 , group="Money Moves [Clear Trend v2]")
+slow_length = input(title='Slow Length', defval=26 , group="Money Moves [Clear Trend v2]")
+src = input(title='Source', defval=close , group="Money Moves [Clear Trend v2]")
+signal_length = input.int(title='Signal Smoothing', minval=1, maxval=50, defval=9 , group="Money Moves [Clear Trend v2]")
+
+
+//------------------- Money Move Over Bought/Sold  ----------------------//
+// Get user input
+
+len = input.int(14, minval=1, title='Rsi Length', group="Money Moves [Clear Trend v2]")
+UpperLenght = input.int(78, minval=1, title='Upper Level' , group="Money Moves [Clear Trend v2]")
+LowerLenght = input.int(22, minval=1, title='Lower Level' , group="Money Moves [Clear Trend v2]")
+up = ta.rma(math.max(ta.change(src), 0), len)
+down = ta.rma(-math.min(ta.change(src), 0), len)
+rsi = down == 0 ? 100 : up == 0 ? 0 : 100 - 100 / (1 + up / down)
+RsiFx = rsi > UpperLenght and show_ct  and PassCorrect  ? #af5820 : rsi < LowerLenght and show_ct  and PassCorrect  ?  #f47e17 : na
+barcolor(RsiFx , title = "OB/OS" , editable=false)
+sma_source = input(title='Simple MA(Oscillator)', defval=false , group="Money Moves [Clear Trend v2]")
+sma_signal = input(title='Simple MA(Signal Line)', defval=false , group="Money Moves [Clear Trend v2]")
+
+
+//------------------- Money Move [Fibonacci Retracement]  ----------------------//
+// Get user settings
+afibOn = input(false, 'Fibonacci Retracement On / Off', group = "Money Moves [Fibonacci Retracement]")
+reverse = input(false, 'Reverse Fib?', group = "Money Moves [Fibonacci Retracement]")
+var extendLeft = input.bool(false, 'Extend Left    |    Extend Right', inline='Extend Lines', group = "Money Moves [Fibonacci Retracement]")
+var extendRight = input.bool(false, '', inline='Extend Lines', group = "Money Moves [Fibonacci Retracement]")
+prices = input(false, 'Show Prices?', group = "Money Moves [Fibonacci Retracement]")
+levels = input.bool(true, 'Show Levels?', inline='Levels', group = "Money Moves [Fibonacci Retracement]")
+levelsFormat = input.string('Values', '', options=['Values', 'Percent'], inline='Levels', group = "Money Moves [Fibonacci Retracement]")
+labelsPosition = input.string('Right', 'Fib Label Position', options=['Left', 'Right'], group = "Money Moves [Fibonacci Retracement]")
+threshold_multiplier = input(3, 'Fibonacci Deviation', group = "Money Moves [Fibonacci Retracement]")
+
+
+
+//vwap
+
+showVwap = input (true, title="Show VWAP on chart", group="Money Moves [VWAP]")
+hideonDWM = input(false, title="Hide VWAP on 1D or Above", group="Money Moves [VWAP]")
+var anchor = input.string(defval = "Session", title="Anchor Period",
+ options=["Session", "Week", "Month", "Quarter", "Year", "Decade", "Century", "Earnings", "Dividends", "Splits"], group="Money Moves [VWAP]")
+srcVWAP = input(title = "Source", defval = hlc3, group="Money Moves [VWAP]")
+offset = input(0, title="Offset", group="Money Moves [VWAP]")
+
+
+//------------------- Money Move [Trend Dashboard]  ----------------------//
+// Get user settings
+showDashboard     = input(true, "Show Trend Dashboard", group="Money Moves [Trend Dashboard]")
+locationDashboard = input.string("Bottom Right", "Table Location", ["Top Right", "Middle Right", "Bottom Right", "Top Center", "Middle Center", "Bottom Center", "Top Left", "Middle Left", "Bottom Left"], group="Money Moves [Trend Dashboard]")
+tableTextColor    = input(color.white, "Table Text Color", group="Money Moves [Trend Dashboard]")
+tableBgColor      = input(#2A2A2A, "Table Background Color", group="Money Moves [Trend Dashboard]")
+sizeDashboard     = input.string("Small", "Table Size", ["Large", "Normal", "Small", "Tiny"], group="Money Moves [Trend Dashboard]")
+
+
+//------------------- Money Moves [Session]  ----------------------//
+//Timezones
+show_dash = input(false, 'Show Dashboard' , group   = 'Money Moves [Sessions Dashboard]')
+use_exchange = input(true, 'Use Exchange Timezone' , group = 'Money Moves [Sessions Dashboard]')
+tz_incr = input.int(0, 'UTC (+/-)' , group = 'Money Moves [Sessions Dashboard]')
+tableTextColorSession    = input(color.white, "Table Text Color", group="Money Moves [Sessions Dashboard]")
+tableBgColorSession      = input(#2A2A2A, "Table Background Color", group="Money Moves [Sessions Dashboard]")
+dash_loc = input.string('Top Right', 'Dashboard Location' , options = ['Top Right', 'Bottom Right', 'Bottom Left'] , group   = 'Money Moves [Sessions Dashboard]')
+text_size = input.string('Small', 'Dashboard Size' , options = ['Tiny', 'Small', 'Normal'] , group   = 'Money Moves [Sessions Dashboard]')
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+//------------------- Money Move Volume Profile  ----------------------//
+// Get user input
+var bool show_Vp   = input.bool(false, title="Show Volume Profile", tooltip="Show Money Moves [Volume Profile]" , group="Money Moves [Volume Profile]")
+sizeBlock    = input.int   (200                        , "Bars in profile block"      , 10, 500      , group="Money Moves [Volume Profile]")
+slices       = input.int   (40                         , "Slices"                     , 1, 40        , group="Money Moves [Volume Profile]")
+rowWidth     = input.int   (100                        , "Visual row width"           , 10           , group="Money Moves [Volume Profile]")
+showPeaks    = input       (true                       , "Show peaks"                                , group="Money Moves [Volume Profile]")
+customSrcVol = input       (false                      , "Use custom volume source"                  , group="Money Moves [Volume Profile]")
+srcVolSym    = input.symbol(""                         , "Custom volume source symbol"               , group="Money Moves [Volume Profile]")
+colBounds    = input.color (color.new(color.white, 20), ""                           , inline="COL1", group="Money Moves [Volume Profile]")
+colProfile   = input.color (color.new(#7e7e7e, 15), ""                           , inline="COL1", group="Money Moves [Volume Profile]")
+colPeak      = input.color (color.new(color.white, 20), ""                           , inline="COL1", group="Money Moves [Volume Profile]")
+
+
+//
+//------------------- Money Move Imbalance  ----------------------//
+// Get user input
+_bullImb = input.bool(true, "Show Bullish Imbalance", group="Money Moves [Imbalances]", tooltip="Show Bullish Imbalances")
+_bullCol = color.new(bullcolor , 60)
+_bullColBorder = color.new(bullcolor , 75)
+
+_bearImb = input.bool(true, "Show Bearish Imbalance", group="Money Moves [Imbalances]", tooltip="Show Bearish Imbalances")
+_bearCol = color.new(bearcolor , 60)
+_bearColBorder = color.new(bearcolor , 75)
+
+_removeOld = input.bool(true, "Remove Mitigated", group="Money Moves [Imbalances]", tooltip="Option to either keep or remove the mitigate imbalances")
+_width = input.int(2, "Box Width", minval=0, maxval=500, group="Money Moves [Imbalances]", tooltip="Choose the width of the box")
+_totalCount = input.int(20, "Total Shown Imbalances", group="Money Moves [Imbalances]", tooltip="The total amount of imbalances allowed to be displayed on the chart")
+
+
+//------------------- Money Move Big Move  ----------------------//
+// Get user input
+var bool show_Bm = input.bool(false, title="Show BigMove", tooltip="Shows Before A Huge Volume Enters The Market" , group = "Money Moves [BigMove]")
+spacing = input(7 , title = "Spacing",  group = "Money Moves [BigMove]")
+length7 = input.int(7,  title = "Length 1", minval=1, group = "Money Moves [BigMove]")
+length14 = input.int(14,  title = "Length 2", minval=1, group = "Money Moves [BigMove]")
+length28 = input.int(28, title = "Length 3", minval=1, group = "Money Moves [BigMove]")
+
+
+//------------------- Money Move Kill Zones  ----------------------//
+// Get user input
+displayZonesLimit = input.int(title='Max Timeframe To Display (Minutes)', defval=60, minval=1, maxval=1440 , group = "Money Moves [Kill Zones]")
+//ASIA
+asiashow = input(false, title='Display Asia Range', group="Money Moves [Kill Zones]" )
+asiashowdeviations = input(false, title='Display Asia Range Deviations', group="Money Moves [Kill Zones]")
+asiadeviations = input.int(title='Asia Deviations', defval=2, minval=1, group="Money Moves [Kill Zones]")
+asiacolor = input(color.new(#00aad4, 70), 'Asia Range Color', group="Money Moves [Kill Zones]")
+asia = input.session(title='Asia Session', defval='1900-0001', group="Money Moves [Kill Zones]")
+//LONDON OPEN
+loshow = input(false, title='Display London Open', group="Money Moves [Kill Zones]")
+locolor = input(color.new(color.gray, 50), 'London Open Range Color', group="Money Moves [Kill Zones]")
+lo = input.session(title='London Open Session', defval='0200-0600', group="Money Moves [Kill Zones]")
+//LONDON CLOSE
+lcshow = input(false, title='Display London Close', group="Money Moves [Kill Zones]")
+lccolor = input(color.new(color.white, 50), 'London Close Range Color', group="Money Moves [Kill Zones]")
+lc = input.session(title='London Close Session', defval='1000-1300', group="Money Moves [Kill Zones]")
+
+//NY OPEN
+nyshow = input(false, title='Display New York Open' , group =  "Money Moves [Kill Zones]")
+nycolor = input(color.new(color.gray, 50), 'New York Open Range Color', group="Money Moves [Kill Zones]")
+ny = input.session(title='New York Open Session', defval='0700-1000', group="Money Moves [Kill Zones]")
+
+//NY CLOSE
+nycshow = input(false, title='Display New York Close', group="Money Moves [Kill Zones]")
+nyccolor = input(color.new(color.gray, 50), 'New York Close Range Color', group="Money Moves [Kill Zones]")
+nyc = input.session(title='New York Close Session', defval='1400-1600', group="Money Moves [Kill Zones]")
+// Killzone End
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//Money Moves Misc
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+//
+//------------------- Money Moves [Reversals] ----------------------//
+showReversal      = input(true, "Show Reversals", group="Money Moves [Reversals]")
+//
+
+//------------------- Money Moves [Channel Balance] ----------------------//
+// Get user input
+channelBal  = input.bool(false, " Show Channel Balance" , tooltip = "Enable Money Moves [Channel Balance] " , group = "Money Moves [Channel Balance]")
+channelSensi  = input.float(1.0, "Channel Balance  Sensitivity", 0.5, 3.0 , group="Money Moves [Channel Balance]")
+
+//
+//------------------- [Money Moves [Divergence] ----------------------//
+//Inputs
+plotRealDiv = input(title='Show Divergence', defval=false , group = "Money Moves [Divergence]")
+plotBear = plotRealDiv
+plotHiddenDiv = input(title='Show Hidden Divergence', defval=false , group = "Money Moves [Divergence]")
+plotHiddenBear = plotHiddenDiv
+n1 = input(10, 'Divergence Channel Length' , group = "Money Moves [Divergence]")
+n2 = input(5, 'Divergence Average Length' , group = "Money Moves [Divergence]")
+//
+
+//------------------- Money Moves Trend Regression Channel  ----------------------//
+// Get user input
+
+autoRc      = input.bool(false, "Show Trend Regression Channel" , group = "Money Moves [Trend Regression Channel]" )
+TRCP        = input.float(1, "Trend Regression Period", 1, 5 , group = "Money Moves [Trend Regression Channel]")
+
+// 
+//------------------- Money Moves [Bollinger Band]  ----------------------//
+// Get user settings
+showBB = input(false, title='Show Bollinger Band' , group = 'Money Moves [Bollinger Band]')
+srcBB = input(close, title='Source' , group = 'Money Moves [Bollinger Band]')
+sma_bb_len = input.int(20, minval=0, title='BB Length' , group = 'Money Moves [Bollinger Band]')
+bbStdDev = input.float(2, minval=0.1, title='BB Standard Deviation' , group = 'Money Moves [Bollinger Band]')
+//
+//CALCULATIONS
+//
+
+
+// Money Moves [SR]
+// Functions
+percWidth(len, perc) => (ta.highest(len) - ta.lowest(len)) * perc / 100
+// Get components
+rb            = 10
+prd           = 284
+ChannelW      = 10
+label_loc     = 55
+style         = lineStyle == "Solid" ? line.style_solid : lineStyle == "Dotted" ? line.style_dotted : line.style_dashed
+ph            = ta.pivothigh(rb, rb)
+pl            = ta.pivotlow (rb, rb)
+sr_levels     = array.new_float(21, na)
+prdhighest    = ta.highest(prd)
+prdlowest     = ta.lowest(prd)
+cwidth        = percWidth(prd, ChannelW)
+zonePerc      = percWidth(300, zoneWidth)
+aas           = array.new_bool(41, true)
+u1            = 0.0, u1 := nz(u1[1])
+d1            = 0.0, d1 := nz(d1[1])
+highestph     = 0.0, highestph := highestph[1]
+lowestpl      = 0.0, lowestpl := lowestpl[1]
+var sr_levs   = array.new_float(21, na)
+label hlabel  = na, label.delete(hlabel[1])
+label llabel  = na, label.delete(llabel[1])
+var sr_lines  = array.new_line(21, na)
+var sr_linesH = array.new_line(21, na)
+var sr_linesL = array.new_line(21, na)
+var sr_linesF = array.new_linefill(21, na)
+var sr_labels = array.new_label(21, na)
+if ph or pl
+    for x = 0 to array.size(sr_levels) - 1
+        array.set(sr_levels, x, na)
+    highestph := prdlowest
+    lowestpl := prdhighest
+    countpp = 0
+    for x = 0 to prd
+        if na(close[x])
+            break
+        if not na(ph[x]) or not na(pl[x])
+            highestph := math.max(highestph, nz(ph[x], prdlowest), nz(pl[x], prdlowest))
+            lowestpl := math.min(lowestpl, nz(ph[x], prdhighest), nz(pl[x], prdhighest))
+            countpp += 1
+            if countpp > 40
+                break
+            if array.get(aas, countpp)
+                upl = (ph[x] ? high[x + rb] : low[x + rb]) + cwidth
+                dnl = (ph[x] ? high[x + rb] : low[x + rb]) - cwidth
+                u1 := countpp == 1 ? upl : u1
+                d1 := countpp == 1 ? dnl : d1
+                tmp = array.new_bool(41, true)
+                cnt = 0
+                tpoint = 0
+                for xx = 0 to prd
+                    if na(close[xx])
+                        break
+                    if not na(ph[xx]) or not na(pl[xx])
+                        chg = false
+                        cnt += 1
+                        if cnt > 40
+                            break
+                        if array.get(aas, cnt)
+                            if not na(ph[xx])
+                                if high[xx + rb] <= upl and high[xx + rb] >= dnl
+                                    tpoint += 1
+                                    chg := true
+                            if not na(pl[xx])
+                                if low[xx + rb] <= upl and low[xx + rb] >= dnl
+                                    tpoint += 1
+                                    chg := true
+                        if chg and cnt < 41
+                            array.set(tmp, cnt, false)
+                if tpoint >= strengthSR
+                    for g = 0 to 40 by 1
+                        if not array.get(tmp, g)
+                            array.set(aas, g, false)
+                    if ph[x] and countpp < 21
+                        array.set(sr_levels, countpp, high[x + rb])
+                    if pl[x] and countpp < 21
+                        array.set(sr_levels, countpp, low[x + rb])
+// Plot
+var line highest_ = na, line.delete(highest_)
+var line lowest_  = na, line.delete(lowest_)
+var line highest_fill1 = na, line.delete(highest_fill1)
+var line highest_fill2 = na, line.delete(highest_fill2)
+var line lowest_fill1  = na, line.delete(lowest_fill1)
+var line lowest_fill2  = na, line.delete(lowest_fill2)
+hi_col = close >= highestph ? bullcolor : bearcolor
+lo_col = close >= lowestpl  ? bullcolor : bearcolor
+if enableSR and PassCorrect
+    highest_ := line.new(bar_index - 311, highestph, bar_index, highestph, xloc.bar_index, expandSR ? extend.both : extend.right, hi_col, style, lineWidth)
+    lowest_  := line.new(bar_index - 311, lowestpl , bar_index, lowestpl , xloc.bar_index, expandSR ? extend.both : extend.right, lo_col, style, lineWidth)
+    if useHLZones and PassCorrect
+        highest_fill1 := line.new(bar_index - 311, highestph + zonePerc, bar_index, highestph + zonePerc, xloc.bar_index, expandSR ? extend.both : extend.right, na)
+        highest_fill2 := line.new(bar_index - 311, highestph - zonePerc, bar_index, highestph - zonePerc, xloc.bar_index, expandSR ? extend.both : extend.right, na)
+        lowest_fill1  := line.new(bar_index - 311, lowestpl + zonePerc , bar_index, lowestpl + zonePerc , xloc.bar_index, expandSR ? extend.both : extend.right, na)
+        lowest_fill2  := line.new(bar_index - 311, lowestpl - zonePerc , bar_index, lowestpl - zonePerc , xloc.bar_index, expandSR ? extend.both : extend.right, na)
+        linefill.new(highest_fill1, highest_fill2, color.new(hi_col, 80))
+        linefill.new(lowest_fill1 , lowest_fill2 , color.new(lo_col, 80))
+if ph or pl
+    for x = 0 to array.size(sr_lines) - 1
+        array.set(sr_levs, x, array.get(sr_levels, x))
+for x = 0 to array.size(sr_lines) - 1
+    line.delete(array.get(sr_lines, x))
+    line.delete(array.get(sr_linesH, x))
+    line.delete(array.get(sr_linesL, x))
+    linefill.delete(array.get(sr_linesF, x))
+    if array.get(sr_levs, x) and enableSR and PassCorrect
+        line_col = close >= array.get(sr_levs, x) ? bullcolor : bearcolor
+        array.set(sr_lines, x, line.new(bar_index - 355, array.get(sr_levs, x), bar_index, array.get(sr_levs, x), xloc.bar_index, expandSR ? extend.both : extend.right, line_col, style, lineWidth))
+        if useZones and PassCorrect
+            array.set(sr_linesH, x, line.new(bar_index - 355, array.get(sr_levs, x) + zonePerc, bar_index, array.get(sr_levs, x) + zonePerc, xloc.bar_index, expandSR ? extend.both : extend.right, na))
+            array.set(sr_linesL, x, line.new(bar_index - 355, array.get(sr_levs, x) - zonePerc, bar_index, array.get(sr_levs, x) - zonePerc, xloc.bar_index, expandSR ? extend.both : extend.right, na))
+            array.set(sr_linesF, x, linefill.new(array.get(sr_linesH, x), array.get(sr_linesL, x), color.new(line_col, 80)))
+for x = 0 to array.size(sr_labels) - 1
+    label.delete(array.get(sr_labels, x))
+    if array.get(sr_levs, x) and enableSR and PassCorrect
+        lab_loc = close >= array.get(sr_levs, x) ? label.style_label_up : label.style_label_down
+        lab_col = close >= array.get(sr_levs, x) ? bullcolor             : bearcolor
+        array.set(sr_labels, x, label.new(bar_index + label_loc, array.get(sr_levs, x), str.tostring(math.round_to_mintick(array.get(sr_levs, x))), color=lab_col , textcolor=#000000, style=lab_loc))
+hlabel := enableSR and PassCorrect ? label.new(bar_index + label_loc + math.round(math.sign(label_loc)) * 20, highestph, "Strong Resistance : " + str.tostring(highestph), color=hi_col, textcolor=#000000, style=label.style_label_down) : na
+llabel := enableSR and PassCorrect ? label.new(bar_index + label_loc + math.round(math.sign(label_loc)) * 20, lowestpl , "Strong Support: " + str.tostring(lowestpl) , color=lo_col, textcolor=#000000, style=label.style_label_up  ) : na
+
+// IMBALANCES
+
+
+// Variables
+var bearBox = array.new_box()
+var bullBox = array.new_box()
+
+
+// Top Imbalance
+bearImb = low[2] <= open[1] and high >= close[1]
+bearGap = low[1] > high
+bearImbSize = low[2] - high
+if _bearImb  and PassCorrect  and bearImb and bearImbSize > 0 or bearGap
+    n = bearGap ? 1 : 2
+    array.push(bearBox, box.new(left=bar_index[1], top=low[n], right=bar_index+_width, bottom=high, bgcolor=_bearCol, border_color=_bearColBorder))
+
+// Bottom Imbalance
+bullImb = high[2] >= open[1] and low <= close[1]
+bullImbSize = low - high[2]
+bullGap = high[1] < low
+if _bullImb and PassCorrect and bullImb and bullImbSize > 0 or bullGap
+    n = bullGap ? 1 : 2
+    array.push(bullBox, box.new(left=bar_index[1], top=low, right=bar_index+_width, bottom=high[n], bgcolor=_bullCol, border_color=_bullColBorder))
+
+
+// Remove Mitigated
+remove_mitigate(arrayType, pos) =>
+    if array.size(arrayType) > 0
+        for i = array.size(arrayType) - 1 to 0 by 1
+            sbox = array.get(arrayType, i)
+            top = box.get_top(sbox)
+            bot = box.get_bottom(sbox)
+            pass = pos =="Bull" ? low < bot + ((top - bot)/2) : high > top - ((top - bot)/2)
+            if pass
+                txt = pos =="Bull" ? "Bullish" : "Bearish"
+                alert("Price (" + str.tostring(close) + ") inside "+txt+" Imbalance", alert.freq_once_per_bar)
+                if _removeOld
+                    array.remove(arrayType, i)
+                    box.delete(sbox)
+
+// Run Functions
+remove_mitigate(bullBox, "Bull")
+remove_mitigate(bearBox, "Bear")
+
+
+// Remove Older Imb
+if array.size(bearBox) > _totalCount
+    b = array.shift(bearBox)
+    box.delete(b)
+
+if array.size(bullBox) > _totalCount
+    b = array.shift(bullBox)
+    box.delete(b)
+
+
+// Clear Trend V2
+// Calculating (calculation from tradingview)
+
+fast_ma = sma_source ? ta.sma(src, fast_length) : ta.ema(src, fast_length)
+slow_ma = sma_source ? ta.sma(src, slow_length) : ta.ema(src, slow_length)
+macd = fast_ma - slow_ma
+signal = sma_signal ? ta.sma(macd, signal_length) : ta.ema(macd, signal_length)
+hist = macd - signal
+
+bar_Teal_PowerfullBull = hist > 0 and hist > hist[1]
+bar_blue = hist > 0 and hist < hist[1]
+bar_dark_o = hist < 0 and hist < hist[1]
+bar_o = hist < 0 and hist > hist[1]
+
+barcolor(bar_Teal_PowerfullBull and show_ct  and PassCorrect  ? #84ffd8 : na, title='Teal' , editable=false)
+barcolor(bar_blue and show_ct and PassCorrect ? #39c9e0 : na, title='Blue' , editable=false)
+barcolor(bar_dark_o and show_ct and PassCorrect  ? #8b018d : na, title='Purple' , editable=false)
+barcolor(bar_o and show_ct  and PassCorrect ? #ee81f1 : na, title='Magenta' , editable=false)
+
+
+
+
+
+
+
+
+// Part 1 SMA channel
+// Trend Indicator 1 20/20 SMA channel uses the sma of the high (last 20 candles) and the low. Got that from a tradeciety youtube channel (great guys, not affiliated)
+// Uptrend closing above channel, Downtredn closing below channel
+
+
+
+
+
+
+
+
+
+//Live Trend Channel
+//len2 = input(20, minval=1, title="SMA #20")
+////src2 = input(high, title="SMA Source #2")
+//out2 = sma(src2, len2)
+//x1 =plot(out2, title="SMA #20", color=color.black, linewidth = 1)
+//src3 = input(low, title="SMA Source #2")
+//out3 = sma(src3, len2)
+//x2 = plot(out3, title="SMA #20", color=color.black, linewidth = 1)
+//fill(x1, x2, color = color.purple)
+
+
+// Reversals Signal
+Reversal       = ta.rsi(close, 21)
+rsiOb     = Reversal > 70 and Reversal > ta.ema(Reversal, 10)
+rsiOs     = Reversal < 30 and Reversal < ta.ema(Reversal, 10)
+// Colors
+cyan = bullcolor, cyan30 = color.new(cyan, 70)
+pink = bearcolor, pink30 = color.new(pink, 70)
+red  = #FF5252, red30  = color.new(red , 70)
+// Plot
+plotshape(showReversal  and PassCorrect and rsiOs, "Bullish Reversal" , shape.diamond, location.belowbar, cyan30, size=size.tiny , offset = 1)
+plotshape(showReversal  and PassCorrect and rsiOb, "Bearish Reversal", shape.diamond, location.abovebar, pink30, size=size.tiny  , offset = 1 )
+//////
+////
+///
+//
+
+
+
+// Money Moves [Trend Dashboard]
+source    = close
+ema = ta.ema(close, 144)
+emaBull = close > ema
+f_chartTfInMinutes() =>
+    float _resInMinutes = timeframe.multiplier * (
+      timeframe.isseconds ? 1                   :
+      timeframe.isminutes ? 1.                  :
+      timeframe.isdaily   ? 60. * 24            :
+      timeframe.isweekly  ? 60. * 24 * 7        :
+      timeframe.ismonthly ? 60. * 24 * 30.4375  : na)
+equal_tf(res) => str.tonumber(res) == f_chartTfInMinutes() and not timeframe.isseconds
+higher_tf(res) => str.tonumber(res) > f_chartTfInMinutes() or timeframe.isseconds
+too_small_tf(res) => (timeframe.isweekly and res=="1") or (timeframe.ismonthly and str.tonumber(res) < 10)
+securityNoRep1(sym, res, src) =>
+    bool bull_ = na
+    bull_ := equal_tf(res) ? src : bull_
+    bull_ := higher_tf(res) ? request.security(sym, res, src, barmerge.gaps_off, barmerge.lookahead_on) : bull_
+    bull_array = request.security_lower_tf(syminfo.tickerid, higher_tf(res) ? str.tostring(f_chartTfInMinutes()) + (timeframe.isseconds ? "S" : "") : too_small_tf(res) ? (timeframe.isweekly ? "3" : "10") : res, src)
+    if array.size(bull_array) > 1 and not equal_tf(res) and not higher_tf(res)
+        bull_ := array.pop(bull_array)
+    array.clear(bull_array)
+    bull_
+TF1Bull   = securityNoRep1(syminfo.tickerid, "1"   , emaBull)
+TF3Bull   = securityNoRep1(syminfo.tickerid, "3"   , emaBull)
+TF5Bull   = securityNoRep1(syminfo.tickerid, "5"   , emaBull)
+TF15Bull  = securityNoRep1(syminfo.tickerid, "15"  , emaBull)
+TF30Bull  = securityNoRep1(syminfo.tickerid, "30"  , emaBull)
+TF60Bull  = securityNoRep1(syminfo.tickerid, "60"  , emaBull)
+TF120Bull = securityNoRep1(syminfo.tickerid, "120" , emaBull)
+TF240Bull = securityNoRep1(syminfo.tickerid, "240" , emaBull)
+TF480Bull = securityNoRep1(syminfo.tickerid, "480" , emaBull)
+TFDBull   = securityNoRep1(syminfo.tickerid, "1440", emaBull)
+
+// 
+var dashboard_loc  = locationDashboard == "Top Right" ? position.top_right : locationDashboard == "Middle Right" ? position.middle_right : locationDashboard == "Bottom Right" ? position.bottom_right : locationDashboard == "Top Center" ? position.top_center : locationDashboard == "Middle Center" ? position.middle_center : locationDashboard == "Bottom Center" ? position.bottom_center : locationDashboard == "Top Left" ? position.top_left : locationDashboard == "Middle Left" ? position.middle_left : position.bottom_left
+var dashboard_size = sizeDashboard == "Large" ? size.large : sizeDashboard == "Normal" ? size.normal : sizeDashboard == "Small" ? size.small : size.tiny
+var dashboard      = showDashboard  and PassCorrect  ? table.new(dashboard_loc, 2, 15, tableBgColor, #000000, 1, tableBgColor, 1) : na
+dashboard_cell(column, row, txt, signal=false) => table.cell(dashboard, column, row, txt, 0, 0, signal ? #ffffff : tableTextColor, text_size=dashboard_size)
+dashboard_cell_bg(column, row, col) => table.cell_set_bgcolor(dashboard, column, row, col)
+if barstate.islast and showDashboard  and PassCorrect 
+    dashboard_cell(0, 0 , "Money Moves")
+    dashboard_cell(0, 2 , "Current Trend")
+    dashboard_cell(0, 3 , "Volume")
+    dashboard_cell(0, 4 , "Timeframe")
+    dashboard_cell(0, 5 , "1 min:")
+    dashboard_cell(0, 6 , "3 min:")
+    dashboard_cell(0, 7 , "5 min:")
+    dashboard_cell(0, 8 , "15 min:")
+    dashboard_cell(0, 9 , "30 min:")
+    dashboard_cell(0, 10, "1 H:")
+    dashboard_cell(0, 11, "2 H:")
+    dashboard_cell(0, 12, "4 H:")
+    dashboard_cell(0, 13, "8 H:")
+    dashboard_cell(0, 14, "Daily:")
+    dashboard_cell(1, 0 , "V.1")
+    dashboard_cell(1, 2 , emaBull ? "Bullish" : "Bearish", true), dashboard_cell_bg(1, 2, emaBull ? bullcolor : bearcolor)
+    dashboard_cell(1, 3 , str.tostring(volume))
+    dashboard_cell(1, 4 , "Trends")
+    dashboard_cell(1, 5 , TF1Bull   ? "Bullish" : "Bearish", true), dashboard_cell_bg(1, 5 , TF1Bull   ? bullcolor : bearcolor)
+    dashboard_cell(1, 6 , TF3Bull   ? "Bullish" : "Bearish", true), dashboard_cell_bg(1, 6 , TF3Bull   ? bullcolor : bearcolor)
+    dashboard_cell(1, 7 , TF5Bull   ? "Bullish" : "Bearish", true), dashboard_cell_bg(1, 7 , TF5Bull   ? bullcolor : bearcolor)
+    dashboard_cell(1, 8 , TF15Bull  ? "Bullish" : "Bearish", true), dashboard_cell_bg(1, 8 , TF15Bull  ? bullcolor : bearcolor)
+    dashboard_cell(1, 9 , TF30Bull  ? "Bullish" : "Bearish", true), dashboard_cell_bg(1, 9 , TF30Bull  ? bullcolor : bearcolor)
+    dashboard_cell(1, 10, TF60Bull  ? "Bullish" : "Bearish", true), dashboard_cell_bg(1, 10, TF60Bull  ? bullcolor : bearcolor)
+    dashboard_cell(1, 11, TF120Bull ? "Bullish" : "Bearish", true), dashboard_cell_bg(1, 11, TF120Bull ? bullcolor : bearcolor)
+    dashboard_cell(1, 12, TF240Bull ? "Bullish" : "Bearish", true), dashboard_cell_bg(1, 12, TF240Bull ? bullcolor : bearcolor)
+    dashboard_cell(1, 13, TF480Bull ? "Bullish" : "Bearish", true), dashboard_cell_bg(1, 13, TF480Bull ? bullcolor : bearcolor)
+    dashboard_cell(1, 14, TFDBull   ? "Bullish" : "Bearish", true), dashboard_cell_bg(1, 14, TFDBull   ? bullcolor : bearcolor)
+
+
+/// Money Moves [TrendLine V2]
+
+
+
+// Inputs:
+// {
+
+// Recent fractals.
+var float recent_dn1   = low,   var int i_recent_dn1 = bar_index
+var float recent_up1   = high,  var int i_recent_up1 = bar_index
+var float recent_dn2   = low,   var int i_recent_dn2 = bar_index
+var float recent_up2   = high,  var int i_recent_up2 = bar_index
+
+// Array of lines, newest elements inserted to front.
+var line[] arr_ln_up = array.new_line() 
+var line[] arr_ln_dn = array.new_line()
+
+// @function cleanup()
+// @returns void : To delete excess lines and assign new color to historical lines.
+cleanup(line[] arr) =>
+    if array.size(arr) > 1
+        line.set_color(array.get(arr, 1), ln_col_prev)
+        line.set_width(array.get(arr, 1), lnwidth_prev)
+        while array.size(arr) > math.floor(max_tl/2)
+            line.delete(array.pop(arr)) 
+
+// @function : draw upper trendline
+_draw_upper_TL() =>    
+    ln_up = line.new(i_recent_up2, recent_up2, i_recent_up1, recent_up1, xloc.bar_index, 
+     str_extend, color=ln_col_up, style=line.style_solid, width=lnwidth_recent)
+    array.unshift(arr_ln_up, ln_up) 
+    cleanup(arr_ln_up)
+
+// @function : draw lower trendline
+_draw_lower_TL() =>
+    ln_dn = line.new(i_recent_dn2, recent_dn2, i_recent_dn1, recent_dn1, xloc.bar_index, 
+     str_extend, color=ln_col_down, style=line.style_solid, width=lnwidth_recent)
+    array.unshift(arr_ln_dn, ln_dn)
+    cleanup(arr_ln_dn)
+
+// Checking for fractals & Drawing trendlines
+if downfract and show_tl and PassCorrect
+    recent_dn2:=recent_dn1, i_recent_dn2:=i_recent_dn1
+    recent_dn1:=low[n+1],   i_recent_dn1 := bar_index-n-1
+    _draw_lower_TL()
+
+if upfract and show_tl and PassCorrect
+    recent_up2:=recent_up1, i_recent_up2:=i_recent_up1
+    recent_up1:=high[n+1],  i_recent_up1 := bar_index-n-1
+    _draw_upper_TL()
+
+// PivtLowotting fractals
+bool hh = not na(pivtHigh) and recent_up1 > recent_up2 ? high[n+1] : na
+bool lh = not na(pivtHigh) and recent_up1 < recent_up2 ? high[n+1] : na
+bool hl = not na(PivtLow) and recent_dn1 > recent_dn2 ? low[n+1] : na
+bool ll = not na(PivtLow) and recent_dn1 < recent_dn2 ? low[n+1] : na
+// //
+//------------------- Money Moves [Divergence] ----------------------//
+
+
+ap = ohlc4
+esa = ta.ema(ap, n1)
+d = ta.ema(math.abs(ap - esa), n1)
+ci = (ap - esa) / (0.015 * d)
+tci = ta.ema(ci, n2)
+
+wt1 = tci
+wt2 = ta.sma(wt1, 4)
+
+//divergence
+
+DivLen= n1
+DivSrc= ohlc4
+
+lbR = 2
+lbL = 8
+rangeUpper = 100
+rangeLower = 2
+
+bearColor = color.new(bearcolor, 0)
+bullColor = color.new(bullcolor, 0)
+hiddenBullColor = color.new(color.blue, 0)
+hiddenBearColor = color.new(color.yellow, 0)
+textColor = color.new(color.white, 0)
+noneColor = color.new(color.white, 100)
+osc = wt1
+plFound = na(ta.pivotlow(osc, lbL, lbR)) ? false : true
+phFound = na(ta.pivothigh(osc, lbL, lbR)) ? false : true
+_inRange(cond) =>
+    bars = ta.barssince(cond == true)
+    rangeLower <= bars and bars <= rangeUpper
+
+//------------------------------------------------------------------------------
+// Regular Bullish
+// Osc: Higher Low
+
+oscHL = osc[lbR] > ta.valuewhen(plFound, osc[lbR], 1) and _inRange(plFound[1])
+
+// Price: Lower Low
+
+priceLL = low[lbR] < ta.valuewhen(plFound, low[lbR], 1)
+bullCond = plotRealDiv and  priceLL and oscHL and plFound and PassCorrect
+
+//------------------------------------------------------------------------------
+// Hidden Bullish
+// Osc: Lower Low
+
+oscLL = osc[lbR] < ta.valuewhen(plFound, osc[lbR], 1) and _inRange(plFound[1])
+
+// Price: Higher Low
+
+priceHL = low[lbR] > ta.valuewhen(plFound, low[lbR], 1)
+hiddenBullCond = plotHiddenDiv and priceHL and oscLL and plFound 
+
+//------------------------------------------------------------------------------
+// Regular Bearish
+// Osc: Lower High
+
+oscLH = osc[lbR] < ta.valuewhen(phFound, osc[lbR], 1) and _inRange(phFound[1])
+
+// Price: Higher High
+
+priceHH = high[lbR] > ta.valuewhen(phFound, high[lbR], 1)
+
+bearCond = plotBear and priceHH and oscLH and phFound and PassCorrect
+
+//------------------------------------------------------------------------------
+// Hidden Bearish
+// Osc: Higher High
+
+oscHH = osc[lbR] > ta.valuewhen(phFound, osc[lbR], 1) and _inRange(phFound[1])
+
+// Price: Lower High
+
+priceLH = high[lbR] < ta.valuewhen(phFound, high[lbR], 1)
+
+hiddenBearCond = plotHiddenBear and priceLH and oscHH and phFound
+
+
+//Pivot Points
+
+//plots
+
+plotshape(hiddenBearCond, title='Hidden Bear Divergence', location=location.abovebar, style=shape.labeldown, size=size.tiny, text='Divergence Down', textcolor=color.white, color=color.new(color.orange, 60) , editable=false)
+plotshape(bearCond, title='Bear Divergence', location=location.abovebar, style=shape.labeldown, text='Divergence Down', textcolor=color.white, size=size.tiny, color=color.new(bearcolor, 60) , editable=false)
+plotshape(hiddenBullCond, title='Hidden Bull Divergence', location=location.belowbar, style=shape.labelup, text='Divergence Up', textcolor=color.white, size=size.tiny, color=color.new(color.aqua, 60), editable=false )
+plotshape(bullCond, title='Bull Divergence', location=location.belowbar, style=shape.labelup, text='Divergence Up', textcolor=color.white, size=size.tiny, color=color.new(bullcolor, 60) , editable=false )
+
+
+
+
+// Money Moves [Channel Balance]
+// Get Components
+ocAvg       = math.avg(open, close)
+sma1        = ta.sma(close, 5 )
+sma2        = ta.sma(close, 6)
+sma3        = ta.sma(close, 7)
+sma4        = ta.sma(close, 8)
+sma5        = ta.sma(close, 9)
+sma6        = ta.sma(close, 10)
+sma7        = ta.sma(close, 11)
+sma8        = ta.sma(close, 12)
+sma9        = ta.sma(close, 13)
+sma10       = ta.sma(close, 14)
+sma11       = ta.sma(close, 15)
+sma12       = ta.sma(close, 16)
+sma13       = ta.sma(close, 17)
+sma14       = ta.sma(close, 18)
+sma15       = ta.sma(close, 19)
+sma16       = ta.sma(close, 20)
+
+[middleKC1, upperKC1, lowerKC1] = ta.kc(close, 80, 10.5 * channelSensi)
+[middleKC2, upperKC2, lowerKC2] = ta.kc(close, 80, 9.5 * channelSensi)
+[middleKC3, upperKC3, lowerKC3] = ta.kc(close, 80, 8 * channelSensi)
+[middleKC4, upperKC4, lowerKC4] = ta.kc(close, 80, 3 * channelSensi)
+
+
+// Colors
+cyan1       = color.rgb(0, 196, 226), cyan2   = bullcolor
+pink1         = #bd104a, pink2     = bearcolor
+
+// Plots
+k1 = plot(ta.ema(upperKC1, 50), "", na, editable=false)
+k2 = plot(ta.ema(upperKC2, 50), "", na, editable=false)
+k3 = plot(ta.ema(upperKC3, 50), "", na, editable=false)
+k4 = plot(ta.ema(upperKC4, 50), "", na, editable=false)
+k5 = plot(ta.ema(lowerKC4, 50), "", na, editable=false)
+k6 = plot(ta.ema(lowerKC3, 50), "", na, editable=false)
+k7 = plot(ta.ema(lowerKC2, 50), "", na, editable=false)
+k8 = plot(ta.ema(lowerKC1, 50), "", na, editable=false)
+fill(k1, k2, channelBal  and PassCorrect ? color.new(pink2, 40) : na, editable=false)
+fill(k2, k3, channelBal  and PassCorrect ? color.new(pink2, 65) : na, editable=false)
+fill(k3, k4, channelBal  and PassCorrect ? color.new(pink2, 90) : na, editable=false)
+fill(k5, k6, channelBal  and PassCorrect ? color.new(cyan2, 90) : na, editable=false)
+fill(k6, k7, channelBal  and PassCorrect ? color.new(cyan2, 65) : na, editable=false)
+fill(k7, k8, channelBal  and PassCorrect ? color.new(cyan2, 40) : na, editable=false)
+
+
+//------------------- Money Moves [Sessions]  ----------------------//
+
+//------------------------------------------------------------------------------
+//Settings
+//-----------------------------------------------------------------------------{
+//Session A
+show_sesa = true
+sesa_txt = 'New York'
+sesa_ses = '1300-2200'
+//Session B
+show_sesb = true
+sesb_txt = 'London'
+sesb_ses = '0700-1600'
+//Session C
+show_sesc = true
+sesc_txt = 'Tokyo'
+sesc_ses = '0000-0900'
+//Session D
+show_sesd = true
+sesd_txt = 'Sydney'
+sesd_ses = '2100-0600'
+//-----------------------------------------------------------------------------}
+//Sessions
+//-----------------------------------------------------------------------------{
+tf = timeframe.period
+
+var tz = use_exchange ? syminfo.timezone :
+  str.format('UTC{0}{1}', tz_incr >= 0 ? '+' : '-', math.abs(tz_incr))
+
+is_sesa = math.sign(nz(time(tf, sesa_ses, tz)))
+is_sesb = math.sign(nz(time(tf, sesb_ses, tz)))
+is_sesc = math.sign(nz(time(tf, sesc_ses, tz)))
+is_sesd = math.sign(nz(time(tf, sesd_ses, tz)))
+
+//-----------------------------------------------------------------------------}
+//Dashboard
+//-----------------------------------------------------------------------------{
+var table_position = dash_loc == 'Bottom Left' ? position.bottom_left 
+  : dash_loc == 'Top Right' ? position.top_right 
+  : position.bottom_right
+
+var table_size = text_size == 'Tiny' ? size.tiny 
+  : text_size == 'Small' ? size.small 
+  : size.normal
+
+var tb = table.new(table_position, 5, 6 , bgcolor = tableBgColorSession , border_color = #000000 , border_width = 1 , frame_color = #000000 , frame_width = 1)
+
+if barstate.isfirst and show_dash  and PassCorrect 
+    table.cell(tb, 0, 0, 'Money Moves [Sessions]', text_color = color.white, text_size = table_size)
+    table.merge_cells(tb, 0, 0, 1, 0)
+
+    table.cell(tb, 0, 2, sesa_txt, text_color = tableTextColorSession, text_size = table_size)
+    table.cell(tb, 0, 3, sesb_txt, text_color = tableTextColorSession, text_size = table_size)
+    table.cell(tb, 0, 4, sesc_txt, text_color = tableTextColorSession, text_size = table_size)
+    table.cell(tb, 0, 5, sesd_txt, text_color = tableTextColorSession, text_size = table_size)
+
+
+if barstate.islast and show_dash  and PassCorrect 
+    table.cell(tb, 1, 2, is_sesa ? 'Active' : 'Innactive'
+ , bgcolor = is_sesa ? bullcolor : bearcolor
+ , text_color = color.white
+ , text_size = table_size)
+    
+    table.cell(tb, 1, 3, is_sesb ? 'Active' : 'Innactive'
+ , bgcolor = is_sesb ? bullcolor : bearcolor
+ , text_color = color.white
+ , text_size = table_size)
+    
+    table.cell(tb, 1, 4, is_sesc ? 'Active' : 'Innactive'
+ , bgcolor = is_sesc ? bullcolor : bearcolor
+ , text_color = color.white
+ , text_size = table_size)
+    
+    table.cell(tb, 1, 5, is_sesd ? 'Active' : 'Innactive'
+ , bgcolor = is_sesd ? bullcolor : bearcolor
+ , text_color = color.white
+ , text_size = table_size)
+
+//-----------------------------------------------------------------------------}
+//Overlays  bullcolor : bearcolor
+//-----------------------------------------------------------------------------{
+
+
+
+bb_Upper_color = ( pink30  ) 
+bb_lower_color = ( cyan30 )
+bb_median_color = #989898   // grey 
+bb_bgcolor = #6D9EEB  // light blue
+
+
+//------------------- Money Moves BB Functions ----------------------//
+
+
+// Hull Moving Average
+// there's no built-in hma function
+hma(srcBB, length) =>
+    //HMA = WMA(2*WMA(n/2) - WMA(n)),sqrt(n))
+    // wrapper max(2,length)) prevents wma(srcBB, 0) type errors when len = 0 or 1 produces wma(srcBB, 0) because len/2 is used and all possible cond branches are always fully executed even when cond is false
+    len = math.max(2, length)
+    return_1 = ta.wma(2 * ta.wma(srcBB, len / 2) - ta.wma(srcBB, len), math.round(math.sqrt(len)))
+    return_1
+
+// returns ma value by type and length
+ma(srcBB, type, length) =>
+    // wrapper max(1,length)) prevents ema(srcBB, 0) type errors because all cond branches are always fully executed even when length == 0 (there's no fast cond evaluation)
+    len = math.max(1, length)
+    // for proper line wrapping/continuation you need indentation > multiple of 4 (4 spaces or 1 tab), i.e. 5 spaces
+    // swma has a fixed length = 4, alma has its own smoothing params
+    sma_1 = ta.sma(srcBB, len)
+    ema_1 = ta.ema(srcBB, len)
+    wma_1 = ta.wma(srcBB, len)
+    vwma_1 = ta.vwma(srcBB, len)
+    swma_1 = ta.swma(srcBB)
+    hma__1 = hma(srcBB, len)
+    rma_1 = ta.rma(srcBB, len)
+
+
+// BB Processing
+
+// sma_bb_len == 0 - disable middle sma_bb
+ma__11 = ma(srcBB, 'sma', sma_bb_len)
+sma_bb = sma_bb_len > 0 ? ma__11 : na
+
+// stdev_bb = stdev(bb_srcBB, sma_bb_len) * bbStdDev
+// wrapper max(1,len)) prevents stdev(srcBB, 0) type errors because all cond branches are always fully executed even when len == 0 (there's no fast cond evaluation)
+stdev_1 = ta.stdev(srcBB, math.max(1, sma_bb_len))
+stdev_bb = sma_bb_len > 0 ? stdev_1 * bbStdDev : na
+sma_bb_up = sma_bb + stdev_bb
+sma_bb_down = sma_bb - stdev_bb
+
+plot_bb_up = plot(showBB and PassCorrect  ? sma_bb_up : na, color=bb_Upper_color, linewidth=1, title='Upper BB' , editable=false)  // , style=cross
+plot_bb_down = plot(showBB  and PassCorrect ? sma_bb_down : na, color=bb_lower_color, linewidth=1, title='Lower BB' , editable=false)  // , style=cross
+fill(plot_bb_up, plot_bb_down, color=color.new(bb_bgcolor, 90), title='BB Background' , editable=false)
+plot(showBB  and PassCorrect ? sma_bb : na, color=bb_median_color, linewidth=1, title='Middle BB' , editable=false)  // , style=circles
+
+/// Money MOves Trend Regression Channel
+// Functions
+
+lr_slope(_src, _len ) =>
+    x = 0.0, y = 0.0, x2 = 0.0, xy = 0.0
+    for i = 0 to _len - 1
+        val = _src[i]
+        per = i + 1
+        x += per
+        y += val
+        x2 += per * per
+        xy += val * per
+    _slp = (_len * xy - x * y) / (_len * x2 - x * x)
+    _avg = y / _len
+    _int = _avg - _slp * x / _len + _slp
+    [_slp, _avg, _int]
+lr_dev(_src, _len, _slp, _avg, _int) =>
+    upDev = 0.0, dnDev = 0.0
+    val = _int
+    for j = 0 to _len - 1
+        price = high[j] - val
+        if price > upDev
+            upDev := price
+        price := val - low[j]
+        if price > dnDev
+            dnDev := price
+        price := _src[j]
+        val += _slp
+    [upDev, dnDev]
+// Get Components
+barsL       = 10
+barsR       = 10
+pivotHighRC = fixnan(ta.pivothigh(barsL, barsR)[1])
+pivotLowRC = fixnan(ta.pivotlow(barsL, barsR)[1])
+source4 = close, period = 150 
+[s, a, i] = lr_slope(source4, period  * TRCP )
+[upDev, dnDev] = lr_dev(source4, period , s, a, i)
+// Colors
+
+x1 = bar_index - period + 1, _y1 = i + s * (period - 1), x2 = bar_index, _y2 = i
+upperTL = autoRc and PassCorrect ? line.new(x1, _y1 + upDev, x2, _y2 + upDev, xloc.bar_index, extend.right, pink) : na
+line.delete(upperTL[1])
+middleTL = autoRc and PassCorrect ? line.new(x1, _y1, x2, _y2, xloc.bar_index, extend.right, color.white) : na
+line.delete(middleTL[1])
+lowerTL = autoRc and PassCorrect ? line.new(x1, _y1 - dnDev, x2, _y2 - dnDev, xloc.bar_index, extend.right, cyan) : na
+line.delete(lowerTL[1])
+
+//------------------- Money Move Volume Profile  ----------------------//
+maFast = ta.ema(close, 24)
+maSlow = ta.ema(close, 52)
+maMorB = ta.sma(close, 103)
+custom_volume = customSrcVol ? request.security(srcVolSym, timeframe.period, volume, lookahead=barmerge.lookahead_on) : volume
+block_high = ta.highest(high, sizeBlock)
+block_low = ta.lowest(low, sizeBlock)
+float highest_row_value = 0
+float row0_price = na
+int row0_width = 0
+float row0_value = 0.0
+row0_is_peak = false
+float row1_price = na
+int row1_width = 0
+float row1_value = 0.0
+row1_is_peak = false
+float row2_price = na
+int row2_width = 0
+float row2_value = 0.0
+row2_is_peak = false
+float row3_price = na
+int row3_width = 0
+float row3_value = 0.0
+row3_is_peak = false
+float row4_price = na
+int row4_width = 0
+float row4_value = 0.0
+row4_is_peak = false
+float row5_price = na
+int row5_width = 0
+float row5_value = 0.0
+row5_is_peak = false
+float row6_price = na
+int row6_width = 0
+float row6_value = 0.0
+row6_is_peak = false
+float row7_price = na
+int row7_width = 0
+float row7_value = 0.0
+row7_is_peak = false
+float row8_price = na
+int row8_width = 0
+float row8_value = 0.0
+row8_is_peak = false
+float row9_price = na
+int row9_width = 0
+float row9_value = 0.0
+row9_is_peak = false
+float row10_price = na
+int row10_width = 0
+float row10_value = 0.0
+row10_is_peak = false
+float row11_price = na
+int row11_width = 0
+float row11_value = 0.0
+row11_is_peak = false
+float row12_price = na
+int row12_width = 0
+float row12_value = 0.0
+row12_is_peak = false
+float row13_price = na
+int row13_width = 0
+float row13_value = 0.0
+row13_is_peak = false
+float row14_price = na
+int row14_width = 0
+float row14_value = 0.0
+row14_is_peak = false
+float row15_price = na
+int row15_width = 0
+float row15_value = 0.0
+row15_is_peak = false
+float row16_price = na
+int row16_width = 0
+float row16_value = 0.0
+row16_is_peak = false
+float row17_price = na
+int row17_width = 0
+float row17_value = 0.0
+row17_is_peak = false
+float row18_price = na
+int row18_width = 0
+float row18_value = 0.0
+row18_is_peak = false
+float row19_price = na
+int row19_width = 0
+float row19_value = 0.0
+row19_is_peak = false
+float row20_price = na
+int row20_width = 0
+float row20_value = 0.0
+row20_is_peak = false
+float row21_price = na
+int row21_width = 0
+float row21_value = 0.0
+row21_is_peak = false
+float row22_price = na
+int row22_width = 0
+float row22_value = 0.0
+row22_is_peak = false
+float row23_price = na
+int row23_width = 0
+float row23_value = 0.0
+row23_is_peak = false
+float row24_price = na
+int row24_width = 0
+float row24_value = 0.0
+row24_is_peak = false
+float row25_price = na
+int row25_width = 0
+float row25_value = 0.0
+row25_is_peak = false
+float row26_price = na
+int row26_width = 0
+float row26_value = 0.0
+row26_is_peak = false
+float row27_price = na
+int row27_width = 0
+float row27_value = 0.0
+row27_is_peak = false
+float row28_price = na
+int row28_width = 0
+float row28_value = 0.0
+row28_is_peak = false
+float row29_price = na
+int row29_width = 0
+float row29_value = 0.0
+row29_is_peak = false
+float row30_price = na
+int row30_width = 0
+float row30_value = 0.0
+row30_is_peak = false
+float row31_price = na
+int row31_width = 0
+float row31_value = 0.0
+row31_is_peak = false
+float row32_price = na
+int row32_width = 0
+float row32_value = 0.0
+row32_is_peak = false
+float row33_price = na
+int row33_width = 0
+float row33_value = 0.0
+row33_is_peak = false
+float row34_price = na
+int row34_width = 0
+float row34_value = 0.0
+row34_is_peak = false
+float row35_price = na
+int row35_width = 0
+float row35_value = 0.0
+row35_is_peak = false
+float row36_price = na
+int row36_width = 0
+float row36_value = 0.0
+row36_is_peak = false
+float row37_price = na
+int row37_width = 0
+float row37_value = 0.0
+row37_is_peak = false
+float row38_price = na
+int row38_width = 0
+float row38_value = 0.0
+row38_is_peak = false
+float row39_price = na
+int row39_width = 0
+float row39_value = 0.0
+row39_is_peak = false
+if barstate.islast and show_Vp  and PassCorrect  
+    block_height = block_high - block_low
+    row_height = block_height / slices
+    row0_low = block_low + row_height * 0
+    row0_high = block_low + row_height * 1
+    row1_low = block_low + row_height * 1
+    row1_high = block_low + row_height * 2
+    row2_low = block_low + row_height * 2
+    row2_high = block_low + row_height * 3
+    row3_low = block_low + row_height * 3
+    row3_high = block_low + row_height * 4
+    row4_low = block_low + row_height * 4
+    row4_high = block_low + row_height * 5
+    row5_low = block_low + row_height * 5
+    row5_high = block_low + row_height * 6
+    row6_low = block_low + row_height * 6
+    row6_high = block_low + row_height * 7
+    row7_low = block_low + row_height * 7
+    row7_high = block_low + row_height * 8
+    row8_low = block_low + row_height * 8
+    row8_high = block_low + row_height * 9
+    row9_low = block_low + row_height * 9
+    row9_high = block_low + row_height * 10
+    row10_low = block_low + row_height * 10
+    row10_high = block_low + row_height * 11
+    row11_low = block_low + row_height * 11
+    row11_high = block_low + row_height * 12
+    row12_low = block_low + row_height * 12
+    row12_high = block_low + row_height * 13
+    row13_low = block_low + row_height * 13
+    row13_high = block_low + row_height * 14
+    row14_low = block_low + row_height * 14
+    row14_high = block_low + row_height * 15
+    row15_low = block_low + row_height * 15
+    row15_high = block_low + row_height * 16
+    row16_low = block_low + row_height * 16
+    row16_high = block_low + row_height * 17
+    row17_low = block_low + row_height * 17
+    row17_high = block_low + row_height * 18
+    row18_low = block_low + row_height * 18
+    row18_high = block_low + row_height * 19
+    row19_low = block_low + row_height * 19
+    row19_high = block_low + row_height * 20
+    row20_low = block_low + row_height * 20
+    row20_high = block_low + row_height * 21
+    row21_low = block_low + row_height * 21
+    row21_high = block_low + row_height * 22
+    row22_low = block_low + row_height * 22
+    row22_high = block_low + row_height * 23
+    row23_low = block_low + row_height * 23
+    row23_high = block_low + row_height * 24
+    row24_low = block_low + row_height * 24
+    row24_high = block_low + row_height * 25
+    row25_low = block_low + row_height * 25
+    row25_high = block_low + row_height * 26
+    row26_low = block_low + row_height * 26
+    row26_high = block_low + row_height * 27
+    row27_low = block_low + row_height * 27
+    row27_high = block_low + row_height * 28
+    row28_low = block_low + row_height * 28
+    row28_high = block_low + row_height * 29
+    row29_low = block_low + row_height * 29
+    row29_high = block_low + row_height * 30
+    row30_low = block_low + row_height * 30
+    row30_high = block_low + row_height * 31
+    row31_low = block_low + row_height * 31
+    row31_high = block_low + row_height * 32
+    row32_low = block_low + row_height * 32
+    row32_high = block_low + row_height * 33
+    row33_low = block_low + row_height * 33
+    row33_high = block_low + row_height * 34
+    row34_low = block_low + row_height * 34
+    row34_high = block_low + row_height * 35
+    row35_low = block_low + row_height * 35
+    row35_high = block_low + row_height * 36
+    row36_low = block_low + row_height * 36
+    row36_high = block_low + row_height * 37
+    row37_low = block_low + row_height * 37
+    row37_high = block_low + row_height * 38
+    row38_low = block_low + row_height * 38
+    row38_high = block_low + row_height * 39
+    row39_low = block_low + row_height * 39
+    row39_high = block_low + row_height * 40
+    for i = 0 to sizeBlock + 1 by 1
+        n_rows_affected = 0
+        bar_row0_value = 0.0
+        if low[i] < row0_high and high[i] > row0_low
+            bar_row0_value := nz(custom_volume[i])
+            n_rows_affected += 1
+        bar_row1_value = 0.0
+        if low[i] < row1_high and high[i] > row1_low
+            bar_row1_value := nz(custom_volume[i])
+            n_rows_affected += 1
+        bar_row2_value = 0.0
+        if low[i] < row2_high and high[i] > row2_low
+            bar_row2_value := nz(custom_volume[i])
+            n_rows_affected += 1
+        bar_row3_value = 0.0
+        if low[i] < row3_high and high[i] > row3_low
+            bar_row3_value := nz(custom_volume[i])
+            n_rows_affected += 1
+        bar_row4_value = 0.0
+        if low[i] < row4_high and high[i] > row4_low
+            bar_row4_value := nz(custom_volume[i])
+            n_rows_affected += 1
+        bar_row5_value = 0.0
+        if low[i] < row5_high and high[i] > row5_low
+            bar_row5_value := nz(custom_volume[i])
+            n_rows_affected += 1
+        bar_row6_value = 0.0
+        if low[i] < row6_high and high[i] > row6_low
+            bar_row6_value := nz(custom_volume[i])
+            n_rows_affected += 1
+        bar_row7_value = 0.0
+        if low[i] < row7_high and high[i] > row7_low
+            bar_row7_value := nz(custom_volume[i])
+            n_rows_affected += 1
+        bar_row8_value = 0.0
+        if low[i] < row8_high and high[i] > row8_low
+            bar_row8_value := nz(custom_volume[i])
+            n_rows_affected += 1
+        bar_row9_value = 0.0
+        if low[i] < row9_high and high[i] > row9_low
+            bar_row9_value := nz(custom_volume[i])
+            n_rows_affected += 1
+        bar_row10_value = 0.0
+        if low[i] < row10_high and high[i] > row10_low
+            bar_row10_value := nz(custom_volume[i])
+            n_rows_affected += 1
+        bar_row11_value = 0.0
+        if low[i] < row11_high and high[i] > row11_low
+            bar_row11_value := nz(custom_volume[i])
+            n_rows_affected += 1
+        bar_row12_value = 0.0
+        if low[i] < row12_high and high[i] > row12_low
+            bar_row12_value := nz(custom_volume[i])
+            n_rows_affected += 1
+        bar_row13_value = 0.0
+        if low[i] < row13_high and high[i] > row13_low
+            bar_row13_value := nz(custom_volume[i])
+            n_rows_affected += 1
+        bar_row14_value = 0.0
+        if low[i] < row14_high and high[i] > row14_low
+            bar_row14_value := nz(custom_volume[i])
+            n_rows_affected += 1
+        bar_row15_value = 0.0
+        if low[i] < row15_high and high[i] > row15_low
+            bar_row15_value := nz(custom_volume[i])
+            n_rows_affected += 1
+        bar_row16_value = 0.0
+        if low[i] < row16_high and high[i] > row16_low
+            bar_row16_value := nz(custom_volume[i])
+            n_rows_affected += 1
+        bar_row17_value = 0.0
+        if low[i] < row17_high and high[i] > row17_low
+            bar_row17_value := nz(custom_volume[i])
+            n_rows_affected += 1
+        bar_row18_value = 0.0
+        if low[i] < row18_high and high[i] > row18_low
+            bar_row18_value := nz(custom_volume[i])
+            n_rows_affected += 1
+        bar_row19_value = 0.0
+        if low[i] < row19_high and high[i] > row19_low
+            bar_row19_value := nz(custom_volume[i])
+            n_rows_affected += 1
+        bar_row20_value = 0.0
+        if low[i] < row20_high and high[i] > row20_low
+            bar_row20_value := nz(custom_volume[i])
+            n_rows_affected += 1
+        bar_row21_value = 0.0
+        if low[i] < row21_high and high[i] > row21_low
+            bar_row21_value := nz(custom_volume[i])
+            n_rows_affected += 1
+        bar_row22_value = 0.0
+        if low[i] < row22_high and high[i] > row22_low
+            bar_row22_value := nz(custom_volume[i])
+            n_rows_affected += 1
+        bar_row23_value = 0.0
+        if low[i] < row23_high and high[i] > row23_low
+            bar_row23_value := nz(custom_volume[i])
+            n_rows_affected += 1
+        bar_row24_value = 0.0
+        if low[i] < row24_high and high[i] > row24_low
+            bar_row24_value := nz(custom_volume[i])
+            n_rows_affected += 1
+        bar_row25_value = 0.0
+        if low[i] < row25_high and high[i] > row25_low
+            bar_row25_value := nz(custom_volume[i])
+            n_rows_affected += 1
+        bar_row26_value = 0.0
+        if low[i] < row26_high and high[i] > row26_low
+            bar_row26_value := nz(custom_volume[i])
+            n_rows_affected += 1
+        bar_row27_value = 0.0
+        if low[i] < row27_high and high[i] > row27_low
+            bar_row27_value := nz(custom_volume[i])
+            n_rows_affected += 1
+        bar_row28_value = 0.0
+        if low[i] < row28_high and high[i] > row28_low
+            bar_row28_value := nz(custom_volume[i])
+            n_rows_affected += 1
+        bar_row29_value = 0.0
+        if low[i] < row29_high and high[i] > row29_low
+            bar_row29_value := nz(custom_volume[i])
+            n_rows_affected += 1
+        bar_row30_value = 0.0
+        if low[i] < row30_high and high[i] > row30_low
+            bar_row30_value := nz(custom_volume[i])
+            n_rows_affected += 1
+        bar_row31_value = 0.0
+        if low[i] < row31_high and high[i] > row31_low
+            bar_row31_value := nz(custom_volume[i])
+            n_rows_affected += 1
+        bar_row32_value = 0.0
+        if low[i] < row32_high and high[i] > row32_low
+            bar_row32_value := nz(custom_volume[i])
+            n_rows_affected += 1
+        bar_row33_value = 0.0
+        if low[i] < row33_high and high[i] > row33_low
+            bar_row33_value := nz(custom_volume[i])
+            n_rows_affected += 1
+        bar_row34_value = 0.0
+        if low[i] < row34_high and high[i] > row34_low
+            bar_row34_value := nz(custom_volume[i])
+            n_rows_affected += 1
+        bar_row35_value = 0.0
+        if low[i] < row35_high and high[i] > row35_low
+            bar_row35_value := nz(custom_volume[i])
+            n_rows_affected += 1
+        bar_row36_value = 0.0
+        if low[i] < row36_high and high[i] > row36_low
+            bar_row36_value := nz(custom_volume[i])
+            n_rows_affected += 1
+        bar_row37_value = 0.0
+        if low[i] < row37_high and high[i] > row37_low
+            bar_row37_value := nz(custom_volume[i])
+            n_rows_affected += 1
+        bar_row38_value = 0.0
+        if low[i] < row38_high and high[i] > row38_low
+            bar_row38_value := nz(custom_volume[i])
+            n_rows_affected += 1
+        bar_row39_value = 0.0
+        if low[i] < row39_high and high[i] > row39_low
+            bar_row39_value := nz(custom_volume[i])
+            n_rows_affected += 1
+        row0_value += (n_rows_affected != 0 ? bar_row0_value / n_rows_affected : 0)
+        row1_value += (n_rows_affected != 0 ? bar_row1_value / n_rows_affected : 0)
+        row2_value += (n_rows_affected != 0 ? bar_row2_value / n_rows_affected : 0)
+        row3_value += (n_rows_affected != 0 ? bar_row3_value / n_rows_affected : 0)
+        row4_value += (n_rows_affected != 0 ? bar_row4_value / n_rows_affected : 0)
+        row5_value += (n_rows_affected != 0 ? bar_row5_value / n_rows_affected : 0)
+        row6_value += (n_rows_affected != 0 ? bar_row6_value / n_rows_affected : 0)
+        row7_value += (n_rows_affected != 0 ? bar_row7_value / n_rows_affected : 0)
+        row8_value += (n_rows_affected != 0 ? bar_row8_value / n_rows_affected : 0)
+        row9_value += (n_rows_affected != 0 ? bar_row9_value / n_rows_affected : 0)
+        row10_value += (n_rows_affected != 0 ? bar_row10_value / n_rows_affected : 0)
+        row11_value += (n_rows_affected != 0 ? bar_row11_value / n_rows_affected : 0)
+        row12_value += (n_rows_affected != 0 ? bar_row12_value / n_rows_affected : 0)
+        row13_value += (n_rows_affected != 0 ? bar_row13_value / n_rows_affected : 0)
+        row14_value += (n_rows_affected != 0 ? bar_row14_value / n_rows_affected : 0)
+        row15_value += (n_rows_affected != 0 ? bar_row15_value / n_rows_affected : 0)
+        row16_value += (n_rows_affected != 0 ? bar_row16_value / n_rows_affected : 0)
+        row17_value += (n_rows_affected != 0 ? bar_row17_value / n_rows_affected : 0)
+        row18_value += (n_rows_affected != 0 ? bar_row18_value / n_rows_affected : 0)
+        row19_value += (n_rows_affected != 0 ? bar_row19_value / n_rows_affected : 0)
+        row20_value += (n_rows_affected != 0 ? bar_row20_value / n_rows_affected : 0)
+        row21_value += (n_rows_affected != 0 ? bar_row21_value / n_rows_affected : 0)
+        row22_value += (n_rows_affected != 0 ? bar_row22_value / n_rows_affected : 0)
+        row23_value += (n_rows_affected != 0 ? bar_row23_value / n_rows_affected : 0)
+        row24_value += (n_rows_affected != 0 ? bar_row24_value / n_rows_affected : 0)
+        row25_value += (n_rows_affected != 0 ? bar_row25_value / n_rows_affected : 0)
+        row26_value += (n_rows_affected != 0 ? bar_row26_value / n_rows_affected : 0)
+        row27_value += (n_rows_affected != 0 ? bar_row27_value / n_rows_affected : 0)
+        row28_value += (n_rows_affected != 0 ? bar_row28_value / n_rows_affected : 0)
+        row29_value += (n_rows_affected != 0 ? bar_row29_value / n_rows_affected : 0)
+        row30_value += (n_rows_affected != 0 ? bar_row30_value / n_rows_affected : 0)
+        row31_value += (n_rows_affected != 0 ? bar_row31_value / n_rows_affected : 0)
+        row32_value += (n_rows_affected != 0 ? bar_row32_value / n_rows_affected : 0)
+        row33_value += (n_rows_affected != 0 ? bar_row33_value / n_rows_affected : 0)
+        row34_value += (n_rows_affected != 0 ? bar_row34_value / n_rows_affected : 0)
+        row35_value += (n_rows_affected != 0 ? bar_row35_value / n_rows_affected : 0)
+        row36_value += (n_rows_affected != 0 ? bar_row36_value / n_rows_affected : 0)
+        row37_value += (n_rows_affected != 0 ? bar_row37_value / n_rows_affected : 0)
+        row38_value += (n_rows_affected != 0 ? bar_row38_value / n_rows_affected : 0)
+        row39_value += (n_rows_affected != 0 ? bar_row39_value / n_rows_affected : 0)
+    highest_row_value := math.max(highest_row_value, row0_value, row1_value, row2_value, row3_value, row4_value, row5_value, row6_value, row7_value, row8_value, row9_value, row10_value, row11_value, row12_value, row13_value, row14_value, row15_value, row16_value, row17_value, row18_value, row19_value, row20_value, row21_value, row22_value, row23_value, row24_value, row25_value, row26_value, row27_value, row28_value, row29_value, row30_value, row31_value, row32_value, row33_value, row34_value, row35_value, row36_value, row37_value, row38_value, row39_value)
+    row0_price := (row0_low + row0_high) / 2
+    row0_width := math.floor(rowWidth * row0_value / highest_row_value)
+    row1_price := (row1_low + row1_high) / 2
+    row1_width := math.floor(rowWidth * row1_value / highest_row_value)
+    row2_price := (row2_low + row2_high) / 2
+    row2_width := math.floor(rowWidth * row2_value / highest_row_value)
+    row3_price := (row3_low + row3_high) / 2
+    row3_width := math.floor(rowWidth * row3_value / highest_row_value)
+    row4_price := (row4_low + row4_high) / 2
+    row4_width := math.floor(rowWidth * row4_value / highest_row_value)
+    row5_price := (row5_low + row5_high) / 2
+    row5_width := math.floor(rowWidth * row5_value / highest_row_value)
+    row6_price := (row6_low + row6_high) / 2
+    row6_width := math.floor(rowWidth * row6_value / highest_row_value)
+    row7_price := (row7_low + row7_high) / 2
+    row7_width := math.floor(rowWidth * row7_value / highest_row_value)
+    row8_price := (row8_low + row8_high) / 2
+    row8_width := math.floor(rowWidth * row8_value / highest_row_value)
+    row9_price := (row9_low + row9_high) / 2
+    row9_width := math.floor(rowWidth * row9_value / highest_row_value)
+    row10_price := (row10_low + row10_high) / 2
+    row10_width := math.floor(rowWidth * row10_value / highest_row_value)
+    row11_price := (row11_low + row11_high) / 2
+    row11_width := math.floor(rowWidth * row11_value / highest_row_value)
+    row12_price := (row12_low + row12_high) / 2
+    row12_width := math.floor(rowWidth * row12_value / highest_row_value)
+    row13_price := (row13_low + row13_high) / 2
+    row13_width := math.floor(rowWidth * row13_value / highest_row_value)
+    row14_price := (row14_low + row14_high) / 2
+    row14_width := math.floor(rowWidth * row14_value / highest_row_value)
+    row15_price := (row15_low + row15_high) / 2
+    row15_width := math.floor(rowWidth * row15_value / highest_row_value)
+    row16_price := (row16_low + row16_high) / 2
+    row16_width := math.floor(rowWidth * row16_value / highest_row_value)
+    row17_price := (row17_low + row17_high) / 2
+    row17_width := math.floor(rowWidth * row17_value / highest_row_value)
+    row18_price := (row18_low + row18_high) / 2
+    row18_width := math.floor(rowWidth * row18_value / highest_row_value)
+    row19_price := (row19_low + row19_high) / 2
+    row19_width := math.floor(rowWidth * row19_value / highest_row_value)
+    row20_price := (row20_low + row20_high) / 2
+    row20_width := math.floor(rowWidth * row20_value / highest_row_value)
+    row21_price := (row21_low + row21_high) / 2
+    row21_width := math.floor(rowWidth * row21_value / highest_row_value)
+    row22_price := (row22_low + row22_high) / 2
+    row22_width := math.floor(rowWidth * row22_value / highest_row_value)
+    row23_price := (row23_low + row23_high) / 2
+    row23_width := math.floor(rowWidth * row23_value / highest_row_value)
+    row24_price := (row24_low + row24_high) / 2
+    row24_width := math.floor(rowWidth * row24_value / highest_row_value)
+    row25_price := (row25_low + row25_high) / 2
+    row25_width := math.floor(rowWidth * row25_value / highest_row_value)
+    row26_price := (row26_low + row26_high) / 2
+    row26_width := math.floor(rowWidth * row26_value / highest_row_value)
+    row27_price := (row27_low + row27_high) / 2
+    row27_width := math.floor(rowWidth * row27_value / highest_row_value)
+    row28_price := (row28_low + row28_high) / 2
+    row28_width := math.floor(rowWidth * row28_value / highest_row_value)
+    row29_price := (row29_low + row29_high) / 2
+    row29_width := math.floor(rowWidth * row29_value / highest_row_value)
+    row30_price := (row30_low + row30_high) / 2
+    row30_width := math.floor(rowWidth * row30_value / highest_row_value)
+    row31_price := (row31_low + row31_high) / 2
+    row31_width := math.floor(rowWidth * row31_value / highest_row_value)
+    row32_price := (row32_low + row32_high) / 2
+    row32_width := math.floor(rowWidth * row32_value / highest_row_value)
+    row33_price := (row33_low + row33_high) / 2
+    row33_width := math.floor(rowWidth * row33_value / highest_row_value)
+    row34_price := (row34_low + row34_high) / 2
+    row34_width := math.floor(rowWidth * row34_value / highest_row_value)
+    row35_price := (row35_low + row35_high) / 2
+    row35_width := math.floor(rowWidth * row35_value / highest_row_value)
+    row36_price := (row36_low + row36_high) / 2
+    row36_width := math.floor(rowWidth * row36_value / highest_row_value)
+    row37_price := (row37_low + row37_high) / 2
+    row37_width := math.floor(rowWidth * row37_value / highest_row_value)
+    row38_price := (row38_low + row38_high) / 2
+    row38_width := math.floor(rowWidth * row38_value / highest_row_value)
+    row39_price := (row39_low + row39_high) / 2
+    row39_width := math.floor(rowWidth * row39_value / highest_row_value)
+    if row0_value >= row1_value and row0_value >= row2_value and row0_value >= row3_value and row0_value >= row4_value and row0_value >= row5_value
+        row0_is_peak := true
+        row0_is_peak
+    if row1_value >= row0_value and row1_value >= row2_value and row1_value >= row3_value and row1_value >= row4_value and row1_value >= row5_value and row1_value >= row6_value
+        row1_is_peak := true
+        row1_is_peak
+    if row2_value >= row0_value and row2_value >= row1_value and row2_value >= row3_value and row2_value >= row4_value and row2_value >= row5_value and row2_value >= row6_value and row2_value >= row7_value
+        row2_is_peak := true
+        row2_is_peak
+    if row3_value >= row0_value and row3_value >= row1_value and row3_value >= row2_value and row3_value >= row4_value and row3_value >= row5_value and row3_value >= row6_value and row3_value >= row7_value and row3_value >= row8_value
+        row3_is_peak := true
+        row3_is_peak
+    if row4_value >= row0_value and row4_value >= row1_value and row4_value >= row2_value and row4_value >= row3_value and row4_value >= row5_value and row4_value >= row6_value and row4_value >= row7_value and row4_value >= row8_value and row4_value >= row9_value
+        row4_is_peak := true
+        row4_is_peak
+    if row5_value >= row0_value and row5_value >= row1_value and row5_value >= row2_value and row5_value >= row3_value and row5_value >= row4_value and row5_value >= row6_value and row5_value >= row7_value and row5_value >= row8_value and row5_value >= row9_value and row5_value >= row10_value
+        row5_is_peak := true
+        row5_is_peak
+    if row6_value >= row1_value and row6_value >= row2_value and row6_value >= row3_value and row6_value >= row4_value and row6_value >= row5_value and row6_value >= row7_value and row6_value >= row8_value and row6_value >= row9_value and row6_value >= row10_value and row6_value >= row11_value
+        row6_is_peak := true
+        row6_is_peak
+    if row7_value >= row2_value and row7_value >= row3_value and row7_value >= row4_value and row7_value >= row5_value and row7_value >= row6_value and row7_value >= row8_value and row7_value >= row9_value and row7_value >= row10_value and row7_value >= row11_value and row7_value >= row12_value
+        row7_is_peak := true
+        row7_is_peak
+    if row8_value >= row3_value and row8_value >= row4_value and row8_value >= row5_value and row8_value >= row6_value and row8_value >= row7_value and row8_value >= row9_value and row8_value >= row10_value and row8_value >= row11_value and row8_value >= row12_value and row8_value >= row13_value
+        row8_is_peak := true
+        row8_is_peak
+    if row9_value >= row4_value and row9_value >= row5_value and row9_value >= row6_value and row9_value >= row7_value and row9_value >= row8_value and row9_value >= row10_value and row9_value >= row11_value and row9_value >= row12_value and row9_value >= row13_value and row9_value >= row14_value
+        row9_is_peak := true
+        row9_is_peak
+    if row10_value >= row5_value and row10_value >= row6_value and row10_value >= row7_value and row10_value >= row8_value and row10_value >= row9_value and row10_value >= row11_value and row10_value >= row12_value and row10_value >= row13_value and row10_value >= row14_value and row10_value >= row15_value
+        row10_is_peak := true
+        row10_is_peak
+    if row11_value >= row6_value and row11_value >= row7_value and row11_value >= row8_value and row11_value >= row9_value and row11_value >= row10_value and row11_value >= row12_value and row11_value >= row13_value and row11_value >= row14_value and row11_value >= row15_value and row11_value >= row16_value
+        row11_is_peak := true
+        row11_is_peak
+    if row12_value >= row7_value and row12_value >= row8_value and row12_value >= row9_value and row12_value >= row10_value and row12_value >= row11_value and row12_value >= row13_value and row12_value >= row14_value and row12_value >= row15_value and row12_value >= row16_value and row12_value >= row17_value
+        row12_is_peak := true
+        row12_is_peak
+    if row13_value >= row8_value and row13_value >= row9_value and row13_value >= row10_value and row13_value >= row11_value and row13_value >= row12_value and row13_value >= row14_value and row13_value >= row15_value and row13_value >= row16_value and row13_value >= row17_value and row13_value >= row18_value
+        row13_is_peak := true
+        row13_is_peak
+    if row14_value >= row9_value and row14_value >= row10_value and row14_value >= row11_value and row14_value >= row12_value and row14_value >= row13_value and row14_value >= row15_value and row14_value >= row16_value and row14_value >= row17_value and row14_value >= row18_value and row14_value >= row19_value
+        row14_is_peak := true
+        row14_is_peak
+    if row15_value >= row10_value and row15_value >= row11_value and row15_value >= row12_value and row15_value >= row13_value and row15_value >= row14_value and row15_value >= row16_value and row15_value >= row17_value and row15_value >= row18_value and row15_value >= row19_value and row15_value >= row20_value
+        row15_is_peak := true
+        row15_is_peak
+    if row16_value >= row11_value and row16_value >= row12_value and row16_value >= row13_value and row16_value >= row14_value and row16_value >= row15_value and row16_value >= row17_value and row16_value >= row18_value and row16_value >= row19_value and row16_value >= row20_value and row16_value >= row21_value
+        row16_is_peak := true
+        row16_is_peak
+    if row17_value >= row12_value and row17_value >= row13_value and row17_value >= row14_value and row17_value >= row15_value and row17_value >= row16_value and row17_value >= row18_value and row17_value >= row19_value and row17_value >= row20_value and row17_value >= row21_value and row17_value >= row22_value
+        row17_is_peak := true
+        row17_is_peak
+    if row18_value >= row13_value and row18_value >= row14_value and row18_value >= row15_value and row18_value >= row16_value and row18_value >= row17_value and row18_value >= row19_value and row18_value >= row20_value and row18_value >= row21_value and row18_value >= row22_value and row18_value >= row23_value
+        row18_is_peak := true
+        row18_is_peak
+    if row19_value >= row14_value and row19_value >= row15_value and row19_value >= row16_value and row19_value >= row17_value and row19_value >= row18_value and row19_value >= row20_value and row19_value >= row21_value and row19_value >= row22_value and row19_value >= row23_value and row19_value >= row24_value
+        row19_is_peak := true
+        row19_is_peak
+    if row20_value >= row15_value and row20_value >= row16_value and row20_value >= row17_value and row20_value >= row18_value and row20_value >= row19_value and row20_value >= row21_value and row20_value >= row22_value and row20_value >= row23_value and row20_value >= row24_value and row20_value >= row25_value
+        row20_is_peak := true
+        row20_is_peak
+    if row21_value >= row16_value and row21_value >= row17_value and row21_value >= row18_value and row21_value >= row19_value and row21_value >= row20_value and row21_value >= row22_value and row21_value >= row23_value and row21_value >= row24_value and row21_value >= row25_value and row21_value >= row26_value
+        row21_is_peak := true
+        row21_is_peak
+    if row22_value >= row17_value and row22_value >= row18_value and row22_value >= row19_value and row22_value >= row20_value and row22_value >= row21_value and row22_value >= row23_value and row22_value >= row24_value and row22_value >= row25_value and row22_value >= row26_value and row22_value >= row27_value
+        row22_is_peak := true
+        row22_is_peak
+    if row23_value >= row18_value and row23_value >= row19_value and row23_value >= row20_value and row23_value >= row21_value and row23_value >= row22_value and row23_value >= row24_value and row23_value >= row25_value and row23_value >= row26_value and row23_value >= row27_value and row23_value >= row28_value
+        row23_is_peak := true
+        row23_is_peak
+    if row24_value >= row19_value and row24_value >= row20_value and row24_value >= row21_value and row24_value >= row22_value and row24_value >= row23_value and row24_value >= row25_value and row24_value >= row26_value and row24_value >= row27_value and row24_value >= row28_value and row24_value >= row29_value
+        row24_is_peak := true
+        row24_is_peak
+    if row25_value >= row20_value and row25_value >= row21_value and row25_value >= row22_value and row25_value >= row23_value and row25_value >= row24_value and row25_value >= row26_value and row25_value >= row27_value and row25_value >= row28_value and row25_value >= row29_value and row25_value >= row30_value
+        row25_is_peak := true
+        row25_is_peak
+    if row26_value >= row21_value and row26_value >= row22_value and row26_value >= row23_value and row26_value >= row24_value and row26_value >= row25_value and row26_value >= row27_value and row26_value >= row28_value and row26_value >= row29_value and row26_value >= row30_value and row26_value >= row31_value
+        row26_is_peak := true
+        row26_is_peak
+    if row27_value >= row22_value and row27_value >= row23_value and row27_value >= row24_value and row27_value >= row25_value and row27_value >= row26_value and row27_value >= row28_value and row27_value >= row29_value and row27_value >= row30_value and row27_value >= row31_value and row27_value >= row32_value
+        row27_is_peak := true
+        row27_is_peak
+    if row28_value >= row23_value and row28_value >= row24_value and row28_value >= row25_value and row28_value >= row26_value and row28_value >= row27_value and row28_value >= row29_value and row28_value >= row30_value and row28_value >= row31_value and row28_value >= row32_value and row28_value >= row33_value
+        row28_is_peak := true
+        row28_is_peak
+    if row29_value >= row24_value and row29_value >= row25_value and row29_value >= row26_value and row29_value >= row27_value and row29_value >= row28_value and row29_value >= row30_value and row29_value >= row31_value and row29_value >= row32_value and row29_value >= row33_value and row29_value >= row34_value
+        row29_is_peak := true
+        row29_is_peak
+    if row30_value >= row25_value and row30_value >= row26_value and row30_value >= row27_value and row30_value >= row28_value and row30_value >= row29_value and row30_value >= row31_value and row30_value >= row32_value and row30_value >= row33_value and row30_value >= row34_value and row30_value >= row35_value
+        row30_is_peak := true
+        row30_is_peak
+    if row31_value >= row26_value and row31_value >= row27_value and row31_value >= row28_value and row31_value >= row29_value and row31_value >= row30_value and row31_value >= row32_value and row31_value >= row33_value and row31_value >= row34_value and row31_value >= row35_value and row31_value >= row36_value
+        row31_is_peak := true
+        row31_is_peak
+    if row32_value >= row27_value and row32_value >= row28_value and row32_value >= row29_value and row32_value >= row30_value and row32_value >= row31_value and row32_value >= row33_value and row32_value >= row34_value and row32_value >= row35_value and row32_value >= row36_value and row32_value >= row37_value
+        row32_is_peak := true
+        row32_is_peak
+    if row33_value >= row28_value and row33_value >= row29_value and row33_value >= row30_value and row33_value >= row31_value and row33_value >= row32_value and row33_value >= row34_value and row33_value >= row35_value and row33_value >= row36_value and row33_value >= row37_value and row33_value >= row38_value
+        row33_is_peak := true
+        row33_is_peak
+    if row34_value >= row29_value and row34_value >= row30_value and row34_value >= row31_value and row34_value >= row32_value and row34_value >= row33_value and row34_value >= row35_value and row34_value >= row36_value and row34_value >= row37_value and row34_value >= row38_value and row34_value >= row39_value
+        row34_is_peak := true
+        row34_is_peak
+    if row35_value >= row30_value and row35_value >= row31_value and row35_value >= row32_value and row35_value >= row33_value and row35_value >= row34_value and row35_value >= row36_value and row35_value >= row37_value and row35_value >= row38_value and row35_value >= row39_value
+        row35_is_peak := true
+        row35_is_peak
+    if row36_value >= row31_value and row36_value >= row32_value and row36_value >= row33_value and row36_value >= row34_value and row36_value >= row35_value and row36_value >= row37_value and row36_value >= row38_value and row36_value >= row39_value
+        row36_is_peak := true
+        row36_is_peak
+    if row37_value >= row32_value and row37_value >= row33_value and row37_value >= row34_value and row37_value >= row35_value and row37_value >= row36_value and row37_value >= row38_value and row37_value >= row39_value
+        row37_is_peak := true
+        row37_is_peak
+    if row38_value >= row33_value and row38_value >= row34_value and row38_value >= row35_value and row38_value >= row36_value and row38_value >= row37_value and row38_value >= row39_value
+        row38_is_peak := true
+        row38_is_peak
+    if row39_value >= row34_value and row39_value >= row35_value and row39_value >= row36_value and row39_value >= row37_value and row39_value >= row38_value
+        row39_is_peak := true
+        row39_is_peak
+// Signals
+trendBull = maFast > maSlow and ta.rising (maFast, 2) and ta.rising (maSlow, 2)
+trendBear = maFast < maSlow and ta.falling(maFast, 2) and ta.falling(maSlow, 2)
+// Colors
+none = color.new(#FFFFFF, 100)
+
+var int first_bar_time = time
+if barstate.isfirst
+    first_bar_time := time
+var line block_high_line = line.new(bar_index, high, bar_index, high, color=colBounds)
+var line block_low_line = line.new(bar_index, low, bar_index, low, color=colBounds)
+var label row0_label = slices > 0 ? label.new(time_close, close, "", xloc.bar_time, yloc.price, colProfile, label.style_label_left, none, size.auto) : na
+var label row1_label = slices > 1 ? label.new(time_close, close, "", xloc.bar_time, yloc.price, colProfile, label.style_label_left, none, size.auto) : na
+var label row2_label = slices > 2 ? label.new(time_close, close, "", xloc.bar_time, yloc.price, colProfile, label.style_label_left, none, size.auto) : na
+var label row3_label = slices > 3 ? label.new(time_close, close, "", xloc.bar_time, yloc.price, colProfile, label.style_label_left, none, size.auto) : na
+var label row4_label = slices > 4 ? label.new(time_close, close, "", xloc.bar_time, yloc.price, colProfile, label.style_label_left, none, size.auto) : na
+var label row5_label = slices > 5 ? label.new(time_close, close, "", xloc.bar_time, yloc.price, colProfile, label.style_label_left, none, size.auto) : na
+var label row6_label = slices > 6 ? label.new(time_close, close, "", xloc.bar_time, yloc.price, colProfile, label.style_label_left, none, size.auto) : na
+var label row7_label = slices > 7 ? label.new(time_close, close, "", xloc.bar_time, yloc.price, colProfile, label.style_label_left, none, size.auto) : na
+var label row8_label = slices > 8 ? label.new(time_close, close, "", xloc.bar_time, yloc.price, colProfile, label.style_label_left, none, size.auto) : na
+var label row9_label = slices > 9 ? label.new(time_close, close, "", xloc.bar_time, yloc.price, colProfile, label.style_label_left, none, size.auto) : na
+var label row10_label = slices > 10 ? label.new(time_close, close, "", xloc.bar_time, yloc.price, colProfile, label.style_label_left, none, size.auto) : na
+var label row11_label = slices > 11 ? label.new(time_close, close, "", xloc.bar_time, yloc.price, colProfile, label.style_label_left, none, size.auto) : na
+var label row12_label = slices > 12 ? label.new(time_close, close, "", xloc.bar_time, yloc.price, colProfile, label.style_label_left, none, size.auto) : na
+var label row13_label = slices > 13 ? label.new(time_close, close, "", xloc.bar_time, yloc.price, colProfile, label.style_label_left, none, size.auto) : na
+var label row14_label = slices > 14 ? label.new(time_close, close, "", xloc.bar_time, yloc.price, colProfile, label.style_label_left, none, size.auto) : na
+var label row15_label = slices > 15 ? label.new(time_close, close, "", xloc.bar_time, yloc.price, colProfile, label.style_label_left, none, size.auto) : na
+var label row16_label = slices > 16 ? label.new(time_close, close, "", xloc.bar_time, yloc.price, colProfile, label.style_label_left, none, size.auto) : na
+var label row17_label = slices > 17 ? label.new(time_close, close, "", xloc.bar_time, yloc.price, colProfile, label.style_label_left, none, size.auto) : na
+var label row18_label = slices > 18 ? label.new(time_close, close, "", xloc.bar_time, yloc.price, colProfile, label.style_label_left, none, size.auto) : na
+var label row19_label = slices > 19 ? label.new(time_close, close, "", xloc.bar_time, yloc.price, colProfile, label.style_label_left, none, size.auto) : na
+var label row20_label = slices > 20 ? label.new(time_close, close, "", xloc.bar_time, yloc.price, colProfile, label.style_label_left, none, size.auto) : na
+var label row21_label = slices > 21 ? label.new(time_close, close, "", xloc.bar_time, yloc.price, colProfile, label.style_label_left, none, size.auto) : na
+var label row22_label = slices > 22 ? label.new(time_close, close, "", xloc.bar_time, yloc.price, colProfile, label.style_label_left, none, size.auto) : na
+var label row23_label = slices > 23 ? label.new(time_close, close, "", xloc.bar_time, yloc.price, colProfile, label.style_label_left, none, size.auto) : na
+var label row24_label = slices > 24 ? label.new(time_close, close, "", xloc.bar_time, yloc.price, colProfile, label.style_label_left, none, size.auto) : na
+var label row25_label = slices > 25 ? label.new(time_close, close, "", xloc.bar_time, yloc.price, colProfile, label.style_label_left, none, size.auto) : na
+var label row26_label = slices > 26 ? label.new(time_close, close, "", xloc.bar_time, yloc.price, colProfile, label.style_label_left, none, size.auto) : na
+var label row27_label = slices > 27 ? label.new(time_close, close, "", xloc.bar_time, yloc.price, colProfile, label.style_label_left, none, size.auto) : na
+var label row28_label = slices > 28 ? label.new(time_close, close, "", xloc.bar_time, yloc.price, colProfile, label.style_label_left, none, size.auto) : na
+var label row29_label = slices > 29 ? label.new(time_close, close, "", xloc.bar_time, yloc.price, colProfile, label.style_label_left, none, size.auto) : na
+var label row30_label = slices > 30 ? label.new(time_close, close, "", xloc.bar_time, yloc.price, colProfile, label.style_label_left, none, size.auto) : na
+var label row31_label = slices > 31 ? label.new(time_close, close, "", xloc.bar_time, yloc.price, colProfile, label.style_label_left, none, size.auto) : na
+var label row32_label = slices > 32 ? label.new(time_close, close, "", xloc.bar_time, yloc.price, colProfile, label.style_label_left, none, size.auto) : na
+var label row33_label = slices > 33 ? label.new(time_close, close, "", xloc.bar_time, yloc.price, colProfile, label.style_label_left, none, size.auto) : na
+var label row34_label = slices > 34 ? label.new(time_close, close, "", xloc.bar_time, yloc.price, colProfile, label.style_label_left, none, size.auto) : na
+var label row35_label = slices > 35 ? label.new(time_close, close, "", xloc.bar_time, yloc.price, colProfile, label.style_label_left, none, size.auto) : na
+var label row36_label = slices > 36 ? label.new(time_close, close, "", xloc.bar_time, yloc.price, colProfile, label.style_label_left, none, size.auto) : na
+var label row37_label = slices > 37 ? label.new(time_close, close, "", xloc.bar_time, yloc.price, colProfile, label.style_label_left, none, size.auto) : na
+var label row38_label = slices > 38 ? label.new(time_close, close, "", xloc.bar_time, yloc.price, colProfile, label.style_label_left, none, size.auto) : na
+var label row39_label = slices > 39 ? label.new(time_close, close, "", xloc.bar_time, yloc.price, colProfile, label.style_label_left, none, size.auto) : na
+if barstate.islast and show_Vp  and PassCorrect 
+    line.set_xloc(block_high_line, math.max(time[sizeBlock], first_bar_time), time_close, xloc.bar_time)
+    line.set_y1(block_high_line, block_high)
+    line.set_y2(block_high_line, block_high)
+    line.set_xloc(block_low_line, math.max(time[sizeBlock], first_bar_time), time_close, xloc.bar_time)
+    line.set_y1(block_low_line, block_low)
+    line.set_y2(block_low_line, block_low)
+    row0_text = ""
+    for i = 0 to row0_width + 1 by 1 
+        row0_text += "#"
+        row0_text
+    row0_color = showPeaks and show_Vp  and PassCorrect  and row0_is_peak ? colPeak : colProfile
+    label.set_x(row0_label, time_close)
+    label.set_y(row0_label, row0_price)
+    label.set_color(row0_label, row0_color)
+    label.set_text(row0_label, row0_text)
+    row1_text = ""
+    for i = 0 to row1_width + 1 by 1
+        row1_text += "#"
+        row1_text
+    row1_color = showPeaks and show_Vp  and PassCorrect  and row1_is_peak ? colPeak : colProfile
+    label.set_x(row1_label, time_close)
+    label.set_y(row1_label, row1_price)
+    label.set_color(row1_label, row1_color)
+    label.set_text(row1_label, row1_text)
+    row2_text = ""
+    for i = 0 to row2_width + 1 by 1
+        row2_text += "#"
+        row2_text
+    row2_color = showPeaks and show_Vp  and PassCorrect  and row2_is_peak ? colPeak : colProfile
+    label.set_x(row2_label, time_close)
+    label.set_y(row2_label, row2_price)
+    label.set_color(row2_label, row2_color)
+    label.set_text(row2_label, row2_text)
+    row3_text = ""
+    for i = 0 to row3_width + 1 by 1
+        row3_text += "#"
+        row3_text
+    row3_color = showPeaks and show_Vp  and PassCorrect  and row3_is_peak ? colPeak : colProfile
+    label.set_x(row3_label, time_close)
+    label.set_y(row3_label, row3_price)
+    label.set_color(row3_label, row3_color)
+    label.set_text(row3_label, row3_text)
+    row4_text = ""
+    for i = 0 to row4_width + 1 by 1
+        row4_text += "#"
+        row4_text
+    row4_color = showPeaks and show_Vp  and PassCorrect  and row4_is_peak ? colPeak : colProfile
+    label.set_x(row4_label, time_close)
+    label.set_y(row4_label, row4_price)
+    label.set_color(row4_label, row4_color)
+    label.set_text(row4_label, row4_text)
+    row5_text = ""
+    for i = 0 to row5_width + 1 by 1
+        row5_text += "#"
+        row5_text
+    row5_color = showPeaks and show_Vp  and PassCorrect  and row5_is_peak ? colPeak : colProfile
+    label.set_x(row5_label, time_close)
+    label.set_y(row5_label, row5_price)
+    label.set_color(row5_label, row5_color)
+    label.set_text(row5_label, row5_text)
+    row6_text = ""
+    for i = 0 to row6_width + 1 by 1
+        row6_text += "#"
+        row6_text
+    row6_color = showPeaks and show_Vp  and PassCorrect  and row6_is_peak ? colPeak : colProfile
+    label.set_x(row6_label, time_close)
+    label.set_y(row6_label, row6_price)
+    label.set_color(row6_label, row6_color)
+    label.set_text(row6_label, row6_text)
+    row7_text = ""
+    for i = 0 to row7_width + 1 by 1
+        row7_text += "#"
+        row7_text
+    row7_color = showPeaks and show_Vp  and PassCorrect  and row7_is_peak ? colPeak : colProfile
+    label.set_x(row7_label, time_close)
+    label.set_y(row7_label, row7_price)
+    label.set_color(row7_label, row7_color)
+    label.set_text(row7_label, row7_text)
+    row8_text = ""
+    for i = 0 to row8_width + 1 by 1
+        row8_text += "#"
+        row8_text
+    row8_color = showPeaks and show_Vp  and PassCorrect  and row8_is_peak ? colPeak : colProfile
+    label.set_x(row8_label, time_close)
+    label.set_y(row8_label, row8_price)
+    label.set_color(row8_label, row8_color)
+    label.set_text(row8_label, row8_text)
+    row9_text = ""
+    for i = 0 to row9_width + 1 by 1
+        row9_text += "#"
+        row9_text
+    row9_color = showPeaks and show_Vp  and PassCorrect  and row9_is_peak ? colPeak : colProfile
+    label.set_x(row9_label, time_close)
+    label.set_y(row9_label, row9_price)
+    label.set_color(row9_label, row9_color)
+    label.set_text(row9_label, row9_text)
+    row10_text = ""
+    for i = 0 to row10_width + 1 by 1
+        row10_text += "#"
+        row10_text
+    row10_color = showPeaks and show_Vp  and PassCorrect  and row10_is_peak ? colPeak : colProfile
+    label.set_x(row10_label, time_close)
+    label.set_y(row10_label, row10_price)
+    label.set_color(row10_label, row10_color)
+    label.set_text(row10_label, row10_text)
+    row11_text = ""
+    for i = 0 to row11_width + 1 by 1
+        row11_text += "#"
+        row11_text
+    row11_color = showPeaks and show_Vp  and PassCorrect  and row11_is_peak ? colPeak : colProfile
+    label.set_x(row11_label, time_close)
+    label.set_y(row11_label, row11_price)
+    label.set_color(row11_label, row11_color)
+    label.set_text(row11_label, row11_text)
+    row12_text = ""
+    for i = 0 to row12_width + 1 by 1
+        row12_text += "#"
+        row12_text
+    row12_color = showPeaks and show_Vp  and PassCorrect  and row12_is_peak ? colPeak : colProfile
+    label.set_x(row12_label, time_close)
+    label.set_y(row12_label, row12_price)
+    label.set_color(row12_label, row12_color)
+    label.set_text(row12_label, row12_text)
+    row13_text = ""
+    for i = 0 to row13_width + 1 by 1
+        row13_text += "#"
+        row13_text
+    row13_color = showPeaks and show_Vp  and PassCorrect  and row13_is_peak ? colPeak : colProfile
+    label.set_x(row13_label, time_close)
+    label.set_y(row13_label, row13_price)
+    label.set_color(row13_label, row13_color)
+    label.set_text(row13_label, row13_text)
+    row14_text = ""
+    for i = 0 to row14_width + 1 by 1
+        row14_text += "#"
+        row14_text
+    row14_color = showPeaks and show_Vp  and PassCorrect  and row14_is_peak ? colPeak : colProfile
+    label.set_x(row14_label, time_close)
+    label.set_y(row14_label, row14_price)
+    label.set_color(row14_label, row14_color)
+    label.set_text(row14_label, row14_text)
+    row15_text = ""
+    for i = 0 to row15_width + 1 by 1
+        row15_text += "#"
+        row15_text
+    row15_color = showPeaks and show_Vp  and PassCorrect  and row15_is_peak ? colPeak : colProfile
+    label.set_x(row15_label, time_close)
+    label.set_y(row15_label, row15_price)
+    label.set_color(row15_label, row15_color)
+    label.set_text(row15_label, row15_text)
+    row16_text = ""
+    for i = 0 to row16_width + 1 by 1
+        row16_text += "#"
+        row16_text
+    row16_color = showPeaks and show_Vp  and PassCorrect  and row16_is_peak ? colPeak : colProfile
+    label.set_x(row16_label, time_close)
+    label.set_y(row16_label, row16_price)
+    label.set_color(row16_label, row16_color)
+    label.set_text(row16_label, row16_text)
+    row17_text = ""
+    for i = 0 to row17_width + 1 by 1
+        row17_text += "#"
+        row17_text
+    row17_color = showPeaks and show_Vp  and PassCorrect  and row17_is_peak ? colPeak : colProfile
+    label.set_x(row17_label, time_close)
+    label.set_y(row17_label, row17_price)
+    label.set_color(row17_label, row17_color)
+    label.set_text(row17_label, row17_text)
+    row18_text = ""
+    for i = 0 to row18_width + 1 by 1
+        row18_text += "#"
+        row18_text
+    row18_color = showPeaks and show_Vp  and PassCorrect  and row18_is_peak ? colPeak : colProfile
+    label.set_x(row18_label, time_close)
+    label.set_y(row18_label, row18_price)
+    label.set_color(row18_label, row18_color)
+    label.set_text(row18_label, row18_text)
+    row19_text = ""
+    for i = 0 to row19_width + 1 by 1
+        row19_text += "#"
+        row19_text
+    row19_color = showPeaks and show_Vp  and PassCorrect  and row19_is_peak ? colPeak : colProfile
+    label.set_x(row19_label, time_close)
+    label.set_y(row19_label, row19_price)
+    label.set_color(row19_label, row19_color)
+    label.set_text(row19_label, row19_text)
+    row20_text = ""
+    for i = 0 to row20_width + 1 by 1
+        row20_text += "#"
+        row20_text
+    row20_color = showPeaks and show_Vp  and PassCorrect  and row20_is_peak ? colPeak : colProfile
+    label.set_x(row20_label, time_close)
+    label.set_y(row20_label, row20_price)
+    label.set_color(row20_label, row20_color)
+    label.set_text(row20_label, row20_text)
+    row21_text = ""
+    for i = 0 to row21_width + 1 by 1
+        row21_text += "#"
+        row21_text
+    row21_color = showPeaks and show_Vp  and PassCorrect  and row21_is_peak ? colPeak : colProfile
+    label.set_x(row21_label, time_close)
+    label.set_y(row21_label, row21_price)
+    label.set_color(row21_label, row21_color)
+    label.set_text(row21_label, row21_text)
+    row22_text = ""
+    for i = 0 to row22_width + 1 by 1
+        row22_text += "#"
+        row22_text
+    row22_color = showPeaks and show_Vp  and PassCorrect  and row22_is_peak ? colPeak : colProfile
+    label.set_x(row22_label, time_close)
+    label.set_y(row22_label, row22_price)
+    label.set_color(row22_label, row22_color)
+    label.set_text(row22_label, row22_text)
+    row23_text = ""
+    for i = 0 to row23_width + 1 by 1
+        row23_text += "#"
+        row23_text
+    row23_color = showPeaks and show_Vp  and PassCorrect  and row23_is_peak ? colPeak : colProfile
+    label.set_x(row23_label, time_close)
+    label.set_y(row23_label, row23_price)
+    label.set_color(row23_label, row23_color)
+    label.set_text(row23_label, row23_text)
+    row24_text = ""
+    for i = 0 to row24_width + 1 by 1
+        row24_text += "#"
+        row24_text
+    row24_color = showPeaks and show_Vp  and PassCorrect  and row24_is_peak ? colPeak : colProfile
+    label.set_x(row24_label, time_close)
+    label.set_y(row24_label, row24_price)
+    label.set_color(row24_label, row24_color)
+    label.set_text(row24_label, row24_text)
+    row25_text = ""
+    for i = 0 to row25_width + 1 by 1
+        row25_text += "#"
+        row25_text
+    row25_color = showPeaks and show_Vp  and PassCorrect  and row25_is_peak ? colPeak : colProfile
+    label.set_x(row25_label, time_close)
+    label.set_y(row25_label, row25_price)
+    label.set_color(row25_label, row25_color)
+    label.set_text(row25_label, row25_text)
+    row26_text = ""
+    for i = 0 to row26_width + 1 by 1
+        row26_text += "#"
+        row26_text
+    row26_color = showPeaks and show_Vp  and PassCorrect  and row26_is_peak ? colPeak : colProfile
+    label.set_x(row26_label, time_close)
+    label.set_y(row26_label, row26_price)
+    label.set_color(row26_label, row26_color)
+    label.set_text(row26_label, row26_text)
+    row27_text = ""
+    for i = 0 to row27_width + 1 by 1
+        row27_text += "#"
+        row27_text
+    row27_color = showPeaks and show_Vp  and PassCorrect  and row27_is_peak ? colPeak : colProfile
+    label.set_x(row27_label, time_close)
+    label.set_y(row27_label, row27_price)
+    label.set_color(row27_label, row27_color)
+    label.set_text(row27_label, row27_text)
+    row28_text = ""
+    for i = 0 to row28_width + 1 by 1
+        row28_text += "#"
+        row28_text
+    row28_color = showPeaks and show_Vp  and PassCorrect  and row28_is_peak ? colPeak : colProfile
+    label.set_x(row28_label, time_close)
+    label.set_y(row28_label, row28_price)
+    label.set_color(row28_label, row28_color)
+    label.set_text(row28_label, row28_text)
+    row29_text = ""
+    for i = 0 to row29_width + 1 by 1
+        row29_text += "#"
+        row29_text
+    row29_color = showPeaks and show_Vp  and PassCorrect  and row29_is_peak ? colPeak : colProfile
+    label.set_x(row29_label, time_close)
+    label.set_y(row29_label, row29_price)
+    label.set_color(row29_label, row29_color)
+    label.set_text(row29_label, row29_text)
+    row30_text = ""
+    for i = 0 to row30_width + 1 by 1
+        row30_text += "#"
+        row30_text
+    row30_color = showPeaks and show_Vp  and PassCorrect  and row30_is_peak ? colPeak : colProfile
+    label.set_x(row30_label, time_close)
+    label.set_y(row30_label, row30_price)
+    label.set_color(row30_label, row30_color)
+    label.set_text(row30_label, row30_text)
+    row31_text = ""
+    for i = 0 to row31_width + 1 by 1
+        row31_text += "#"
+        row31_text
+    row31_color = showPeaks and show_Vp  and PassCorrect  and row31_is_peak ? colPeak : colProfile
+    label.set_x(row31_label, time_close)
+    label.set_y(row31_label, row31_price)
+    label.set_color(row31_label, row31_color)
+    label.set_text(row31_label, row31_text)
+    row32_text = ""
+    for i = 0 to row32_width + 1 by 1
+        row32_text += "#"
+        row32_text
+    row32_color = showPeaks and show_Vp  and PassCorrect  and row32_is_peak ? colPeak : colProfile
+    label.set_x(row32_label, time_close)
+    label.set_y(row32_label, row32_price)
+    label.set_color(row32_label, row32_color)
+    label.set_text(row32_label, row32_text)
+    row33_text = ""
+    for i = 0 to row33_width + 1 by 1
+        row33_text += "#"
+        row33_text
+    row33_color = showPeaks and show_Vp  and PassCorrect  and row33_is_peak ? colPeak : colProfile
+    label.set_x(row33_label, time_close)
+    label.set_y(row33_label, row33_price)
+    label.set_color(row33_label, row33_color)
+    label.set_text(row33_label, row33_text)
+    row34_text = ""
+    for i = 0 to row34_width + 1 by 1
+        row34_text += "#"
+        row34_text
+    row34_color = showPeaks and show_Vp  and PassCorrect  and row34_is_peak ? colPeak : colProfile
+    label.set_x(row34_label, time_close)
+    label.set_y(row34_label, row34_price)
+    label.set_color(row34_label, row34_color)
+    label.set_text(row34_label, row34_text)
+    row35_text = ""
+    for i = 0 to row35_width + 1 by 1
+        row35_text += "#"
+        row35_text
+    row35_color = showPeaks and show_Vp  and PassCorrect  and row35_is_peak ? colPeak : colProfile
+    label.set_x(row35_label, time_close)
+    label.set_y(row35_label, row35_price)
+    label.set_color(row35_label, row35_color)
+    label.set_text(row35_label, row35_text)
+    row36_text = ""
+    for i = 0 to row36_width + 1 by 1
+        row36_text += "#"
+        row36_text
+    row36_color = showPeaks and show_Vp  and PassCorrect  and row36_is_peak ? colPeak : colProfile
+    label.set_x(row36_label, time_close)
+    label.set_y(row36_label, row36_price)
+    label.set_color(row36_label, row36_color)
+    label.set_text(row36_label, row36_text)
+    row37_text = ""
+    for i = 0 to row37_width + 1 by 1
+        row37_text += "#"
+        row37_text
+    row37_color = showPeaks and show_Vp  and PassCorrect  and row37_is_peak ? colPeak : colProfile
+    label.set_x(row37_label, time_close)
+    label.set_y(row37_label, row37_price)
+    label.set_color(row37_label, row37_color)
+    label.set_text(row37_label, row37_text)
+    row38_text = ""
+    for i = 0 to row38_width + 1 by 1
+        row38_text += "#"
+        row38_text
+    row38_color = showPeaks and show_Vp  and PassCorrect  and row38_is_peak ? colPeak : colProfile
+    label.set_x(row38_label, time_close)
+    label.set_y(row38_label, row38_price)
+    label.set_color(row38_label, row38_color)
+    label.set_text(row38_label, row38_text)
+    row39_text = ""
+    for i = 0 to row39_width + 1 by 1
+        row39_text += "#"
+        row39_text
+    row39_color = showPeaks and show_Vp  and PassCorrect  and row39_is_peak ? colPeak : colProfile
+    label.set_x(row39_label, time_close)
+    label.set_y(row39_label, row39_price)
+    label.set_color(row39_label, row39_color)
+    label.set_text(row39_label, row39_text)
+
+
+
+    ///////////////////////////////////////////// Money Moves Big Moves
+
+    
+average(bp, tr_, length) =>
+    math.sum(bp, length) / math.sum(tr_, length)
+high_ = math.max(high, close[1])
+low_ = math.min(low, close[1])
+bp = close - low_
+tr_ = high_ - low_
+avg7 = average(bp, tr_, length7)
+avg14 = average(bp, tr_, length14)
+avg28 = average(bp, tr_, length28)
+uo = 100 * (4 * avg7 + 2 * avg14 + avg28) / 7
+
+lowest_in_segment(s_close, s_osc, length) =>
+    min_bar = ta.lowestbars(s_close, length)
+    min_val = ta.lowest(s_close, length)
+    next_s_close = s_close[length]
+    osc_val = ta.lowest(s_osc, length)
+    next_s_osc = s_osc[length]
+    [min_bar, min_val, osc_val, next_s_close, next_s_osc]
+
+s_close = close
+s_osc = uo
+[low_bar_1, low_val_1, low_osc_1, low_s_close_1, low_s_osc_1] = lowest_in_segment(s_close, s_osc, spacing)
+[low_bar_2, low_val_2, low_osc_2, low_s_close_2, low_s_osc_2] = lowest_in_segment(low_s_close_1, low_s_osc_1, spacing)
+[low_bar_3, low_val_3, low_osc_3, low_s_close_3, low_s_osc_3] = lowest_in_segment(low_s_close_2, low_s_osc_2, spacing)
+[low_bar_4, low_val_4, low_osc_4, low_s_close_4, low_s_osc_4] = lowest_in_segment(low_s_close_3, low_s_osc_3, spacing)
+[low_bar_5, low_val_5, low_osc_5, low_s_close_5, low_s_osc_5] = lowest_in_segment(low_s_close_4, low_s_osc_4, spacing)
+[low_bar_6, low_val_6, low_osc_6, low_s_close_6, low_s_osc_6] = lowest_in_segment(low_s_close_5, low_s_osc_5, spacing)
+
+lowest_padded(series) =>
+    ta.lowest(series, spacing * 3)
+
+first_low = 1
+
+second_low_5x() =>
+    low_val_5 < low_val_6 ? 5 : 6
+second_low_4x() =>
+    second_low_5x_1 = second_low_5x()
+    lowest_padded(low_s_close_2) == low_val_4 ? 4 : second_low_5x_1
+second_low_34() =>
+    second_low_4x_1 = second_low_4x()
+    lowest_padded(low_s_close_1) == low_val_3 ? 3 : second_low_4x_1
+second_low_3x() =>
+    second_low_34_1 = second_low_34()
+    second_low_4x_1 = second_low_4x()
+    first_low != 3 ? second_low_34_1 : second_low_4x_1
+second_low_23() =>
+    second_low_34_1 = second_low_34()
+    lowest_padded(s_close) == low_val_2 ? 2 : second_low_34_1
+second_low_23_1 = second_low_23()
+second_low_3x_1 = second_low_3x()
+second_low = first_low == 1 ? second_low_23_1 : second_low_3x_1
+
+seg_1(i, seg_1, seg_2, seg_3, seg_4, seg_5, seg_6) =>
+    i == 1 ? seg_1 : i == 2 ? seg_2 : i == 3 ? seg_3 : i == 4 ? seg_4 : i == 5 ? seg_5 : seg_6
+first_low_val = seg_1(first_low, low_val_1, low_val_2, low_val_3, low_val_4, low_val_5, low_val_6)
+first_low_bar = (first_low - 1) * spacing + seg_1(first_low, low_bar_1, low_bar_2, low_bar_3, low_bar_4, low_bar_5, low_bar_6)
+second_low_val = seg_1(second_low, low_val_1, low_val_2, low_val_3, low_val_4, low_val_5, low_val_6)
+second_low_bar = (second_low - 1) * spacing + seg_1(second_low, low_bar_1, low_bar_2, low_bar_3, low_bar_4, low_bar_5, low_bar_6)
+
+first_osc_val = seg_1(first_low, low_osc_1, low_osc_2, low_osc_3, low_osc_4, low_osc_5, low_osc_6)
+second_osc_val = seg_1(second_low, low_osc_1, low_osc_2, low_osc_3, low_osc_4, low_osc_5, low_osc_6)
+
+val_lows_direction = math.sign(first_low_val - second_low_val)
+osc_lows_direction = math.sign(first_osc_val - second_osc_val)
+
+White80T = color.new(color.white , 80)
+//color.new(#FFFFFF, 100)
+
+n_bull_diff = val_lows_direction < 0 and osc_lows_direction >= 0
+bgcolor(n_bull_diff and show_Bm  and PassCorrect  ? White80T : na ,editable = false)  //, offset=-8)
+
+
+// Auto Fibonacci Code
+dev_threshold = ta.atr(10) / close * 100 * threshold_multiplier
+depth = 10
+
+var extending = extend.none
+if extendLeft and extendRight
+    extending := extend.both
+    extending
+if extendLeft and not extendRight
+    extending := extend.left
+    extending
+if not extendLeft and extendRight
+    extending := extend.right
+    extending
+
+var line lineLast = na
+var int iLast = 0
+var int iPrev = 0
+var float pLast = 0
+var isHighLast = false  // otherwise the last pivot is a low pivot
+
+pivots(src, length, isHigh) =>
+    l2 = length * 2
+    c2 = nz(src[length])
+    ok = true
+    for i = 0 to l2 by 1
+        if isHigh and src[i] > c2
+            ok := false
+            ok
+
+        if not isHigh and src[i] < c2
+            ok := false
+            ok
+    if ok
+        [bar_index[length], c2]
+    else
+        [int(na), float(na)]
+[iH, pH] = pivots(high, depth / 2, true)
+[iL, pL] = pivots(low, depth / 2, false)
+
+calc_dev(base_price, price) =>
+    100 * (price - base_price) / price
+
+pivotFound(dev, isHigh, index, price) =>
+    if isHighLast == isHigh and not na(lineLast)
+        // same direction
+        if isHighLast ? price > pLast : price < pLast
+            line.set_xy2(lineLast, index, price)
+            [lineLast, isHighLast]
+        else
+            [line(na), bool(na)]
+    else
+        // reverse the direction (or create the very first line)
+        if math.abs(dev) > dev_threshold
+            // price move is significant
+            id = line.new(iLast, pLast, index, price, color=na, width=1, style=line.style_dashed)
+            [id, isHigh]
+        else
+            [line(na), bool(na)]
+
+if not na(iH)
+    dev = calc_dev(pLast, pH)
+    [id, isHigh] = pivotFound(dev, true, iH, pH)
+    if not na(id)
+        if id != lineLast
+            line.delete(lineLast)
+        lineLast := id
+        isHighLast := isHigh
+        iPrev := iLast
+        iLast := iH
+        pLast := pH
+        pLast
+else
+    if not na(iL)
+        dev = calc_dev(pLast, pL)
+        [id, isHigh] = pivotFound(dev, false, iL, pL)
+        if not na(id)
+            if id != lineLast
+                line.delete(lineLast)
+            lineLast := id
+            isHighLast := isHigh
+            iPrev := iLast
+            iLast := iL
+            pLast := pL
+            pLast
+
+_draw_line(price, col) =>
+    var id = line.new(iLast, price, bar_index, price, color=col, width=1, extend=extending)
+    if not na(lineLast)
+        line.set_xy1(id, line.get_x1(lineLast), price)
+        line.set_xy2(id, line.get_x2(lineLast), price)
+
+_draw_label(price, txt, txtColor) =>
+    x = labelsPosition == 'Left' ? line.get_x1(lineLast) : not extendRight ? line.get_x2(lineLast) : bar_index
+    labelStyle = labelsPosition == 'Left' ? label.style_label_right : label.style_label_left
+    align = labelsPosition == 'Left' ? text.align_right : text.align_left
+    labelsAlignStrLeft = txt + '\n ‏  ‏  ‏  ‏  ‏  ‏  ‏  ‏  ‏  ‏  ‏  ‏  ‏  ‏  ‏  ‏  ‏  ‏  ‏  ‏  ‏  ‏  ‏  ‏  ‏  ‏  ‏  ‏  ‏  ‏  ‏  ‏  ‏  ‏  ‏ \n'
+    labelsAlignStrRight = '       ' + txt + '\n ‏  ‏  ‏  ‏  ‏  ‏  ‏  ‏  ‏  ‏  ‏  ‏  ‏  ‏  ‏  ‏  ‏  ‏  ‏  ‏  ‏  ‏  ‏  ‏  ‏  ‏  ‏  ‏  ‏  ‏  ‏  ‏  ‏  ‏  ‏ \n'
+    labelsAlignStr = labelsPosition == 'Left' ? labelsAlignStrLeft : labelsAlignStrRight
+    var id = label.new(x=x, y=price, text=labelsAlignStr, textcolor=txtColor, style=labelStyle, textalign=align, color=#00000000)
+    label.set_xy(id, x, price)
+    label.set_text(id, labelsAlignStr)
+    label.set_textcolor(id, txtColor)
+
+_wrap(txt) =>
+    '(' + str.tostring(txt, '#.##') + ')'
+
+_label_txt(level, price) =>
+    l = levelsFormat == 'Values' ? str.tostring(level) + ' ' : str.tostring(level * 100) + '% '
+    (levels ? l : ' ') + (prices ? _wrap(price) : ' ')
+
+_crossing_level(sr, r) =>
+    r > sr and r < sr[1] or r < sr and r > sr[1]
+
+startPrice = reverse ? line.get_y1(lineLast) : pLast
+endPrice = reverse ? pLast : line.get_y1(lineLast)
+
+iHL = startPrice > endPrice
+diff = (iHL ? -1 : 1) * math.abs(startPrice - endPrice)
+
+processLevel(show, value, colorL) =>
+    float m = value
+    r = startPrice + diff * m
+    if show
+        _draw_line(r, colorL)
+        _draw_label(r, _label_txt(m, r), colorL)
+
+show_0 = true
+value_0 = 0
+color_0 = #787b86
+if afibOn and PassCorrect
+    processLevel(show_0, value_0, color_0)
+
+show_0_236 = true
+value_0_236 = 0.236
+color_0_236 = #f44336
+if afibOn and PassCorrect
+    processLevel(show_0_236, value_0_236, color_0_236)
+
+show_0_382 = true
+value_0_382 = 0.382
+color_0_382 = #81c784
+if afibOn and PassCorrect
+    processLevel(show_0_382, value_0_382, color_0_382)
+
+show_0_5 = true
+value_0_5 = 0.5
+color_0_5 = #4caf50
+if afibOn and PassCorrect
+    processLevel(show_0_5, value_0_5, color_0_5)
+
+show_0_618 = true
+value_0_618 = 0.618
+color_0_618 = #009688
+if afibOn and PassCorrect
+    processLevel(show_0_618, value_0_618, color_0_618)
+
+show_0_786 = true
+value_0_786 = 0.786
+color_0_786 = #64b5f6
+if afibOn and PassCorrect
+    processLevel(show_0_786, value_0_786, color_0_786)
+
+show_1 = true
+value_1 = 1
+color_1 = #787b86
+if afibOn and PassCorrect
+    processLevel(show_1, value_1, color_1)
+// Money Moves Kiilzones
+
+// FUNCTIONS
+in_session(sess) =>
+    not na(time(timeframe.period, sess))
+
+start_time(sess) =>
+    int startTime = na
+    startTime := in_session(sess) and not in_session(sess)[1] ? time : startTime[1]
+    startTime
+
+is_new_session(res, sess) =>
+    t = time(res, sess)
+    na(t[1]) and not na(t) or t[1] < t
+
+BarInSession(sess) =>
+    time(timeframe.period, sess) != 0
+    
+_hline(StartTime, EndTime, Price, Color, Style, Width) =>
+    return_1 = line.new(StartTime, Price, EndTime, Price, xloc=xloc.bar_time, extend=extend.none, color=Color, style=Style, width=Width)
+    
+//PARAMS
+indexHighTF = barstate.isrealtime ? 0 : 0
+indexCurrTF = barstate.isrealtime ? 0 : 0
+dailyhigh = request.security(syminfo.tickerid, 'D', high, lookahead=barmerge.lookahead_on)[indexHighTF]
+dailylow = request.security(syminfo.tickerid, 'D', low[indexCurrTF], lookahead=barmerge.lookahead_on)[indexCurrTF]
+
+displayZones = timeframe.isintraday and (timeframe.multiplier > displayZonesLimit ? false : false)
+
+//ASIA BOX
+asia_session = is_new_session('1440', asia)
+
+float _asialow = na
+float _asiahigh = na
+_asiabox = box(na)
+
+_asiastart = start_time(asia)
+_asialow := asia_session ? low : in_session(asia) ? math.min(low, _asialow[1]) : na
+_asiahigh := asia_session ? high : in_session(asia) ? math.max(high, _asiahigh[1]) : na
+diff1 = _asiahigh[1] - _asialow[1]
+
+if in_session(asia)
+    if in_session(asia)[1]
+        box.delete(_asiabox[1])
+
+    if low < _asialow
+        _asialow := low
+        _asialow
+    if high > _asiahigh
+        _asiahigh := high
+        _asiahigh
+
+    if asiashow and PassCorrect
+        _asiabox := box.new(_asiastart, _asiahigh, time, _asialow, xloc=xloc.bar_time, bgcolor=asiacolor, border_color=asiacolor, border_style=line.style_dotted)
+        _asiabox
+        
+if asiashowdeviations and PassCorrect and not in_session(asia) and in_session(asia)[1]
+    for s = 1 to asiadeviations by 1
+        _hline(_asiastart, time, _asiahigh[1] + diff1 * s, color.new(color.black, 0), line.style_solid, 1)
+        _hline(_asiastart, time, _asialow[1] - diff1 * s, color.new(color.black, 0), line.style_solid, 1)
+
+
+//LONDON OPEN
+lo_session = is_new_session('1440', lo)
+
+line _lolinelow = na
+line _lolinehigh = na
+_lostart = start_time(lo)
+
+if in_session(lo)
+    if in_session(lo)[1]
+        line.delete(_lolinelow[1])
+        line.delete(_lolinehigh[1])
+
+    if loshow and PassCorrect
+        _lolinehigh := line.new(_lostart, dailyhigh, time, dailyhigh, xloc=xloc.bar_time, color=locolor, style=line.style_solid, width=3)
+        _lolinelow := line.new(_lostart, dailylow, time, dailylow, xloc=xloc.bar_time, color=locolor, style=line.style_solid, width=3)
+        _lolinelow
+
+//NEW YORK OPEN
+ny_session = is_new_session('1440', ny)
+
+line _nylinelow = na
+line _nylinehigh = na
+_nystart = start_time(ny)
+
+if in_session(ny)
+    if in_session(ny)[1]
+        line.delete(_nylinelow[1])
+        line.delete(_nylinehigh[1])
+
+    if nyshow and PassCorrect
+        _nylinehigh := line.new(_nystart, dailyhigh, time, dailyhigh, xloc=xloc.bar_time, color=nycolor, style=line.style_solid, width=3)
+        _nylinelow := line.new(_nystart, dailylow, time, dailylow, xloc=xloc.bar_time, color=nycolor, style=line.style_solid, width=3)
+        _nylinelow
+
+//LONDON CLOSE
+lc_session = is_new_session('1440', lc)
+
+line _lclinelow = na
+line _lclinehigh = na
+_lcstart = start_time(lc)
+
+if in_session(lc)
+    if in_session(lc)[1]
+        line.delete(_lclinelow[1])
+        line.delete(_lclinehigh[1])
+
+    if lcshow and PassCorrect
+        _lclinehigh := line.new(_lcstart, dailyhigh, time, dailyhigh, xloc=xloc.bar_time, color=lccolor, style=line.style_solid, width=3)
+        _lclinelow := line.new(_lcstart, dailylow, time, dailylow, xloc=xloc.bar_time, color=lccolor, style=line.style_solid, width=3)
+        _lclinelow
+
+//NEW YORK CLOSE
+nyc_session = is_new_session('1440', nyc)
+
+line _nyclinelow = na
+line _nyclinehigh = na
+_nycstart = start_time(nyc)
+
+if in_session(nyc)
+    if in_session(nyc)[1]
+        line.delete(_nyclinelow[1])
+        line.delete(_nyclinehigh[1])
+
+    if nycshow and PassCorrect
+        _nyclinehigh := line.new(_nycstart, dailyhigh, time, dailyhigh, xloc=xloc.bar_time, color=nyccolor, style=line.style_solid, width=3)
+        _nyclinelow := line.new(_nycstart, dailylow, time, dailylow, xloc=xloc.bar_time, color=nyccolor, style=line.style_solid, width=3)
+        _nyclinelow
+
+//Functions 
+//-----------------------------------------------------------------------------{
+//Line Style function
+get_line_style(style) =>
+    out = switch style
+        'Solid'  => line.style_solid
+        'Dashed' => line.style_dashed
+        'Dotted' => line.style_dotted
+
+//Function to get order block coordinates
+get_coordinates(condition, top, btm, ob_val)=>
+    var ob_top  = array.new_float(0)
+    var ob_btm  = array.new_float(0)
+    var ob_avg  = array.new_float(0)
+    var ob_left = array.new_int(0)
+
+    float ob = na
+
+    //Append coordinates to arrays
+    if condition
+        avg = math.avg(top, btm)
+        
+        array.unshift(ob_top, top)
+        array.unshift(ob_btm, btm)
+        array.unshift(ob_avg, avg)
+        array.unshift(ob_left, time[length])
+        
+        ob := ob_val
+    
+    [ob_top, ob_btm, ob_avg, ob_left, ob]
+
+//Function to remove mitigated order blocks from coordinate arrays
+remove_mitigated(ob_top, ob_btm, ob_left, ob_avg, target, bull)=>
+    mitigated = false
+    target_array = bull ? ob_btm : ob_top
+
+    for element in target_array
+        idx = array.indexof(target_array, element)
+
+        if (bull ? target < element : target > element)
+            mitigated := true
+
+            array.remove(ob_top, idx)
+            array.remove(ob_btm, idx)
+            array.remove(ob_avg, idx)
+            array.remove(ob_left, idx)
+    
+    mitigated
+
+//Function to set order blocks
+set_order_blocks(ob_top, ob_btm, ob_left, ob_avg, ext_last, bg_css, border_css, lvl_css)=>
+    var ob_box = array.new_box(0)
+    var ob_lvl = array.new_line(0)
+
+    //Fill arrays with boxes/lines
+    if barstate.isfirst and show_OBls and PassCorrect
+        for i = 0 to ext_last-1
+            array.unshift(ob_box, box.new(na,na,na,na
+           , xloc = xloc.bar_time
+           , extend= extend.right
+           , bgcolor = bg_css
+           , border_color = color.new(border_css, 70)))
+
+            array.unshift(ob_lvl, line.new(na,na,na,na
+           , xloc = xloc.bar_time
+           , extend = extend.right
+           , color = lvl_css
+           , style = get_line_style(line_style)
+           , width = line_width))
+
+    //Set order blocks
+    if barstate.islast and show_OBls and PassCorrect
+        if array.size(ob_top) > 0
+            for i = 0 to math.min(ext_last-1, array.size(ob_top)-1)
+                get_box = array.get(ob_box, i)
+                get_lvl = array.get(ob_lvl, i)
+
+                box.set_lefttop(get_box, array.get(ob_left, i), array.get(ob_top, i))
+                box.set_rightbottom(get_box, array.get(ob_left, i), array.get(ob_btm, i))
+
+                line.set_xy1(get_lvl, array.get(ob_left, i), array.get(ob_avg, i))
+                line.set_xy2(get_lvl, array.get(ob_left, i)+1, array.get(ob_avg, i))
+
+
+//-----------------------------------------------------------------------------}
+//Global elements 
+//-----------------------------------------------------------------------------{
+var os = 0
+var target_bull = 0.
+var target_bear = 0.
+
+nn = bar_index
+upper = ta.highest(length)
+lower = ta.lowest(length)
+
+if mitigation == 'Close'
+    target_bull := ta.lowest(close, length)
+    target_bear := ta.highest(close, length)
+else
+    target_bull := lower
+    target_bear := upper
+
+os := high[length] > upper ? 0 : low[length] < lower ? 1 : os[1]
+
+phv = ta.pivothigh(volume, length, length)
+
+//-----------------------------------------------------------------------------}
+//Get bullish/bearish order blocks coordinates 
+//-----------------------------------------------------------------------------{
+[bull_top , bull_btm , bull_avg , bull_left , bull_ob] = get_coordinates(phv and os == 1, hl2[length], low[length], low[length])
+
+[bear_top , bear_btm , bear_avg , bear_left , bear_ob] = get_coordinates(phv and os == 0, high[length], hl2[length], high[length])
+
+//-----------------------------------------------------------------------------}
+//Remove mitigated order blocks
+//-----------------------------------------------------------------------------{
+mitigated_bull = remove_mitigated(bull_top , bull_btm , bull_left , bull_avg , target_bull , true)
+
+mitigated_bear = remove_mitigated(bear_top , bear_btm , bear_left , bear_avg , target_bear , false)
+
+//-----------------------------------------------------------------------------}
+//Display order blocks
+//-----------------------------------------------------------------------------{
+//Set bullish order blocks
+set_order_blocks(bull_top , bull_btm , bull_left , bull_avg , bull_ext_last , bg_bull_css , bull_css , bull_avg_css)
+
+//Set bearish order blocks
+set_order_blocks(bear_top , bear_btm , bear_left , bear_avg , bear_ext_last , bg_bear_css , bear_css , bear_avg_css)
+        
+//Show detected order blocks
+plot(bull_ob, 'Bull OB', bull_css, 2, plot.style_linebr , offset = -length , display = display.none)
+
+plot(bear_ob, 'Bear OB', bear_css, 2, plot.style_linebr , offset = -length , display = display.none)
+
+// Money Moves [EQH/EQL]
+//-----------------------------------------------------------------------------}
+//Functions
+//-----------------------------------------------------------------------------{
+n4 = bar_index
+atr4 = ta.atr(200)
+cmean_range = ta.cum(high - low) / n4
+eqh_alert = false 
+eql_alert = false 
+//-----------------------------------------------------------------------------}
+//EQH/EQL
+//-----------------------------------------------------------------------------{
+var eq_prev_top = 0.
+var eq_top_x = 0
+
+var eq_prev_btm = 0.
+var eq_btm_x = 0
+
+if show_eq
+    eq_top = ta.pivothigh(eq_len, eq_len)
+    eq_btm = ta.pivotlow(eq_len, eq_len)
+
+    if eq_top and PassCorrect
+        max = math.max(eq_top, eq_prev_top)
+        min = math.min(eq_top, eq_prev_top)
+        
+        if max < min + atr4 * eq_threshold
+            eqh_line = line.new(eq_top_x, eq_prev_top, n4-eq_len, eq_top , color = bearcolor , style = line.style_solid)
+
+            eqh_lbl = label.new(int(math.avg(n4-eq_len, eq_top_x)), eq_top, 'EQH', color = #00000000 , textcolor = bearcolor , style = label.style_label_down , size = size.tiny)
+
+            eqh_alert := true
+
+        eq_prev_top := eq_top
+        eq_top_x := n4-eq_len
+
+    if eq_btm and PassCorrect
+        max = math.max(eq_btm, eq_prev_btm)
+        min = math.min(eq_btm, eq_prev_btm)
+        
+        if min > max - atr4 * eq_threshold
+            eql_line = line.new(eq_btm_x, eq_prev_btm, n4-eq_len, eq_btm , color = bullcolor , style = line.style_solid)
+
+            eql_lbl = label.new(int(math.avg(n4-eq_len, eq_btm_x)), eq_btm, 'EQL' , color = #00000000 , textcolor = bullcolor , style = label.style_label_up , size = size.tiny)
+
+            eql_alert := true
+
+            if Mode == 'Present'
+                line.delete(eql_line[1])
+                label.delete(eql_lbl[1])
+
+        eq_prev_btm := eq_btm
+        eq_btm_x := n4-eq_len
+
+//-----------------------------------------------------------------------------}
+//Alerts
+//-----------------------------------------------------------------------------{
+alertcondition(eqh_alert, 'Equal Highs', 'Equal highs detected')
+alertcondition(eql_alert, 'Equal Lows', 'Equal lows detected')
+
+alertcondition(bull_ob, 'Bullish OB Formed', 'Bullish order block detected')
+alertcondition(bear_ob, 'Bearish OB Formed', 'bearish order block detected')
+alertcondition(mitigated_bull, 'Bullish OB Mitigated', 'Bullish order block mitigated')
+alertcondition(mitigated_bear, 'Bearish OB Mitigated', 'bearish order block mitigated')
+
+alertcondition(bullCond, title='Bull', message='Regular Bull Div {{ticker}}')
+alertcondition(bearCond, title='Bear', message='Regular Bear Div {{ticker}}')
+alertcondition(hiddenBullCond, title='H Bull', message='Hidden Bull Div {{ticker}}')
+alertcondition(hiddenBearCond, title='Hidden Bear', message='Hidden Bear Div {{ticker}}')
+
+alertcondition(not na(pivtHigh) or not na(PivtLow), title="New trendline formed", message="New trendline formed")
+
+
+// VWAP
+var cumVol = 0.
+cumVol += nz(volume)
+//if no volume provided, VWAP switched OFF by default
+if barstate.islast and cumVol == 0
+    showVwap := false
+    
+computeVWAP(srcVWAP, isNewPeriod) =>
+	var float sumSrcVol = na
+	var float sumVol = na
+    var float sumSrcSrcVol = na
+
+	sumSrcVol := isNewPeriod ? srcVWAP * volume : srcVWAP * volume + sumSrcVol[1]
+	sumVol := isNewPeriod ? volume : volume + sumVol[1]
+	// sumSrcSrcVol calculates the dividend of the equation that is later used to calculate the standard deviation
+	sumSrcSrcVol := isNewPeriod ? volume * math.pow(src, 2) : volume * math.pow(src, 2) + sumSrcSrcVol[1]
+
+	_vwap = sumSrcVol / sumVol
+	variance = sumSrcSrcVol / sumVol - math.pow(_vwap, 2)
+	variance := variance < 0 ? 0 : variance
+	stDev = math.sqrt(variance)
+	[_vwap]
+
+
+timeChange(period) =>
+	ta.change(time(period))
+
+new_earnings = request.earnings(syminfo.tickerid, earnings.actual, barmerge.gaps_on, barmerge.lookahead_on, ignore_invalid_symbol=true)
+new_dividends = request.dividends(syminfo.tickerid, dividends.gross, barmerge.gaps_on, barmerge.lookahead_on, ignore_invalid_symbol=true)
+new_split = request.splits(syminfo.tickerid, splits.denominator, barmerge.gaps_on, barmerge.lookahead_on, ignore_invalid_symbol=true)
+
+isNewPeriod = switch anchor
+	"Earnings" => not na(new_earnings)
+	"Dividends" => not na(new_dividends)
+	"Splits" => not na(new_split)
+	"Session" => timeChange("D")
+	"Week" => timeChange("W")
+	"Month" => timeChange("M")
+	"Quarter" => timeChange("3M")
+	"Year" => timeChange("12M")
+	"Decade" => timeChange("12M") and year % 10 == 0
+	"Century" => timeChange("12M") and year % 100 == 0
+	=> false
+
+isEsdAnchor = anchor == "Earnings" or anchor == "Dividends" or anchor == "Splits"
+if na(srcVWAP[1]) and not isEsdAnchor
+	isNewPeriod := true
+
+float vwapValue = na
+float std = na
+VWAPup = bullcolor
+VWAPdown = bearcolor
+VWAPneutral = color.gray
+color colorVWAP = na
+if not (hideonDWM and timeframe.isdwm)
+    [_vwap] = computeVWAP(srcVWAP, isNewPeriod)
+    vwapValue := _vwap
+    colorVWAP := _vwap > _vwap[1] ? VWAPup: _vwap < _vwap[1] ? VWAPdown: VWAPneutral
+
+plot(vwapValue and showVwap ? vwapValue : na, title="VWAP", color=colorVWAP, linewidth = 2, offset=offset , editable = false)

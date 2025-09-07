@@ -1,0 +1,249 @@
+//@version=5
+indicator("Institutional CRT Engine v3.0 - Dual Mode", "CRT Engine", overlay=true, max_lines_count=200, max_labels_count=200, dynamic_requests=true)
+//google ai studio prompt
+//
+//https://aistudio.google.com/prompts/13yZfFg3tIAyHQlvYlzxtl7-54tZjeSSf
+//
+//improved from CRT MEOW indicator
+// ═══════════════════════════════════════════════════════════════════════════════
+//
+//                      Institutional CRT Engine v3.0 - Dual Mode
+//
+//  This indicator is a comprehensive tool built to identify high-probability
+//  Candle Range Theory (CRT) setups based on a strict, institutional, top-down
+//  methodology. It discards flawed retail logic and focuses on the core principles
+//  of Time, Liquidity, and Market Structure Shifts.
+//
+//  NOW SUPPORTS BOTH 1-HOUR AND 4-HOUR CRT MODELS
+//
+//  Developed by: The Synthesis.............
+//  Based on the comprehensive "Knowledge Hub" methodology.
+//
+// ═══════════════════════════════════════════════════════════════════════════════
+
+
+//  INPUTS ────────────────────────────────────────────────────────────────────────
+//                                                                                 -
+// CRT Core Settings
+g_model = "Model Selection"
+i_timeframe_mode = input.string("1-Hour CRT", "CRT Timeframe", ["1-Hour CRT", "4-Hour CRT"], group = g_model,
+  tooltip = "Select between 1-Hour and 4-Hour CRT models. Each has different target ranges and timing.")
+
+// Model choices based on timeframe selection
+i_model_choice_1h = input.string("9 AM NY", "1-Hour CRT Sessions", ["1 AM Asia", "5 AM London", "9 AM NY"], group = g_model)
+i_model_choice_4h = input.string("8 AM NY (H4)", "4-Hour CRT Sessions", ["12 AM NY (H4)", "4 AM London (H4)", "8 AM NY (H4)", "12 PM NY (H4)", "4 PM London Close (H4)", "8 PM Asia Prep (H4)"], group = g_model)
+
+i_entry_model = input.string("MSS + FVG", "Entry Logic", ["MSS + FVG", "Aggressive Turtle Soup"], group = g_model,
+  tooltip = "MSS + FVG is recommended. It waits for a Market Structure Shift after the sweep, then enters on the FVG. 'Aggressive Turtle Soup' enters immediately on the sweep, which is higher risk.")
+
+// Advanced Filters
+g_filters = "Advanced Contextual Filters"
+i_use_htf_kl_filter = input.bool(true, "Require HTF Key Level Confluence", group = g_filters,
+  tooltip = "If checked, a setup is ONLY valid if the manipulation sweep occurs within a pre-identified HTF FVG or Orderblock. For 1H CRT uses H4 levels, for 4H CRT uses Daily levels.")
+i_kl_lookback = input.int(20, "HTF Key Level Lookback (Bars)", group=g_filters, minval=5)
+i_use_smt_filter = input.bool(false, "Enable SMT Divergence Filter", group = g_filters,
+  tooltip = "Filters for Smart Money Technique divergence between the current asset and a correlated one at the point of manipulation.")
+i_smt_symbol = input.string("ES1!", "SMT Correlated Symbol", group = g_filters)
+
+// Display & Alerts
+g_display = "Display & Alert Settings"
+i_show_boxes = input.bool(true, "Show CRT Range Box", group = g_display)
+i_show_labels = input.bool(true, "Show Buy/Sell Signals", group = g_display)
+i_alerts_on = input.bool(true, "Enable Alerts", group = g_display)
+i_alert_freq = input.string("Once Per Bar Close", "Alert Frequency", ["Once Per Bar", "Once Per Bar Close"], group=g_display)
+
+//                                                                                 -
+//  INTERNAL STATE MANAGEMENT ─────────────────────────────────────────────────────
+//                                                                                 -
+var string a_freq = i_alert_freq == "Once Per Bar" ? alert.freq_once_per_bar : alert.freq_once_per_bar_close
+
+// Determine timeframe and target hour based on user's selection
+var string CRT_TIMEFRAME = i_timeframe_mode == "1-Hour CRT" ? "60" : "240"
+var string HTF_TIMEFRAME = i_timeframe_mode == "1-Hour CRT" ? "240" : "1D"
+
+// Target hour logic for both 1-hour and 4-hour models
+var int TARGET_HOUR = na
+if i_timeframe_mode == "1-Hour CRT"
+    TARGET_HOUR := i_model_choice_1h == "1 AM Asia" ? 0 : i_model_choice_1h == "5 AM London" ? 4 : 8
+else // 4-Hour CRT
+    TARGET_HOUR := i_model_choice_4h == "12 AM NY (H4)" ? 0 : 
+                   i_model_choice_4h == "4 AM London (H4)" ? 4 : 
+                   i_model_choice_4h == "8 AM NY (H4)" ? 8 : 
+                   i_model_choice_4h == "12 PM NY (H4)" ? 12 : 
+                   i_model_choice_4h == "4 PM London Close (H4)" ? 16 : 20
+
+// --- State Machine ---
+// We use a state machine to ensure the logical sequence of events is followed precisely.
+// The EA can only move from one state to the next, preventing false signals.
+var string state_bull = "WAITING_FOR_RANGE"
+var string state_bear = "WAITING_FOR_RANGE"
+
+// --- State Variables ---
+// These variables store the critical price levels for the duration of the trading day.
+var float crt_high = na
+var float crt_low = na
+var float mss_level_bull = na
+var float mss_level_bear = na
+var float entry_fvg_high = na
+var float entry_fvg_low = na
+
+// --- Time Management ---
+// Reset frequency depends on timeframe: daily for 1H, every 4 days for 4H for more persistent ranges
+var int reset_frequency = i_timeframe_mode == "1-Hour CRT" ? 1 : 4
+is_new_period = ta.change(math.floor(dayofweek(time, "America/New_York") / reset_frequency))
+if is_new_period
+    state_bull := "WAITING_FOR_RANGE"
+    state_bear := "WAITING_FOR_RANGE"
+    crt_high := na, crt_low := na, mss_level_bull := na, mss_level_bear := na
+    entry_fvg_high := na, entry_fvg_low := na
+
+//                                                                                 -
+//  CORE FUNCTIONS ────────────────────────────────────────────────────────────────
+//                                                                                 -
+// Fetches CRT timeframe data to find the timed range candle (H1 or H4 based on selection).
+f_getTimedRange() =>
+    [t, h, l] = request.security(syminfo.tickerid, CRT_TIMEFRAME, [time, high, low], lookahead = barmerge.lookahead_on)
+    is_target_hour = hour(t, "America/New_York") == TARGET_HOUR
+    is_new_candle = ta.change(t)
+    [is_target_hour and is_new_candle, h, l]
+
+// Scans backwards to find the most recent valid swing low. Uses M15 for 1H CRT, H1 for 4H CRT.
+f_findLastSwingLow() =>
+    // For 4H CRT, look for MSS on H1 timeframe; for 1H CRT, use M15
+    mss_timeframe = i_timeframe_mode == "1-Hour CRT" ? "15" : "60"
+    swing_low_htf = request.security(syminfo.tickerid, mss_timeframe, low[1], lookahead = barmerge.lookahead_on)
+    swing_low_htf
+
+// Scans backwards to find the most recent valid swing high. Uses M15 for 1H CRT, H1 for 4H CRT.
+f_findLastSwingHigh() =>
+    // For 4H CRT, look for MSS on H1 timeframe; for 1H CRT, use M15  
+    mss_timeframe = i_timeframe_mode == "1-Hour CRT" ? "15" : "60"
+    swing_high_htf = request.security(syminfo.tickerid, mss_timeframe, high[1], lookahead = barmerge.lookahead_on)
+    swing_high_htf
+
+// Looks for a Fair Value Gap created by the MSS move to use as our precise entry zone.
+f_findEntryFVG(bool is_bullish) =>
+    float fvg_h = na, float fvg_l = na
+    // Bullish FVG: Check if the high of candle [i-2] is lower than the low of candle [i].
+    if is_bullish and low > high[2]
+        fvg_h := high[2]
+        fvg_l := low
+    // Bearish FVG: Check if the low of candle [i-2] is higher than the high of candle [i].
+    if not is_bullish and high < low[2]
+        fvg_h := low[2]
+        fvg_l := high
+    [fvg_h, fvg_l]
+
+// [FILTER] Checks if a liquidity sweep is occurring at a major HTF Key Level (H4 FVG/OB).
+f_isAtHTFKeyLevel(bool check_bullish) =>
+    [h4_open, h4_high, h4_low, h4_close] = request.security(syminfo.tickerid, HTF_TIMEFRAME, [open, high, low, close], lookahead = barmerge.lookahead_on)
+    bool is_in_zone = false
+    if check_bullish
+        // Bullish KL: Look for a H4 Bullish FVG or Orderblock below price.
+        bull_fvg_l = h4_high[2], bull_fvg_h = h4_low
+        bull_ob_l = h4_low[1], bull_ob_h = h4_open[1]
+        is_in_zone := low <= bull_fvg_h or low <= bull_ob_h
+    else
+        // Bearish KL: Look for a H4 Bearish FVG or Orderblock above price.
+        bear_fvg_h = low[2], bear_fvg_l = high
+        bear_ob_h = high[1], bear_ob_l = open[1]
+        is_in_zone := high >= bear_fvg_l or high >= bear_ob_l
+    is_in_zone
+
+// [FILTER] Checks for SMT Divergence at the point of manipulation.
+f_detectSMTDivergence(bool check_bullish) =>
+    [smt_high, smt_low] = request.security(i_smt_symbol, timeframe.period, [high, low])
+    bool smt_exists = false
+    if check_bullish
+        // Bullish SMT: Our market makes a lower low, but the correlated asset makes a higher low.
+        smt_exists := low < low[1] and smt_low > smt_low[1]
+    else
+        // Bearish SMT: Our market makes a higher high, but the correlated asset makes a lower high.
+        smt_exists := high > high[1] and smt_high < smt_high[1]
+    smt_exists
+
+
+//                                                                                 -
+//  MAIN INDICATOR LOGIC & STATE MACHINE ──────────────────────────────────────────
+//                                                                                 -
+// Get our timed range data once per day.
+[is_new_range_candle, h1_h, h1_l] = f_getTimedRange()
+
+// STATE 1: Find the Timed Range.
+if is_new_range_candle and state_bull == "WAITING_FOR_RANGE"
+    crt_high := h1_h, crt_low := h1_l
+    state_bull := "WAITING_FOR_SWEEP", state_bear := "WAITING_FOR_SWEEP"
+
+// Run the core logic if a valid range has been set for the day.
+if crt_high > 0
+
+    // --- Bullish Setup Logic ---
+    if state_bull == "WAITING_FOR_SWEEP" and low < crt_low
+        if i_use_htf_kl_filter and not f_isAtHTFKeyLevel(true)
+            state_bull := "INVALID" // Filtered out by KL
+        else
+            mss_level_bull := f_findLastSwingHigh()
+            state_bull := "WAITING_FOR_MSS"
+
+    if state_bull == "WAITING_FOR_MSS" and close > mss_level_bull
+        [fvg_h, fvg_l] = f_findEntryFVG(true)
+        if not na(fvg_h)
+            entry_fvg_high := fvg_h
+            entry_fvg_low := fvg_l
+            state_bull := "WAITING_FOR_ENTRY"
+        
+    // --- Bearish Setup Logic ---
+    if state_bear == "WAITING_FOR_SWEEP" and high > crt_high
+        if i_use_htf_kl_filter and not f_isAtHTFKeyLevel(false)
+            state_bear := "INVALID" // Filtered out by KL
+        else
+            mss_level_bear := f_findLastSwingLow()
+            state_bear := "WAITING_FOR_MSS"
+    
+    if state_bear == "WAITING_FOR_MSS" and close < mss_level_bear
+        [fvg_h, fvg_l] = f_findEntryFVG(false)
+        if not na(fvg_h)
+            entry_fvg_high := fvg_h
+            entry_fvg_low := fvg_l
+            state_bear := "WAITING_FOR_ENTRY"
+
+    //                                                                                 -
+    //  SIGNALS & ALERTS ──────────────────────────────────────────────────────────────
+    //                                                                                 -
+    bool buySignal = false, sellSignal = false
+
+    // Bullish Entry Trigger
+    if state_bull == "WAITING_FOR_ENTRY" and close <= entry_fvg_high
+        if i_use_smt_filter and not f_detectSMTDivergence(true)
+            state_bull := "INVALID"
+        else
+            buySignal := true
+            state_bull := "TRIGGERED", state_bear := "INVALID" // Invalidate the other side
+
+    // Bearish Entry Trigger
+    if state_bear == "WAITING_FOR_ENTRY" and close >= entry_fvg_low
+        if i_use_smt_filter and not f_detectSMTDivergence(false)
+            state_bear := "INVALID"
+        else
+            sellSignal := true
+            state_bear := "TRIGGERED", state_bull := "INVALID" // Invalidate the other side
+            
+    //                                                                                 -
+    //  VISUALIZATIONS ────────────────────────────────────────────────────────────────
+    //                                                                                 -
+    // Plot the CRT Range Box
+    if crt_high > 0 and i_show_boxes
+        // Use different colors for H1 vs H4 ranges
+        box_color = i_timeframe_mode == "1-Hour CRT" ? color.blue : color.purple
+        box.new(bar_index - 1, crt_high, bar_index + 1, crt_low, border_color=color.new(box_color, 50), bgcolor=color.new(box_color, 90), xloc=xloc.bar_index)
+
+    // Plot Buy/Sell Signals
+    if buySignal and i_show_labels
+        crt_mode_text = i_timeframe_mode == "1-Hour CRT" ? " (H1)" : " (H4)"
+        label.new(bar_index, low - ta.atr(14), "▲\nBUY" + crt_mode_text, style=label.style_label_up, color=color.new(color.green, 20), textcolor=color.white)
+        alert("Institutional CRT Engine [" + i_timeframe_mode + "]: Bullish Setup Confirmed (" + syminfo.ticker + ", " + timeframe.period + ")", freq=a_freq)
+        
+    if sellSignal and i_show_labels
+        crt_mode_text = i_timeframe_mode == "1-Hour CRT" ? " (H1)" : " (H4)"
+        label.new(bar_index, high + ta.atr(14), "▼\nSELL" + crt_mode_text, style=label.style_label_down, color=color.new(color.red, 20), textcolor=color.white)
+        alert("Institutional CRT Engine [" + i_timeframe_mode + "]: Bearish Setup Confirmed (" + syminfo.ticker + ", " + timeframe.period + ")", freq=a_freq)

@@ -1,0 +1,25 @@
+ema  = ta.ema(close, 200)
+emaBull = close > ema
+equal_tf(res) => str.tonumber(res) == f_chartTfInMinutes()
+higher_tf(res) => str.tonumber(res) > f_chartTfInMinutes()
+too_small_tf(res) => (timeframe.isweekly and res=="1") or (timeframe.ismonthly and str.tonumber(res) < 10)
+securityNoRep(sym, res, src) =>
+    bool bull = na
+    bull := equal_tf(res) ? src : bull
+    bull := higher_tf(res) ? request.security(sym, res, src, barmerge.gaps_off, barmerge.lookahead_on) : bull
+    bull_array = request.security_lower_tf(syminfo.tickerid, higher_tf(res) ? str.tostring(f_chartTfInMinutes()) : too_small_tf(res) ? (timeframe.isweekly ? "3" : "10") : res, src)
+    if array.size(bull_array) > 1 and not equal_tf(res) and not higher_tf(res)
+        bull := array.pop(bull_array)
+    array.clear(bull_array)
+    bull
+TF1Bull   = securityNoRep(syminfo.tickerid, "1"   , emaBull)
+TF3Bull   = securityNoRep(syminfo.tickerid, "3"   , emaBull)
+TF5Bull   = securityNoRep(syminfo.tickerid, "5"   , emaBull)
+TF10Bull  = securityNoRep(syminfo.tickerid, "10"  , emaBull)
+TF15Bull  = securityNoRep(syminfo.tickerid, "15"  , emaBull)
+TF30Bull  = securityNoRep(syminfo.tickerid, "30"  , emaBull)
+TF60Bull  = securityNoRep(syminfo.tickerid, "60"  , emaBull)
+TF120Bull = securityNoRep(syminfo.tickerid, "120" , emaBull)
+TF240Bull = securityNoRep(syminfo.tickerid, "240" , emaBull)
+TF720Bull = securityNoRep(syminfo.tickerid, "720" , emaBull)
+TFDBull   = securityNoRep(syminfo.tickerid, "1440", emaBull)

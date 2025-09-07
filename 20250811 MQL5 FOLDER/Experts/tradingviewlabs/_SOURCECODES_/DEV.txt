@@ -1,0 +1,2130 @@
+//@version=5
+indicator(title ="DEV", shorttitle = "DEV - V1.0"
+  , overlay = true
+  , max_labels_count = 500
+  , max_lines_count = 500
+  , max_boxes_count = 500
+  , max_bars_back = 500)
+
+
+xMumKontrol(xMumTip)=>
+    string xMA = switch xMumTip
+        "1 Dakika" => "1"
+        "3 Dakika" => "3"
+        "5 Dakika" => "5"
+        "15 Dakika" => "15"
+        "30 Dakika" => "30"
+        "1 Saat" => "60" 
+        "2 Saat" => "120" 
+        "4 Saat" => "240" 
+        "6 Saat" => "360" 
+        "1 Gün" => "D"
+        "1 Hafta" => "W"
+        "3 Hafta" => "3W"
+        "1 Ay" => "M"
+        "5 Hafta" => "5W"
+        => str.tostring(timeframe.period)
+
+xMumKontrolA(xMumTipA)=>
+    string xMAA = switch xMumTipA
+        "1" => "1 Dakika"
+	    "3" => "3 Dakika"
+		"5" => "5 Dakika" 
+        "15" => "15 Dakika" 
+        "30" => "30 Dakika" 
+        "60" => "1 Saat"  
+        "120" => "2 Saat"  
+        "240" => "4 Saat"  
+        "360" => "6 Saat"  
+        "D" => "1 Gün"  
+        "W" => "1 Hafta" 
+        "3W" => "3 Hafta" 
+        "M" => "1 Ay" 
+        "5W" => "5 Hafta" 
+        => str.tostring(timeframe.period)
+
+demaHesapla(mySrc,len)=>
+    ema1 = ta.ema(mySrc, len)
+    ema2 = ta.ema(ema1, len)
+    (2 * ema1) - ema2  
+
+temaHesapla(mySrc,len)=>
+    ema1 = ta.ema(mySrc, len)
+    ema2 = ta.ema(ema1, len)
+    ema3 = ta.ema(ema2, len)
+    3 * (ema1 - ema2) + ema3  
+
+xMaKontrol(xMaTip, mySrc, len)=>
+    float xMA = switch xMaTip
+        "EMA" => ta.ema(mySrc, len) 
+        "SMA" => ta.sma(mySrc, len) 
+        "HMA" => ta.hma(mySrc, len) 
+        "RMA" => ta.rma(mySrc, len) 
+        "WMA" => ta.wma(mySrc, len) 
+        "VWMA" => ta.vwma(mySrc, len)
+        "(D)EMA" => demaHesapla(mySrc,len)
+        "(T)EMA" => temaHesapla(mySrc,len)
+        => 0.0 
+
+xMaMumKontrol(xMaMumTip)=>
+    string xMA = switch xMaMumTip
+        "1 Dakika" => "1"
+        "3 Dakika" => "3"
+        "5 Dakika" => "5"
+        "15 Dakika" => "15"
+        "30 Dakika" => "30"
+        "1 Saat" => "60" 
+        "2 Saat" => "120" 
+        "4 Saat" => "240" 
+        "6 Saat" => "360" 
+        "1 Gün" => "D"
+        "1 Hafta" => "W"
+        "3 Hafta" => "3W"
+        "1 Ay" => "M"
+        "5 Hafta" => "5W"
+        => str.tostring(timeframe.period)
+
+
+xHarfKontrol(xHarf)=>
+    string xH = switch xHarf
+        "size.auto" => size.auto
+        "size.tiny" => size.tiny
+        "size.small" => size.small
+        "size.normal" => size.normal
+        "size.large" => size.large
+        "size.huge" => size.huge
+        => size.small
+
+
+xTabloKonumKontrol(xTabloKonum)=>
+    string xT = switch xTabloKonum
+        "position.top_left" => position.top_left 
+        "position.top_center" => position.top_center 
+        "position.top_right" => position.top_right 
+        "position.middle_left" => position.middle_left 
+        "position.middle_center" => position.middle_center 
+        "position.middle_right" => position.middle_right 
+        "position.bottom_left" => position.bottom_left 
+        "position.bottom_center" => position.bottom_center 
+        "position.bottom_right" => position.bottom_right
+        => position.bottom_right
+
+
+src = input(close, 'Source', group="Genel Ayarlar")
+
+
+acxMaCizgisi = input.bool(defval = true, title = 'xMA Çizgileri Gözüksün mü?', group="xMA Çizgileri")  
+
+acxMa21Cizgisi = input.bool(defval = true, title = 'xMA21 Çizgisi Gözüksün mü?', group="xMA20 Çizgisi")   
+acMumRenk21 = input(true, title='xMA21 Çizgisi (Adx ve Efi ile) Renklensin mi?', group="xMA20 Çizgisi")
+
+acxMa50Cizgisi = input.bool(defval = false, title = 'xMA50 Çizgisi Gözüksün mü?', group="xMA50 Çizgisi")
+
+acxMa100Cizgisi = input.bool(defval = true, title = 'xMA100 Çizgisi Gözüksün mü?', group="xMA100 Çizgisi")
+acxMa100CizgisiRSI = input.bool(defval = true, title = 'xMA100 Çizgisi (RSI barajı ile) Renklensin mi?', group="xMA100 Çizgisi")
+acxMa100CizgisiRSIbg = input.bool(false, title='Arka Plan (Altın yeşil ve RSI alt baraj üstü ve mum xMA100 üstü) Renklensin mi?', group="xMA100 Çizgisi")
+
+
+acxMa200Cizgisi = input.bool(defval = false, title = 'xMA200 Çizgisi Gözüksün mü?', group="xMA200 Çizgisi")   
+acMumRenk200 = input.bool(true, title='xMA200 Çizgisi (Altın ve nQQE ile) Renklensin mi?', group="xMA200 Çizgisi")
+acMumRenk200Sutun = input.bool(false, title='Arka Plan (Altın ve nQQE Yeşil olunca) Renklensin mi?', group="xMA200 Çizgisi")
+acMumRenk200Mum = input.bool(false, title='Mumlar (Altın ve nQQE Yeşil olunca) Renklensin mi?', group="xMA200 Çizgisi")
+
+
+
+//Tablo
+acTabloPanoOzet = input(defval = true, title = 'Direnç, Destek ve Fiyat Tablosu Gösterilsin mi?', group="Tablo Ayarları")  
+xTabloKonumu =  input.string(defval = "position.middle_right", title = "Tablo Konumu" ,options=["position.top_left", "position.top_center", "position.top_right", "position.middle_left", "position.middle_center", "position.middle_right", "position.bottom_left", "position.bottom_center", "position.bottom_right"] , group="Tablo Ayarları")
+xHarfBuyuklugu = input.string(defval = "size.normal", title = "Tablo Karakter Büyüklüğü" ,options=["size.auto", "size.tiny", "size.small", "size.normal", "size.large", "size.huge"] , group="Tablo Ayarları")
+
+
+
+//Pano
+acPanoOzet = input(defval = true, title = 'Pano Gösterilsin mi?', group="Pano Ayarları")  
+xPanoKonumu =  input.string(defval = "position.bottom_center", title = "Pano Konumu" ,options=["position.top_left", "position.top_center", "position.top_right", "position.middle_left", "position.middle_center", "position.middle_right", "position.bottom_left", "position.bottom_center", "position.bottom_right"] , group="Pano Ayarları")
+xPanoHarfBuyuklugu = input.string(defval = "size.large", title = "Pano Karakter Büyüklüğü" ,options=["size.auto", "size.tiny", "size.small", "size.normal", "size.large", "size.huge"] , group="Pano Ayarları")
+
+
+//acKama = input(false, title='KAMA Çizgisi Gösterilsin mi?', group="Kama Ayarları")
+lengthKama = input.int(21, minval=1, group="Kama Ayarları")
+
+//acBb = input(defval = true, title = 'Bolinger Çizgileri Gözüksün mü?', group="Küçük Bolinger Bölümü")   
+//acBbB = input(defval = false, title = 'Büyük Bolinger Çizgisi Gözüksün mü?', group="Büyük Bolinger Bölümü")   
+
+//acAltinCizgi = input(defval = false, title = 'Altın Cizgisi Gözüksün mü?', group="Altın Çizgi Ayarları") 
+
+//mavilimnew = input(true, title='Mavilim Yeni Çizgisi Gösterilsin mi?', group="Mavilim Ayarları")
+
+
+bb_Color = color.new(color.orange, 0)
+bbb_Color = color.new(color.lime, 0)
+
+
+//kama
+kama_col = input.color(color.new(#00bcd4, 0),'KAMA Renk',inline='col', group="Kama Ayarları")
+xPrice = close
+xvnoise = math.abs(xPrice - xPrice[1])
+nAMA = 0.0
+nfastend = 0.666
+nslowend = 0.0645
+nsignal = math.abs(xPrice - xPrice[lengthKama])
+nnoise = math.sum(xvnoise, lengthKama)
+nefratio = nnoise != 0 ? nsignal / nnoise : 0
+nsmooth = math.pow(nefratio * (nfastend - nslowend) + nslowend, 2)
+nAMA := nz(nAMA[1]) + nsmooth * (xPrice - nz(nAMA[1]))
+//plot(acKama and nAMA ? nAMA : na , color=kama_col, title='KAMA',linewidth=3)
+
+
+
+//Altın Çizgisi
+srcAltin = input.source(defval=hlcc4, title='Source', group="Altın Çizgi Ayarları")
+per = input.int(defval=230, minval=1, title='Örnekleme periyodu', group="Altın Çizgi Ayarları")
+mult = input.float(defval=2.0, minval=0.1, title='Aralık carpanı', group="Altın Çizgi Ayarları")
+
+
+smoothrng(x, t, m) =>
+    wper = t * 2 - 1
+    avrng = ta.ema(math.abs(x - x[1]), t)
+    smoothrng = ta.ema(avrng, wper) * m
+    smoothrng
+smrng = smoothrng(srcAltin, per, mult)
+
+rngfilt(x, r) =>
+    rngfilt = x
+    rngfilt := x > nz(rngfilt[1]) ? x - r < nz(rngfilt[1]) ? nz(rngfilt[1]) : x - r : x + r > nz(rngfilt[1]) ? nz(rngfilt[1]) : x + r
+    rngfilt
+filt = rngfilt(srcAltin, smrng)
+
+
+// Filter Direction
+upward = 0.0
+upward := filt > filt[1] ? nz(upward[1]) + 1 : filt < filt[1] ? 0 : nz(upward[1])
+downward = 0.0
+downward := filt < filt[1] ? nz(downward[1]) + 1 : filt > filt[1] ? 0 : nz(downward[1])
+
+
+// Colors
+fColour = color.new(color.orange,0) 
+filtcolor = upward > 0 ? color.new(color.lime,0) : downward > 0 ? color.new(#ff0000,0) : color.new(color.orange,0)
+//filtplot = plot(filt and acAltinCizgi ? filt : na, color=filtcolor, linewidth=3, title='Altın Cizgisi',style = plot.style_stepline, trackprice=false)
+
+
+//nQQE 
+srcNqq = input(close, group="nQQE Ayarlar")
+lengthNqq = input.int(14, 'RSI Length', minval=1, group="nQQE Ayarlar")
+SSF = input.int(2, 'SF RSI SMoothing Factor', minval=1, group="nQQE Ayarlar")
+RSII = ta.ema(ta.rsi(srcNqq, lengthNqq), SSF)
+TR = math.abs(RSII - RSII[1])
+wwalpha = 1 / lengthNqq
+WWMA = 0.0
+WWMA := wwalpha * TR + (1 - wwalpha) * nz(WWMA[1])
+ATRRSI = 0.0
+ATRRSI := wwalpha * WWMA + (1 - wwalpha) * nz(ATRRSI[1])
+QQEF = ta.ema(ta.rsi(srcNqq, lengthNqq), SSF)
+QUP = QQEF + ATRRSI * 4.236
+QDN = QQEF - ATRRSI * 4.236
+QQES = 0.0
+QQES := QUP < nz(QQES[1]) ? QUP : QQEF > nz(QQES[1]) and QQEF[1] < nz(QQES[1]) ? QDN : QDN > nz(QQES[1]) ? QDN : QQEF < nz(QQES[1]) and QQEF[1] > nz(QQES[1]) ? QUP : nz(QQES[1])
+
+myNQQE = ((QQEF >= QQES) ? color.new(color.lime, 0) : color.new(#ff0000,0))
+//plot(10, color=myNQQE, linewidth=4)
+
+//myAltinNqqeColor =  ((QQEF >= QQES) and (upward > 0  or filtcolor == fColour )) ?  color.new(color.lime, 0) : ((QQEF < QQES) and downward > 0) ? color.new(color.red, 0) : color.new(color.orange, 0)
+myAltinNqqeColor =  ((QQEF >= QQES) and (upward > 0 or filtcolor == fColour )) ?  color.new(color.lime, 0) : ((QQEF < QQES) and (downward > 0  or filtcolor == fColour )) ? color.new(color.red, 0) : color.new(color.orange, 0)
+myAltinNqqeColorYesil =  ((QQEF >= QQES) and (upward > 0 or filtcolor == fColour )) ?  color.new(color.lime, 66) : ((QQEF < QQES) and (downward > 0  or filtcolor == fColour )) ? color.new(color.red, 100) : color.new(color.orange, 100)
+
+myAltinNqqeColorTurkuaz =  ((QQEF >= QQES) and (upward > 0 or filtcolor == fColour )) ?  color.new(#00bcd4,70) : na
+
+
+
+
+//EFI
+var cumVol = 0.
+cumVol += nz(volume)
+//if barstate.islast and cumVol == 0
+//    runtime.error("Hacim Verisine Erişilemiyor!")
+lengthEfi = input.int(5, minval=1, title = "EFI Uzunluğu", group="EFI Ayarları")
+efi = ta.ema(ta.change(close) * cumVol, lengthEfi)
+myColorY = efi>=0 and efi>efi[1] ? color.white : color.white
+myColorD = efi<0 and efi<=efi[1] ? color.red : color.red
+myColorAdx =  efi>=0 ? myColorY : myColorD
+
+
+//DMI 
+//lensig = input.int(14, title="ADX Smoothing", minval=1, maxval=50, group="DMI Ayarlar")
+//lenDmi = input.int(14, minval=1, title="DI Length", group="DMI Ayarlar")
+//up = ta.change(high)
+//down = -ta.change(low)
+//plusDM = na(up) ? na : (up > down and up > 0 ? up : 0)
+//minusDM = na(down) ? na : (down > up and down > 0 ? down : 0)
+//trur = ta.rma(ta.tr, lenDmi)
+//plus = fixnan(100 * ta.rma(plusDM, lenDmi) / trur)
+//minus = fixnan(100 * ta.rma(minusDM, lenDmi) / trur)
+//sum = plus + minus
+//adx = 100 * ta.rma(math.abs(plus - minus) / (sum == 0 ? 1 : sum), lensig)
+//myColorAdx := (plus >= minus and adx[1]<adx) ?  color.new(color.lime,0) : (efi>=0) ? myColorY : adx<15.0 ? myColorD :  color.new(#880e4f,0)
+
+
+
+//ADX
+lenDMI = input(14,title = "ADX Uzunluğu", group="ADX Ayarları")
+th = input(20,title = "ADX th Değeri", group="ADX Ayarları")
+
+myAdxYesilRenk = input.color(color.new(color.lime,0),"Adx Yükseliyor", group="ADX Ayarları")
+myAdxBeyazRenk = input.color(color.new(color.white,0),"Adx efi>0 Durumunda", group="ADX Ayarları")
+myAdxKirmiziRenk = input.color(color.new(color.red,0),"Adx Düşüyor", group="ADX Ayarları")
+
+myadxDusuyorBarajFloat = input.float(defval=15.0,title="Adx Düşüş İştah Barajı", group="ADX Ayarları")
+myAdxKoyuKirmiziRenk = input.color(color.new(#880e4f,0),"Adx Hızlı Düşüyor", group="ADX Ayarları")
+
+
+hesaplaDX(myLen) =>
+    TrueRange = math.max(math.max(high - low, math.abs(high - nz(close[1]))), math.abs(low - nz(close[1])))
+    DirectionalMovementPlus = high - nz(high[1]) > nz(low[1]) - low ? math.max(high - nz(high[1]), 0) : 0
+    DirectionalMovementMinus = nz(low[1]) - low > high - nz(high[1]) ? math.max(nz(low[1]) - low, 0) : 0
+    
+    SmoothedTrueRange = 0.0
+    SmoothedTrueRange := nz(SmoothedTrueRange[1]) - nz(SmoothedTrueRange[1]) / myLen + TrueRange
+    
+    SmoothedDirectionalMovementPlus = 0.0
+    SmoothedDirectionalMovementPlus := nz(SmoothedDirectionalMovementPlus[1]) - nz(SmoothedDirectionalMovementPlus[1]) / myLen + DirectionalMovementPlus
+    
+    SmoothedDirectionalMovementMinus = 0.0
+    SmoothedDirectionalMovementMinus := nz(SmoothedDirectionalMovementMinus[1]) - nz(SmoothedDirectionalMovementMinus[1]) / myLen + DirectionalMovementMinus
+
+    DIPlus = SmoothedDirectionalMovementPlus / SmoothedTrueRange * 100
+    DIMinus = SmoothedDirectionalMovementMinus / SmoothedTrueRange * 100
+    
+    DX = math.abs(DIPlus - DIMinus) / (DIPlus + DIMinus) * 100
+    
+    ta.sma(DX, lenDMI)
+    
+
+myAdx = hesaplaDX(lenDMI)
+
+
+myAdxRenk = color.new(color.yellow,0)
+if efi>0 
+    myAdxRenk := myAdxBeyazRenk
+if efi>0 and myAdx>myAdx[1]
+    myAdxRenk := myAdxYesilRenk
+if efi<0 
+    myAdxRenk := myAdxKirmiziRenk
+if efi<0 and myAdx>=myadxDusuyorBarajFloat
+    myAdxRenk := myAdxKoyuKirmiziRenk
+
+myColorAdx :=  myAdxRenk   
+//plot(myAdx and acCizgiEFI ? myAdx : na , color=myAdxRenk, title='ADX',linewidth=2, style=plot.style_circles)
+
+
+
+//MFI
+lengthMFI = input.int(title="Uzunluk", defval=14, minval=1, maxval=2000, group="MFI Ayarları")
+srcMFI = hlc3
+myMFI = ta.mfi(srcMFI, lengthMFI)
+
+//Mavilim
+fmal = input(1, 'First Moving Average length', group="Mavilim Ayarları")
+smal = input(1, 'Second Moving Average length', group="Mavilim Ayarları")
+tmal = fmal + smal
+Fmal = smal + tmal
+Ftmal = tmal + Fmal
+Smal = Fmal + Ftmal
+
+M1 = ta.wma(close, fmal)
+M2 = ta.wma(M1, smal)
+M3 = ta.wma(M2, tmal)
+M4 = ta.wma(M3, Fmal)
+M5 = ta.wma(M4, Ftmal)
+MAVW = ta.wma(M5, Smal)
+col1 = MAVW > MAVW[1]
+col3 = MAVW < MAVW[1]
+colorM = col1 ? color.lime : col3 ? color.red : color.yellow
+
+//plot(mavilimnew and MAVW ? MAVW : na, color=colorM, linewidth=3, title='MAVW')
+
+
+// Fibo Ayarları
+acFiboLines = input.bool(defval = false, title = 'Fibo Yatay Çizgileri Gözüksün mü?', group="Fibo Ayarları")   
+acFlUst = input.bool(defval = true, title = 'Fibo Üst Yatay Çizgileri Gözüksün mü?', group="Fibo Ayarları")   
+acFlOrta = input.bool(defval = true, title = 'Fibo Orta Yatay Çizgileri Gözüksün mü?', group="Fibo Ayarları")   
+acFlAlt = input.bool(defval = true, title = 'Fibo Alt Yatay Çizgileri Gözüksün mü?', group="Fibo Ayarları")   
+fibLen = input(defval = 200, title = 'Fibo Hesaplama Mum Sayısı', group="Fibo Ayarları")  
+
+
+
+//Fiblines
+fractal_top = 0.0
+fractal_top := high < high[2] and high[1] < high[2] and high[3] < high[2] and high[4] < high[2] ? high[2] : fractal_top[1]
+fractal_bottom = 0.0
+fractal_bottom := low > low[2] and low[1] > low[2] and low[3] > low[2] and low[4] > low[2] ? low[2] : fractal_bottom[1]
+
+srcHigh = ta.highest(fractal_top, fibLen)
+srcLow = ta.lowest(fractal_bottom, fibLen)
+diff = srcHigh - srcLow
+
+line2272 = srcLow + diff * 2.272
+line2000 = srcLow + diff * 2.000
+line1618 = srcLow + diff * 1.618
+line1414 = srcLow + diff * 1.414
+line1272 = srcLow + diff * 1.272
+line1000 = srcHigh
+line0786 = srcLow + diff * 0.786
+line0618 = srcLow + diff * 0.618
+line0500 = srcLow + diff * 0.500
+line0382 = srcLow + diff * 0.382
+line0236 = srcLow + diff * 0.236
+line0000 = srcLow
+line1272_2 = srcHigh - diff * 1.272
+line1414_2 = srcHigh - diff * 1.414
+line1618_2 = srcHigh - diff * 1.618
+line2000_2 = srcHigh - diff * 2.000
+line2272_2 = srcHigh - diff * 2.272
+
+
+plot(line2272 and acFiboLines and acFlUst ? line2272 : na, title='2.272', color=color.new(color.green, 0), style=plot.style_cross, trackprice=true, offset=-9999, linewidth=1)
+plot(line2000 and acFiboLines and acFlUst ? line2000 : na, title='2.000', color=color.new(color.green, 0), style=plot.style_cross, trackprice=true, offset=-9999, linewidth=1)
+plot(line1618 and acFiboLines and acFlUst ? line1618 : na, title='1.618', color=color.new(color.green, 0), style=plot.style_cross, trackprice=true, offset=-9999, linewidth=1)
+plot(line1414 and acFiboLines and acFlUst ? line1414 : na, title='1.414', color=color.new(color.green, 0), style=plot.style_cross, trackprice=true, offset=-9999, linewidth=1)
+plot(line1272 and acFiboLines and acFlUst ? line1272 : na, title='1.272', color=color.new(color.green, 0), style=plot.style_cross, trackprice=true, offset=-9999, linewidth=1)
+
+plot(line1000 and acFiboLines and acFlOrta ? line1000 : na, title='1.000', color=color.new(color.yellow, 0), style=plot.style_cross, trackprice=true, offset=-9999, linewidth=1)
+plot(line0786 and acFiboLines and acFlOrta ? line0786 : na, title='0.786', color=color.new(color.orange, 0), style=plot.style_cross, trackprice=true, offset=-9999, linewidth=1)
+plot(line0618 and acFiboLines and acFlOrta ? line0618 : na, title='0.618', color=color.new(color.lime, 0), style=plot.style_cross, trackprice=true, offset=-9999, linewidth=1)
+plot(line0500 and acFiboLines and acFlOrta ? line0500 : na, title='0.500', color=color.new(color.white, 0), style=plot.style_cross, trackprice=true, offset=-9999, linewidth=1)
+plot(line0382 and acFiboLines and acFlOrta ? line0382 : na, title='0.382', color=color.new(#2E9AFE, 0), style=plot.style_cross, trackprice=true, offset=-9999, linewidth=1)
+plot(line0236 and acFiboLines and acFlOrta ? line0236 : na, title='0.236', color=color.new(color.orange, 0), style=plot.style_cross, trackprice=true, offset=-9999, linewidth=1)
+plot(line0000 and acFiboLines and acFlOrta ? line0000 : na, title='0.000', color=color.new(color.yellow, 0), style=plot.style_cross, trackprice=true, offset=-9999, linewidth=1)
+
+plot(line1272_2 and acFiboLines and acFlAlt ? line1272_2 : na, title='-0.272', color=color.new(color.red, 0), style=plot.style_cross, trackprice=true, offset=-9999, linewidth=1)
+plot(line1414_2 and acFiboLines and acFlAlt ? line1414_2 : na, title='-0.414', color=color.new(color.red, 0), style=plot.style_cross, trackprice=true, offset=-9999, linewidth=1)
+plot(line1618_2 and acFiboLines and acFlAlt ? line1618_2 : na, title='-0.618', color=color.new(color.red, 0), style=plot.style_cross, trackprice=true, offset=-9999, linewidth=1)
+plot(line2000_2 and acFiboLines and acFlAlt ? line2000_2 : na, title='-1.000', color=color.new(color.red, 0), style=plot.style_cross, trackprice=true, offset=-9999, linewidth=1)
+plot(line2272_2 and acFiboLines and acFlAlt ? line2272_2 : na, title='-1.272', color=color.new(color.red, 0), style=plot.style_cross, trackprice=true, offset=-9999, linewidth=1)
+
+
+//VBCB
+cumVol := 0.
+cumVol += nz(volume)
+
+//acMumRenk = input(false, title='Mumlar Hacime Göre Renklensin mi?', group="VBCB Ayarları")
+
+lengthVbcb = 21 //input.int(21, 'length', minval=1)
+
+avrg = ta.sma(cumVol, lengthVbcb)
+
+vold1 = cumVol > avrg * 1.5 and close < open
+vold2 = cumVol >= avrg * 0.5 and cumVol <= avrg * 1.5 and close < open
+vold3 = cumVol < avrg * 0.5 and close < open
+
+volu1 = cumVol > avrg * 1.5 and close > open
+volu2 = cumVol >= avrg * 0.5 and cumVol <= avrg * 1.5 and close > open
+volu3 = cumVol < avrg * 0.5 and close > open
+
+
+cold1 = #800000
+cold2 = #FF0000
+cold3 = #ffeb3b
+
+
+colu1 = #006400
+colu2 = #00FF00
+colu3 = #7FFFD4
+
+
+color_1 = vold1 ? cold1 : vold2 ? cold2 : vold3 ? cold3 : volu1 ? colu1 : volu2 ? colu2 : volu3 ? colu3 : na
+
+//barcolor(acMumRenk ? color_1 : na)
+//bgcolor(acMumRenk200Sutun ? myAltinNqqeColorYesil : na)
+
+//barcolor(acMumRenk and acMumRenk200Mum ? myAltinNqqeColorTurkuaz : acMumRenk ? color_1 : na, display = acMumRenk ? display.all : display.none)
+
+
+// RSI/EMA Genel
+myRsiUzunluk = input.int(66, title='RSI Değeri', group="Rsi/Ema Genel Değerleri")
+myEmaUzunluk = input.int(66, title='Ema Değeri', group="Rsi/Ema Genel Değerleri")
+
+
+//SATIM ÇİZGİSİ
+acCAS = input.int(defval = 80, title = 'Çok Aşırı Satım Çizgisi % Değeri', group="Rsi/Ema Genel Değerleri")   
+acAS = input.int(defval = 70, title = 'Aşırı Satım Çizgisi % Değeri', group="Rsi/Ema Genel Değerleri")   
+acS = input.int(defval = 60, title = '(üst baraj) Satım Çizgisi % Değeri', group="Rsi/Ema Genel Değerleri")   
+
+//ALIM ÇİZGİSİ
+acA = input.int(defval = 55, title = 'Alım Çizgisi % Değeri', group="Rsi/Ema Genel Değerleri")   
+acAA = input.int(defval = 45, title = '(alt baraj) Aşırı Alım Çizgisi % Değeri', group="Rsi/Ema Genel Değerleri")   
+acCAA = input.int(defval = 30, title = 'Çok Aşırı Alım Çizgisi % Değeri', group="Rsi/Ema Genel Değerleri")   
+
+//RSI baraj Renk
+rsiUstBarajRenk = input.color(color.new(#00897b,0),"RSI (üst baraj) Rengi", group="Rsi/Ema Renk Değerleri")
+rsiBarajArasiRenk = input.color(color.new(#00bcd4,0),"RSI (baraj arası) Rengi", group="Rsi/Ema Renk Değerleri")
+rsiAltBarajRenk = input.color(color.new(#880e4f,0),"RSI (alt baraj) Rengi", group="Rsi/Ema Renk Değerleri")
+
+barajRsi = ta.rsi(close,myRsiUzunluk)
+barajRengi = barajRsi > acS ? rsiUstBarajRenk : barajRsi < acAA ? rsiAltBarajRenk : rsiBarajArasiRenk
+
+
+
+//TimeFrame
+string xReMum1 = input.timeframe(defval = "Grafik", title = "Rsi/Ema 1 Çalışma Mumu" ,options=["Grafik", "1 Dakika", "3 Dakika", "5 Dakika", "15 Dakika", "30 Dakika", "1 Saat", "2 Saat", "4 Saat", "6 Saat", "1 Gün", "1 Hafta", "3 Hafta", "1 Ay", "5 Hafta"] , group="Rsi/Ema 1 Değerleri")
+string xReMum2 = input.timeframe(defval = "Grafik", title = "Rsi/Ema 2 Çalışma Mumu" ,options=["Grafik", "1 Dakika", "3 Dakika", "5 Dakika", "15 Dakika", "30 Dakika", "1 Saat", "2 Saat", "4 Saat", "6 Saat", "1 Gün", "1 Hafta", "3 Hafta", "1 Ay", "5 Hafta"] , group="Rsi/Ema 2 Değerleri")
+string xReMum3 = input.timeframe(defval = "Grafik", title = "Rsi/Ema 3 Çalışma Mumu" ,options=["Grafik", "1 Dakika", "3 Dakika", "5 Dakika", "15 Dakika", "30 Dakika", "1 Saat", "2 Saat", "4 Saat", "6 Saat", "1 Gün", "1 Hafta", "3 Hafta", "1 Ay", "5 Hafta"] , group="Rsi/Ema 3 Değerleri")
+string xReMum4 = input.timeframe(defval = "Grafik", title = "Rsi/Ema 4 Çalışma Mumu" ,options=["Grafik", "1 Dakika", "3 Dakika", "5 Dakika", "15 Dakika", "30 Dakika", "1 Saat", "2 Saat", "4 Saat", "6 Saat", "1 Gün", "1 Hafta", "3 Hafta", "1 Ay", "5 Hafta"] , group="Rsi/Ema 4 Değerleri")
+
+
+// R/E 1
+myRsi_1 = ta.rsi(close,myRsiUzunluk)
+myEma_1 = ta.ema(myRsi_1, myEmaUzunluk)
+myRsi_1S = request.security(syminfo.tickerid, xMumKontrol(xReMum1), myRsi_1)
+myEma_1S = request.security(syminfo.tickerid, xMumKontrol(xReMum1), myEma_1)
+myH_1S = request.security(syminfo.tickerid, xMumKontrol(xReMum1), high)
+myL_1S = request.security(syminfo.tickerid, xMumKontrol(xReMum1), low)
+
+acRsiEmaLW_1S = input.int(defval = 2, title = 'Rsi/Ema Çizgisi Kalınlığı Sayısal Değeri', group="Rsi/Ema 1 Değerleri") 
+acRsiEma_1S = input(defval = false, title = 'Rsi/Ema Çizgisi Gösterilsin mi?', group="Rsi/Ema 1 Değerleri") 
+acREIsaretler_1S = false //input(defval = false, title = 'Renk İşaretleri Gösterilsin mi?', group="Rsi/Ema 1 Değerleri") 
+
+
+my4Y_1S = input.color(color.new(#00897B, 0)  , "Aşırı Alım Bölgesinde (zirvede) Yükselirken", group="Rsi/Ema 1 Değerleri") 
+my3Y_1S = input.color(color.new(color.green, 0), "Alım Bölgesinden (yüksekte) Yükselirken", group="Rsi/Ema 1 Değerleri") 
+my2Y_1S = input.color(color.new(#00bcd4, 0), "Orta Bölgesinden (ortada) Yükselirken", group="Rsi/Ema 1 Değerleri") 
+my1Y_1S = input.color(color.new(color.blue, 0), "Satım Bölgesinden (dipte) Yükselirken", group="Rsi/Ema 1 Değerleri") 
+
+my1D_1S = input.color(color.new(color.yellow, 0) , "Alım Bölgesinden (zirvede) Düşerken", group="Rsi/Ema 1 Değerleri") 
+my2D_1S = input.color(color.new(#ff9800, 0) , "Orta Bölgesinden (ortada) Düşerken", group="Rsi/Ema 1 Değerleri") 
+my3D_1S = input.color(color.new(color.red, 0) , "Satım Bölgesinden (dipte) Düşerken", group="Rsi/Ema 1 Değerleri") 
+my4D_1S = input.color(color.new(#880E4F, 0)  , "Aşırı Satım Bölgesinde (en dipte) Düşerken", group="Rsi/Ema 1 Değerleri") 
+
+bolge4Y_1S =  myRsi_1S > acAS // >70
+bolge3Y_1S =  myRsi_1S > acS and myRsi_1S <= acAS //70/60
+bolge2Y_1S =  myRsi_1S > acA and myRsi_1S <= acS // 60/45
+bolge1Y_1S =  myRsi_1S <= acA  // <=45
+
+bolge1D_1S =  myRsi_1S > acS // >60
+bolge2D_1S =  myRsi_1S > acA and myRsi_1S <= acS // 60/45
+bolge3D_1S =  myRsi_1S > acAA and myRsi_1S <= acA //45/30
+bolge4D_1S =  myRsi_1S < acAA // <30
+
+myRsiColorY_1S = bolge4Y_1S ? my4Y_1S : bolge3Y_1S ? my3Y_1S : bolge2Y_1S ? my2Y_1S : my1Y_1S    
+myRsiColorD_1S = bolge4D_1S ? my4D_1S : bolge3D_1S ? my3D_1S : bolge2D_1S ? my2D_1S : my1D_1S  
+
+myRsiColorTek_1S = myRsi_1S >= myEma_1S ? myRsiColorY_1S : myRsiColorD_1S
+myRsiEmaLine_1S = myRsi_1S >= myEma_1S ? myH_1S : myL_1S
+
+
+
+
+
+
+
+// R/E 2
+myRsi_2 = ta.rsi(close,myRsiUzunluk)
+myEma_2 = ta.ema(myRsi_2, myEmaUzunluk)
+myRsi_2S = request.security(syminfo.tickerid, xMumKontrol(xReMum2), myRsi_2)
+myEma_2S = request.security(syminfo.tickerid, xMumKontrol(xReMum2), myEma_2)
+myH_2S = request.security(syminfo.tickerid, xMumKontrol(xReMum2), high)
+myL_2S = request.security(syminfo.tickerid, xMumKontrol(xReMum2), low)
+
+acRsiEmaLW_2S = input.int(defval = 4, title = 'Rsi/Ema Çizgisi Kalınlığı Sayısal Değeri', group="Rsi/Ema 2 Değerleri") 
+acRsiEma_2S = input(defval = false, title = 'Rsi/Ema Çizgisi Gösterilsin mi?', group="Rsi/Ema 2 Değerleri") 
+acREIsaretler_2S = input(defval = false, title = 'Renk İşaretleri Gösterilsin mi?', group="Rsi/Ema 2 Değerleri") 
+
+my4Y_2S = input.color(color.new(#00897B, 0)  , "Aşırı Alım Bölgesinde (zirvede) Yükselirken", group="Rsi/Ema 2 Değerleri") 
+my3Y_2S = input.color(color.new(color.green, 0), "Alım Bölgesinden (yüksekte) Yükselirken", group="Rsi/Ema 2 Değerleri") 
+my2Y_2S = input.color(color.new(#00bcd4, 0), "Orta Bölgesinden (ortada) Yükselirken", group="Rsi/Ema 2 Değerleri") 
+my1Y_2S = input.color(color.new(color.blue, 100), "Satım Bölgesinden (dipte) Yükselirken", group="Rsi/Ema 2 Değerleri") 
+
+my1D_2S = input.color(color.new(color.yellow, 100) , "Alım Bölgesinden (zirvede) Düşerken", group="Rsi/Ema 2 Değerleri") 
+my2D_2S = input.color(color.new(#ff9800, 100) , "Orta Bölgesinden (ortada) Düşerken", group="Rsi/Ema 2 Değerleri") 
+my3D_2S = input.color(color.new(color.red, 100) , "Satım Bölgesinden (dipte) Düşerken", group="Rsi/Ema 2 Değerleri") 
+my4D_2S = input.color(color.new(#880E4F, 100)  , "Aşırı Satım Bölgesinde (en dipte) Düşerken", group="Rsi/Ema 2 Değerleri") 
+
+
+
+bolge4Y_2S =  myRsi_2S > acAS // >70
+bolge3Y_2S =  myRsi_2S > acS and myRsi_2S <= acAS //70/60
+bolge2Y_2S =  myRsi_2S > acA and myRsi_2S <= acS // 60/45
+bolge1Y_2S =  myRsi_2S <= acA  // <=45
+
+bolge1D_2S =  myRsi_2S > acS // >60
+bolge2D_2S =  myRsi_2S > acA and myRsi_2S <= acS // 60/45
+bolge3D_2S =  myRsi_2S > acAA and myRsi_2S <= acA //45/30
+bolge4D_2S =  myRsi_2S < acAA // <30
+
+myRsiColorY_2S = bolge4Y_2S ? my4Y_2S : bolge3Y_2S ? my3Y_2S : bolge2Y_2S ? my2Y_2S : my1Y_2S    
+myRsiColorD_2S = bolge4D_2S ? my4D_2S : bolge3D_2S ? my3D_2S : bolge2D_2S ? my2D_2S : my1D_2S  
+
+
+myRsiColorTek_2S = myRsi_2S >= myEma_2S ? myRsiColorY_2S : myRsiColorD_2S
+myRsiEmaLine_2S = myRsi_2S >= myEma_2S ? myH_2S : myL_2S
+
+// R/E 3
+//myRsi_3 = ta.rsi(close,myRsiUzunluk)
+//myEma_3 = ta.ema(myRsi_3, myEmaUzunluk)
+//myRsi_3S = request.security(syminfo.tickerid, xMumKontrol(xReMum3), myRsi_3)
+//myEma_3S = request.security(syminfo.tickerid, xMumKontrol(xReMum3), myEma_3)
+//myH_3S = request.security(syminfo.tickerid, xMumKontrol(xReMum3), high)
+//myL_3S = request.security(syminfo.tickerid, xMumKontrol(xReMum3), low)
+
+//acRsiEmaLW_3S = input.int(defval = 6, title = 'Rsi/Ema Çizgisi Kalınlığı Sayısal Değeri', group="Rsi/Ema 3 Değerleri") 
+//acRsiEma_3S = input(defval = false, title = 'Rsi/Ema Çizgisi Gösterilsin mi?', group="Rsi/Ema 3 Değerleri") 
+//acREIsaretler_3S = input(defval = false, title = 'Renk İşaretleri Gösterilsin mi?', group="Rsi/Ema 3 Değerleri") 
+
+
+//my4Y_3S = input.color(color.new(#00897B, 100)  , "Aşırı Alım Bölgesinde (zirvede) Yükselirken", group="Rsi/Ema 3 Değerleri") 
+//my3Y_3S = input.color(color.new(color.green, 100), "Alım Bölgesinden (yüksekte) Yükselirken", group="Rsi/Ema 3 Değerleri") 
+//my2Y_3S = input.color(color.new(#00bcd4, 100), "Orta Bölgesinden (ortada) Yükselirken", group="Rsi/Ema 3 Değerleri") 
+//my1Y_3S = input.color(color.new(color.blue, 100), "Satım Bölgesinden (dipte) Yükselirken", group="Rsi/Ema 3 Değerleri") 
+
+//my1D_3S = input.color(color.new(color.yellow, 100) , "Alım Bölgesinden (zirvede) Düşerken", group="Rsi/Ema 3 Değerleri") 
+//my2D_3S = input.color(color.new(#ff9800, 100) , "Orta Bölgesinden (ortada) Düşerken", group="Rsi/Ema 3 Değerleri") 
+//my3D_3S = input.color(color.new(color.red, 0) , "Satım Bölgesinden (dipte) Düşerken", group="Rsi/Ema 3 Değerleri") 
+//my4D_3S = input.color(color.new(#880E4F, 0)  , "Aşırı Satım Bölgesinde (en dipte) Düşerken", group="Rsi/Ema 3 Değerleri") 
+
+
+
+//bolge4Y_3S =  myRsi_3S > acAS // >70
+//bolge3Y_3S =  myRsi_3S > acS and myRsi_3S <= acAS //70/60
+//bolge2Y_3S =  myRsi_3S > acA and myRsi_3S <= acS // 60/45
+//bolge1Y_3S =  myRsi_3S <= acA  // <=45
+
+//bolge1D_3S =  myRsi_3S > acS // >60
+//bolge2D_3S =  myRsi_3S > acA and myRsi_3S <= acS // 60/45
+//bolge3D_3S =  myRsi_3S > acAA and myRsi_3S <= acA //45/30
+//bolge4D_3S =  myRsi_3S < acAA // <30
+
+//myRsiColorY_3S = bolge4Y_3S ? my4Y_3S : bolge3Y_3S ? my3Y_3S : bolge2Y_3S ? my2Y_3S : my1Y_3S    
+//myRsiColorD_3S = bolge4D_3S ? my4D_3S : bolge3D_3S ? my3D_3S : bolge2D_3S ? my2D_3S : my1D_3S  
+
+
+//myRsiColorTek_3S = myRsi_3S >= myEma_3S ? myRsiColorY_3S : myRsiColorD_3S
+//myRsiEmaLine_3S = myRsi_3S >= myEma_3S ? myH_3S : myL_3S
+
+
+// R/E 4
+//myRsi_4 = ta.rsi(close,myRsiUzunluk)
+//myEma_4 = ta.ema(myRsi_4, myEmaUzunluk)
+//myRsi_4S = request.security(syminfo.tickerid, xMumKontrol(xReMum4), myRsi_4)
+//myEma_4S = request.security(syminfo.tickerid, xMumKontrol(xReMum4), myEma_4)
+//myH_4S = request.security(syminfo.tickerid, xMumKontrol(xReMum4), high)
+//myL_4S = request.security(syminfo.tickerid, xMumKontrol(xReMum4), low)
+
+//acRsiEmaLW_4S = input.int(defval = 8, title = 'Rsi/Ema Çizgisi Kalınlığı Sayısal Değeri', group="Rsi/Ema 4 Değerleri") 
+//acRsiEma_4S = input(defval = false, title = 'Rsi/Ema Çizgisi Gösterilsin mi?', group="Rsi/Ema 4 Değerleri") 
+//acREIsaretler_4S = false // input(defval = false, title = 'Renk İşaretleri Gösterilsin mi?', group="Rsi/Ema 4 Değerleri") 
+
+
+//my4Y_4S = input.color(color.new(#00897B, 0)  , "Aşırı Alım Bölgesinde (zirvede) Yükselirken", group="Rsi/Ema 4 Değerleri") 
+//my3Y_4S = input.color(color.new(color.green, 0), "Alım Bölgesinden (yüksekte) Yükselirken", group="Rsi/Ema 4 Değerleri") 
+//my2Y_4S = input.color(color.new(#00bcd4, 0), "Orta Bölgesinden (ortada) Yükselirken", group="Rsi/Ema 4 Değerleri") 
+//my1Y_4S = input.color(color.new(color.blue, 0), "Satım Bölgesinden (dipte) Yükselirken", group="Rsi/Ema 4 Değerleri") 
+
+//my1D_4S = input.color(color.new(color.yellow, 0) , "Alım Bölgesinden (zirvede) Düşerken", group="Rsi/Ema 4 Değerleri") 
+//my2D_4S = input.color(color.new(#ff9800, 0) , "Orta Bölgesinden (ortada) Düşerken", group="Rsi/Ema 4 Değerleri") 
+//my3D_4S = input.color(color.new(color.red, 0) , "Satım Bölgesinden (dipte) Düşerken", group="Rsi/Ema 4 Değerleri") 
+//my4D_4S = input.color(color.new(#880E4F, 0)  , "Aşırı Satım Bölgesinde (en dipte) Düşerken", group="Rsi/Ema 4 Değerleri") 
+
+//bolge4Y_4S =  myRsi_4S > acAS // >70
+//bolge3Y_4S =  myRsi_4S > acS and myRsi_4S <= acAS //70/60
+//bolge2Y_4S =  myRsi_4S > acA and myRsi_4S <= acS // 60/45
+//bolge1Y_4S =  myRsi_4S <= acA  // <=45
+
+//bolge1D_4S =  myRsi_4S > acS // >60
+//bolge2D_4S =  myRsi_4S > acA and myRsi_4S <= acS // 60/45
+//bolge3D_4S =  myRsi_4S > acAA and myRsi_4S <= acA //45/30
+//bolge4D_4S =  myRsi_4S < acAA // <30
+
+//myRsiColorY_4S = bolge4Y_4S ? my4Y_4S : bolge3Y_4S ? my3Y_4S : bolge2Y_4S ? my2Y_4S : my1Y_4S    
+//myRsiColorD_4S = bolge4D_4S ? my4D_4S : bolge3D_4S ? my3D_4S : bolge2D_4S ? my2D_4S : my1D_4S  
+
+
+//myRsiColorTek_4S = myRsi_4S >= myEma_4S ? myRsiColorY_4S : myRsiColorD_4S
+//myRsiEmaLine_4S = myRsi_4S >= myEma_4S ? myH_4S : myL_4S
+
+
+//
+//myREcizgim_4S = plot(acRsiEma_4S ? myRsi_4S >= myEma_4S ? myH_4S : myL_4S : na, color=myRsiColorTek_4S, linewidth=acRsiEmaLW_4S, title='R/E 4 Cizgisi')
+//myREcizgim_3S = plot(acRsiEma_3S ? myRsi_3S >= myEma_3S ? myH_3S : myL_3S : na, color=myRsiColorTek_3S, linewidth=acRsiEmaLW_3S, title='R/E 3 Cizgisi')
+myREcizgim_2S = plot(acRsiEma_2S ? myRsi_2S >= myEma_2S ? myH_2S : myL_2S : na, color=myRsiColorTek_2S, linewidth=acRsiEmaLW_2S, title='R/E 2 Cizgisi')
+myREcizgim_1S = plot(acRsiEma_1S ? myRsi_1S >= myEma_1S ? myH_1S : myL_1S : na, color=myRsiColorTek_1S, linewidth=acRsiEmaLW_1S, title='R/E 1 Cizgisi')
+
+
+//plotshape(ta.cross(myRsiEmaLine_2S, myRsiEmaLine_3S), title ='TSİ AL İşaret ', text='', style=shape.triangleup, location=location.bottom, color=color.lime, offset=0, size=size.small)
+//plotshape(ta.crossover(myRsiEmaLine_2S, myRsiEmaLine_3S), title ='2/3 AL İşaret ', text='', style=shape.triangleup, location=location.bottom, color=color.lime, offset=0, size=size.normal)
+//plotshape(ta.crossunder(myRsiEmaLine_2S, myRsiEmaLine_3S), title ='2/3 SAT İşaret', text='', style=shape.triangledown, location=location.top, color=color.red, offset=0, size=size.normal)
+
+
+//plotshape(acREIsaretler_1S, title ='R/E 1 İşaret', text='', style=shape.flag, location=location.bottom, color=myRsiColorTek_1S, offset=0, size=size.tiny)
+//plotshape(acREIsaretler_1S and myRsi_2S >= myEma_2S, title ='R/E 1 İşaret', text='', style=shape.triangleup, location=location.abovebar, color=myRsiColorY_1S, offset=0, size=size.small)
+//plotshape(acREIsaretler_1S and myRsi_2S < myEma_2S, title ='R/E 1 İşaret', text='', style=shape.triangledown, location=location.belowbar, color=myRsiColorD_1S, offset=0, size=size.small)
+
+plotshape(acREIsaretler_2S , title ='R/E 2 İşaret', text='', style=shape.triangleup, location=location.top, color=myRsiColorTek_2S, offset=0, size=size.tiny)
+//plotshape(acREIsaretler_3S, title ='R/E 3 İşaret', text='', style=shape.triangleup, location=location.bottom, color=myRsiColorTek_3S, offset=0, size=size.tiny)
+
+
+//xMA
+
+//TimeFrame
+string xMAMum21 = input.timeframe(defval = "Grafik", title = "xMA21 Çalışma Mumu" ,options=["Grafik", "1 Dakika", "3 Dakika", "5 Dakika", "15 Dakika", "30 Dakika", "1 Saat", "2 Saat", "4 Saat", "6 Saat", "1 Gün", "1 Hafta", "3 Hafta", "1 Ay", "5 Hafta"] , group="xMA21 Değerleri")
+string xMAMum50 = input.timeframe(defval = "Grafik", title = "xMA50 Çalışma Mumu" ,options=["Grafik", "1 Dakika", "3 Dakika", "5 Dakika", "15 Dakika", "30 Dakika", "1 Saat", "2 Saat", "4 Saat", "6 Saat", "1 Gün", "1 Hafta", "3 Hafta", "1 Ay", "5 Hafta"] , group="xMA50 Değerleri")
+string xMAMum100 = input.timeframe(defval = "Grafik", title = "xMA100 Çalışma Mumu" ,options=["Grafik", "1 Dakika", "3 Dakika", "5 Dakika", "15 Dakika", "30 Dakika", "1 Saat", "2 Saat", "4 Saat", "6 Saat", "1 Gün", "1 Hafta", "3 Hafta", "1 Ay", "5 Hafta"] , group="xMA100 Değerleri")
+string xMAMum200 = input.timeframe(defval = "Grafik", title = "xMA200 Çalışma Mumu" ,options=["Grafik", "1 Dakika", "3 Dakika", "5 Dakika", "15 Dakika", "30 Dakika", "1 Saat", "2 Saat", "4 Saat", "6 Saat", "1 Gün", "1 Hafta", "3 Hafta", "1 Ay", "5 Hafta"] , group="xMA200 Değerleri")
+
+        
+// xMA Çizgi ve Kesişmeleri
+string xMaTip21 = input.string(defval="EMA", options = ["EMA", "(D)EMA", "(T)EMA", "SMA", "HMA", "RMA", "WMA", "VWMA"], title=  "xMA21 tipi", group="xMA21 Değerleri")
+string xMaTip50 = input.string(defval="EMA", options = ["EMA", "(D)EMA", "(T)EMA", "SMA", "HMA", "RMA", "WMA", "VWMA"], title=  "xMA50 tipi", group="xMA50 Değerleri")
+string xMaTip100 = input.string(defval="EMA", options = ["EMA", "(D)EMA", "(T)EMA", "SMA", "HMA", "RMA", "WMA", "VWMA"], title=  "xMA100 tipi", group="xMA100 Değerleri")
+string xMaTip200 = input.string(defval="EMA", options = ["EMA", "(D)EMA", "(T)EMA", "SMA", "HMA", "RMA", "WMA", "VWMA"], title=  "xMA200 tipi", group="xMA200 Değerleri")
+        
+
+xMA_21_Color = color.new(color.white, 0)
+xMA_50_Color = color.new(color.yellow, 0)
+xMA_100_Color = color.new(#00bcd4, 0)
+xMA_200_Color = color.new(#be660b, 0)
+
+xMA_21_Color_koyu = color.new(color.white, 0)
+xMA_50_Color_koyu = color.new(color.yellow, 0)
+xMA_100_Color_koyu = color.new(#00bcd4, 0)
+xMA_200_Color_koyu = color.new(#be660b, 0)
+
+
+
+source_21 = input.source(defval=close, title='xMA 21 Kaynağı', group="xMA21 Değerleri")
+length2a = input(20, 'xMA 21', group="xMA21 Değerleri")
+xMaMum21Src = xMaMumKontrol(xMAMum21)
+xMA_21 = xMaKontrol(xMaTip21, source_21, length2a) 
+xMA_21Src = request.security(syminfo.tickerid,xMaMum21Src, xMA_21)
+//xMA_21_Color_S = xMA_21Src >= xMA_21Src[1] ? xMA_21_Color :xMA_21_Color_koyu
+xMA_21_Color_S = acMumRenk21 ? myColorAdx : xMA_21Src >= xMA_21Src[1] ? xMA_21_Color :xMA_21_Color_koyu
+xMA_21_Plot = plot(xMA_21Src and acxMaCizgisi and acxMa21Cizgisi ? xMA_21Src : na , color=xMA_21_Color_S , linewidth=2, title='xMa21 Çizgisi', style = plot.style_circles)
+//xMA_21_Plot = plot(xMA_21Src and acxMaCizgisi and acxMa21Cizgisi ? xMA_21Src : na , color=xMA_21_Color , linewidth=3, title='xMa21 Çizgisi')
+
+
+source_50 = input.source(defval=close, title='xMA 50 Kaynağı', group="xMA50 Değerleri")
+length4a = input(50, 'xMA 50', group="xMA50 Değerleri")
+xMaMum50Src = xMaMumKontrol(xMAMum50)
+xMA_50 = xMaKontrol(xMaTip50, source_50, length4a) 
+xMA_50Src = request.security(syminfo.tickerid,xMaMum50Src, xMA_50)
+xMA_50_Color_S = xMA_50Src >= xMA_50Src[1] ? xMA_50_Color :xMA_50_Color_koyu
+xMA_50_Plot = plot(xMA_50Src and acxMaCizgisi and acxMa50Cizgisi ? xMA_50Src : na , color=xMA_50_Color_S, linewidth=2, title='xMa50 Çizgisi')
+
+
+source_100 = input.source(defval=close, title='xMA 100 Kaynağı', group="xMA100 Değerleri")
+length6a = input(100, 'xMA 100', group="xMA100 Değerleri")
+xMaMum100Src = xMaMumKontrol(xMAMum100)
+xMA_100 = xMaKontrol(xMaTip100, source_100, length6a) 
+xMA_100Src = request.security(syminfo.tickerid,xMaMum100Src, xMA_100)
+
+
+//kosul100 = ta.crossover(high , ta.ema(close, 100)) 
+//alertcondition(kosul100 , title = "e100 Üstü", message = 'e100 Üstü {{ticker}}, FİYAT={{close}}, Mum={{interval}}')
+//plotshape(kosul100 ,title ='_Rsi e100 ve Üstü', text='', style=shape.triangleup , location=location.belowbar, color=color.white, offset=0, size=size.normal)
+
+
+//barajRengi = 
+//acxMa100CizgisiRSI
+//xMA_100_Color_S = xMA_100Src >= xMA_100Src[1] ? xMA_100_Color :xMA_100_Color_koyu
+xMA_100_Color_S = acxMa100CizgisiRSI ? barajRengi : xMA_100Src >= xMA_100Src[1] ? xMA_100_Color :xMA_100_Color_koyu
+xMA_100_Plot = plot(xMA_100Src and acxMaCizgisi and acxMa100Cizgisi ? xMA_100Src : na , color=xMA_100_Color_S, linewidth=4, title='xMa100 Çizgisi')
+
+
+
+//barajRengi = barajRsi > acS ? rsiUstBarajRenk : barajRsi < acAA ? rsiAltBarajRenk : rsiBarajArasiRenk
+//sartAltinYesil = (upward > 0 or filtcolor == fColour ) and barajRsi > acAA and close > xMA_100Src 45
+//sartAltinYesil = (upward > 0 or filtcolor == fColour ) and barajRsi > acS and close > xMA_100Src  55  
+sartAltinYesil = (upward > 0 or filtcolor == fColour ) and barajRsi > acAA and close > xMA_100Src   //50
+
+//sartAltinYesilRenk = color.new(rsiUstBarajRenk,50)
+sartAltinYesilRenk = rsiUstBarajRenk
+bgcolor(acxMa100CizgisiRSIbg and sartAltinYesil ? sartAltinYesilRenk : na,title = 'xMA100 Arka Plan Rengi')
+
+
+
+
+
+
+source_200 = input.source(defval=close, title='xMA 200 Kaynağı', group="xMA200 Değerleri")
+length8a = input(377, 'xMA 200', group="xMA200 Değerleri")
+xMaMum200Src = xMaMumKontrol(xMAMum200)
+xMA_200 = xMaKontrol(xMaTip200, source_200, length8a) 
+xMA_200Src = request.security(syminfo.tickerid,xMaMum200Src, xMA_200)
+//xMA_200_Color_S = xMA_200Src >= xMA_200Src[1] ? xMA_200_Color :xMA_200_Color_koyu
+xMA_200_Color_S = acMumRenk200 ? myAltinNqqeColor : xMA_200Src >= xMA_200Src[1] ? xMA_200_Color : xMA_200_Color_koyu
+
+
+
+xMA_200_Plot = plot(xMA_200Src and acxMaCizgisi and acxMa200Cizgisi ? xMA_200Src : na , color=xMA_200_Color_S, linewidth=4, title='xMa200 Çizgisi')
+
+bgcolor(acMumRenk200Sutun ? myAltinNqqeColorTurkuaz : na,title = 'xMA200 Arka Plan Rengi')
+
+
+
+
+
+
+//BB
+//acBb = input(defval = false, title = 'Bolinger Çizgileri Gözüksün mü?', group="Küçük Bolinger Bölümü")   
+bbLength = input.int(66, minval=1, step=1, title='Küçük Bolinger Uzunluğu', group="Küçük Bolinger Bölümü")
+bbMult = input.float(2, minval=0.001, maxval=50.0, step=0.01, title="Küçük Bolinger Standart Sapma", group="Küçük Bolinger Bölümü")
+bbBasis = ta.sma(src, bbLength)
+bbDev = bbMult * ta.stdev(src, bbLength)
+upper = bbBasis + bbDev
+lower = bbBasis - bbDev
+
+//bolP1 = plot(upper and acBb ? upper : na, "Küçük Bolinger Üst", color=bb_Color, offset = 0, linewidth=3)
+//bolP2 = plot(lower and acBb ? lower : na, "Küçük Bolinger Alt", color=bb_Color, offset = 0, linewidth=3)
+//fill(bolP1, bolP2, title='Küçük Bolinger Bölgesi', transp=100)
+
+
+//BBB
+//acBbB = input(defval = false, title = 'Büyük Bolinger Çizgisi Gözüksün mü?', group="Büyük Bolinger Bölümü")   
+bbLengthB = input.int(377, minval=1, step=1, title='Büyük Bolinger Uzunluğu', group="Büyük Bolinger Bölümü")
+bbMultB = input.float(3.18, minval=0.001, maxval=50.0, step=0.01, title="Büyük Bolinger Standart Sapma", group="Büyük Bolinger Bölümü")
+bbBasisB = ta.sma(src, bbLengthB)
+bbDevB = bbMultB * ta.stdev(src, bbLengthB)
+upperB = bbBasisB + bbDevB
+lowerB = bbBasisB - bbDevB
+
+
+//plot(bbBasisB and acBbB ? bbBasisB  : na, "Büyük Bolinger Orta Çizgi", color=color.lime, offset=0, linewidth=4)
+//p1B = plot(upperB and acBbB ? upperB : na, "Büyük Bolinger Üst", color=bbb_Color, offset=0, linewidth=3)
+//p2B = plot(lowerB and acBbB ? lowerB : na, "Büyük Bolinger Alt", color=bbb_Color, offset=0, linewidth=3)
+//fill(p1B, p2B, title='Büyük Bolinger Bölgesi', transp=100)
+
+
+
+
+cizgiBul(mySecenek) => 
+    float ma1 = switch mySecenek
+        "Boş" => na
+        "xMA21" => xMA_21Src
+        "xMA50" => xMA_50Src
+        "xMA100" => xMA_100Src
+        "xMA200" => xMA_200Src
+        "xMum" => close
+        "Kama" => nAMA
+        "Altın Çizgi" => filt
+        "Mavilim" => MAVW 
+        "Rsi/Ema 1" => myRsiEmaLine_1S
+        "Rsi/Ema 2" => myRsiEmaLine_2S
+//        "Rsi/Ema 3" => myRsiEmaLine_3S
+//        "Rsi/Ema 4" => myRsiEmaLine_4S
+        "Bolinger Üst" => upper
+        "Bolinger Alt" => lower
+        "Büyük Bolinger Üst" => upperB
+        "Büyük Bolinger Alt" => lowerB
+        "2.272" => line2272 
+        "2.000" => line2000 
+        "1.618" => line1618 
+        "1.414" => line1414 
+        "1.272" => line1272 
+        "1.000" => line1000 
+        "0.786" => line0786 
+        "0.618" => line0618 
+        "0.500" => line0500 
+        "0.382" => line0382 
+        "0.236" => line0236 
+        "0.000" => line0000 
+        "-0.272" => line1272_2 
+        "-0.414" => line1414_2 
+        "-0.618" => line1618_2 
+        "-1.000" => line2000_2 
+        "-1.272" => line2272_2 
+
+
+
+
+//BOYAMALAR 1
+acBoyamaCizgi1_ust = input(defval = false, title = 'Boyama Çizgileri Birinci Sınır Gözüksün mü?', group="1. Boyama Bölümü")   
+acBoyamaCizgi1_alt = input(defval = false, title = 'Boyama Çizgileri İkinci Sınır Gözüksün mü?', group="1. Boyama Bölümü")   
+
+myRenkCizgi1_ust = input.color(color.new(#00bcd4, 0) , "Birinci Çizgi Renk", group="1. Boyama Bölümü") 
+myRenkCizgi1_alt = input.color(color.new(color.red, 0), "İkinci Çizgi Renk", group="1. Boyama Bölümü") 
+
+string boyaBir = input.string(defval = "Boş", title = "Boya Birinci Sınır" ,options=["Boş", "xMA21", "xMA50", "xMA100", "xMA200", "xMum", "Kama", "Altın Çizgi", "Mavilim", "Rsi/Ema 1", "Rsi/Ema 2", "Rsi/Ema 3", "Rsi/Ema 4", "Bolinger Üst", "Bolinger Alt", "Büyük Bolinger Üst", "Büyük Bolinger Alt","2.272", "2.000", "1.618", "1.414", "1.272", "1.000", "0.786", "0.618", "0.500", "0.382", "0.236", "0.000", "-0.272", "-0.414", "-0.618", "-1.000", "-1.272"] , group="1. Boyama Bölümü")
+string boyaIki = input.string(defval = "Boş", title = "Boya İkinci Sınır" ,options=["Boş", "xMA21", "xMA50", "xMA100", "xMA200", "xMum", "Kama", "Altın Çizgi", "Mavilim", "Rsi/Ema 1", "Rsi/Ema 2", "Rsi/Ema 3", "Rsi/Ema 4", "Bolinger Üst", "Bolinger Alt", "Büyük Bolinger Üst", "Büyük Bolinger Alt","2.272", "2.000", "1.618", "1.414", "1.272", "1.000", "0.786", "0.618", "0.500", "0.382", "0.236", "0.000", "-0.272", "-0.414", "-0.618", "-1.000", "-1.272"] , group="1. Boyama Bölümü")
+
+myRenkBir = input.color(color.new(#00bcd4, 100) , "Birinci Bölge Renk", group="1. Boyama Bölümü") 
+myRenkIki = input.color(color.new(color.red, 100), "İkinci Bölge Renk", group="1. Boyama Bölümü") 
+
+
+
+ilk = plot(cizgiBul(boyaBir), color = myRenkCizgi1_ust ,display = acBoyamaCizgi1_ust ? display.all : display.none , linewidth = 2)
+son = plot(cizgiBul(boyaIki), color = myRenkCizgi1_alt ,display = acBoyamaCizgi1_alt ? display.all : display.none, linewidth = 2)
+myBoya = cizgiBul(boyaBir) >= cizgiBul(boyaIki) ? myRenkBir : myRenkIki 
+fill(ilk, son , title = 'Birinci Bölge', color = myBoya, fillgaps = true, transp=75)
+
+
+//BOYAMALAR 2
+acBoyamaCizgi2_ust = input(defval = false, title = 'Boyama Çizgileri Birinci Sınır Gözüksün mü?', group="2. Boyama Bölümü")   
+acBoyamaCizgi2_alt = input(defval = false, title = 'Boyama Çizgileri İkinci Sınır Gözüksün mü?', group="2. Boyama Bölümü")   
+
+myRenkCizgi2_ust = input.color(color.new(#00bcd4, 0) , "Birinci Çizgi Renk", group="2. Boyama Bölümü") 
+myRenkCizgi2_alt = input.color(color.new(color.red, 0), "İkinci Çizgi Renk", group="2. Boyama Bölümü") 
+
+string boyaBir2 = input.string(defval = "Boş", title = "Boya Birinci Sınır" ,options=["Boş", "xMA21", "xMA50", "xMA100", "xMA200", "xMum", "Kama", "Altın Çizgi", "Mavilim", "Rsi/Ema 1", "Rsi/Ema 2", "Rsi/Ema 3", "Rsi/Ema 4", "Bolinger Üst", "Bolinger Alt", "Büyük Bolinger Üst", "Büyük Bolinger Alt","2.272", "2.000", "1.618", "1.414", "1.272", "1.000", "0.786", "0.618", "0.500", "0.382", "0.236", "0.000", "-0.272", "-0.414", "-0.618", "-1.000", "-1.272"] , group="2. Boyama Bölümü")
+string boyaIki2 = input.string(defval = "Boş", title = "Boya İkinci Sınır" ,options=["Boş", "xMA21", "xMA50", "xMA100", "xMA200", "xMum", "Kama", "Altın Çizgi", "Mavilim", "Rsi/Ema 1", "Rsi/Ema 2", "Rsi/Ema 3", "Rsi/Ema 4", "Bolinger Üst", "Bolinger Alt", "Büyük Bolinger Üst", "Büyük Bolinger Alt","2.272", "2.000", "1.618", "1.414", "1.272", "1.000", "0.786", "0.618", "0.500", "0.382", "0.236", "0.000", "-0.272", "-0.414", "-0.618", "-1.000", "-1.272"] , group="2. Boyama Bölümü")
+
+myRenkBir2 = input.color(color.new(#089981, 100) , "Birinci Bölge Renk", group="2. Boyama Bölümü") 
+myRenkIki2 = input.color(color.new(#ff0000, 100), "İkinci Bölge Renk", group="2. Boyama Bölümü") 
+
+	
+ilk2 = plot(cizgiBul(boyaBir2), color = myRenkCizgi2_ust ,display = acBoyamaCizgi2_ust ? display.all : display.none , linewidth = 2)
+son2 = plot(cizgiBul(boyaIki2), color = myRenkCizgi2_alt ,display = acBoyamaCizgi2_alt ? display.all : display.none, linewidth = 2)
+myBoya2 = cizgiBul(boyaBir2) >= cizgiBul(boyaIki2) ? myRenkBir2 : myRenkIki2
+fill(ilk2, son2 , title = 'İkinci Bölge', color = myBoya2, fillgaps = true, transp=75)
+
+
+
+
+//BOYAMALAR 3
+//acBoyamaCizgi3_ust = input(defval = false, title = 'Boyama Çizgileri Birinci Sınır Gözüksün mü?', group="3. Boyama Bölümü")   
+//acBoyamaCizgi3_alt = input(defval = false, title = 'Boyama Çizgileri İkinci Sınır Gözüksün mü?', group="3. Boyama Bölümü")   
+
+//myRenkCizgi3_ust = input.color(color.new(#00bcd4, 0) , "Birinci Çizgi Renk", group="3. Boyama Bölümü") 
+//myRenkCizgi3_alt = input.color(color.new(color.red, 0), "İkinci Çizgi Renk", group="3. Boyama Bölümü") 
+
+//string boyaBir3 = input.string(defval = "Boş", title = "Boya Birinci Sınır" ,options=["Boş", "xMA21", "xMA50", "xMA100", "xMA200", "xMum", "Kama", "Altın Çizgi", "Mavilim", "Rsi/Ema 1", "Rsi/Ema 2", "Rsi/Ema 3", "Rsi/Ema 4", "Bolinger Üst", "Bolinger Alt", "Büyük Bolinger Üst", "Büyük Bolinger Alt","2.272", "2.000", "1.618", "1.414", "1.272", "1.000", "0.786", "0.618", "0.500", "0.382", "0.236", "0.000", "-0.272", "-0.414", "-0.618", "-1.000", "-1.272"] , group="3. Boyama Bölümü")
+//string boyaIki3 = input.string(defval = "Boş", title = "Boya İkinci Sınır" ,options=["Boş", "xMA21", "xMA50", "xMA100", "xMA200", "xMum", "Kama", "Altın Çizgi", "Mavilim", "Rsi/Ema 1", "Rsi/Ema 2", "Rsi/Ema 3", "Rsi/Ema 4", "Bolinger Üst", "Bolinger Alt", "Büyük Bolinger Üst", "Büyük Bolinger Alt","2.272", "2.000", "1.618", "1.414", "1.272", "1.000", "0.786", "0.618", "0.500", "0.382", "0.236", "0.000", "-0.272", "-0.414", "-0.618", "-1.000", "-1.272"] , group="3. Boyama Bölümü")
+
+//myRenkBir3 = input.color(color.new(color.lime, 100) , "Birinci Bölge Renk", group="3. Boyama Bölümü") 
+//myRenkIki3 = input.color(color.new(color.red, 100), "İkinci Bölge Renk", group="3. Boyama Bölümü") 
+
+
+//ilk3 = plot(cizgiBul(boyaBir3), color = myRenkCizgi3_ust ,display = acBoyamaCizgi3_ust ? display.all : display.none , linewidth = 2)
+//son3 = plot(cizgiBul(boyaIki3), color = myRenkCizgi3_alt ,display = acBoyamaCizgi3_alt ? display.all : display.none, linewidth = 2)
+//myBoya3 = cizgiBul(boyaBir3) >= cizgiBul(boyaIki3) ? myRenkBir3 : myRenkIki3
+//fill(ilk3, son3 , title = 'Üçüncü Bölge', color = myBoya3, fillgaps = true, transp=75)
+
+
+//BOYAMALAR 4
+//acBoyamaCizgi4_ust = input(defval = false, title = 'Boyama Çizgileri Birinci Sınır Gözüksün mü?', group="4. Boyama Bölümü")   
+//acBoyamaCizgi4_alt = input(defval = false, title = 'Boyama Çizgileri İkinci Sınır Gözüksün mü?', group="4. Boyama Bölümü")   
+
+//myRenkCizgi4_ust = input.color(color.new(#00bcd4, 0) , "Birinci Çizgi Renk", group="4. Boyama Bölümü") 
+//myRenkCizgi4_alt = input.color(color.new(color.red, 0), "İkinci Çizgi Renk", group="4. Boyama Bölümü") 
+
+//string boyaBir4 = input.string(defval = "Boş", title = "Boya Birinci Sınır" ,options=["Boş", "xMA21", "xMA50", "xMA100", "xMA200", "xMum", "Kama", "Altın Çizgi", "Mavilim", "Rsi/Ema 1", "Rsi/Ema 2", "Rsi/Ema 3", "Rsi/Ema 4", "Bolinger Üst", "Bolinger Alt", "Büyük Bolinger Üst", "Büyük Bolinger Alt","2.272", "2.000", "1.618", "1.414", "1.272", "1.000", "0.786", "0.618", "0.500", "0.382", "0.236", "0.000", "-0.272", "-0.414", "-0.618", "-1.000", "-1.272"] , group="4. Boyama Bölümü")
+//string boyaIki4 = input.string(defval = "Boş", title = "Boya İkinci Sınır" ,options=["Boş", "xMA21", "xMA50", "xMA100", "xMA200", "xMum", "Kama", "Altın Çizgi", "Mavilim", "Rsi/Ema 1", "Rsi/Ema 2", "Rsi/Ema 3", "Rsi/Ema 4", "Bolinger Üst", "Bolinger Alt", "Büyük Bolinger Üst", "Büyük Bolinger Alt","2.272", "2.000", "1.618", "1.414", "1.272", "1.000", "0.786", "0.618", "0.500", "0.382", "0.236", "0.000", "-0.272", "-0.414", "-0.618", "-1.000", "-1.272"] , group="4. Boyama Bölümü")
+
+//myRenkBir4 = input.color(color.new(#2196f3, 100) , "Birinci Bölge Renk", group="4. Boyama Bölümü") 
+//myRenkIki4 = input.color(color.new(color.red, 100), "İkinci Bölge Renk", group="4. Boyama Bölümü") 
+
+
+//ilk4 = plot(cizgiBul(boyaBir4), color = myRenkCizgi4_ust ,display = acBoyamaCizgi4_ust ? display.all : display.none , linewidth = 2)
+//son4 = plot(cizgiBul(boyaIki4), color = myRenkCizgi4_alt ,display = acBoyamaCizgi4_alt ? display.all : display.none, linewidth = 2)
+//myBoya4 = cizgiBul(boyaBir4) >= cizgiBul(boyaIki4) ? myRenkBir4 : myRenkIki4
+//fill(ilk4, son4 , title = 'Dördüncü Bölge', color = myBoya4, fillgaps = true, transp=75)
+
+
+//BOYAMALAR BÖLÜMÜ BİTTİ
+
+
+
+tRsi = str.tostring(nz(ta.rsi(close,myRsiUzunluk)),"#")
+tRsiYon = nz(ta.rsi(close,myRsiUzunluk)) >= nz(ta.rsi(close[1],myRsiUzunluk))
+
+
+tRsi_0 = ta.rsi(close,myRsiUzunluk)
+tEma_0 = ta.ema(tRsi_0, myEmaUzunluk)
+
+
+tMfi = str.tostring(nz(ta.mfi(hlc3, lengthMFI)),"#")
+tMfiYon = nz(ta.mfi(hlc3, lengthMFI)) > nz(ta.mfi(hlc3[1], lengthMFI))
+
+tAdx = str.tostring(nz(hesaplaDX(lenDMI)),"#")
+
+
+//var table tblPanoMobil = table.new(position.bottom_right, 1, 12, bgcolor = color.black, frame_width = 1, frame_color = color.white, border_color = color.white, border_width=1)
+var table tblPanoMobil = table.new(xTabloKonumKontrol(xTabloKonumu), 1, 12, bgcolor = color.black, frame_width = 1, frame_color = color.white, border_color = color.white, border_width=1)
+table.clear(tblPanoMobil, 0, 0, 0, 11)
+
+
+//tFiboColor = color.new(#131722,0) 
+tFiboColor = color.new(#434651,0) 
+tFiyatColorY = color.new(#056656,0) 
+tFiyatColorD = color.new(color.red,0)
+
+t_ust_b = ""
+t_ust_d = ""
+t_ust_bc = tFiboColor
+
+t_orta_b = ""
+t_orta_d = ""
+t_orta_bc = tFiboColor
+
+t_alt_b = ""
+t_alt_d = ""
+t_alt_bc = tFiboColor
+
+
+tFiyat = str.tostring(close, '##.00')  
+tDestek = "Destek"
+tDirenc = "Direnç"
+
+
+
+if src > line2000
+    t_ust_b := "Fiyat"
+    t_ust_d := str.tostring(close, '##.00')
+    t_ust_bc := src>=src[1] ? tFiyatColorY : tFiyatColorD
+
+    t_orta_b := tDestek + "\n2.000"
+    t_orta_d := str.tostring(line2000, '##.00')
+    t_orta_bc := tFiboColor
+
+    t_alt_b := tDestek + "\n1.618"
+    t_alt_d := str.tostring(line1618, '##.00')
+    t_alt_bc := tFiboColor
+
+
+if src <= line2000 and src > line1618
+    t_ust_b := tDirenc + "\n2.000"
+    t_ust_d := str.tostring(line2000, '##.00')
+    t_ust_bc := tFiboColor
+
+    t_orta_b := "Fiyat"
+    t_orta_d := str.tostring(close, '##.00')
+    t_orta_bc := src>=src[1] ? tFiyatColorY : tFiyatColorD
+
+    t_alt_b := tDestek + "\n1.618"
+    t_alt_d := str.tostring(line1618, '##.00')
+    t_alt_bc := tFiboColor
+
+
+
+if src <= line1618 and src > line1414
+    t_ust_b := tDirenc + "\n1.618"
+    t_ust_d := str.tostring(line1618, '##.00')
+    t_ust_bc := tFiboColor
+
+    t_orta_b := "Fiyat"
+    t_orta_d := str.tostring(close, '##.00')
+    t_orta_bc := src>=src[1] ? tFiyatColorY : tFiyatColorD
+
+    t_alt_b := tDestek + "\n1.414"
+    t_alt_d := str.tostring(line1414, '##.00')
+    t_alt_bc := tFiboColor
+
+
+
+
+if src <= line1414 and src > line1272
+    t_ust_b := tDirenc + "\n1.414"
+    t_ust_d := str.tostring(line1414, '##.00')
+    t_ust_bc := tFiboColor
+
+    t_orta_b := "Fiyat"
+    t_orta_d := str.tostring(close, '##.00')
+    t_orta_bc := src>=src[1] ? tFiyatColorY : tFiyatColorD
+
+    t_alt_b := tDestek + "\n1.272"
+    t_alt_d := str.tostring(line1272, '##.00')
+    t_alt_bc := tFiboColor
+    
+if src <= line1272 and src > line1000
+    t_ust_b := tDirenc + "\n1.272"
+    t_ust_d := str.tostring(line1272, '##.00')
+    t_ust_bc := tFiboColor
+
+    t_orta_b := "Fiyat"
+    t_orta_d := str.tostring(close, '##.00')
+    t_orta_bc := src>=src[1] ? tFiyatColorY : tFiyatColorD
+
+    t_alt_b := tDestek + "\n1.000"
+    t_alt_d := str.tostring(line1000, '##.00')
+    t_alt_bc := tFiboColor
+
+if src <= line1000 and src > line0786
+    t_ust_b := tDirenc + "\n1.000"
+    t_ust_d := str.tostring(line1000, '##.00')
+    t_ust_bc := tFiboColor
+
+    t_orta_b := "Fiyat"
+    t_orta_d := str.tostring(close, '##.00')
+    t_orta_bc := src>=src[1] ? tFiyatColorY : tFiyatColorD
+
+    t_alt_b := tDestek + "\n0.786"
+    t_alt_d := str.tostring(line0786, '##.00')
+    t_alt_bc := tFiboColor
+
+if src <= line0786 and src > line0618
+    t_ust_b := tDirenc + "\n0.789"
+    t_ust_d := str.tostring(line0786, '##.00')
+    t_ust_bc := tFiboColor
+
+    t_orta_b := "Fiyat"
+    t_orta_d := str.tostring(close, '##.00')
+    t_orta_bc := src>=src[1] ? tFiyatColorY : tFiyatColorD
+
+    t_alt_b := tDestek + "\n0.618"
+    t_alt_d := str.tostring(line0618, '##.00')
+    t_alt_bc := tFiboColor
+
+if src <= line0618 and src > line0500
+    t_ust_b := tDirenc + "\n0.618"
+    t_ust_d := str.tostring(line0618, '##.00')
+    t_ust_bc := tFiboColor
+
+    t_orta_b := "Fiyat"
+    t_orta_d := str.tostring(close, '##.00')
+    t_orta_bc := src>=src[1] ? tFiyatColorY : tFiyatColorD
+
+    t_alt_b := tDestek + "\n0.500"
+    t_alt_d := str.tostring(line0500, '##.00')
+    t_alt_bc := tFiboColor
+
+if src <= line0500 and src > line0382
+    t_ust_b := tDirenc + "\n0.500"
+    t_ust_d := str.tostring(line0500, '##.00')
+    t_ust_bc := tFiboColor
+
+    t_orta_b := "Fiyat"
+    t_orta_d := str.tostring(close, '##.00')
+    t_orta_bc := src>=src[1] ? tFiyatColorY : tFiyatColorD
+
+    t_alt_b := tDestek + "\n0.382"
+    t_alt_d := str.tostring(line0382, '##.00')
+    t_alt_bc := tFiboColor
+
+if src <= line0382 and src > line0236
+    t_ust_b := tDirenc + "\n0.382"
+    t_ust_d := str.tostring(line0382, '##.00')
+    t_ust_bc := tFiboColor
+
+    t_orta_b := "Fiyat"
+    t_orta_d := str.tostring(close, '##.00')
+    t_orta_bc := src>=src[1] ? tFiyatColorY : tFiyatColorD
+
+    t_alt_b := tDestek + "\n0.236"
+    t_alt_d := str.tostring(line0236, '##.00')
+    t_alt_bc := tFiboColor
+
+if src <= line0236 and src > line0000
+    t_ust_b := tDirenc + "\n0.236"
+    t_ust_d := str.tostring(line0236, '##.00')
+    t_ust_bc := tFiboColor
+
+    t_orta_b := "Fiyat"
+    t_orta_d := str.tostring(close, '##.00')
+    t_orta_bc := src>=src[1] ? tFiyatColorY : tFiyatColorD
+    t_alt_b := tDestek + "\n0.000"
+    t_alt_d := str.tostring(line0000, '##.00')
+    t_alt_bc := tFiboColor
+
+if src <= line0000 and src > line1272_2
+    t_ust_b := tDirenc + "\n0.000"
+    t_ust_d := str.tostring(line0000, '##.00')
+    t_ust_bc := tFiboColor
+
+    t_orta_b := "Fiyat"
+    t_orta_d := str.tostring(close, '##.00')
+    t_orta_bc := src>=src[1] ? tFiyatColorY : tFiyatColorD
+
+    t_alt_b := tDestek + "\n-1.272"
+    t_alt_d := str.tostring(line1272_2, '##.00')
+    t_alt_bc := tFiboColor
+
+if src <= line1272_2 and src > line1414_2
+    t_ust_b := tDirenc + "\n-1.272"
+    t_ust_d := str.tostring(line1272_2, '##.00')
+    t_ust_bc := tFiboColor
+
+    t_orta_b := "Fiyat"
+    t_orta_d := str.tostring(close, '##.00')
+    t_orta_bc := src>=src[1] ? tFiyatColorY : tFiyatColorD
+
+    t_alt_b := tDestek + "\n-1.414"
+    t_alt_d := str.tostring(line1414_2, '##.00')
+    t_alt_bc := tFiboColor
+if src <= line1414_2 
+    t_ust_b := tDirenc + "\n-1.272"
+    t_ust_d := str.tostring(line1272_2, '##.00')
+    t_ust_bc := tFiboColor
+
+    t_orta_b := tDirenc + "\n-1.414"
+    t_orta_d := str.tostring(line1414_2, '##.00')
+    t_orta_bc := tFiboColor
+
+    t_alt_b := "Fiyat"
+    t_alt_d := str.tostring(close, '##.00')
+    t_alt_bc := src>=src[1] ? tFiyatColorY : tFiyatColorD
+
+
+
+
+if barstate.islast
+
+    if acTabloPanoOzet 
+
+        tsize = xHarfKontrol(xHarfBuyuklugu) //size.small
+
+        table.cell(tblPanoMobil, 0, 0, t_ust_b, text_color = color.white, text_size = tsize, bgcolor=color.teal)
+        table.cell(tblPanoMobil, 0, 1, t_ust_d, text_color = color.white, text_size = tsize, bgcolor=t_ust_bc)
+
+        table.cell(tblPanoMobil, 0, 2, t_orta_b, text_color = color.white, text_size = tsize, bgcolor=color.teal)
+        table.cell(tblPanoMobil, 0, 3, t_orta_d, text_color = color.white, text_size = tsize, bgcolor=t_orta_bc)
+        
+        table.cell(tblPanoMobil, 0, 4, t_alt_b, text_color = color.white, text_size = tsize, bgcolor=color.teal)
+        table.cell(tblPanoMobil, 0, 5, t_alt_d, text_color = color.white, text_size = tsize, bgcolor=t_alt_bc)
+
+        table.cell(tblPanoMobil, 0, 6, "RSI", text_color = color.white, text_size = tsize, bgcolor=(tRsi_0 > tEma_0) ? color.new(color.lime,50) : color.maroon)
+        table.cell(tblPanoMobil, 0, 7, tRsi , text_color = color.white, text_size = tsize, bgcolor=(tRsiYon) ? color.new(color.lime,50) : color.new(#ff0000,0))
+
+        table.cell(tblPanoMobil, 0, 8, "MFI", text_color = color.white, text_size = tsize, bgcolor=color.maroon)
+        table.cell(tblPanoMobil, 0, 9, tMfi , text_color = color.white, text_size = tsize, bgcolor=(tMfiYon) ? color.new(color.lime,50) : color.new(#ff0000,0))
+
+        table.cell(tblPanoMobil, 0, 10, "ADX", text_color = color.white, text_size = tsize, bgcolor=color.maroon)
+        table.cell(tblPanoMobil, 0, 11, tAdx , text_color = color.black, text_size = tsize, bgcolor=myColorAdx)
+
+
+
+fiyat = str.tostring(src, '##.00')
+fiyatYon = src>src[1]
+myHisseA = str.tostring(syminfo.ticker) 
+xCalismaMumA = "Grafik: " + xMumKontrolA(str.tostring(timeframe.period)) 
+
+var table tblPanoMobila = table.new(xTabloKonumKontrol(xPanoKonumu), 4, 1, bgcolor = color.black, frame_width = 1, frame_color = color.white, border_color = color.white, border_width=1)
+table.clear(tblPanoMobila, 0, 0, 3, 0)
+
+
+tBos = "Mum"
+tTarih = str.tostring(dayofmonth(timenow)) + "." + str.tostring(month(timenow)) + "." + str.tostring(year(timenow))
+
+if barstate.islast
+
+	tsizeP = xHarfKontrol(xPanoHarfBuyuklugu)
+
+    if acPanoOzet 
+
+        table.cell(tblPanoMobila, 0, 0, myHisseA , text_color = color.white, text_size = tsizeP, bgcolor=color.maroon)
+        table.cell(tblPanoMobila, 1, 0, tTarih, text_color = color.white, text_size = tsizeP, bgcolor=color.maroon)
+        table.cell(tblPanoMobila, 2, 0, xCalismaMumA , text_color = color.white, text_size = tsizeP, bgcolor=color.teal)
+        table.cell(tblPanoMobila, 3, 0, "Fiyat: " + fiyat , text_color =fiyatYon ? color.new(color.lime,0) : color.new(#FF0000,0), text_size = tsizeP, bgcolor=color.rgb(13, 35, 44, 52))
+
+
+
+
+
+/// ÇAKMA ->
+prd = input.int(defval=10, title='Pivot Point Period', minval=5, maxval=50, group="ÇAKMA Ayarları")
+PPnum = input.int(defval=10, title='Number of Pivot Point to check', minval=2, maxval=10, group="ÇAKMA Ayarları")
+extendlines = input(defval=false, title='Extend Lines', group="ÇAKMA Ayarları")
+showpivot = input(defval=true, title='Show Pivot Points', group="ÇAKMA Ayarları")
+
+showAnaCizgi = input(defval=true, title='Ana Çizgileri Göstersin mi?', group="ÇAKMA Ana Çizgi Ayarları")
+linestylei = input.string(defval='Solid', title='Ana Çizgi Biçimi', options=['Solid', 'Dashed', 'Dotted'], group="ÇAKMA Ana Çizgi Ayarları")
+linewidth = input.int(defval=2, title='Ana Çizgi Genişliği', minval=1, maxval=4, group="ÇAKMA Ana Çizgi Ayarları")
+line1_color = input.color(title='Üst Ana Çizgi Rengi', defval=#FF0000, group="ÇAKMA Ana Çizgi Ayarları")
+line2_color = input.color(title='Alt Ana Çizgi Rengi', defval=color.lime, group="ÇAKMA Ana Çizgi Ayarları")
+
+showbroken = input(defval=true, title='Detay Çizgileri Göstersin mi?', group="ÇAKMA Detay Çizgi Ayarları")
+linestyled = input.string(defval='Dotted', title='Detay Çizgi Biçimi', options=['Solid', 'Dashed', 'Dotted'], group="ÇAKMA Detay Çizgi Ayarları")
+linewidthDetay = input.int(defval=1, title='Detay Çizgi Genişliği', minval=1, maxval=4, group="ÇAKMA Detay Çizgi Ayarları")
+line1d_color = input.color(title='Üst Detay Çizgi Rengi', defval=color.yellow, group="ÇAKMA Detay Çizgi Ayarları")
+line2d_color = input.color(title='Alt Detay Çizgi Rengi', defval=color.new(#e040fb, 100), group="ÇAKMA Detay Çizgi Ayarları")  
+
+float ph = na
+float pl = na
+ph := ta.pivothigh(myRsiEmaLine_1S, prd, prd)
+pl := ta.pivotlow(myRsiEmaLine_1S, prd, prd)
+
+plotshape(ph and showpivot ? ph : na, text='Y', style=shape.labeldown, color=na, textcolor=color.new(#FF0000, 0), location=location.absolute, offset=-prd, transp=0)
+plotshape(pl and showpivot ? pl - 5 : na, text='D', style=shape.labeldown, color=na, textcolor=color.new(color.lime, 0), location=location.belowbar , offset=-prd, transp=0)
+
+getloc(bar_i) =>
+    _ret = bar_index + prd - bar_i
+    _ret
+
+//get last 10  pivot highs - (hope to have Array in Pine version 5)
+t1pos = ta.valuewhen(ph, bar_index, 0)
+t1val = nz(myRsiEmaLine_1S[getloc(t1pos)])
+t2pos = ta.valuewhen(ph, bar_index, 1)
+t2val = nz(myRsiEmaLine_1S[getloc(t2pos)])
+t3pos = ta.valuewhen(ph, bar_index, 2)
+t3val = nz(myRsiEmaLine_1S[getloc(t3pos)])
+t4pos = ta.valuewhen(ph, bar_index, 3)
+t4val = nz(myRsiEmaLine_1S[getloc(t4pos)])
+t5pos = ta.valuewhen(ph, bar_index, 4)
+t5val = nz(myRsiEmaLine_1S[getloc(t5pos)])
+t6pos = ta.valuewhen(ph, bar_index, 5)
+t6val = nz(myRsiEmaLine_1S[getloc(t6pos)])
+t7pos = ta.valuewhen(ph, bar_index, 6)
+t7val = nz(myRsiEmaLine_1S[getloc(t7pos)])
+t8pos = ta.valuewhen(ph, bar_index, 7)
+t8val = nz(myRsiEmaLine_1S[getloc(t8pos)])
+t9pos = ta.valuewhen(ph, bar_index, 8)
+t9val = nz(myRsiEmaLine_1S[getloc(t9pos)])
+t10pos = ta.valuewhen(ph, bar_index, 9)
+t10val = nz(myRsiEmaLine_1S[getloc(t10pos)])
+
+//get last 10 pivot lows /
+b1pos = ta.valuewhen(pl, bar_index, 0)
+b1val = nz(myRsiEmaLine_1S[getloc(b1pos)])
+b2pos = ta.valuewhen(pl, bar_index, 1)
+b2val = nz(myRsiEmaLine_1S[getloc(b2pos)])
+b3pos = ta.valuewhen(pl, bar_index, 2)
+b3val = nz(myRsiEmaLine_1S[getloc(b3pos)])
+b4pos = ta.valuewhen(pl, bar_index, 3)
+b4val = nz(myRsiEmaLine_1S[getloc(b4pos)])
+b5pos = ta.valuewhen(pl, bar_index, 4)
+b5val = nz(myRsiEmaLine_1S[getloc(b5pos)])
+b6pos = ta.valuewhen(pl, bar_index, 5)
+b6val = nz(myRsiEmaLine_1S[getloc(b6pos)])
+b7pos = ta.valuewhen(pl, bar_index, 6)
+b7val = nz(myRsiEmaLine_1S[getloc(b7pos)])
+b8pos = ta.valuewhen(pl, bar_index, 7)
+b8val = nz(myRsiEmaLine_1S[getloc(b8pos)])
+b9pos = ta.valuewhen(pl, bar_index, 8)
+b9val = nz(myRsiEmaLine_1S[getloc(b9pos)])
+b10pos = ta.valuewhen(pl, bar_index, 9)
+b10val = nz(myRsiEmaLine_1S[getloc(b10pos)])  //
+
+getloval(l1, l2) =>
+    _ret1 = l1 == 1 ? b1val : l1 == 2 ? b2val : l1 == 3 ? b3val : l1 == 4 ? b4val : l1 == 5 ? b5val : l1 == 6 ? b6val : l1 == 7 ? b7val : l1 == 8 ? b8val : l1 == 9 ? b9val : l1 == 10 ? b10val : 0
+    _ret2 = l2 == 1 ? b1val : l2 == 2 ? b2val : l2 == 3 ? b3val : l2 == 4 ? b4val : l2 == 5 ? b5val : l2 == 6 ? b6val : l2 == 7 ? b7val : l2 == 8 ? b8val : l2 == 9 ? b9val : l2 == 10 ? b10val : 0
+    [_ret1, _ret2]
+
+getlopos(l1, l2) =>
+    _ret1 = l1 == 1 ? b1pos : l1 == 2 ? b2pos : l1 == 3 ? b3pos : l1 == 4 ? b4pos : l1 == 5 ? b5pos : l1 == 6 ? b6pos : l1 == 7 ? b7pos : l1 == 8 ? b8pos : l1 == 9 ? b9pos : l1 == 10 ? b10pos : 0
+    _ret2 = l2 == 1 ? b1pos : l2 == 2 ? b2pos : l2 == 3 ? b3pos : l2 == 4 ? b4pos : l2 == 5 ? b5pos : l2 == 6 ? b6pos : l2 == 7 ? b7pos : l2 == 8 ? b8pos : l2 == 9 ? b9pos : l2 == 10 ? b10pos : 0
+    [_ret1, _ret2]
+
+gethival(l1, l2) =>
+    _ret1 = l1 == 1 ? t1val : l1 == 2 ? t2val : l1 == 3 ? t3val : l1 == 4 ? t4val : l1 == 5 ? t5val : l1 == 6 ? t6val : l1 == 7 ? t7val : l1 == 8 ? t8val : l1 == 9 ? t9val : l1 == 10 ? t10val : 0
+    _ret2 = l2 == 1 ? t1val : l2 == 2 ? t2val : l2 == 3 ? t3val : l2 == 4 ? t4val : l2 == 5 ? t5val : l2 == 6 ? t6val : l2 == 7 ? t7val : l2 == 8 ? t8val : l2 == 9 ? t9val : l2 == 10 ? t10val : 0
+    [_ret1, _ret2]
+
+gethipos(l1, l2) =>
+    _ret1 = l1 == 1 ? t1pos : l1 == 2 ? t2pos : l1 == 3 ? t3pos : l1 == 4 ? t4pos : l1 == 5 ? t5pos : l1 == 6 ? t6pos : l1 == 7 ? t7pos : l1 == 8 ? t8pos : l1 == 9 ? t9pos : l1 == 10 ? t10pos : 0
+    _ret2 = l2 == 1 ? t1pos : l2 == 2 ? t2pos : l2 == 3 ? t3pos : l2 == 4 ? t4pos : l2 == 5 ? t5pos : l2 == 6 ? t6pos : l2 == 7 ? t7pos : l2 == 8 ? t8pos : l2 == 9 ? t9pos : l2 == 10 ? t10pos : 0
+    [_ret1, _ret2]
+
+// line definitions
+var line l1 = na
+var line l2 = na
+var line l3 = na
+var line l4 = na
+var line l5 = na
+var line l6 = na
+var line l7 = na
+var line l8 = na
+var line l9 = na
+var line l10 = na
+var line l11 = na
+var line l12 = na
+var line l13 = na
+var line l14 = na
+var line l15 = na
+var line l16 = na
+var line l17 = na
+var line l18 = na
+var line l19 = na
+var line l20 = na
+var line t1 = na
+var line t2 = na
+var line t3 = na
+var line t4 = na
+var line t5 = na
+var line t6 = na
+var line t7 = na
+var line t8 = na
+var line t9 = na
+var line t10 = na
+var line t11 = na
+var line t12 = na
+var line t13 = na
+var line t14 = na
+var line t15 = na
+var line t16 = na
+var line t17 = na
+var line t18 = na
+var line t19 = na
+var line t20 = na
+
+//delete old lines
+line.delete(l1)
+line.delete(l2)
+line.delete(l3)
+line.delete(l4)
+line.delete(l5)
+line.delete(l6)
+line.delete(l7)
+line.delete(l8)
+line.delete(l9)
+line.delete(l10)
+line.delete(l11)
+line.delete(l12)
+line.delete(l13)
+line.delete(l14)
+line.delete(l15)
+line.delete(l16)
+line.delete(l17)
+line.delete(l18)
+line.delete(l19)
+line.delete(l20)
+line.delete(t1)
+line.delete(t2)
+line.delete(t3)
+line.delete(t4)
+line.delete(t5)
+line.delete(t6)
+line.delete(t7)
+line.delete(t8)
+line.delete(t9)
+line.delete(t10)
+line.delete(t11)
+line.delete(t12)
+line.delete(t13)
+line.delete(t14)
+line.delete(t15)
+line.delete(t16)
+line.delete(t17)
+line.delete(t18)
+line.delete(t19)
+line.delete(t20)
+
+// there is limitation for number of lines on chart (<=50), and we use 20 uptrend lines + 20 downtrend lines (total 40) 
+maxline = 20
+
+//Line coloring
+ulcolor = line1_color
+dlcolor = line2_color
+
+ulcolorD = line1d_color
+dlcolorD = line2d_color
+
+//Line style
+linestyle = linestylei == 'Solid' ? line.style_solid : linestylei == 'Dotted' ? line.style_dotted : line.style_dashed
+brokenstyle = linestyled == 'Solid' ? line.style_solid : linestyled == 'Dotted' ? line.style_dotted : line.style_dashed
+
+// extend lines
+extln = extendlines ? extend.right : extend.none
+
+// loop for pivot points to check if there is possible trend line
+countlinelo = 0
+countlinehi = 0
+for p1 = 1 to PPnum - 1 by 1
+    uv1 = 0.0
+    uv2 = 0.0
+    up1 = 0
+    up2 = 0
+    if countlinelo <= maxline
+        for p2 = PPnum to p1 + 1 by 1
+            [val1, val2] = getloval(p1, p2)
+            [pos1, pos2] = getlopos(p1, p2)
+            if val1 > val2
+                diff = (val1 - val2) / (pos1 - pos2)
+                hline = val2 + diff
+                lloc = bar_index
+                lval = myRsiEmaLine_1S
+                valid = true
+                brokentrend = false
+                for x = pos2 + 1 - prd to bar_index by 1
+                    if nz(myRsiEmaLine_1S[getloc(x + prd)]) < hline
+                        valid := false
+                        if x + prd >= pos1
+                            brokentrend := true
+                            brokentrend
+                        break
+                    lloc := x
+                    lval := hline
+                    hline += diff
+                    hline
+
+                if valid
+                    uv1 := hline
+                    uv2 := val2
+                    up1 := lloc
+                    up2 := pos2
+                    break
+
+                if showbroken and not valid and countlinelo < maxline and brokentrend
+                    countlinelo += 1
+                    l1 := countlinelo == 1 ? line.new(pos2 - prd, val2, lloc, lval, style=brokenstyle, color=dlcolorD, extend=extln, width = linewidthDetay) : l1
+                    l2 := countlinelo == 2 ? line.new(pos2 - prd, val2, lloc, lval, style=brokenstyle, color=dlcolorD, extend=extln, width = linewidthDetay) : l2
+                    l3 := countlinelo == 3 ? line.new(pos2 - prd, val2, lloc, lval, style=brokenstyle, color=dlcolorD, extend=extln, width = linewidthDetay) : l3
+                    l4 := countlinelo == 4 ? line.new(pos2 - prd, val2, lloc, lval, style=brokenstyle, color=dlcolorD, extend=extln, width = linewidthDetay) : l4
+                    l5 := countlinelo == 5 ? line.new(pos2 - prd, val2, lloc, lval, style=brokenstyle, color=dlcolorD, extend=extln, width = linewidthDetay) : l5
+                    l6 := countlinelo == 6 ? line.new(pos2 - prd, val2, lloc, lval, style=brokenstyle, color=dlcolorD, extend=extln, width = linewidthDetay) : l6
+                    l7 := countlinelo == 7 ? line.new(pos2 - prd, val2, lloc, lval, style=brokenstyle, color=dlcolorD, extend=extln, width = linewidthDetay) : l7
+                    l8 := countlinelo == 8 ? line.new(pos2 - prd, val2, lloc, lval, style=brokenstyle, color=dlcolorD, extend=extln, width = linewidthDetay) : l8
+                    l9 := countlinelo == 9 ? line.new(pos2 - prd, val2, lloc, lval, style=brokenstyle, color=dlcolorD, extend=extln, width = linewidthDetay) : l9
+                    l10 := countlinelo == 10 ? line.new(pos2 - prd, val2, lloc, lval, style=brokenstyle, color=dlcolorD, extend=extln, width = linewidthDetay) : l10
+                    l11 := countlinelo == 11 ? line.new(pos2 - prd, val2, lloc, lval, style=brokenstyle, color=dlcolorD, extend=extln, width = linewidthDetay) : l11
+                    l12 := countlinelo == 12 ? line.new(pos2 - prd, val2, lloc, lval, style=brokenstyle, color=dlcolorD, extend=extln, width = linewidthDetay) : l12
+                    l13 := countlinelo == 13 ? line.new(pos2 - prd, val2, lloc, lval, style=brokenstyle, color=dlcolorD, extend=extln, width = linewidthDetay) : l13
+                    l14 := countlinelo == 14 ? line.new(pos2 - prd, val2, lloc, lval, style=brokenstyle, color=dlcolorD, extend=extln, width = linewidthDetay) : l14
+                    l15 := countlinelo == 15 ? line.new(pos2 - prd, val2, lloc, lval, style=brokenstyle, color=dlcolorD, extend=extln, width = linewidthDetay) : l15
+                    l16 := countlinelo == 16 ? line.new(pos2 - prd, val2, lloc, lval, style=brokenstyle, color=dlcolorD, extend=extln, width = linewidthDetay) : l16
+                    l17 := countlinelo == 17 ? line.new(pos2 - prd, val2, lloc, lval, style=brokenstyle, color=dlcolorD, extend=extln, width = linewidthDetay) : l17
+                    l18 := countlinelo == 18 ? line.new(pos2 - prd, val2, lloc, lval, style=brokenstyle, color=dlcolorD, extend=extln, width = linewidthDetay) : l18
+                    l19 := countlinelo == 19 ? line.new(pos2 - prd, val2, lloc, lval, style=brokenstyle, color=dlcolorD, extend=extln, width = linewidthDetay) : l19
+                    l20 := countlinelo == 20 ? line.new(pos2 - prd, val2, lloc, lval, style=brokenstyle, color=dlcolorD, extend=extln, width = linewidthDetay) : l20
+                    l20
+    dv1 = 0.0
+    dv2 = 0.0
+    dp1 = 0
+    dp2 = 0
+    if countlinehi <= maxline
+        for p2 = PPnum to p1 + 1 by 1
+            [val1, val2] = gethival(p1, p2)
+            [pos1, pos2] = gethipos(p1, p2)
+            if val1 < val2
+                diff = (val2 - val1) / (pos1 - pos2)
+                hline = val2 - diff
+                lloc = bar_index
+                lval = myRsiEmaLine_1S
+                valid = true
+                brokentrend = false
+                for x = pos2 + 1 - prd to bar_index by 1
+                    if nz(myRsiEmaLine_1S[getloc(x + prd)]) > hline
+                        valid := false
+                        if x + prd >= pos1
+                            brokentrend := true
+                            brokentrend
+                        break
+                    lloc := x
+                    lval := hline
+                    hline -= diff
+                    hline
+
+                if valid
+                    dv1 := hline
+                    dv2 := val2
+                    dp1 := lloc
+                    dp2 := pos2
+                    break
+
+                if showbroken and not valid and countlinehi < maxline and brokentrend
+                    countlinehi += 1
+                    t1 := countlinehi == 1 ? line.new(pos2 - prd, val2, lloc, lval, style=brokenstyle, color=ulcolorD, width = linewidthDetay) : t1
+                    t2 := countlinehi == 2 ? line.new(pos2 - prd, val2, lloc, lval, style=brokenstyle, color=ulcolorD, width = linewidthDetay) : t2
+                    t3 := countlinehi == 3 ? line.new(pos2 - prd, val2, lloc, lval, style=brokenstyle, color=ulcolorD, width = linewidthDetay) : t3
+                    t4 := countlinehi == 4 ? line.new(pos2 - prd, val2, lloc, lval, style=brokenstyle, color=ulcolorD, width = linewidthDetay) : t4
+                    t5 := countlinehi == 5 ? line.new(pos2 - prd, val2, lloc, lval, style=brokenstyle, color=ulcolorD, width = linewidthDetay) : t5
+                    t6 := countlinehi == 6 ? line.new(pos2 - prd, val2, lloc, lval, style=brokenstyle, color=ulcolorD, width = linewidthDetay) : t6
+                    t7 := countlinehi == 7 ? line.new(pos2 - prd, val2, lloc, lval, style=brokenstyle, color=ulcolorD, width = linewidthDetay) : t7
+                    t8 := countlinehi == 8 ? line.new(pos2 - prd, val2, lloc, lval, style=brokenstyle, color=ulcolorD, width = linewidthDetay) : t8
+                    t9 := countlinehi == 9 ? line.new(pos2 - prd, val2, lloc, lval, style=brokenstyle, color=ulcolorD, width = linewidthDetay) : t9
+                    t10 := countlinehi == 10 ? line.new(pos2 - prd, val2, lloc, lval, style=brokenstyle, color=ulcolorD, width = linewidthDetay) : t10
+                    t11 := countlinehi == 11 ? line.new(pos2 - prd, val2, lloc, lval, style=brokenstyle, color=ulcolorD, width = linewidthDetay) : t11
+                    t12 := countlinehi == 12 ? line.new(pos2 - prd, val2, lloc, lval, style=brokenstyle, color=ulcolorD, width = linewidthDetay) : t12
+                    t13 := countlinehi == 13 ? line.new(pos2 - prd, val2, lloc, lval, style=brokenstyle, color=ulcolorD, width = linewidthDetay) : t13
+                    t14 := countlinehi == 14 ? line.new(pos2 - prd, val2, lloc, lval, style=brokenstyle, color=ulcolorD, width = linewidthDetay) : t14
+                    t15 := countlinehi == 15 ? line.new(pos2 - prd, val2, lloc, lval, style=brokenstyle, color=ulcolorD, width = linewidthDetay) : t15
+                    t16 := countlinehi == 16 ? line.new(pos2 - prd, val2, lloc, lval, style=brokenstyle, color=ulcolorD, width = linewidthDetay) : t16
+                    t17 := countlinehi == 17 ? line.new(pos2 - prd, val2, lloc, lval, style=brokenstyle, color=ulcolorD, width = linewidthDetay) : t17
+                    t18 := countlinehi == 18 ? line.new(pos2 - prd, val2, lloc, lval, style=brokenstyle, color=ulcolorD, width = linewidthDetay) : t18
+                    t19 := countlinehi == 19 ? line.new(pos2 - prd, val2, lloc, lval, style=brokenstyle, color=ulcolorD, width = linewidthDetay) : t19
+                    t20 := countlinehi == 20 ? line.new(pos2 - prd, val2, lloc, lval, style=brokenstyle, color=ulcolorD, width = linewidthDetay) : t20
+                    t20
+
+    // if there is continues uptrend line then draw it
+    if showAnaCizgi and up1 != 0 and up2 != 0 and countlinelo < maxline
+        countlinelo += 1
+        l1 := countlinelo == 1 ? line.new(up2 - prd, uv2, up1, uv1, style=linestyle, color=dlcolor, width=linewidth, extend=extln) : l1
+        l2 := countlinelo == 2 ? line.new(up2 - prd, uv2, up1, uv1, style=linestyle, color=dlcolor, width=linewidth, extend=extln) : l2
+        l3 := countlinelo == 3 ? line.new(up2 - prd, uv2, up1, uv1, style=linestyle, color=dlcolor, width=linewidth, extend=extln) : l3
+        l4 := countlinelo == 4 ? line.new(up2 - prd, uv2, up1, uv1, style=linestyle, color=dlcolor, width=linewidth, extend=extln) : l4
+        l5 := countlinelo == 5 ? line.new(up2 - prd, uv2, up1, uv1, style=linestyle, color=dlcolor, width=linewidth, extend=extln) : l5
+        l6 := countlinelo == 6 ? line.new(up2 - prd, uv2, up1, uv1, style=linestyle, color=dlcolor, width=linewidth, extend=extln) : l6
+        l7 := countlinelo == 7 ? line.new(up2 - prd, uv2, up1, uv1, style=linestyle, color=dlcolor, width=linewidth, extend=extln) : l7
+        l8 := countlinelo == 8 ? line.new(up2 - prd, uv2, up1, uv1, style=linestyle, color=dlcolor, width=linewidth, extend=extln) : l8
+        l9 := countlinelo == 9 ? line.new(up2 - prd, uv2, up1, uv1, style=linestyle, color=dlcolor, width=linewidth, extend=extln) : l9
+        l10 := countlinelo == 10 ? line.new(up2 - prd, uv2, up1, uv1, style=linestyle, color=dlcolor, width=linewidth, extend=extln) : l10
+        l11 := countlinelo == 11 ? line.new(up2 - prd, uv2, up1, uv1, style=linestyle, color=dlcolor, width=linewidth, extend=extln) : l11
+        l12 := countlinelo == 12 ? line.new(up2 - prd, uv2, up1, uv1, style=linestyle, color=dlcolor, width=linewidth, extend=extln) : l12
+        l13 := countlinelo == 13 ? line.new(up2 - prd, uv2, up1, uv1, style=linestyle, color=dlcolor, width=linewidth, extend=extln) : l13
+        l14 := countlinelo == 14 ? line.new(up2 - prd, uv2, up1, uv1, style=linestyle, color=dlcolor, width=linewidth, extend=extln) : l14
+        l15 := countlinelo == 15 ? line.new(up2 - prd, uv2, up1, uv1, style=linestyle, color=dlcolor, width=linewidth, extend=extln) : l15
+        l16 := countlinelo == 16 ? line.new(up2 - prd, uv2, up1, uv1, style=linestyle, color=dlcolor, width=linewidth, extend=extln) : l16
+        l17 := countlinelo == 17 ? line.new(up2 - prd, uv2, up1, uv1, style=linestyle, color=dlcolor, width=linewidth, extend=extln) : l17
+        l18 := countlinelo == 18 ? line.new(up2 - prd, uv2, up1, uv1, style=linestyle, color=dlcolor, width=linewidth, extend=extln) : l18
+        l19 := countlinelo == 19 ? line.new(up2 - prd, uv2, up1, uv1, style=linestyle, color=dlcolor, width=linewidth, extend=extln) : l19
+        l20 := countlinelo == 20 ? line.new(up2 - prd, uv2, up1, uv1, style=linestyle, color=dlcolor, width=linewidth, extend=extln) : l20
+        l20
+
+    // if there is continues downtrend line then draw it
+    if showAnaCizgi and dp1 != 0 and dp2 != 0 and countlinehi < maxline
+        countlinehi += 1
+        t1 := countlinehi == 1 ? line.new(dp2 - prd, dv2, dp1, dv1, style=linestyle, color=ulcolor, width=linewidth, extend=extln) : t1
+        t2 := countlinehi == 2 ? line.new(dp2 - prd, dv2, dp1, dv1, style=linestyle, color=ulcolor, width=linewidth, extend=extln) : t2
+        t3 := countlinehi == 3 ? line.new(dp2 - prd, dv2, dp1, dv1, style=linestyle, color=ulcolor, width=linewidth, extend=extln) : t3
+        t4 := countlinehi == 4 ? line.new(dp2 - prd, dv2, dp1, dv1, style=linestyle, color=ulcolor, width=linewidth, extend=extln) : t4
+        t5 := countlinehi == 5 ? line.new(dp2 - prd, dv2, dp1, dv1, style=linestyle, color=ulcolor, width=linewidth, extend=extln) : t5
+        t6 := countlinehi == 6 ? line.new(dp2 - prd, dv2, dp1, dv1, style=linestyle, color=ulcolor, width=linewidth, extend=extln) : t6
+        t7 := countlinehi == 7 ? line.new(dp2 - prd, dv2, dp1, dv1, style=linestyle, color=ulcolor, width=linewidth, extend=extln) : t7
+        t8 := countlinehi == 8 ? line.new(dp2 - prd, dv2, dp1, dv1, style=linestyle, color=ulcolor, width=linewidth, extend=extln) : t8
+        t9 := countlinehi == 9 ? line.new(dp2 - prd, dv2, dp1, dv1, style=linestyle, color=ulcolor, width=linewidth, extend=extln) : t9
+        t10 := countlinehi == 10 ? line.new(dp2 - prd, dv2, dp1, dv1, style=linestyle, color=ulcolor, width=linewidth, extend=extln) : t10
+        t11 := countlinehi == 11 ? line.new(dp2 - prd, dv2, dp1, dv1, style=linestyle, color=ulcolor, width=linewidth, extend=extln) : t11
+        t12 := countlinehi == 12 ? line.new(dp2 - prd, dv2, dp1, dv1, style=linestyle, color=ulcolor, width=linewidth, extend=extln) : t12
+        t13 := countlinehi == 13 ? line.new(dp2 - prd, dv2, dp1, dv1, style=linestyle, color=ulcolor, width=linewidth, extend=extln) : t13
+        t14 := countlinehi == 14 ? line.new(dp2 - prd, dv2, dp1, dv1, style=linestyle, color=ulcolor, width=linewidth, extend=extln) : t14
+        t15 := countlinehi == 15 ? line.new(dp2 - prd, dv2, dp1, dv1, style=linestyle, color=ulcolor, width=linewidth, extend=extln) : t15
+        t16 := countlinehi == 16 ? line.new(dp2 - prd, dv2, dp1, dv1, style=linestyle, color=ulcolor, width=linewidth, extend=extln) : t16
+        t17 := countlinehi == 17 ? line.new(dp2 - prd, dv2, dp1, dv1, style=linestyle, color=ulcolor, width=linewidth, extend=extln) : t17
+        t18 := countlinehi == 18 ? line.new(dp2 - prd, dv2, dp1, dv1, style=linestyle, color=ulcolor, width=linewidth, extend=extln) : t18
+        t19 := countlinehi == 19 ? line.new(dp2 - prd, dv2, dp1, dv1, style=linestyle, color=ulcolor, width=linewidth, extend=extln) : t19
+        t20 := countlinehi == 20 ? line.new(dp2 - prd, dv2, dp1, dv1, style=linestyle, color=ulcolor, width=linewidth, extend=extln) : t20
+        t20
+///  <- ÇAKMA
+
+
+
+
+
+//-----------------------------------------------------------------------------{
+//Constants
+//-----------------------------------------------------------------------------{
+color TRANSP_CSS = #ffffff00
+
+//Tooltips
+string MODE_TOOLTIP          = 'Allows to display historical Structure or only the recent ones'
+string STYLE_TOOLTIP         = 'Indicator color theme'
+string COLOR_CANDLES_TOOLTIP = 'Display additional candles with a color reflecting the current trend detected by structure'
+string SHOW_INTERNAL         = 'Display internal market structure'
+string CONFLUENCE_FILTER     = 'Filter non significant internal structure breakouts'
+string SHOW_SWING            = 'Display swing market Structure'
+string SHOW_SWING_POINTS     = 'Display swing point as labels on the chart'
+string SHOW_SWHL_POINTS      = 'Highlight most recent strong and weak high/low points on the chart'
+
+
+//-----------------------------------------------------------------------------{
+//Settings
+//-----------------------------------------------------------------------------{
+//General
+//----------------------------------------{
+mode = input.string('Historical'
+  , options = ['Historical', 'Present']
+  , group = 'Smart Money Concepts'
+  , tooltip = MODE_TOOLTIP)
+
+style = input.string('Colored'
+  , options = ['Colored', 'Monochrome']
+  , group = 'Smart Money Concepts'
+  , tooltip = STYLE_TOOLTIP)
+
+show_trend = input(true, 'Color Candles'
+  , group = 'Smart Money Concepts'
+  , tooltip = COLOR_CANDLES_TOOLTIP)
+
+//----------------------------------------}
+//Internal Structure
+//----------------------------------------{
+show_internals = input(true, 'Show Internal Structure'
+  , group = 'Real Time Internal Structure'
+  , tooltip = SHOW_INTERNAL)
+
+show_ibull = input.string('All', 'Bullish Structure'
+  , options = ['All', 'BOS', 'CHoCH', "none"]
+  , inline = 'ibull'
+  , group = 'Real Time Internal Structure')
+
+swing_ibull_css = input(#7ef558, ''
+  , inline = 'ibull'
+  , group = 'Real Time Internal Structure')
+
+//Bear Structure
+show_ibear = input.string('All', 'Bearish Structure'
+  , options = ['All', 'BOS', 'CHoCH', "none"]
+  , inline = 'ibear'
+  , group = 'Real Time Internal Structure')
+
+swing_ibear_css = input(#ff0000, ''
+  , inline = 'ibear'
+  , group = 'Real Time Internal Structure')
+
+ifilter_confluence = input(false, 'Confluence Filter'
+  , group = 'Real Time Internal Structure'
+  , tooltip = CONFLUENCE_FILTER)
+
+//----------------------------------------}
+//Swing Structure
+//----------------------------------------{
+show_Structure = input(true, 'Show Swing Structure'
+  , group = 'Real Time Swing Structure'
+  , tooltip = SHOW_SWING)
+
+//Bull Structure
+show_bull = input.string('All', 'Bullish Structure'
+  , options = ['All', 'BOS', 'CHoCH', "none"]
+  , inline = 'bull'
+  , group = 'Real Time Swing Structure')
+
+swing_bull_css = input(#7ef558, ''
+  , inline = 'bull'
+  , group = 'Real Time Swing Structure')
+
+//Bear Structure
+show_bear = input.string('All', 'Bearish Structure'
+  , options = ['All', 'BOS', 'CHoCH', "none"]
+  , inline = 'bear'
+  , group = 'Real Time Swing Structure')
+
+swing_bear_css = input(#ff0000, ''
+  , inline = 'bear'
+  , group = 'Real Time Swing Structure')
+
+//Swings
+show_swings = input(false, 'Show Swings Points'
+  , inline = 'swings'
+  , group = 'Real Time Swing Structure'
+  , tooltip = SHOW_SWING_POINTS)
+
+length = input.int(50, ''
+  , minval = 10
+  , inline = 'swings'
+  , group = 'Real Time Swing Structure')
+
+show_hl_swings = input(true, 'Show Strong/Weak High/Low'
+  , group = 'Real Time Swing Structure'
+  , tooltip = SHOW_SWHL_POINTS)
+
+//-----------------------------------------------------------------------------}
+//Functions
+//-----------------------------------------------------------------------------{
+n = bar_index
+
+atr = ta.atr(200)
+cmean_range = ta.cum(high - low) / n
+
+//HL Output function
+hl() => [high, low]
+
+//Get ohlc values function
+get_ohlc()=> [close[1], open[1], high, low, high[2], low[2]]
+
+//Display Structure function
+display_Structure(x, y, txt, css, dashed, down, lbl_size)=>
+    structure_line = line.new(x, y, n, y
+      , color = css
+      , style = dashed ? line.style_dashed : line.style_solid)
+
+    structure_lbl = label.new(int(math.avg(x, n)), y, txt
+      , color = TRANSP_CSS
+      , textcolor = css
+      , style = down ? label.style_label_down : label.style_label_up
+      , size = lbl_size)
+
+    if mode == 'Present'
+        line.delete(structure_line[1])
+        label.delete(structure_lbl[1])
+
+//Swings detection/measurements
+swings(len)=>
+    var os = 0
+    
+    upper = ta.highest(len)
+    lower = ta.lowest(len)
+
+    os := high[len] > upper ? 0 : low[len] < lower ? 1 : os[1]
+
+    top = os == 0 and os[1] != 0 ? high[len] : 0
+    btm = os == 1 and os[1] != 1 ? low[len] : 0
+
+    [top, btm]
+     
+//Line Style function
+get_line_style(style) =>
+    out = switch style
+        '⎯⎯⎯'  => line.style_solid
+        '----' => line.style_dashed
+        '····' => line.style_dotted
+
+//Set line/labels function for previous high/lows
+phl(h, l, tf, css)=>
+
+    var label high_lbl = label.new(na,na
+      , xloc = xloc.bar_time
+      , text = str.format('P{0}H', tf)
+      , color = TRANSP_CSS
+      , textcolor = css
+      , size = size.small
+      , style = label.style_label_left)
+
+    var label low_lbl = label.new(na,na
+      , xloc = xloc.bar_time
+      , text = str.format('P{0}L', tf)
+      , color = TRANSP_CSS
+      , textcolor = css
+      , size = size.small
+      , style = label.style_label_left)
+
+    hy = ta.valuewhen(h != h[1], h, 1)
+    hx = ta.valuewhen(h == high, time, 1)
+
+    ly = ta.valuewhen(l != l[1], l, 1)
+    lx = ta.valuewhen(l == low, time, 1)
+
+//-----------------------------------------------------------------------------}
+//Global variables
+//-----------------------------------------------------------------------------{
+var trend = 0, var itrend = 0
+
+var top_y = 0., var top_x = 0
+var btm_y = 0., var btm_x = 0
+
+var itop_y = 0., var itop_x = 0
+var ibtm_y = 0., var ibtm_x = 0
+
+var trail_up = high, var trail_dn = low
+var trail_up_x = 0,  var trail_dn_x = 0
+
+var top_cross = true,  var btm_cross = true
+var itop_cross = true, var ibtm_cross = true
+
+var txt_top = '',  var txt_btm = ''
+
+//Alerts
+bull_choch_alert = false 
+bull_bos_alert   = false 
+
+bear_choch_alert = false 
+bear_bos_alert   = false 
+
+bull_ichoch_alert = false 
+bull_ibos_alert   = false 
+
+bear_ichoch_alert = false 
+bear_ibos_alert   = false 
+
+//Structure colors
+var bull_css = style == 'Monochrome' ? #b2b5be 
+  : swing_bull_css
+
+var bear_css = style == 'Monochrome' ? #b2b5be 
+  : swing_bear_css
+
+var ibull_css = style == 'Monochrome' ? #b2b5be 
+  : swing_ibull_css
+
+var ibear_css = style == 'Monochrome' ? #b2b5be 
+  : swing_ibear_css
+
+//Swings
+[top, btm] = swings(length)
+
+[itop, ibtm] = swings(5)
+
+//-----------------------------------------------------------------------------}
+//Pivot High
+//-----------------------------------------------------------------------------{
+var line extend_top = na
+
+var label extend_top_lbl = label.new(na, na
+  , color = TRANSP_CSS
+  , textcolor = bear_css
+  , style = label.style_label_down
+  , size = size.tiny)
+
+if top
+    top_cross := true
+    txt_top := top > top_y ? 'HH' : 'LH'
+
+    if show_swings
+        top_lbl = label.new(n-length, top, txt_top
+          , color = TRANSP_CSS
+          , textcolor = bear_css
+          , style = label.style_label_down
+          , size = size.small)
+
+        if mode == 'Present'
+            label.delete(top_lbl[1])
+
+    //Extend recent top to last bar
+    line.delete(extend_top[1])
+    extend_top := line.new(n-length, top, n, top
+      , color = bear_css)
+
+    top_y := top
+    top_x := n - length
+
+    trail_up := top
+    trail_up_x := n - length
+
+if itop
+    itop_cross := true
+
+    itop_y := itop
+    itop_x := n - 5
+
+//Trailing maximum
+trail_up := math.max(high, trail_up)
+trail_up_x := trail_up == high ? n : trail_up_x
+
+//Set top extension label/line
+if barstate.islast and show_hl_swings
+    line.set_xy1(extend_top, trail_up_x, trail_up)
+    line.set_xy2(extend_top, n + 20, trail_up)
+
+    label.set_x(extend_top_lbl, n + 20)
+    label.set_y(extend_top_lbl, trail_up)
+    label.set_text(extend_top_lbl, trend < 0 ? 'Strong High' : 'Weak High')
+
+//-----------------------------------------------------------------------------}
+//Pivot Low
+//-----------------------------------------------------------------------------{
+var line extend_btm = na 
+
+var label extend_btm_lbl = label.new(na, na
+  , color = TRANSP_CSS
+  , textcolor = bull_css
+  , style = label.style_label_up
+  , size = size.tiny)
+
+if btm
+    btm_cross := true
+    txt_btm := btm < btm_y ? 'LL' : 'HL'
+    
+    if show_swings
+        btm_lbl = label.new(n - length, btm, txt_btm
+          , color = TRANSP_CSS
+          , textcolor = bull_css
+          , style = label.style_label_up
+          , size = size.small)
+
+        if mode == 'Present'
+            label.delete(btm_lbl[1])
+    
+    //Extend recent btm to last bar
+    line.delete(extend_btm[1])
+    extend_btm := line.new(n - length, btm, n, btm
+      , color = bull_css)
+
+    btm_y := btm
+    btm_x := n-length
+
+    trail_dn := btm
+    trail_dn_x := n-length
+
+if ibtm
+    ibtm_cross := true
+
+    ibtm_y := ibtm
+    ibtm_x := n - 5
+
+//Trailing minimum
+trail_dn := math.min(low, trail_dn)
+trail_dn_x := trail_dn == low ? n : trail_dn_x
+
+//Set btm extension label/line
+if barstate.islast and show_hl_swings
+    line.set_xy1(extend_btm, trail_dn_x, trail_dn)
+    line.set_xy2(extend_btm, n + 20, trail_dn)
+
+    label.set_x(extend_btm_lbl, n + 20)
+    label.set_y(extend_btm_lbl, trail_dn)
+    label.set_text(extend_btm_lbl, trend > 0 ? 'Strong Low' : 'Weak Low')
+
+//-----------------------------------------------------------------------------}
+//Order Blocks Arrays
+//-----------------------------------------------------------------------------{
+var iob_top = array.new_float(0)
+var iob_btm = array.new_float(0)
+var iob_left = array.new_int(0)
+var iob_type = array.new_int(0)
+
+var ob_top = array.new_float(0)
+var ob_btm = array.new_float(0)
+var ob_left = array.new_int(0)
+var ob_type = array.new_int(0)
+
+//-----------------------------------------------------------------------------}
+//Pivot High BOS/CHoCH
+//-----------------------------------------------------------------------------{
+//Filtering
+var bull_concordant = true
+
+if ifilter_confluence
+    bull_concordant := high - math.max(close, open) > math.min(close, open - low)
+
+//Detect internal bullish Structure
+if ta.crossover(close, itop_y) and itop_cross and top_y != itop_y and bull_concordant
+    bool choch = na
+    
+    if itrend < 0
+        choch := true
+        bull_ichoch_alert := true
+    else 
+        bull_ibos_alert := true
+    
+    txt = choch ? 'CHoCH' : 'BOS'
+
+    if show_internals
+        if show_ibull == 'All' or (show_ibull == 'BOS' and not choch) or (show_ibull == 'CHoCH' and choch)
+            display_Structure(itop_x, itop_y, txt, ibull_css, true, true, size.tiny)
+    
+    itop_cross := false
+    itrend := 1
+    
+//Detect bullish Structure
+if ta.crossover(close, top_y) and top_cross
+    bool choch = na
+    
+    if trend < 0
+        choch := true
+        bull_choch_alert := true
+    else 
+        bull_bos_alert := true
+
+    txt = choch ? 'CHoCH' : 'BOS'
+    
+    if show_Structure
+        if show_bull == 'All' or (show_bull == 'BOS' and not choch) or (show_bull == 'CHoCH' and choch)
+            display_Structure(top_x, top_y, txt, bull_css, false, true, size.normal)
+    
+    //Order Block
+
+    top_cross := false
+    trend := 1
+
+//-----------------------------------------------------------------------------}
+//Pivot Low BOS/CHoCH
+//-----------------------------------------------------------------------------{
+var bear_concordant = true
+
+if ifilter_confluence
+    bear_concordant := high - math.max(close, open) < math.min(close, open - low)
+
+//Detect internal bearish Structure
+if ta.crossunder(close, ibtm_y) and ibtm_cross and btm_y != ibtm_y and bear_concordant
+    bool choch = false
+    
+    if itrend > 0
+        choch := true
+        bear_ichoch_alert := true
+    else 
+        bear_ibos_alert := true
+    
+    txt = choch ? 'CHoCH' : 'BOS'
+
+    if show_internals
+        if show_ibear == 'All' or (show_ibear == 'BOS' and not choch) or (show_ibear == 'CHoCH' and choch)
+            display_Structure(ibtm_x, ibtm_y, txt, ibear_css, true, false, size.tiny)
+    
+    ibtm_cross := false
+    itrend := -1
+    
+
+//Detect bearish Structure
+if ta.crossunder(close, btm_y) and btm_cross
+    bool choch = na
+    
+    if trend > 0
+        choch := true
+        bear_choch_alert := true
+    else 
+        bear_bos_alert := true
+
+    txt = choch ? 'CHoCH' : 'BOS'
+    
+    if show_Structure
+        if show_bear == 'All' or (show_bear == 'BOS' and not choch) or (show_bear == 'CHoCH' and choch)
+            display_Structure(btm_x, btm_y, txt, bear_css, false, false, size.normal)
+    
+
+    btm_cross := false
+    trend := -1
+
+//-----------------------------------------------------------------------------}
+//Trend
+//-----------------------------------------------------------------------------{
+var color trend_css = na
+
+if show_trend
+    if style == 'Colored'
+        trend_css := itrend == 1 ? bull_css : bear_css
+    else if style == 'Monochrome'
+        trend_css := itrend == 1 ? #b2b5be : #5d606b
+
+plotcandle(open, high, low, close
+  , color = trend_css
+  , wickcolor = trend_css
+  , bordercolor = trend_css
+  , editable = false)
+
+//-----------------------------------------------------------------------------}
+//Alerts
+//-----------------------------------------------------------------------------{
+//Internal Structure
+//alertcondition(bull_ichoch_alert, 'Internal Bullish choch', 'Internal Bullish choch formed')
+plotshape(bull_ichoch_alert, title ='Yapı Değişti', text='', style=shape.labelup , location=location.belowbar, color=color.lime, offset=0, size=size.small, display = display.none)
+
+//alertcondition(bull_ibos_alert, 'Internal Bullish bos', 'Internal Bullish bos formed')
+plotshape(bull_ibos_alert, title ='Yapı Değişti', text='', style=shape.labelup , location=location.belowbar, color=color.yellow, offset=0, size=size.small, display = display.none)
+
+//alertcondition(bear_ibos_alert, 'Internal Bearish bos', 'Internal Bearish bos formed')
+//alertcondition(bear_ichoch_alert, 'Internal Bearish choch', 'Internal Bearish choch formed')
+
+//Swing Structure
+//alertcondition(bull_choch_alert, 'Bullish CHoCH', 'Internal Bullish CHoCH formed')
+plotshape(bull_choch_alert,title ='Yapı Değişti', text='', style=shape.labelup , location=location.belowbar, color=color.lime, offset=0, size=size.large, display = display.none)
+
+//alertcondition(bull_bos_alert, 'Bullish BOS', 'Internal Bullish BOS formed')
+plotshape(bull_bos_alert,title ='Yapı Değişti', text='', style=shape.labelup , location=location.belowbar, color=color.yellow, offset=0, size=size.large, display = display.none)
+
+
+//alertcondition(bear_bos_alert, 'Bearish BOS', 'Bearish BOS formed')
+//alertcondition(bear_choch_alert, 'Bearish CHoCH', 'Bearish CHoCH formed')
+//-----------------------------------------------------------------------------}
+
+
+plotshape((bull_ibos_alert or bull_bos_alert or bull_ichoch_alert or bull_choch_alert ) and tRsi_0 > tEma_0 and trend>0 ,title ='Yapı Değişti', text='', style=shape.labelup , location=location.belowbar, color=color.white, offset=0, size=size.normal)
+alertcondition((bull_ibos_alert or bull_bos_alert) and tRsi_0 > tEma_0 , '_Bullish bosBOS', 'bosBOS {{ticker}}, FİYAT={{close}}, Mum={{interval}}')
+
+
+//Breaks
+Blength = input.int(14, group = 'Breaks')
+Bk      = input.float(1.,'Slope',minval=0,step=.1, group = 'Breaks')
+Bmethod = input.string('Atr','Slope Calculation Method',
+  options=['Atr','Stdev','Linreg'], group = 'Breaks')
+Bshow   = input(false,'Show Only Confirmed Breakouts', group = 'Breaks')
+//----
+Bupper = 0.,Blower = 0.
+Bslope_ph = 0.,Bslope_pl = 0.
+Bsrc = close
+Bn = bar_index
+//----
+Bph = ta.pivothigh(Blength,Blength)
+Bpl = ta.pivotlow(Blength,Blength)
+Bslope = switch Bmethod
+    'Atr'      => ta.atr(Blength)/Blength*Bk
+    'Stdev'    => ta.stdev(Bsrc,Blength)/Blength*Bk
+    'Linreg'   => math.abs(ta.sma(Bsrc*bar_index,Blength)-ta.sma(Bsrc,Blength)*ta.sma(bar_index,Blength))/ta.variance(Bn,Blength)/2*Bk
+
+Bslope_ph := Bph ? Bslope : Bslope_ph[1]
+Bslope_pl := Bpl ? Bslope : Bslope_pl[1]
+
+Bupper := Bph ? Bph : Bupper[1] - Bslope_ph
+Blower := Bpl ? Bpl : Blower[1] + Bslope_pl
+//----
+single_upper = 0
+single_lower = 0
+single_upper := Bsrc[Blength] > Bupper ? 0 : Bph ? 1 : single_upper[1]
+single_lower := Bsrc[Blength] < Blower ? 0 : Bpl ? 1 : single_lower[1]
+upper_breakout = single_upper[1] and Bsrc[Blength] > Bupper and (Bshow ? Bsrc > Bsrc[Blength] : 1)
+lower_breakout = single_lower[1] and Bsrc[Blength] < Blower and (Bshow ? Bsrc < Bsrc[Blength] : 1)
+
+
+//----
+var line up_l = na
+var line dn_l = na
+var label recent_up_break = na
+var label recent_dn_break = na
+
+if Bph[1]
+    line.delete(up_l[1])
+    label.delete(recent_up_break[1])
+    
+    up_l := line.new(Bn-Blength-1,Bph[1],Bn-Blength,Bupper,color=#00bcd4,
+      extend=extend.right,style=line.style_dashed,width=1)
+
+
+    
+//----
+//plot(Bupper and trend>0 ? Bupper : na ,'Upper Breakout',color = Bph ? na : #00bcd4,offset=-Blength,linewidth = 2)
+plot(Bupper and trend>0 ? Bupper : na ,'Upper Breakout',color = Bph ? na : #00bcd4,offset=-Blength,linewidth = 2)
+alertcondition(ta.crossover(Bsrc,Bupper-Bslope_ph*Blength),'Upper Breakout','Upper Breakout {{ticker}}, FİYAT={{close}}, Mum={{interval}}')

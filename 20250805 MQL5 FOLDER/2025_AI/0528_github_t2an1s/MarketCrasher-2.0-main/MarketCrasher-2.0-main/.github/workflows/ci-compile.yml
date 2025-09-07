@@ -1,0 +1,31 @@
+name: Linux - MT5 compile      # plain hyphen
+
+on:
+  workflow_dispatch:
+    inputs:
+      files:
+        description: 'Glob of MQ5 files (blank = every .mq5)'
+        required: false
+        default: ''
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: ⬇️ Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 🏗️ Prepare Wine + MetaEditor
+        run: ./ci-setup.sh
+
+      - name: 🔨 Compile via Wine MetaEditor
+        run: |
+          ./compile_all.sh "${{ github.event.inputs.files }}"
+
+      - name: 📦 Upload logs (always)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mq5-logs
+          path: build_logs/**/*.log

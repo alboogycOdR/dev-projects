@@ -1,0 +1,25 @@
+//@version=5
+
+indicator('ALGO ', overlay=true)
+
+per = input(14, title='Bottom Period')
+loc = low < ta.lowest(low[1], per) and low <= ta.lowest(low[per], per)
+bottom = ta.barssince(loc)
+
+per2 = input(14, title='Top Period')
+loc2 = high > ta.highest(high[1], per2) and high >= ta.highest(high[per2], per2)
+top = ta.barssince(loc2)
+
+/////BUY-SELL/////
+Buy = ta.crossover(bottom, top)
+Sell = ta.crossunder(bottom, top)
+
+plotshape(Buy, 'BUY', shape.labelup, location.belowbar, color.new(color.green, 0), text='BUY', textcolor=color.new(color.black, 0))
+plotshape(Sell, 'SELL', shape.labeldown, location.abovebar, color.new(color.red, 0), text='SELL', textcolor=color.new(color.black, 0))
+
+background = top < bottom ? color.new(#0000FF, 85) : top > bottom ? color.new(#FF0000, 85) : na
+bgcolor(color=background)
+
+alertcondition(Buy, title='Buy Signal', message='Buy')
+alertcondition(Sell, title='Sell Signal', message='Sell')
+alertcondition(buy or Sell, title='TOP BOTTOM Alert', message='Alert')

@@ -1,0 +1,1610 @@
+﻿// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © World_of_Indicators
+
+
+
+//@version=5
+
+indicator("BankNifty 365 by World_of_Indicators V3.2",overlay=true, max_lines_count = 500, max_boxes_count = 250, max_bars_back = 500,format=format.price)
+
+macdType      = input.string("MACD-SOURCE", "MACD Calculation Method", options=["MACD-TRADITIONAL", "MACD-AS (HISTOGRAM)", "MACD-LEADER", "MACD-SOURCE"])
+fast_length   = input.int(20, "Fast Length", minval = 1)
+slow_length   = input.int(60, "Slow Length", minval = 1)
+source        = input(close, "Source")
+signal_length = input.int(30, "Signal Smoothing",  minval = 1, maxval = 50)
+sma_source    = input.string("EMA", "Oscillator MA Type" , options=["SMA", "EMA"])
+sma_signal    = input.string("EMA", "Signal Line MA Type", options=["SMA", "EMA"])
+macdSigCross  = input.bool(true, "Display MACD/Signal Corsses")
+highlight     = input.bool(true, "Highlight MACD/Signal Area")
+lookbackLength= input.int(200, 'Overlay Indicator Display Length', minval = 10, maxval = 550) 
+oscPlacement  = input.string('Bottom', 'Placement', options = ['Top', 'Bottom'], inline='VOL')
+oscHight      = 12 - input.int(7, 'Hight' , minval = 1, maxval = 10  , inline='VOL' )
+verticalAdj   = input.int(3, "Vertical Indicator Position", minval = 0, maxval = 10) / 10
+
+length = input.int(50,minval=2,maxval=500,group='Pivot Based Trailing Maxima & MinimaM')
+
+max_color = input.color(color.teal,'Trailing Maximum Color',group='Style')
+min_color = input.color(color.red,'Trailing Minimum Color',group='Style')
+avg_color = input.color(#ff5d00,'Trailing Maximum Color',group='Style')
+
+bull_fill = input.color(color.new(color.teal,80),'Uptrend Area',group='Style')
+bear_fill = input.color(color.new(color.red,80),'Downtrend Area',group='Style')
+//----
+var max = 0.
+var min = 0.
+
+ph = ta.pivothigh(length,length)
+pl = ta.pivotlow(length,length)
+
+if ph or pl
+    max := high[length]
+    min := low[length]
+
+max := math.max(high[length],max)
+min := math.min(low[length],min)
+
+avg = math.avg(max,min)
+
+//----
+plot1 = plot(max,'Trailing Maximum',ph or pl ? na : max_color,1,plot.style_linebr,offset=-length,display=display.none)
+plot2 = plot(min,'Trailing Minimum',ph or pl ? na : min_color,1,plot.style_linebr,offset=-length,display=display.none)
+
+fill_css = fixnan(ph ? bear_fill : pl ? bull_fill : na)
+fill(plot1,plot2,ph or pl ? na : fill_css)
+
+plot(avg,'Average',ph or pl ? na : avg_color,1,plot.style_linebr,offset=-length)
+
+plotshape(pl ? pl : na,"Pivot High",shape.labelup,location.absolute,max_color,-length,text="▲",textcolor=color.white,size=size.tiny,display=display.none)
+plotshape(ph ? ph : na,"Pivot Low",shape.labeldown,location.absolute,min_color,-length,text="▼",textcolor=color.white,size=size.tiny,display=display.none)
+
+//----
+n = bar_index
+
+max_prev = max
+min_prev = min
+avg_prev = avg
+max2 = max
+min2 = min
+
+if barstate.islast
+    for line_object in line.all
+        line.delete(line_object)
+
+    for i = 0 to length-1
+        max2 := math.max(high[length-1-i],max_prev)
+        min2 := math.min(low[length-1-i],min_prev)
+        avg2 = math.avg(max2,min2)
+        
+        line1 = line.new(n-(length-i),max_prev,n-(length-1-i),max2,color=max_color)
+        line2 = line.new(n-(length-i),min_prev,n-(length-1-i),min2,color=min_color)
+        linefill.new(line1,line2,color.new(fill_css,80))
+        
+        line.new(n-(length-i),avg_prev,n-(length-1-i),avg2,color=avg_color)
+        
+        max_prev := max2
+        min_prev := min2
+        avg_prev := avg2
+
+
+
+ma(s, l, m) => m == "EMA" ? ta.ema(s, l) : ta.sma(s, l)
+
+fast_ma = ma(source, fast_length, sma_source)
+slow_ma = ma(source, slow_length, sma_source)
+macd    = fast_ma - slow_ma
+
+macd := if macdType == "MACD-TRADITIONAL"
+    macd
+else if macdType == "MACD-AS (HISTOGRAM)"
+    macd - ma(macd, signal_length, sma_source)
+else if macdType == "MACD-LEADER"
+    macd + ma(source - fast_ma, fast_length, sma_source) - ma(source - slow_ma, slow_length, sma_source)
+else
+    ma(source - math.avg(fast_ma, slow_ma), signal_length, sma_source)
+
+signal = ma(macd, signal_length, sma_signal)
+hist   = macd - signal
+
+longAlertCondition  = ta.crossover(macd, signal)
+alertcondition(longAlertCondition   , "Long : Early Warning"        , "MACD-X - Not Confirmed Probable Long Trade Opportunity\n{{exchange}}:{{ticker}}->\nPrice = {{close}},\nTime = {{time}}")
+alertcondition(longAlertCondition[1], "Long : Trading Opportunity"  , "MACD-X - Probable Long Trade Opportunity\n{{exchange}}:{{ticker}}->\nPrice = {{close}},\nTime = {{time}}")
+plotshape(macdSigCross ? longAlertCondition : na, "Long" , shape.labelup  , location.belowbar, color.new(color.green, 0),text="▲",textcolor=color.white, size=size.small , show_last=lookbackLength)
+
+shortAlertCondition = ta.crossunder(macd, signal)
+alertcondition(shortAlertCondition   , "Short : Early Warning"      , "MACD-X - Not Confirmed Probable Short Trade Opportunity\n{{exchange}}:{{ticker}}->\nPrice = {{close}},\nTime = {{time}}")
+alertcondition(shortAlertCondition[1], "Short : Trading Opportunity", "MACD-X - Probable Short Trade Opportunity\n{{exchange}}:{{ticker}}->\nPrice = {{close}},\nTime = {{time}}")
+plotshape(macdSigCross ? shortAlertCondition : na, "Short", shape.labeldown, location.abovebar, color.new(#db3535, 0),text="▼",textcolor=color.white, size=size.small , show_last=lookbackLength)
+
+
+
+var a_lines     = array.new_line()
+var a_hist      = array.new_box()
+var a_fill      = array.new_linefill()
+
+priceHighest    = ta.highest(high, lookbackLength)
+priceLowest     = ta.lowest (low , lookbackLength)
+priceChangeRate = (priceHighest - priceLowest) / priceHighest
+priceLowest    := priceLowest  * (1 - priceChangeRate * verticalAdj)
+priceHighest   := priceHighest * (1 + priceChangeRate * verticalAdj)
+oscHighest      = ta.highest(macd, lookbackLength)
+histColor       = hist >= 0 ? hist[1] < hist ? #006400 : color.green : hist[1] < hist ? color.red : #910000
+
+if barstate.islast
+    if array.size(a_lines) > 0
+        for i = 1 to array.size(a_lines)
+            line.delete(array.shift(a_lines))
+
+    if array.size(a_hist) > 0
+        for i = 1 to array.size(a_hist)
+            box.delete(array.shift(a_hist))
+
+    if array.size(a_fill) > 0
+        for i = 1 to array.size(a_fill)
+            linefill.delete(array.shift(a_fill))
+
+    hightAdj = priceChangeRate / oscHight
+
+    for barIndex = 0 to lookbackLength - 1
+        if array.size(a_lines) < 501
+            array.push(a_hist , box.new (bar_index[barIndex],      oscPlacement == 'Top' ? priceHighest : priceLowest, 
+                                         bar_index[barIndex],     (oscPlacement == 'Top' ? priceHighest : priceLowest) * (1 + hist[barIndex]       / oscHighest * hightAdj), histColor[barIndex], 2))
+            array.push(a_lines, line.new(bar_index[barIndex],     (oscPlacement == 'Top' ? priceHighest : priceLowest) * (1 + macd[barIndex]       / oscHighest * hightAdj), 
+                                         bar_index[barIndex + 1], (oscPlacement == 'Top' ? priceHighest : priceLowest) * (1 + macd[barIndex + 1]   / oscHighest * hightAdj), xloc.bar_index, extend.none, #2962FF, line.style_solid, 1))
+            array.push(a_lines, line.new(bar_index[barIndex],     (oscPlacement == 'Top' ? priceHighest : priceLowest) * (1 + signal[barIndex]     / oscHighest * hightAdj), 
+                                         bar_index[barIndex + 1], (oscPlacement == 'Top' ? priceHighest : priceLowest) * (1 + signal[barIndex + 1] / oscHighest * hightAdj), xloc.bar_index, extend.none, #FF6D00, line.style_solid, 1))
+            if highlight
+                array.push(a_fill, linefill.new(array.get(a_lines, 2 * barIndex), array.get(a_lines, 2 * barIndex + 1), macd[barIndex] > signal[barIndex] ? color.new(#2962FF, 50) : color.new(#FF6D00, 50)))
+
+
+
+var table logo = table.new(position.top_center, 1, 1)
+if barstate.islast
+    table.cell(logo, 0, 0, '(っ◔◡◔)っ ♥ 𝕨𝕠𝕣𝕝𝕕_𝕠𝕗_𝕚𝕟𝕕𝕚𝕔𝕒𝕥𝕠𝕣𝕤 ♥ ', text_size=size.large, text_color=color.rgb(72, 246, 206, 50))
+
+
+
+/////////////////////////////////////
+candel_color='RSI Candel Color'
+col_bull= input.color(color.new(#00E400, 0), '', inline='Bull' , group = candel_color)
+col_bear= input.color(color.new(#FF0000, 0), '', inline='Bear' , group = candel_color)
+col_neutral= input.color(color.new(#E8E8E8, 0), '', inline='Neutral' , group = candel_color)
+src = close
+len = input.int(20, minval=1, title='Length')
+up = ta.rma(math.max(ta.change(src), 0), len)
+down = ta.rma(-math.min(ta.change(src), 0), len)
+rsi = down == 0 ? 100 : up == 0 ? 0 : 100 - 100 / (1 + up / down)
+
+//coloring method below
+barcolor = input(false, title='Colored Bars')
+
+ob = input(55, title='Upper Threshold')
+os = input(45, title='Lower Threshold')
+col1 = rsi >= ob ? col_bull : na
+col2 = rsi <= os ? col_bear : na
+col0 = rsi < ob and rsi > os ? col_neutral : na
+//barcolor(isup() ? green : isdown() ? red : na )
+barcolor(barcolor ? col1 : na)
+barcolor(barcolor ? col2 : na)
+barcolor(barcolor ? col0 : na)
+
+// Description:
+// Psychological levels (Bank levels) plots "round" price levels above and below current price, by truncating after the nth leftmost digits, based on neuroscience research of how humans intuitively calculate in logarithms.
+// Psychological levels, also called bank levels, are "round" price numbers around which price often experience resistance or support, because traders and investors tend to set orders around these round numbers.
+// Calculation here is fully automatic and dynamic, contrary to other similar scripts, this one uses a mathematical calculation that extracts the 1, 2 or 3 leftmost digits and calculate the previous and next level by incrementing/decrementing these digits. This means it works for any symbol under any price range.
+// This approach is based on neuroscience research, which found that human brains intuitively approximate numbers on a logarithmic scale, adults and children alike, and similarly to macaques, for more info see Numerical Cognition (https://en.wikipedia.org/w/index.php?title=Numerical_cognition&oldid=1108526377#Neuroimaging_and_neurophysiological_studies), Weber-Fechner Law (https://en.wikipedia.org/wiki/Weber%E2%80%93Fechner_law#Numerical_cognition), ZipF law.
+// For example, if price is at 0.0421, the next major price level is 0.05 and medium one is 0.043. For another asset currently priced at 19354, the next and previous major price levels are 20000 and 10000 respectively, and the next/previous medium levels are 20000 and 19000, and the next/previous weak levels are 19400 and 19300.
+// By default, strong upper level is in green, strong lower level is in red, medium upper level is in blue, medium lower level is in yellow, and weak levels aren't displayed but can be. Half levels are also displayed, in a darker color. Strong levels are increments of the first leftmost digit (eg, 10000 to 20000), medium levels are increments of the second leftmost digit (eg, 19000 to 20000), and weak levels of the third leftmost digit (eg, 19100 to 19200). Instead of plotting all the psychological levels all at once as a grid, which makes the chart unintelligible, here the levels adapt dynamically around the current price, so that they show the upper/lower levels relatively to the current price.
+// A simple moving average is implemented, so that "half-levels" are also displayed when relevant (eg, medium level can also display 19500 instead of only 19000 or 20000). This can be disabled by setting smoothing to 1.
+// By default, the script runs on the daily timeframe, whatever the current chart's timeframe is. This is to reduce the variability in levels, to make it less noisy than intraday price movement, but this can be changed in the settings.
+// The step can be adjusted to increase the gap between levels, eg, if you want to display one every 2 levels then input step = 2 (eg, 22000, 24000, 26000, etc), or if you want to display quarter levels, input 0.25 (eg, 22000, 22250, 22500, etc). The default values should fit most use cases and cover most psychological levels.
+// I made this script mainly to train with PineScript, but I found it surprisingly accurate to define levels that are respected by price movements. So I guess it can be useful for new traders and experienced traders alike, as it's easy to forget that psychological levels can often be as strong if not stronger than technical levels. It can also be used to quickly screen other minor assets for trading opportunities. For example, a hybrid strategy would be to manually define levels on BTCUSD but using this script to automatically define levels in crypto altcoins and quickly screen them for a trade opportunity that can be greater than with BTCUSD but with the same trend.
+// A great tip: in practice, the number of consecutive dots on the same line influences the strength of the level: the longer the chain of dots, the more you can expect this price level to be significant. The length does not mean the level will necessarily hold, but that other traders are likely to monitor if it holds, and if not then price will break down. Hence, longer levels are good spots to place stop losses, or to enter trades depending on your strategy. In general, a single dot is not enough to consider a level significant, but 2 or more is a good enough level, and 10+ is a strong level. Intuitively, this makes sense, and is what pro traders do: the longer a level is tested, the stronger it is. This indicator can visually represent this intuition and allows to use it as a more systematic trading signal.
+// Please enable "Scale price chart only" in the chart's scale's options, as otherwise major levels may make the chart's scale very small and hard to read.
+SC = input(close, 'Source')
+
+// Fast Trail //
+AP1 = input(5, 'Fast ATR period')  // ATR Period
+AF1 = input(0.5, 'Fast ATR multiplier')  // ATR Factor
+SL1 = AF1 * ta.atr(AP1)  // Stop Loss
+Trail1 = 0.0
+iff_1 = SC > nz(Trail1[1], 0) ? SC - SL1 : SC + SL1
+iff_2 = SC < nz(Trail1[1], 0) and SC[1] < nz(Trail1[1], 0) ? math.min(nz(Trail1[1], 0), SC + SL1) : iff_1
+Trail1 := SC > nz(Trail1[1], 0) and SC[1] > nz(Trail1[1], 0) ? math.max(nz(Trail1[1], 0), SC - SL1) : iff_2
+
+// Slow Trail //
+AP2 = input(10, 'Slow ATR period')  // ATR Period
+AF2 = input.float(3, 'Slow ATR multiplier')  // ATR Factor
+SL2 = AF2 * ta.atr(AP2)  // Stop Loss
+Trail2 = 0.0
+iff_3 = SC > nz(Trail2[1], 0) ? SC - SL2 : SC + SL2
+iff_4 = SC < nz(Trail2[1], 0) and SC[1] < nz(Trail2[1], 0) ? math.min(nz(Trail2[1], 0), SC + SL2) : iff_3
+Trail2 := SC > nz(Trail2[1], 0) and SC[1] > nz(Trail2[1], 0) ? math.max(nz(Trail2[1], 0), SC - SL2) : iff_4
+
+// Bar color for trade signal //
+Green = Trail1 > Trail2 and close > Trail2 and low > Trail2
+Blue = Trail1 > Trail2 and close > Trail2 and low < Trail2
+Red = Trail2 > Trail1 and close < Trail2 and high < Trail2
+Yellow = Trail2 > Trail1 and close < Trail2 and high > Trail2
+
+// Signals //
+Bull = ta.barssince(Green) < ta.barssince(Red)
+Bear = ta.barssince(Red) < ta.barssince(Green)
+
+Buy = ta.crossover(Trail1, Trail2)
+Sell = ta.crossunder(Trail1, Trail2)
+iff_5 = Trail2 > Trail1 ? -1 : 0
+SR = Trail1 > Trail2 ? 1 : iff_5
+
+TS1 = plot(Trail1, 'Fast Trail', style=plot.style_line, color=Trail1 > Trail2 ? color.blue : color.yellow, linewidth=2, display=display.none)
+TS2 = plot(Trail2, 'Slow Trail', style=plot.style_line, color=Trail1 > Trail2 ? color.green : color.red, linewidth=2)
+fill(TS1, TS2, Bull ? color.new(color.green, 90) : color.new(color.red, 90))
+
+plotcolor = input(true, 'Paint color on chart')
+plotbuysell = input(true, 'Plot Buy/Sell arrows')
+
+bcl = plotcolor == 1 ? Blue ? color.blue : Green ? color.lime : Yellow ? color.yellow : Red ? color.red : color.white : na
+barcolor(bcl)
+// plotshape(Buy and plotbuysell == 1, 'BUY', shape.labelup, location.belowbar, color.new(color.green, 0), text='BUY', textcolor=color.new(color.black, 0))
+// plotshape(Sell and plotbuysell == 1, 'SELL', shape.labeldown, location.abovebar, color.new(color.red, 0), text='SELL', textcolor=color.new(color.black, 0))
+
+alertcondition(Buy, 'Buy Signal', 'Buy ATR Trailing Stop')
+alertcondition(Sell, 'Sell Signal', 'Sell ATR Trailing Stop')
+
+//==================================================
+//InfoPanel
+// Rounding levels to min tick
+nround(x) =>
+    n = math.round(x / syminfo.mintick) * syminfo.mintick
+    n
+
+// ———————————————————— Function used to round values.
+RoundToTick(_price) =>
+    math.round(_price / syminfo.mintick) * syminfo.mintick
+
+Round(_val, _decimals) =>
+    // Rounds _val to _decimals places.
+    _p = math.pow(10, _decimals)
+    math.round(math.abs(_val) * _p) / _p * math.sign(_val)
+
+//
+position = input(50)
+h = ta.highest(position)
+info_label_off = input(50, title='Info panel offset')
+info_label_size = input.string(size.large, options=[size.tiny, size.small, size.normal, size.large, size.huge], title='Info panel label size')
+info_panel_x = timenow + math.round(ta.change(time) * info_label_off)
+info_panel_y = h
+info_current_close = '\n\nCurrent Close : ' + str.tostring(close)
+
+disp_panels1 = input(true, title='Buy info panels?')
+disp_panels2 = input(true, title='Sell info panels?')
+
+Long = '-=-=-Buy-=-=-   '
+Short = '-=-=-Sell-=-=-   '
+
+pp1 = '\nNumber of Candles : ' + str.tostring(ta.barssince(Buy), '##.##')
+pp2 = '\nNumber of Candles : ' + str.tostring(ta.barssince(Sell), '##.##')
+
+Buyprice = '\nBuy Price  : ' + str.tostring(ta.valuewhen(Buy, SC, 0), '##.##') + ''
+ProfitLong = '\nProfit : ' + '(' + str.tostring(100 * ((SC - ta.valuewhen(Buy, SC, 0)) / ta.valuewhen(Buy, SC, 0)), '##.##') + '%' + ')'
+Buydistance = '\nSupport Distance  : ' + '(' + str.tostring(100 * ((close - Trail2) / Trail2), '##.##') + '%' + ')'
+
+Sellprice = '\nSell Price  : ' + str.tostring(ta.valuewhen(Sell, SC, 0), '##.##') + ''
+ProfitShort = '\nProfit : ' + '(' + str.tostring(100 * ((ta.valuewhen(Sell, SC, 0) - SC) / ta.valuewhen(Sell, SC, 0)), '##.##') + '%' + ')'
+Selldistance = '\nResistance Distance  : ' + '(' + str.tostring(100 * ((close - Trail2) / Trail2), '##.##') + '%' + ')'
+
+info_textlongbuy = Long + info_current_close + pp1 + Buyprice + ProfitLong + Buydistance
+info_textlongsell = Short + info_current_close + pp2 + Sellprice + ProfitShort + Selldistance
+info_panellongbuy = SR == 1 and disp_panels1 ? label.new(x=info_panel_x, y=info_panel_y, text=info_textlongbuy, xloc=xloc.bar_time, yloc=yloc.price, color=color.new(#006400,0), style=label.style_label_left, textcolor=color.white, size=info_label_size) : na
+info_panellongsell = SR == -1 and disp_panels2 ? label.new(x=info_panel_x, y=info_panel_y, text=info_textlongsell, xloc=xloc.bar_time, yloc=yloc.price, color=color.new(#8b0000,0), style=label.style_label_left, textcolor=color.white, size=info_label_size) : na
+label.delete(info_panellongbuy[1])
+label.delete(info_panellongsell[1])
+//
+// Aux functions
+
+// Detect the n left-most digits
+f_nleftmostdigits(_num, _n, _increment) =>
+    // If input price number is smaller than 1.0, then we add 1 to n because 0 counts as a significant number, eg, 0.0456 with n=2 would return 0.04 instead of 0.045
+    _n2 = (_num < 1.0) ? _n + 1 : _n
+    // Get the smallest unit at exact the n leftmost digit, this eases calculation of next or previous value. Eg, if price is 0.0456, and we keep the 2 leftmost digits, unit is 0.001.
+    nleftmostdigits_unit = math.pow(10, (int(math.log10(_num)) - _n2 + 1))
+    // Get the n leftmost digits, by using log10 to remove lower order digits. Eg, if price is 0.0456, and we keep the 2 leftmost digits, nb is 45.
+    nleftmostdigits_nb = int(_num / nleftmostdigits_unit)
+    // Truncate input price after the n leftmost digits. Eg, if price is 0.0456, and we keep the 2 leftmost digits, truncated is 0.045.
+    nleftmostdigits_truncated = nleftmostdigits_nb * nleftmostdigits_unit
+    // Return the next or previous (above or below) truncated price at the n leftmost digits. Eg, if price is 0.0456, and we keep the 2 leftmost digits and increment by 1, the returned level will be 0.046. Can also specify half increments to make half steps, eg, if price is 19000, and we keep the 2 leftmost digits and increment by 0.5, the next level is 19500, but if we increment by 1, next level is 20000.
+    nleftmostdigits_truncated + nleftmostdigits_unit * _increment
+
+// Rounding function, from TradingView PineScript v5 manual, not used here
+f_round(_val, _decimals) =>
+    // Rounds _val to _decimals places.
+    _p = math.pow(10, _decimals)
+    math.round(math.abs(_val) * _p) / _p * math.sign(_val)
+
+//
+// Inputs
+///rsi color/////////
+smooth = input.int(2, 'Smoothing (SMA)', minval=1, tooltip='Smooth out transitions by calculating the average between the previous and next psychological level, this allows to display "half-levels" (eg, medium levels can display 19500 instead of only 19000 or 20000). Set smoothing to 1 to disable. Values above 2 are disadvised as the levels will not be psychologically meaningful anymore (eg, 19667).')
+above_step = input.float(1.0, 'Step increment for above levels', minval=0.0, step=0.5, tooltip='Increment to get to next (resistance) level. Default: 1.0. This is NOT the usual step of other scripts, it is invariant to symbols. Change this to increase/reduce range between levels. Eg, if price is at 18000, above medium level will be 19000 if step is 1.0, but it will be 18500 (a half step) if step is 0.5 .')
+half_step = input.float(0.5, 'Step increment for half-step above levels', minval=0.0, step=0.5, tooltip='Increment to get to next (resistance) half-step level. Default: 0.5.')
+below_step = input.float(0.0, 'Step increment for below levels', maxval=0.0, step=0.5, tooltip='Decrement to get to previous (support) level. Default: 0.0, because price is always above the previous (support) level.')
+
+//
+// Plot
+
+plot(ta.sma(f_nleftmostdigits(src, 3, above_step), smooth), 'Weak level above', color=color.new(#b39ddb, 30), linewidth=1, style=plot.style_circles, display=display.none)
+plot(ta.sma(f_nleftmostdigits(src, 3, half_step), smooth), 'Weak half-step level above', color=color.new(#512da8, 30), linewidth=1, style=plot.style_circles, display=display.none)
+plot(ta.sma(f_nleftmostdigits(src, 3, below_step), smooth), 'Weak level below', color=color.new(#f06292, 30), linewidth=1, style=plot.style_circles, display=display.none)
+plot(ta.sma(f_nleftmostdigits(src, 2, above_step), smooth), 'Medium level above', color=color.new(color.blue, 30), linewidth=2, style=plot.style_circles,display=display.none)
+plot(ta.sma(f_nleftmostdigits(src, 2, half_step), smooth), 'Medium half-step level above', color=color.new(#056656, 30), linewidth=2, style=plot.style_circles,display=display.none)
+plot(ta.sma(f_nleftmostdigits(src, 2, below_step), smooth), 'Medium level below', color=color.new(color.yellow, 30), linewidth=2, style=plot.style_circles,display=display.none)
+// Plot strongest last so that it overlaps lower strength levels
+plot(ta.sma(f_nleftmostdigits(src, 1, above_step), smooth), 'Strong level above', color=color.new(#b13c32, 18), linewidth=3, style=plot.style_circles)
+plot(ta.sma(f_nleftmostdigits(src, 1, half_step), smooth), 'Strong half-step level above', color=color.new(#1b5e20, 30), linewidth=3, style=plot.style_circles)
+plot(ta.sma(f_nleftmostdigits(src, 1, below_step), smooth), 'Strong level below', color=color.new(#1c6b1c, 18), linewidth=3, style=plot.style_circles)
+
+/////////////////////////////////////////////////////////////////////////////////////
+//indicator(title='UT Bot seperate buy sell', overlay=true)
+
+// Inputs
+a = input(1.6, title='Buy Key Vaule. \'This changes the sensitivity\'',group='buy setup')
+c = input(5, title='Buy ATR Period',group='buy setup')
+hq = input(false, title='Buy Signals from Heikin Ashi Candles',group='buy setup')
+
+xATR = ta.atr(c)
+nLoss = a * xATR
+
+src3 = hq ? request.security(ticker.heikinashi(syminfo.tickerid), timeframe.period, close, lookahead=barmerge.lookahead_off) : close
+
+xATRTrailingStop = 0.0
+iff_1q = src3 > nz(xATRTrailingStop[1], 0) ? src3 - nLoss : src3 + nLoss
+iff_2q = src3 < nz(xATRTrailingStop[1], 0) and src3[1] < nz(xATRTrailingStop[1], 0) ? math.min(nz(xATRTrailingStop[1]), src3 + nLoss) : iff_1q
+xATRTrailingStop := src3 > nz(xATRTrailingStop[1], 0) and src3[1] > nz(xATRTrailingStop[1], 0) ? math.max(nz(xATRTrailingStop[1]), src3 - nLoss) : iff_2q
+
+pos = 0
+iff_3q = src3[1] > nz(xATRTrailingStop[1], 0) and src3 < nz(xATRTrailingStop[1], 0) ? -1 : nz(pos[1], 0)
+pos := src3[1] < nz(xATRTrailingStop[1], 0) and src3 > nz(xATRTrailingStop[1], 0) ? 1 : iff_3q
+
+xcolor = pos == -1 ? color.red : pos == 1 ? color.green : color.blue
+
+ema = ta.ema(src3, 1)
+above = ta.crossover(ema, xATRTrailingStop)
+below = ta.crossover(xATRTrailingStop, ema)
+
+buy = src3 > xATRTrailingStop and above
+sell = src3 < xATRTrailingStop and below
+
+barbuy = src3 > xATRTrailingStop
+barsell = src3 < xATRTrailingStop
+
+//plotshape(buy, title='Buy', text='Buy', style=shape.labelup, location=location.belowbar, color=color.new(color.green, 0), textcolor=color.new(color.white, 0), size=size.tiny)
+plotchar(buy,location=location.belowbar,char="🤑",size=size.small)
+
+barcolor(barbuy ? color.green : na)
+
+
+
+
+////////////////////////////////////sell alert//////////////////////////
+////@version=5
+
+
+// Inputs
+a1 = input(2.6, title='Sell Key Vaule. \'This changes the sensitivity\'',group='SELL setup')
+c1 = input(6, title='Sell ATR Period',group='SELL setup')
+h1 = input(false, title=' Sell Signals from Heikin Ashi Candles',group='SELL setup')
+
+xATR1 = ta.atr(c1)
+nLoss1 = a1 * xATR1
+
+src1 = h1 ? request.security(ticker.heikinashi(syminfo.tickerid), timeframe.period, close, lookahead=barmerge.lookahead_off) : close
+
+xATRTrailingStop1 = 0.0
+iff_11 = src1 > nz(xATRTrailingStop1[1], 0) ? src1 - nLoss1 : src1 + nLoss1
+iff_21 = src1 < nz(xATRTrailingStop1[1], 0) and src1[1] < nz(xATRTrailingStop1[1], 0) ? math.min(nz(xATRTrailingStop1[1]), src1 + nLoss1) : iff_11
+xATRTrailingStop1 := src1 > nz(xATRTrailingStop1[1], 0) and src1[1] > nz(xATRTrailingStop1[1], 0) ? math.max(nz(xATRTrailingStop1[1]), src1 - nLoss1) : iff_21
+
+pos1 = 0
+iff_31 = src1[1] > nz(xATRTrailingStop1[1], 0) and src1 < nz(xATRTrailingStop1[1], 0) ? -1 : nz(pos1[1], 0)
+pos1 := src1[1] < nz(xATRTrailingStop1[1], 0) and src1 > nz(xATRTrailingStop1[1], 0) ? 1 : iff_31
+
+xcolor1 = pos1 == -1 ? color.red : pos1 == 1 ? color.green : color.blue
+
+ema1 = ta.ema(src1, 1)
+above1 = ta.crossover(ema1, xATRTrailingStop1)
+below1= ta.crossover(xATRTrailingStop1, ema1)
+
+buy1 = src1 > xATRTrailingStop1 and above1
+sell1 = src1 < xATRTrailingStop1 and below1
+
+barbuy1 = src1 > xATRTrailingStop1
+barsell1 = src1 < xATRTrailingStop1
+
+//plotshape(buy1, title='Buy', text='Buy', style=shape.labelup, location=location.belowbar, color=color.new(color.green, 0), textcolor=color.new(color.white, 0), size=size.tiny)
+//plotshape(sell1, title='sell', text='S\n👇\n\n🟠\n\n\n', location=location.abovebar, color=color.new(color.red, 0), textcolor=color.new(color.white, 0), size=size.small)
+plotchar(sell1,location=location.abovebar,char="🤬",size=size.small)
+
+barcolor(barsell1 ? color.red : na)
+
+
+
+//////////////////////////////////////////////////////////
+
+
+// Assigning Open, High, Low, Close from Heikin-Ashi. 
+HA_open_default = request.security(ticker.heikinashi(syminfo.tickerid), timeframe.period, open)
+HA_high_default = request.security(ticker.heikinashi(syminfo.tickerid), timeframe.period, high)
+HA_low_default = request.security(ticker.heikinashi(syminfo.tickerid), timeframe.period, low)
+HA_close_default = request.security(ticker.heikinashi(syminfo.tickerid), timeframe.period, close)
+
+Moving_average_Type_1 = input.string(defval='T3', title='Type of first Moving Average', options=['TRIMA', 'VIDYA', 'FAMA', 'AMA', 'HMA', 'TEMA', 'SMMA', 'WMA', 'EMA', 'SMA', 'T3', 'DEMA', 'ALMA', 'LSMA', 'DEFAULT'])
+Lenght_of_Moving_average_Type_1 = input.int(defval=5, title='Lenght of first Moving Average (If FRAMA, lenght must be even number)', minval=1)
+
+Moving_average_Type_2 = input.string(defval='T3', title='Type of first Moving Average', options=['TRIMA', 'VIDYA', 'FAMA', 'AMA', 'HMA', 'TEMA', 'SMMA', 'WMA', 'EMA', 'SMA', 'T3', 'DEMA', 'ALMA', 'LSMA', 'DEFAULT'])
+Lenght_of_Moving_average_Type_2 = input.int(defval=8, title='Lenght of Second Moving Average (If FRAMA, lenght must be even number)', minval=1)
+
+Exponential = 2.7182818284590452353602874713527
+
+single_smoothed = input(defval=true, title='Tick the box for only single smooth of Heikin-ashi (normal formula is: HA smoothed with ma, created HA from smoothed values and then smoothed again to create HA once more.)')
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Tillson Moving Average as type 1
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+//For best results use 0.7 or 0.618
+Vfact_type_1 = input.float(defval=0.82, minval=0.01, step=0.01, title='Volume Factor of T3 for 1st Moving Average (If T3 is chosen as first one)')
+
+//Calculations for all Type one T3 
+c1x = -Vfact_type_1 * Vfact_type_1 * Vfact_type_1
+c2x = 3 * Vfact_type_1 * Vfact_type_1 + 3 * Vfact_type_1 * Vfact_type_1 * Vfact_type_1
+c3x = -6 * Vfact_type_1 * Vfact_type_1 - 3 * Vfact_type_1 - 3 * Vfact_type_1 * Vfact_type_1 * Vfact_type_1
+c4x = 1 + 3 * Vfact_type_1 + Vfact_type_1 * Vfact_type_1 * Vfact_type_1 + 3 * Vfact_type_1 * Vfact_type_1
+
+// Asigning open candle
+
+First_EMA_open = ta.ema(HA_open_default, Lenght_of_Moving_average_Type_1)
+Second_EMA_open = ta.ema(First_EMA_open, Lenght_of_Moving_average_Type_1)
+Third_EMA_open = ta.ema(Second_EMA_open, Lenght_of_Moving_average_Type_1)
+Fourth_EMA_open = ta.ema(Third_EMA_open, Lenght_of_Moving_average_Type_1)
+Fifth_EMA_open = ta.ema(Fourth_EMA_open, Lenght_of_Moving_average_Type_1)
+Sixth_EMA_open = ta.ema(Fifth_EMA_open, Lenght_of_Moving_average_Type_1)
+
+//Assigning EMAS to T3 Moving average
+T3_open = c1x * Sixth_EMA_open + c2x * Fifth_EMA_open + c3x * Fourth_EMA_open + c4x * Third_EMA_open
+
+// Asigning high candle
+
+First_EMA_high = ta.ema(HA_high_default, Lenght_of_Moving_average_Type_1)
+Second_EMA_high = ta.ema(First_EMA_high, Lenght_of_Moving_average_Type_1)
+Third_EMA_high = ta.ema(Second_EMA_high, Lenght_of_Moving_average_Type_1)
+Fourth_EMA_high = ta.ema(Third_EMA_high, Lenght_of_Moving_average_Type_1)
+Fifth_EMA_high = ta.ema(Fourth_EMA_high, Lenght_of_Moving_average_Type_1)
+Sixth_EMA_high = ta.ema(Fifth_EMA_high, Lenght_of_Moving_average_Type_1)
+
+//Assigning EMAS to T3 Moving average
+T3_high = c1x * Sixth_EMA_high + c2x * Fifth_EMA_high + c3x * Fourth_EMA_high + c4x * Third_EMA_high
+
+// Asigning low candle
+
+First_EMA_low = ta.ema(HA_low_default, Lenght_of_Moving_average_Type_1)
+Second_EMA_low = ta.ema(First_EMA_low, Lenght_of_Moving_average_Type_1)
+Third_EMA_low = ta.ema(Second_EMA_low, Lenght_of_Moving_average_Type_1)
+Fourth_EMA_low = ta.ema(Third_EMA_low, Lenght_of_Moving_average_Type_1)
+Fifth_EMA_low = ta.ema(Fourth_EMA_low, Lenght_of_Moving_average_Type_1)
+Sixth_EMA_low = ta.ema(Fifth_EMA_low, Lenght_of_Moving_average_Type_1)
+
+//Assigning EMAS to T3 Moving average
+T3_low = c1x * Sixth_EMA_low + c2x * Fifth_EMA_low + c3x * Fourth_EMA_low + c4x * Third_EMA_low
+
+// Asigning close candle
+
+First_EMA_close = ta.ema(HA_close_default, Lenght_of_Moving_average_Type_1)
+Second_EMA_close = ta.ema(First_EMA_close, Lenght_of_Moving_average_Type_1)
+Third_EMA_close = ta.ema(Second_EMA_close, Lenght_of_Moving_average_Type_1)
+Fourth_EMA_close = ta.ema(Third_EMA_close, Lenght_of_Moving_average_Type_1)
+Fifth_EMA_close = ta.ema(Fourth_EMA_close, Lenght_of_Moving_average_Type_1)
+Sixth_EMA_close = ta.ema(Fifth_EMA_close, Lenght_of_Moving_average_Type_1)
+
+//Assigning EMAS to T3 Moving average
+T3_close = c1x * Sixth_EMA_close + c2x * Fifth_EMA_close + c3x * Fourth_EMA_close + c4x * Third_EMA_close
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Double Exponential Moving Average as type 1
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// Asigning open candle
+
+Double_Moving_Average_Exponential_nr_1_open = ta.ema(HA_open_default, Lenght_of_Moving_average_Type_1)
+Double_Moving_Average_Exponential_nr_2_open = ta.ema(Double_Moving_Average_Exponential_nr_1_open, Lenght_of_Moving_average_Type_1)
+Double_Moving_Average_Exponential_open = 2 * Double_Moving_Average_Exponential_nr_1_open - Double_Moving_Average_Exponential_nr_2_open
+
+// Asigning high candle
+
+Double_Moving_Average_Exponential_nr_1_high = ta.ema(HA_high_default, Lenght_of_Moving_average_Type_1)
+Double_Moving_Average_Exponential_nr_2_high = ta.ema(Double_Moving_Average_Exponential_nr_1_high, Lenght_of_Moving_average_Type_1)
+Double_Moving_Average_Exponential_high = 2 * Double_Moving_Average_Exponential_nr_1_high - Double_Moving_Average_Exponential_nr_2_high
+
+// Asigning low candle
+
+Double_Moving_Average_Exponential_nr_1_low = ta.ema(HA_low_default, Lenght_of_Moving_average_Type_1)
+Double_Moving_Average_Exponential_nr_2_low = ta.ema(Double_Moving_Average_Exponential_nr_1_low, Lenght_of_Moving_average_Type_1)
+Double_Moving_Average_Exponential_low = 2 * Double_Moving_Average_Exponential_nr_1_low - Double_Moving_Average_Exponential_nr_2_low
+
+// Asigning close candle
+
+Double_Moving_Average_Exponential_nr_1_close = ta.ema(HA_close_default, Lenght_of_Moving_average_Type_1)
+Double_Moving_Average_Exponential_nr_2_close = ta.ema(Double_Moving_Average_Exponential_nr_1_close, Lenght_of_Moving_average_Type_1)
+Double_Moving_Average_Exponential_close = 2 * Double_Moving_Average_Exponential_nr_1_close - Double_Moving_Average_Exponential_nr_2_close
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Arnaud_Legoux_Moving_Average as type 1
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+offset_of_ALMA = input(0.85, title='Offset of Arnaud Legoux Moving Average type 1 if used')
+sigma_of_ALMA = input.float(6, title='Sigma of Arnaud Legoux Moving Average type 1 if used')
+
+Arnaud_Legoux_Moving_Average_open = ta.alma(HA_open_default, Lenght_of_Moving_average_Type_1, offset_of_ALMA, sigma_of_ALMA)
+Arnaud_Legoux_Moving_Average_high = ta.alma(HA_high_default, Lenght_of_Moving_average_Type_1, offset_of_ALMA, sigma_of_ALMA)
+Arnaud_Legoux_Moving_Average_low = ta.alma(HA_low_default, Lenght_of_Moving_average_Type_1, offset_of_ALMA, sigma_of_ALMA)
+Arnaud_Legoux_Moving_Average_close = ta.alma(HA_close_default, Lenght_of_Moving_average_Type_1, offset_of_ALMA, sigma_of_ALMA)
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Least Squares Moving Average 1
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+Least_Squares_Moving_Average_offset = input.int(defval=0, minval=-100, title='Least Squares Moving Average offset as type 1 ')
+
+Least_Squares_Moving_Average_open = ta.linreg(HA_open_default, Lenght_of_Moving_average_Type_1, Least_Squares_Moving_Average_offset)
+Least_Squares_Moving_Average_high = ta.linreg(HA_high_default, Lenght_of_Moving_average_Type_1, Least_Squares_Moving_Average_offset)
+Least_Squares_Moving_Average_low = ta.linreg(HA_low_default, Lenght_of_Moving_average_Type_1, Least_Squares_Moving_Average_offset)
+Least_Squares_Moving_Average_close = ta.linreg(HA_close_default, Lenght_of_Moving_average_Type_1, Least_Squares_Moving_Average_offset)
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Simple Moving Average as type 1
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+Moving_Average_open = ta.sma(HA_open_default, Lenght_of_Moving_average_Type_1)
+Moving_Average_high = ta.sma(HA_high_default, Lenght_of_Moving_average_Type_1)
+Moving_Average_low = ta.sma(HA_low_default, Lenght_of_Moving_average_Type_1)
+Moving_Average_close = ta.sma(HA_close_default, Lenght_of_Moving_average_Type_1)
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Exponential Moving Average as type 1
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+eMoving_Average_open = ta.ema(HA_open_default, Lenght_of_Moving_average_Type_1)
+eMoving_Average_high = ta.ema(HA_high_default, Lenght_of_Moving_average_Type_1)
+eMoving_Average_low = ta.ema(HA_low_default, Lenght_of_Moving_average_Type_1)
+eMoving_Average_close = ta.ema(HA_close_default, Lenght_of_Moving_average_Type_1)
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Weighted Moving Average as type 1
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+wMoving_Average_open = ta.wma(HA_open_default, Lenght_of_Moving_average_Type_1)
+wMoving_Average_high = ta.wma(HA_high_default, Lenght_of_Moving_average_Type_1)
+wMoving_Average_low = ta.wma(HA_low_default, Lenght_of_Moving_average_Type_1)
+wMoving_Average_close = ta.wma(HA_close_default, Lenght_of_Moving_average_Type_1)
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Smoothed Moving Average as type 1
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+smma_open = 0.0
+sma_1 = ta.sma(HA_open_default, Lenght_of_Moving_average_Type_1)
+smma_open := na(smma_open[1]) ? sma_1 : (smma_open[1] * (Lenght_of_Moving_average_Type_1 - 1) + HA_open_default) / Lenght_of_Moving_average_Type_1
+
+smma_high = 0.0
+sma_2 = ta.sma(HA_high_default, Lenght_of_Moving_average_Type_1)
+smma_high := na(smma_high[1]) ? sma_2 : (smma_high[1] * (Lenght_of_Moving_average_Type_1 - 1) + HA_high_default) / Lenght_of_Moving_average_Type_1
+
+smma_low = 0.0
+sma_3 = ta.sma(HA_low_default, Lenght_of_Moving_average_Type_1)
+smma_low := na(smma_low[1]) ? sma_3 : (smma_low[1] * (Lenght_of_Moving_average_Type_1 - 1) + HA_low_default) / Lenght_of_Moving_average_Type_1
+
+smma_close = 0.0
+sma_4 = ta.sma(HA_close_default, Lenght_of_Moving_average_Type_1)
+smma_close := na(smma_close[1]) ? sma_4 : (smma_close[1] * (Lenght_of_Moving_average_Type_1 - 1) + HA_close_default) / Lenght_of_Moving_average_Type_1
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Triple Moving Average as type 1
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+Triple_EMA_1 = ta.ema(HA_open_default, Lenght_of_Moving_average_Type_1)
+Triple_EMA_2 = ta.ema(Triple_EMA_1, Lenght_of_Moving_average_Type_1)
+Triple_EMA_3 = ta.ema(Triple_EMA_2, Lenght_of_Moving_average_Type_1)
+
+Triple_EMA_4 = ta.ema(HA_high_default, Lenght_of_Moving_average_Type_1)
+Triple_EMA_5 = ta.ema(Triple_EMA_4, Lenght_of_Moving_average_Type_1)
+Triple_EMA_6 = ta.ema(Triple_EMA_5, Lenght_of_Moving_average_Type_1)
+
+Triple_EMA_7 = ta.ema(HA_low_default, Lenght_of_Moving_average_Type_1)
+Triple_EMA_8 = ta.ema(Triple_EMA_7, Lenght_of_Moving_average_Type_1)
+Triple_EMA_9 = ta.ema(Triple_EMA_8, Lenght_of_Moving_average_Type_1)
+
+Triple_EMA_10 = ta.ema(HA_close_default, Lenght_of_Moving_average_Type_1)
+Triple_EMA_11 = ta.ema(Triple_EMA_10, Lenght_of_Moving_average_Type_1)
+Triple_EMA_12 = ta.ema(Triple_EMA_11, Lenght_of_Moving_average_Type_1)
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Hull Moving Average as type 1
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+Hull_Moving_Average_lenght_sqrt_open = math.sqrt(Lenght_of_Moving_average_Type_1)
+Hull_Moving_Average_lenght_rounded_open = math.round(Hull_Moving_Average_lenght_sqrt_open)
+Hull_Moving_Average_1_open = ta.wma(HA_open_default, Lenght_of_Moving_average_Type_1)
+Hull_Moving_Average_2_open = ta.wma(HA_open_default, Lenght_of_Moving_average_Type_1 / 2)
+Hull_Moving_Average_3_open = 2 * Hull_Moving_Average_2_open - Hull_Moving_Average_1_open
+Hull_Moving_Average_open = ta.wma(Hull_Moving_Average_3_open, Hull_Moving_Average_lenght_rounded_open)
+
+Hull_Moving_Average_lenght_sqrt_high = math.sqrt(Lenght_of_Moving_average_Type_1)
+Hull_Moving_Average_lenght_rounded_high = math.round(Hull_Moving_Average_lenght_sqrt_high)
+Hull_Moving_Average_1_high = ta.wma(HA_high_default, Lenght_of_Moving_average_Type_1)
+Hull_Moving_Average_2_high = ta.wma(HA_high_default, Lenght_of_Moving_average_Type_1 / 2)
+Hull_Moving_Average_3_high = 2 * Hull_Moving_Average_2_high - Hull_Moving_Average_1_high
+Hull_Moving_Average_high = ta.wma(Hull_Moving_Average_3_high, Hull_Moving_Average_lenght_rounded_high)
+
+Hull_Moving_Average_lenght_sqrt_low = math.sqrt(Lenght_of_Moving_average_Type_1)
+Hull_Moving_Average_lenght_rounded_low = math.round(Hull_Moving_Average_lenght_sqrt_low)
+Hull_Moving_Average_1_low = ta.wma(HA_low_default, Lenght_of_Moving_average_Type_1)
+Hull_Moving_Average_2_low = ta.wma(HA_low_default, Lenght_of_Moving_average_Type_1 / 2)
+Hull_Moving_Average_3_low = 2 * Hull_Moving_Average_2_low - Hull_Moving_Average_1_low
+Hull_Moving_Average_low = ta.wma(Hull_Moving_Average_3_low, Hull_Moving_Average_lenght_rounded_low)
+
+Hull_Moving_Average_lenght_sqrt_close = math.sqrt(Lenght_of_Moving_average_Type_1)
+Hull_Moving_Average_lenght_rounded_close = math.round(Hull_Moving_Average_lenght_sqrt_close)
+Hull_Moving_Average_1_close = ta.wma(HA_close_default, Lenght_of_Moving_average_Type_1)
+Hull_Moving_Average_2_close = ta.wma(HA_close_default, Lenght_of_Moving_average_Type_1 / 2)
+Hull_Moving_Average_3_close = 2 * Hull_Moving_Average_2_close - Hull_Moving_Average_1_close
+Hull_Moving_Average_close = ta.wma(Hull_Moving_Average_3_close, Hull_Moving_Average_lenght_rounded_close)
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Adaptive Moving Average as type 1
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+AMA_Weight_value_1 = input(0.181, title='Smoothe constant of AMA as type 1')
+
+Adaptive_moving_average_open = 0.0
+Adaptive_moving_average_open := na(Adaptive_moving_average_open[1]) ? HA_open_default * AMA_Weight_value_1 * AMA_Weight_value_1 + 1 - AMA_Weight_value_1 * AMA_Weight_value_1 : HA_open_default * AMA_Weight_value_1 * AMA_Weight_value_1 + (1 - AMA_Weight_value_1 * AMA_Weight_value_1) * Adaptive_moving_average_open[1]
+
+Adaptive_moving_average_high = 0.0
+Adaptive_moving_average_high := na(Adaptive_moving_average_high[1]) ? HA_high_default * AMA_Weight_value_1 * AMA_Weight_value_1 + 1 - AMA_Weight_value_1 * AMA_Weight_value_1 : HA_high_default * AMA_Weight_value_1 * AMA_Weight_value_1 + (1 - AMA_Weight_value_1 * AMA_Weight_value_1) * Adaptive_moving_average_high[1]
+
+Adaptive_moving_average_low = 0.0
+Adaptive_moving_average_low := na(Adaptive_moving_average_low[1]) ? HA_low_default * AMA_Weight_value_1 * AMA_Weight_value_1 + 1 - AMA_Weight_value_1 * AMA_Weight_value_1 : HA_low_default * AMA_Weight_value_1 * AMA_Weight_value_1 + (1 - AMA_Weight_value_1 * AMA_Weight_value_1) * Adaptive_moving_average_low[1]
+
+Adaptive_moving_average_close = 0.0
+Adaptive_moving_average_close := na(Adaptive_moving_average_close[1]) ? HA_close_default * AMA_Weight_value_1 * AMA_Weight_value_1 + 1 - AMA_Weight_value_1 * AMA_Weight_value_1 : HA_close_default * AMA_Weight_value_1 * AMA_Weight_value_1 + (1 - AMA_Weight_value_1 * AMA_Weight_value_1) * Adaptive_moving_average_close[1]
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Fractal Adaptive Moving Average as type 1
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+//Big thanks to nemozny and Shizaru for sharing their code from which I was able to add this FRAMA to this study. Really, big thank you guys.
+
+
+// open
+
+
+Fractal_Adaptive_Moving_Average_input2 = input(1, title='Should be left 1 for the best results (FRAMA as type 1)')
+Fractal_Adaptive_Moving_Average_input3 = input(168, title='Try and experiment with this value (FRAMA as type 1)')
+
+Fractal_Adaptive_Moving_Average_lenght_part2_open = Lenght_of_Moving_average_Type_1 / 2
+
+Natural_Logorithm_workaround_open = math.log(2 / (Fractal_Adaptive_Moving_Average_input3 + 1)) / math.log(Exponential)
+
+Highest_price_nr1_open = ta.highest(HA_high_default, Fractal_Adaptive_Moving_Average_lenght_part2_open)
+Lowest_price_nr1_open = ta.lowest(HA_low_default, Fractal_Adaptive_Moving_Average_lenght_part2_open)
+Native_price_1_open = (Highest_price_nr1_open - Lowest_price_nr1_open) / Fractal_Adaptive_Moving_Average_lenght_part2_open
+
+Highest_price_nr2_open = ta.highest(HA_high_default, Fractal_Adaptive_Moving_Average_lenght_part2_open)[Fractal_Adaptive_Moving_Average_lenght_part2_open]
+Lowest_price_nr2_open = ta.lowest(HA_low_default, Fractal_Adaptive_Moving_Average_lenght_part2_open)[Fractal_Adaptive_Moving_Average_lenght_part2_open]
+Native_price_2_open = (Highest_price_nr2_open - Lowest_price_nr2_open) / Fractal_Adaptive_Moving_Average_lenght_part2_open
+
+Highest_price_nr3_open = ta.highest(HA_high_default, Lenght_of_Moving_average_Type_1)
+Lowest_price_nr3_open = ta.lowest(HA_low_default, Lenght_of_Moving_average_Type_1)
+Native_price_3_open = (Highest_price_nr3_open - Lowest_price_nr3_open) / Lenght_of_Moving_average_Type_1
+
+Fractal_Dimension_1_open = (math.log(Native_price_1_open + Native_price_2_open) - math.log(Native_price_3_open)) / math.log(2)
+Fractal_Dimension_2_open = Native_price_1_open > 0 and Native_price_2_open > 0 and Native_price_3_open > 0 ? Fractal_Dimension_1_open : nz(Fractal_Dimension_1_open[1])
+
+factor_of_exponential_smoothing_1_open = math.exp(Natural_Logorithm_workaround_open * (Fractal_Dimension_2_open - 1))
+factor_of_exponential_smoothing_old_open = factor_of_exponential_smoothing_1_open > 1 ? 1 : factor_of_exponential_smoothing_1_open < 0.01 ? 0.01 : factor_of_exponential_smoothing_1_open
+
+Native_price_old_open = (2 - factor_of_exponential_smoothing_old_open) / factor_of_exponential_smoothing_old_open
+Native_price_open = (Fractal_Adaptive_Moving_Average_input3 - Fractal_Adaptive_Moving_Average_input2) * (Native_price_old_open - 1) / (Fractal_Adaptive_Moving_Average_input3 - 1) + Fractal_Adaptive_Moving_Average_input2
+
+factor_of_exponential_smoothing_2_open = 2 / (Native_price_open + 1)
+factor_of_exponential_smoothing_open = factor_of_exponential_smoothing_2_open < 2 / (Fractal_Adaptive_Moving_Average_input3 + 1) ? 2 / (Fractal_Adaptive_Moving_Average_input3 + 1) : factor_of_exponential_smoothing_2_open > 1 ? 1 : factor_of_exponential_smoothing_2_open
+
+Fractal_Adaptive_Moving_Average_open = 0.0
+Fractal_Adaptive_Moving_Average_open := (1 - factor_of_exponential_smoothing_open) * nz(Fractal_Adaptive_Moving_Average_open[1]) + factor_of_exponential_smoothing_open * HA_open_default
+
+//high
+
+Fractal_Adaptive_Moving_Average_lenght_part2_high = Lenght_of_Moving_average_Type_1 / 2
+
+Natural_Logorithm_workaround_high = math.log(2 / (Fractal_Adaptive_Moving_Average_input3 + 1)) / math.log(Exponential)
+
+Highest_price_nr1_high = ta.highest(HA_high_default, Fractal_Adaptive_Moving_Average_lenght_part2_high)
+Lowest_price_nr1_high = ta.lowest(HA_low_default, Fractal_Adaptive_Moving_Average_lenght_part2_high)
+Native_price_1_high = (Highest_price_nr1_high - Lowest_price_nr1_high) / Fractal_Adaptive_Moving_Average_lenght_part2_high
+
+Highest_price_nr2_high = ta.highest(HA_high_default, Fractal_Adaptive_Moving_Average_lenght_part2_high)[Fractal_Adaptive_Moving_Average_lenght_part2_high]
+Lowest_price_nr2_high = ta.lowest(HA_low_default, Fractal_Adaptive_Moving_Average_lenght_part2_high)[Fractal_Adaptive_Moving_Average_lenght_part2_high]
+Native_price_2_high = (Highest_price_nr2_high - Lowest_price_nr2_high) / Fractal_Adaptive_Moving_Average_lenght_part2_high
+
+Highest_price_nr3_high = ta.highest(HA_high_default, Lenght_of_Moving_average_Type_1)
+Lowest_price_nr3_high = ta.lowest(HA_low_default, Lenght_of_Moving_average_Type_1)
+Native_price_3_high = (Highest_price_nr3_high - Lowest_price_nr3_high) / Lenght_of_Moving_average_Type_1
+
+Fractal_Dimension_1_high = (math.log(Native_price_1_high + Native_price_2_high) - math.log(Native_price_3_high)) / math.log(2)
+Fractal_Dimension_2_high = Native_price_1_high > 0 and Native_price_2_high > 0 and Native_price_3_high > 0 ? Fractal_Dimension_1_high : nz(Fractal_Dimension_1_high[1])
+
+factor_of_exponential_smoothing_1_high = math.exp(Natural_Logorithm_workaround_high * (Fractal_Dimension_2_high - 1))
+factor_of_exponential_smoothing_old_high = factor_of_exponential_smoothing_1_high > 1 ? 1 : factor_of_exponential_smoothing_1_high < 0.01 ? 0.01 : factor_of_exponential_smoothing_1_high
+
+Native_price_old_high = (2 - factor_of_exponential_smoothing_old_high) / factor_of_exponential_smoothing_old_high
+Native_price_high = (Fractal_Adaptive_Moving_Average_input3 - Fractal_Adaptive_Moving_Average_input2) * (Native_price_old_high - 1) / (Fractal_Adaptive_Moving_Average_input3 - 1) + Fractal_Adaptive_Moving_Average_input2
+
+factor_of_exponential_smoothing_2_high = 2 / (Native_price_high + 1)
+factor_of_exponential_smoothing_high = factor_of_exponential_smoothing_2_high < 2 / (Fractal_Adaptive_Moving_Average_input3 + 1) ? 2 / (Fractal_Adaptive_Moving_Average_input3 + 1) : factor_of_exponential_smoothing_2_high > 1 ? 1 : factor_of_exponential_smoothing_2_high
+
+Fractal_Adaptive_Moving_Average_high = 0.0
+Fractal_Adaptive_Moving_Average_high := (1 - factor_of_exponential_smoothing_high) * nz(Fractal_Adaptive_Moving_Average_high[1]) + factor_of_exponential_smoothing_high * HA_high_default
+
+// low
+
+Fractal_Adaptive_Moving_Average_lenght_part2_low = Lenght_of_Moving_average_Type_1 / 2
+
+Natural_Logorithm_workaround_low = math.log(2 / (Fractal_Adaptive_Moving_Average_input3 + 1)) / math.log(Exponential)
+
+Highest_price_nr1_low = ta.highest(HA_high_default, Fractal_Adaptive_Moving_Average_lenght_part2_low)
+Lowest_price_nr1_low = ta.lowest(HA_low_default, Fractal_Adaptive_Moving_Average_lenght_part2_low)
+Native_price_1_low = (Highest_price_nr1_low - Lowest_price_nr1_low) / Fractal_Adaptive_Moving_Average_lenght_part2_low
+
+Highest_price_nr2_low = ta.highest(HA_high_default, Fractal_Adaptive_Moving_Average_lenght_part2_low)[Fractal_Adaptive_Moving_Average_lenght_part2_low]
+Lowest_price_nr2_low = ta.lowest(HA_low_default, Fractal_Adaptive_Moving_Average_lenght_part2_low)[Fractal_Adaptive_Moving_Average_lenght_part2_low]
+Native_price_2_low = (Highest_price_nr2_low - Lowest_price_nr2_low) / Fractal_Adaptive_Moving_Average_lenght_part2_low
+
+Highest_price_nr3_low = ta.highest(HA_high_default, Lenght_of_Moving_average_Type_1)
+Lowest_price_nr3_low = ta.lowest(HA_low_default, Lenght_of_Moving_average_Type_1)
+Native_price_3_low = (Highest_price_nr3_low - Lowest_price_nr3_low) / Lenght_of_Moving_average_Type_1
+
+Fractal_Dimension_1_low = (math.log(Native_price_1_low + Lowest_price_nr2_low) - math.log(Native_price_3_low)) / math.log(2)
+Fractal_Dimension_2_low = Native_price_1_low > 0 and Lowest_price_nr2_low > 0 and Native_price_3_low > 0 ? Fractal_Dimension_1_low : nz(Fractal_Dimension_1_low[1])
+
+factor_of_exponential_smoothing_1_low = math.exp(Natural_Logorithm_workaround_low * (Fractal_Dimension_2_low - 1))
+factor_of_exponential_smoothing_old_low = factor_of_exponential_smoothing_1_low > 1 ? 1 : factor_of_exponential_smoothing_1_low < 0.01 ? 0.01 : factor_of_exponential_smoothing_1_low
+
+Native_price_old_low = (2 - factor_of_exponential_smoothing_old_low) / factor_of_exponential_smoothing_old_low
+Native_price_low = (Fractal_Adaptive_Moving_Average_input3 - Fractal_Adaptive_Moving_Average_input2) * (Native_price_old_low - 1) / (Fractal_Adaptive_Moving_Average_input3 - 1) + Fractal_Adaptive_Moving_Average_input2
+
+factor_of_exponential_smoothing_2_low = 2 / (Native_price_low + 1)
+factor_of_exponential_smoothing_low = factor_of_exponential_smoothing_2_low < 2 / (Fractal_Adaptive_Moving_Average_input3 + 1) ? 2 / (Fractal_Adaptive_Moving_Average_input3 + 1) : factor_of_exponential_smoothing_2_low > 1 ? 1 : factor_of_exponential_smoothing_2_low
+
+Fractal_Adaptive_Moving_Average_low = 0.0
+Fractal_Adaptive_Moving_Average_low := (1 - factor_of_exponential_smoothing_low) * nz(Fractal_Adaptive_Moving_Average_low[1]) + factor_of_exponential_smoothing_low * HA_low_default
+
+// close
+
+Fractal_Adaptive_Moving_Average_lenght_part2__close = Lenght_of_Moving_average_Type_1 / 2
+
+Natural_Logorithm_workaround__close = math.log(2 / (Fractal_Adaptive_Moving_Average_input3 + 1)) / math.log(Exponential)
+
+Highest_price_nr1__close = ta.highest(HA_high_default, Fractal_Adaptive_Moving_Average_lenght_part2__close)
+Lowest_price_nr1__close = ta.lowest(HA_low_default, Fractal_Adaptive_Moving_Average_lenght_part2__close)
+Native_price_1__close = (Highest_price_nr1__close - Lowest_price_nr1__close) / Fractal_Adaptive_Moving_Average_lenght_part2__close
+
+Highest_price_nr2_close = ta.highest(HA_high_default, Fractal_Adaptive_Moving_Average_lenght_part2__close)[Fractal_Adaptive_Moving_Average_lenght_part2__close]
+Lowest_price_nr2_close = ta.lowest(HA_low_default, Fractal_Adaptive_Moving_Average_lenght_part2__close)[Fractal_Adaptive_Moving_Average_lenght_part2__close]
+Native_price_2_close = (Highest_price_nr2_close - Lowest_price_nr2_close) / Fractal_Adaptive_Moving_Average_lenght_part2__close
+
+Highest_price_nr3_close = ta.highest(HA_high_default, Lenght_of_Moving_average_Type_1)
+Lowest_price_nr3_close = ta.lowest(HA_low_default, Lenght_of_Moving_average_Type_1)
+Native_price_3_close = (Highest_price_nr3_close - Lowest_price_nr3_close) / Lenght_of_Moving_average_Type_1
+
+Fractal_Dimension_1_close = (math.log(Native_price_1__close + Native_price_2_close) - math.log(Native_price_3_close)) / math.log(2)
+Fractal_Dimension_2_close = Native_price_1__close > 0 and Native_price_2_close > 0 and Native_price_3_close > 0 ? Fractal_Dimension_1_close : nz(Fractal_Dimension_1_close[1])
+
+factor_of_exponential_smoothing_1_close = math.exp(Natural_Logorithm_workaround__close * (Fractal_Dimension_2_close - 1))
+factor_of_exponential_smoothing_old_close = factor_of_exponential_smoothing_1_close > 1 ? 1 : factor_of_exponential_smoothing_1_close < 0.01 ? 0.01 : factor_of_exponential_smoothing_1_close
+
+Native_price_old_close = (2 - factor_of_exponential_smoothing_old_close) / factor_of_exponential_smoothing_old_close
+Native_price_close = (Fractal_Adaptive_Moving_Average_input3 - Fractal_Adaptive_Moving_Average_input2) * (Native_price_old_close - 1) / (Fractal_Adaptive_Moving_Average_input3 - 1) + Fractal_Adaptive_Moving_Average_input2
+
+factor_of_exponential_smoothing_2_close = 2 / (Native_price_close + 1)
+factor_of_exponential_smoothing_close = factor_of_exponential_smoothing_2_close < 2 / (Fractal_Adaptive_Moving_Average_input3 + 1) ? 2 / (Fractal_Adaptive_Moving_Average_input3 + 1) : factor_of_exponential_smoothing_2_close > 1 ? 1 : factor_of_exponential_smoothing_2_close
+
+Fractal_Adaptive_Moving_Average_close = 0.0
+Fractal_Adaptive_Moving_Average_close := (1 - factor_of_exponential_smoothing_close) * nz(Fractal_Adaptive_Moving_Average_close[1]) + factor_of_exponential_smoothing_close * HA_close_default
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Variable Index Dynamic Average as type 1
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// OPEN
+
+// Chande Momentum Oscillator
+f1_open(m_open) =>
+    m_open >= 0.0 ? m_open : 0.0
+f2_open(m_open) =>
+    m_open >= 0.0 ? 0.0 : -m_open
+
+Difference_open = ta.change(HA_open_default)
+Sum_of_UP_open = math.sum(f1_open(Difference_open), Lenght_of_Moving_average_Type_1)
+Sum_of_DOWN_open = math.sum(f2_open(Difference_open), Lenght_of_Moving_average_Type_1)
+
+CMO_open = (Sum_of_UP_open - Sum_of_DOWN_open) / (Sum_of_UP_open + Sum_of_DOWN_open)
+
+factor_open = 2 / (Lenght_of_Moving_average_Type_1 + 1)
+
+VIDYA_open = 0.0
+VIDYA_open := HA_open_default * factor_open * math.abs(CMO_open) + nz(VIDYA_open[1]) * (1 - factor_open * math.abs(CMO_open))
+
+// high
+
+// Chande Momentum Oscillator
+f1_high(m_high) =>
+    m_high >= 0.0 ? m_high : 0.0
+f2_high(m_high) =>
+    m_high >= 0.0 ? 0.0 : -m_high
+
+Difference_high = ta.change(HA_high_default)
+Sum_of_UP_high = math.sum(f1_high(Difference_high), Lenght_of_Moving_average_Type_1)
+Sum_of_DOWN_high = math.sum(f2_high(Difference_high), Lenght_of_Moving_average_Type_1)
+
+CMO_high = (Sum_of_UP_high - Sum_of_DOWN_high) / (Sum_of_UP_high + Sum_of_DOWN_high)
+
+factor_high = 2 / (Lenght_of_Moving_average_Type_1 + 1)
+
+VIDYA_high = 0.0
+VIDYA_high := HA_high_default * factor_high * math.abs(CMO_high) + nz(VIDYA_high[1]) * (1 - factor_high * math.abs(CMO_high))
+
+// low
+
+// Chande Momentum Oscillator
+f1_low(m_low) =>
+    m_low >= 0.0 ? m_low : 0.0
+f2_low(m_low) =>
+    m_low >= 0.0 ? 0.0 : -m_low
+
+Difference_low = ta.change(HA_low_default)
+Sum_of_UP_low = math.sum(f1_low(Difference_low), Lenght_of_Moving_average_Type_1)
+Sum_of_DOWN_low = math.sum(f2_low(Difference_low), Lenght_of_Moving_average_Type_1)
+
+CMO_low = (Sum_of_UP_low - Sum_of_DOWN_low) / (Sum_of_UP_low + Sum_of_DOWN_low)
+
+factor_low = 2 / (Lenght_of_Moving_average_Type_1 + 1)
+
+VIDYA_low = 0.0
+VIDYA_low := HA_low_default * factor_low * math.abs(CMO_low) + nz(VIDYA_low[1]) * (1 - factor_low * math.abs(CMO_low))
+
+// close
+
+// Chande Momentum Oscillator
+f1_close(m_close) =>
+    m_close >= 0.0 ? m_close : 0.0
+f2_close(m_close) =>
+    m_close >= 0.0 ? 0.0 : -m_close
+
+Difference_close = ta.change(HA_close_default)
+Sum_of_UP_close = math.sum(f1_close(Difference_close), Lenght_of_Moving_average_Type_1)
+Sum_of_DOWN_close = math.sum(f2_close(Difference_close), Lenght_of_Moving_average_Type_1)
+
+CMO_close = (Sum_of_UP_close - Sum_of_DOWN_close) / (Sum_of_UP_close + Sum_of_DOWN_close)
+
+factor_close = 2 / (Lenght_of_Moving_average_Type_1 + 1)
+
+VIDYA_close = 0.0
+VIDYA_close := HA_close_default * factor_close * math.abs(CMO_close) + nz(VIDYA_close[1]) * (1 - factor_close * math.abs(CMO_close))
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Triangular Moving Average as type 1
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+Triangular_Moving_Average_open = ta.sma(ta.sma(HA_open_default, Lenght_of_Moving_average_Type_1), Lenght_of_Moving_average_Type_1)
+Triangular_Moving_Average_high = ta.sma(ta.sma(HA_high_default, Lenght_of_Moving_average_Type_1), Lenght_of_Moving_average_Type_1)
+Triangular_Moving_Average_low = ta.sma(ta.sma(HA_low_default, Lenght_of_Moving_average_Type_1), Lenght_of_Moving_average_Type_1)
+Triangular_Moving_Average_close = ta.sma(ta.sma(HA_close_default, Lenght_of_Moving_average_Type_1), Lenght_of_Moving_average_Type_1)
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// STAGE 2 calculations: The Heikin-Ashi bar Open, High, Low, Close values are set using the smoothed values from step 1. This is performed using the standard Heikin-Ashi formula.
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+HA_open_stage1 = Moving_average_Type_1 == 'TRIMA' ? Triangular_Moving_Average_open : Moving_average_Type_1 == 'VIDYA' ? VIDYA_open : Moving_average_Type_1 == 'FAMA' ? Fractal_Adaptive_Moving_Average_open : Moving_average_Type_1 == 'AMA' ? Adaptive_moving_average_open : Moving_average_Type_1 == 'HMA' ? Hull_Moving_Average_open : Moving_average_Type_1 == 'TEMA' ? Triple_EMA_3 : Moving_average_Type_1 == 'SMMA' ? smma_open : Moving_average_Type_1 == 'WMA' ? wMoving_Average_open : Moving_average_Type_1 == 'EMA' ? eMoving_Average_open : Moving_average_Type_1 == 'SMA' ? Moving_Average_open : Moving_average_Type_1 == 'LSMA' ? Least_Squares_Moving_Average_open : Moving_average_Type_1 == 'T3' ? T3_open : Moving_average_Type_1 == 'DEMA' ? Double_Moving_Average_Exponential_open : Moving_average_Type_1 == 'ALMA' ? Arnaud_Legoux_Moving_Average_open : Moving_average_Type_1 == 'DEFAULT' ? HA_open_default : na
+HA_high_stage1 = Moving_average_Type_1 == 'TRIMA' ? Triangular_Moving_Average_high : Moving_average_Type_1 == 'VIDYA' ? VIDYA_high : Moving_average_Type_1 == 'FAMA' ? Fractal_Adaptive_Moving_Average_high : Moving_average_Type_1 == 'AMA' ? Adaptive_moving_average_high : Moving_average_Type_1 == 'HMA' ? Hull_Moving_Average_high : Moving_average_Type_1 == 'TEMA' ? Triple_EMA_6 : Moving_average_Type_1 == 'SMMA' ? smma_high : Moving_average_Type_1 == 'WMA' ? wMoving_Average_high : Moving_average_Type_1 == 'EMA' ? eMoving_Average_high : Moving_average_Type_1 == 'SMA' ? Moving_Average_high : Moving_average_Type_1 == 'LSMA' ? Least_Squares_Moving_Average_high : Moving_average_Type_1 == 'T3' ? T3_high : Moving_average_Type_1 == 'DEMA' ? Double_Moving_Average_Exponential_high : Moving_average_Type_1 == 'ALMA' ? Arnaud_Legoux_Moving_Average_high : Moving_average_Type_1 == 'DEFAULT' ? HA_open_default : na
+HA_low_stage1 = Moving_average_Type_1 == 'TRIMA' ? Triangular_Moving_Average_low : Moving_average_Type_1 == 'VIDYA' ? VIDYA_low : Moving_average_Type_1 == 'FAMA' ? Fractal_Adaptive_Moving_Average_low : Moving_average_Type_1 == 'AMA' ? Adaptive_moving_average_low : Moving_average_Type_1 == 'HMA' ? Hull_Moving_Average_low : Moving_average_Type_1 == 'TEMA' ? Triple_EMA_9 : Moving_average_Type_1 == 'SMMA' ? smma_low : Moving_average_Type_1 == 'WMA' ? wMoving_Average_low : Moving_average_Type_1 == 'EMA' ? eMoving_Average_low : Moving_average_Type_1 == 'SMA' ? Moving_Average_low : Moving_average_Type_1 == 'LSMA' ? Least_Squares_Moving_Average_low : Moving_average_Type_1 == 'T3' ? T3_low : Moving_average_Type_1 == 'DEMA' ? Double_Moving_Average_Exponential_low : Moving_average_Type_1 == 'ALMA' ? Arnaud_Legoux_Moving_Average_low : Moving_average_Type_1 == 'DEFAULT' ? HA_open_default : na
+HA_close_stage1 = Moving_average_Type_1 == 'TRIMA' ? Triangular_Moving_Average_close : Moving_average_Type_1 == 'VIDYA' ? VIDYA_close : Moving_average_Type_1 == 'FAMA' ? Fractal_Adaptive_Moving_Average_close : Moving_average_Type_1 == 'AMA' ? Adaptive_moving_average_close : Moving_average_Type_1 == 'HMA' ? Hull_Moving_Average_close : Moving_average_Type_1 == 'TEMA' ? Triple_EMA_12 : Moving_average_Type_1 == 'SMMA' ? smma_close : Moving_average_Type_1 == 'WMA' ? wMoving_Average_close : Moving_average_Type_1 == 'EMA' ? eMoving_Average_close : Moving_average_Type_1 == 'SMA' ? Moving_Average_close : Moving_average_Type_1 == 'LSMA' ? Least_Squares_Moving_Average_close : Moving_average_Type_1 == 'T3' ? T3_close : Moving_average_Type_1 == 'DEMA' ? Double_Moving_Average_Exponential_close : Moving_average_Type_1 == 'ALMA' ? Arnaud_Legoux_Moving_Average_close : Moving_average_Type_1 == 'DEFAULT' ? HA_open_default : na
+
+// Creating ohlc4
+HA_ohlc4 = (HA_open_stage1 + HA_high_stage1 + HA_low_stage1 + HA_close_stage1) / 4
+
+// Close = (Open + High + Low + Close) / 4
+// Open = (Open of Previous Bar + Close of Previous Bar) / 2
+// High = Max of (High, Open, Close)
+// Low = Min of (Low, Open, Close)
+
+HA_close_stage2 = HA_ohlc4
+HA_open_stage2 = (HA_open_stage1[1] + HA_close_stage1[1]) / 2
+HA_high_stage2 = math.max(HA_high_stage1, math.max(HA_open_stage1, HA_close_stage1))
+HA_low_stage2 = math.min(HA_low_stage1, math.min(HA_open_stage1, HA_close_stage1))
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Tillson Moving Average as type 2
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+//For best results use 0.7 or 0.618
+Vfact_type_2 = input.float(defval=0.82, minval=0.01, step=0.01, title='Volume Factor of T3 for 2st Moving Average (If T3 is chosen as Second one)')
+
+//Calculations for all Type one T3 
+c11 = -Vfact_type_2 * Vfact_type_2 * Vfact_type_2
+c2 = 3 * Vfact_type_2 * Vfact_type_2 + 3 * Vfact_type_2 * Vfact_type_2 * Vfact_type_2
+c3 = -6 * Vfact_type_2 * Vfact_type_2 - 3 * Vfact_type_2 - 3 * Vfact_type_2 * Vfact_type_2 * Vfact_type_2
+c4 = 1 + 3 * Vfact_type_2 + Vfact_type_2 * Vfact_type_2 * Vfact_type_2 + 3 * Vfact_type_2 * Vfact_type_2
+
+// Asigning open candle
+
+First_EMA_open_2 = ta.ema(HA_open_stage2, Lenght_of_Moving_average_Type_2)
+Second_EMA_open_2 = ta.ema(First_EMA_open_2, Lenght_of_Moving_average_Type_2)
+Third_EMA_open_2 = ta.ema(Second_EMA_open_2, Lenght_of_Moving_average_Type_2)
+Fourth_EMA_open_2 = ta.ema(Third_EMA_open_2, Lenght_of_Moving_average_Type_2)
+Fifth_EMA_open_2 = ta.ema(Fourth_EMA_open_2, Lenght_of_Moving_average_Type_2)
+Sixth_EMA_open_2 = ta.ema(Fifth_EMA_open_2, Lenght_of_Moving_average_Type_2)
+
+//Assigning EMAS to T3 Moving average
+T3_open_2 = c11 * Sixth_EMA_open_2 + c2 * Fifth_EMA_open_2 + c3 * Fourth_EMA_open_2 + c4 * Third_EMA_open_2
+
+// Asigning high candle
+
+First_EMA_high_2 = ta.ema(HA_high_stage2, Lenght_of_Moving_average_Type_2)
+Second_EMA_high_2 = ta.ema(First_EMA_high_2, Lenght_of_Moving_average_Type_2)
+Third_EMA_high_2 = ta.ema(Second_EMA_high_2, Lenght_of_Moving_average_Type_2)
+Fourth_EMA_high_2 = ta.ema(Third_EMA_high_2, Lenght_of_Moving_average_Type_2)
+Fifth_EMA_high_2 = ta.ema(Fourth_EMA_high_2, Lenght_of_Moving_average_Type_2)
+Sixth_EMA_high_2 = ta.ema(Fifth_EMA_high_2, Lenght_of_Moving_average_Type_2)
+
+//Assigning EMAS to T3 Moving average
+T3_high_2 = c11 * Sixth_EMA_high_2 + c2 * Fifth_EMA_high_2 + c3 * Fourth_EMA_high_2 + c4 * Third_EMA_high_2
+
+// Asigning low candle
+
+First_EMA_low_2 = ta.ema(HA_low_stage2, Lenght_of_Moving_average_Type_2)
+Second_EMA_low_2 = ta.ema(First_EMA_low_2, Lenght_of_Moving_average_Type_2)
+Third_EMA_low_2 = ta.ema(Second_EMA_low_2, Lenght_of_Moving_average_Type_2)
+Fourth_EMA_low_2 = ta.ema(Third_EMA_low_2, Lenght_of_Moving_average_Type_2)
+Fifth_EMA_low_2 = ta.ema(Fourth_EMA_low_2, Lenght_of_Moving_average_Type_2)
+Sixth_EMA_low_2 = ta.ema(Fifth_EMA_low_2, Lenght_of_Moving_average_Type_2)
+
+//Assigning EMAS to T3 Moving average
+T3_low_2 = c11 * Sixth_EMA_low_2 + c2 * Fifth_EMA_low_2 + c3 * Fourth_EMA_low_2 + c4 * Third_EMA_low_2
+
+// Asigning close candle
+
+First_EMA_close_2 = ta.ema(HA_close_stage2, Lenght_of_Moving_average_Type_2)
+Second_EMA_close_2 = ta.ema(First_EMA_close_2, Lenght_of_Moving_average_Type_2)
+Third_EMA_close_2 = ta.ema(Second_EMA_close_2, Lenght_of_Moving_average_Type_2)
+Fourth_EMA_close_2 = ta.ema(Third_EMA_close_2, Lenght_of_Moving_average_Type_2)
+Fifth_EMA_close_2 = ta.ema(Fourth_EMA_close_2, Lenght_of_Moving_average_Type_2)
+Sixth_EMA_close_2 = ta.ema(Fifth_EMA_close_2, Lenght_of_Moving_average_Type_2)
+
+//Assigning EMAS to T3 Moving average
+T3_close_2 = c11 * Sixth_EMA_close_2 + c2 * Fifth_EMA_close_2 + c3 * Fourth_EMA_close_2 + c4 * Third_EMA_close_2
+
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Double Exponential Moving Average as type 2
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// Asigning open candle
+
+Double_Moving_Average_Exponential_nr_1_open2 = ta.ema(HA_open_stage2, Lenght_of_Moving_average_Type_2)
+Double_Moving_Average_Exponential_nr_2_open2 = ta.ema(Double_Moving_Average_Exponential_nr_1_open2, Lenght_of_Moving_average_Type_2)
+Double_Moving_Average_Exponential_open2 = 2 * Double_Moving_Average_Exponential_nr_1_open2 - Double_Moving_Average_Exponential_nr_2_open2
+
+// Asigning high candle
+
+Double_Moving_Average_Exponential_nr_1_high2 = ta.ema(HA_high_stage2, Lenght_of_Moving_average_Type_2)
+Double_Moving_Average_Exponential_nr_2_high2 = ta.ema(Double_Moving_Average_Exponential_nr_1_high2, Lenght_of_Moving_average_Type_2)
+Double_Moving_Average_Exponential_high2 = 2 * Double_Moving_Average_Exponential_nr_1_high2 - Double_Moving_Average_Exponential_nr_2_high2
+
+// Asigning low candle
+
+Double_Moving_Average_Exponential_nr_1_low2 = ta.ema(HA_low_stage2, Lenght_of_Moving_average_Type_2)
+Double_Moving_Average_Exponential_nr_2_low2 = ta.ema(Double_Moving_Average_Exponential_nr_1_low2, Lenght_of_Moving_average_Type_2)
+Double_Moving_Average_Exponential_low2 = 2 * Double_Moving_Average_Exponential_nr_1_low2 - Double_Moving_Average_Exponential_nr_2_low2
+
+// Asigning close candle
+
+Double_Moving_Average_Exponential_nr_1_close2 = ta.ema(HA_close_stage2, Lenght_of_Moving_average_Type_2)
+Double_Moving_Average_Exponential_nr_2_close2 = ta.ema(Double_Moving_Average_Exponential_nr_1_close2, Lenght_of_Moving_average_Type_2)
+Double_Moving_Average_Exponential_close2 = 2 * Double_Moving_Average_Exponential_nr_1_close2 - Double_Moving_Average_Exponential_nr_2_close2
+
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Arnaud_Legoux_Moving_Average as type 2
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+offset_of_ALMA2 = input(0.85, title='Offset of Arnaud Legoux Moving Average type 2 if used')
+sigma_of_ALMA2 = input.float(6, title='Sigma of Arnaud Legoux Moving Average type 2 if used')
+
+Arnaud_Legoux_Moving_Average_open2 = ta.alma(HA_open_stage2, Lenght_of_Moving_average_Type_2, offset_of_ALMA2, sigma_of_ALMA2)
+Arnaud_Legoux_Moving_Average_high2 = ta.alma(HA_high_stage2, Lenght_of_Moving_average_Type_2, offset_of_ALMA2, sigma_of_ALMA2)
+Arnaud_Legoux_Moving_Average_low2 = ta.alma(HA_low_stage2, Lenght_of_Moving_average_Type_2, offset_of_ALMA2, sigma_of_ALMA2)
+Arnaud_Legoux_Moving_Average_close2 = ta.alma(HA_close_stage2, Lenght_of_Moving_average_Type_2, offset_of_ALMA2, sigma_of_ALMA2)
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Least Squares Moving Average 2
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+Least_Squares_Moving_Average_offset2 = input.int(defval=0, minval=-100, title='Least Squares Moving Average offset as type 2 ')
+
+Least_Squares_Moving_Average_open2 = ta.linreg(HA_open_stage2, Lenght_of_Moving_average_Type_2, Least_Squares_Moving_Average_offset2)
+Least_Squares_Moving_Average_high2 = ta.linreg(HA_high_stage2, Lenght_of_Moving_average_Type_2, Least_Squares_Moving_Average_offset2)
+Least_Squares_Moving_Average_low2 = ta.linreg(HA_low_stage2, Lenght_of_Moving_average_Type_2, Least_Squares_Moving_Average_offset2)
+Least_Squares_Moving_Average_close2 = ta.linreg(HA_close_stage2, Lenght_of_Moving_average_Type_2, Least_Squares_Moving_Average_offset2)
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Simple Moving Average as type 2
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+Moving_Average_open2 = ta.sma(HA_open_stage2, Lenght_of_Moving_average_Type_2)
+Moving_Average_high2 = ta.sma(HA_high_stage2, Lenght_of_Moving_average_Type_2)
+Moving_Average_low2 = ta.sma(HA_low_stage2, Lenght_of_Moving_average_Type_2)
+Moving_Average_close2 = ta.sma(HA_close_stage2, Lenght_of_Moving_average_Type_2)
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Exponential Moving Average as type 2
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+eMoving_Average_open2 = ta.ema(HA_open_stage2, Lenght_of_Moving_average_Type_2)
+eMoving_Average_high2 = ta.ema(HA_high_stage2, Lenght_of_Moving_average_Type_2)
+eMoving_Average_low2 = ta.ema(HA_low_stage2, Lenght_of_Moving_average_Type_2)
+eMoving_Average_close2 = ta.ema(HA_close_stage2, Lenght_of_Moving_average_Type_2)
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Weighted Moving Average as type 2
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+wMoving_Average_open2 = ta.wma(HA_open_stage2, Lenght_of_Moving_average_Type_2)
+wMoving_Average_high2 = ta.wma(HA_high_stage2, Lenght_of_Moving_average_Type_2)
+wMoving_Average_low2 = ta.wma(HA_low_stage2, Lenght_of_Moving_average_Type_2)
+wMoving_Average_close2 = ta.wma(HA_close_stage2, Lenght_of_Moving_average_Type_2)
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Smoothed Moving Average as type 2
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+smma_open2 = 0.0
+sma_5 = ta.sma(HA_open_stage2, Lenght_of_Moving_average_Type_2)
+smma_open2 := na(smma_open2[1]) ? sma_5 : (smma_open2[1] * (Lenght_of_Moving_average_Type_2 - 1) + HA_open_stage2) / Lenght_of_Moving_average_Type_2
+
+smma_high2 = 0.0
+sma_6 = ta.sma(HA_high_stage2, Lenght_of_Moving_average_Type_2)
+smma_high2 := na(smma_high2[1]) ? sma_6 : (smma_high2[1] * (Lenght_of_Moving_average_Type_2 - 1) + HA_high_stage2) / Lenght_of_Moving_average_Type_2
+
+smma_low2 = 0.0
+sma_7 = ta.sma(HA_low_stage2, Lenght_of_Moving_average_Type_2)
+smma_low2 := na(smma_low2[1]) ? sma_7 : (smma_low2[1] * (Lenght_of_Moving_average_Type_2 - 1) + HA_low_stage2) / Lenght_of_Moving_average_Type_2
+
+smma_close2 = 0.0
+sma_8 = ta.sma(HA_close_stage2, Lenght_of_Moving_average_Type_2)
+smma_close2 := na(smma_close2[1]) ? sma_8 : (smma_close2[1] * (Lenght_of_Moving_average_Type_2 - 1) + HA_close_stage2) / Lenght_of_Moving_average_Type_2
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Triple Moving Average as type 2
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+xTriple_EMA_1 = ta.ema(HA_open_stage2, Lenght_of_Moving_average_Type_2)
+xTriple_EMA_2 = ta.ema(xTriple_EMA_1, Lenght_of_Moving_average_Type_2)
+xTriple_EMA_3 = ta.ema(xTriple_EMA_2, Lenght_of_Moving_average_Type_2)
+
+xTriple_EMA_4 = ta.ema(HA_high_stage2, Lenght_of_Moving_average_Type_2)
+xTriple_EMA_5 = ta.ema(xTriple_EMA_4, Lenght_of_Moving_average_Type_2)
+xTriple_EMA_6 = ta.ema(xTriple_EMA_5, Lenght_of_Moving_average_Type_2)
+
+xTriple_EMA_7 = ta.ema(HA_low_stage2, Lenght_of_Moving_average_Type_2)
+xTriple_EMA_8 = ta.ema(xTriple_EMA_7, Lenght_of_Moving_average_Type_2)
+xTriple_EMA_9 = ta.ema(xTriple_EMA_8, Lenght_of_Moving_average_Type_2)
+
+xTriple_EMA_10 = ta.ema(HA_close_stage2, Lenght_of_Moving_average_Type_2)
+xTriple_EMA_11 = ta.ema(xTriple_EMA_10, Lenght_of_Moving_average_Type_2)
+xTriple_EMA_12 = ta.ema(xTriple_EMA_11, Lenght_of_Moving_average_Type_2)
+
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Hull Moving Average as type 2
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+eHull_Moving_Average_lenght_sqrt_open = math.sqrt(Lenght_of_Moving_average_Type_2)
+eHull_Moving_Average_lenght_rounded_open = math.round(eHull_Moving_Average_lenght_sqrt_open)
+eHull_Moving_Average_1_open = ta.wma(HA_open_stage2, Lenght_of_Moving_average_Type_2)
+eHull_Moving_Average_2_open = ta.wma(HA_open_stage2, Lenght_of_Moving_average_Type_2 / 2)
+eHull_Moving_Average_3_open = 2 * eHull_Moving_Average_2_open - eHull_Moving_Average_1_open
+eHull_Moving_Average_open = ta.wma(eHull_Moving_Average_3_open, eHull_Moving_Average_lenght_rounded_open)
+
+eHull_Moving_Average_lenght_sqrt_high = math.sqrt(Lenght_of_Moving_average_Type_2)
+eHull_Moving_Average_lenght_rounded_high = math.round(eHull_Moving_Average_lenght_sqrt_high)
+eHull_Moving_Average_1_high = ta.wma(HA_high_stage2, Lenght_of_Moving_average_Type_2)
+eHull_Moving_Average_2_high = ta.wma(HA_high_stage2, Lenght_of_Moving_average_Type_2 / 2)
+eHull_Moving_Average_3_high = 2 * eHull_Moving_Average_2_high - eHull_Moving_Average_1_high
+eHull_Moving_Average_high = ta.wma(eHull_Moving_Average_3_high, eHull_Moving_Average_lenght_rounded_high)
+
+eHull_Moving_Average_lenght_sqrt_low = math.sqrt(Lenght_of_Moving_average_Type_2)
+eHull_Moving_Average_lenght_rounded_low = math.round(eHull_Moving_Average_lenght_sqrt_low)
+eHull_Moving_Average_1_low = ta.wma(HA_low_stage2, Lenght_of_Moving_average_Type_2)
+eHull_Moving_Average_2_low = ta.wma(HA_low_stage2, Lenght_of_Moving_average_Type_2 / 2)
+eHull_Moving_Average_3_low = 2 * eHull_Moving_Average_2_low - eHull_Moving_Average_1_low
+eHull_Moving_Average_low = ta.wma(eHull_Moving_Average_3_low, eHull_Moving_Average_lenght_rounded_low)
+
+eHull_Moving_Average_lenght_sqrt_close = math.sqrt(Lenght_of_Moving_average_Type_2)
+eHull_Moving_Average_lenght_rounded_close = math.round(eHull_Moving_Average_lenght_sqrt_close)
+eHull_Moving_Average_1_close = ta.wma(HA_close_stage2, Lenght_of_Moving_average_Type_2)
+eHull_Moving_Average_2_close = ta.wma(HA_close_stage2, Lenght_of_Moving_average_Type_2 / 2)
+eHull_Moving_Average_3_close = 2 * eHull_Moving_Average_2_close - eHull_Moving_Average_1_close
+eHull_Moving_Average_close = ta.wma(eHull_Moving_Average_3_close, eHull_Moving_Average_lenght_rounded_close)
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Adaptive Moving Average as type 2
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+AMA_Weight_value_2 = input(0.181, title='Smoothe constant of AMA as type 2')
+
+eAdaptive_moving_average_open = 0.0
+eAdaptive_moving_average_open := na(eAdaptive_moving_average_open[1]) ? HA_open_stage2 * AMA_Weight_value_2 * AMA_Weight_value_2 + 1 - AMA_Weight_value_2 * AMA_Weight_value_2 : HA_open_stage2 * AMA_Weight_value_2 * AMA_Weight_value_2 + (1 - AMA_Weight_value_2 * AMA_Weight_value_2) * eAdaptive_moving_average_open[1]
+
+eAdaptive_moving_average_high = 0.0
+eAdaptive_moving_average_high := na(eAdaptive_moving_average_high[1]) ? HA_high_stage2 * AMA_Weight_value_2 * AMA_Weight_value_2 + 1 - AMA_Weight_value_2 * AMA_Weight_value_2 : HA_high_stage2 * AMA_Weight_value_2 * AMA_Weight_value_2 + (1 - AMA_Weight_value_2 * AMA_Weight_value_2) * eAdaptive_moving_average_high[1]
+
+eAdaptive_moving_average_low = 0.0
+eAdaptive_moving_average_low := na(eAdaptive_moving_average_low[1]) ? HA_low_stage2 * AMA_Weight_value_2 * AMA_Weight_value_2 + 1 - AMA_Weight_value_2 * AMA_Weight_value_2 : HA_low_stage2 * AMA_Weight_value_2 * AMA_Weight_value_2 + (1 - AMA_Weight_value_2 * AMA_Weight_value_2) * eAdaptive_moving_average_low[1]
+
+eAdaptive_moving_average_close = 0.0
+eAdaptive_moving_average_close := na(eAdaptive_moving_average_close[1]) ? HA_close_stage2 * AMA_Weight_value_2 * AMA_Weight_value_2 + 1 - AMA_Weight_value_2 * AMA_Weight_value_2 : HA_close_stage2 * AMA_Weight_value_2 * AMA_Weight_value_2 + (1 - AMA_Weight_value_2 * AMA_Weight_value_2) * eAdaptive_moving_average_close[1]
+
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Fractal Adaptive Moving Average as type 2
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+//Big thanks to nemozny and Shizaru for sharing their code from which I was able to add this FRAMA to this study. Really, big thank you guys.
+
+
+// open
+
+
+eFractal_Adaptive_Moving_Average_input2 = input(1, title='Should be left 1 for the best results (FRAMA as type 2)')
+eFractal_Adaptive_Moving_Average_input3 = input(168, title='Try and experiment with this value (FRAMA as type 2)')
+
+eFractal_Adaptive_Moving_Average_lenght_part2_open = Lenght_of_Moving_average_Type_2 / 2
+
+eNatural_Logorithm_workaround_open = math.log(2 / (eFractal_Adaptive_Moving_Average_input3 + 1)) / math.log(Exponential)
+
+eHighest_price_nr1_open = ta.highest(HA_high_stage2, eFractal_Adaptive_Moving_Average_lenght_part2_open)
+eLowest_price_nr1_open = ta.lowest(HA_low_stage2, eFractal_Adaptive_Moving_Average_lenght_part2_open)
+eNative_price_1_open = (eHighest_price_nr1_open - Lowest_price_nr1_open) / eFractal_Adaptive_Moving_Average_lenght_part2_open
+
+eHighest_price_nr2_open = ta.highest(HA_high_stage2, eFractal_Adaptive_Moving_Average_lenght_part2_open)[eFractal_Adaptive_Moving_Average_lenght_part2_open]
+eLowest_price_nr2_open = ta.lowest(HA_low_stage2, eFractal_Adaptive_Moving_Average_lenght_part2_open)[eFractal_Adaptive_Moving_Average_lenght_part2_open]
+eNative_price_2_open = (eHighest_price_nr2_open - eLowest_price_nr2_open) / eFractal_Adaptive_Moving_Average_lenght_part2_open
+
+eHighest_price_nr3_open = ta.highest(HA_high_stage2, Lenght_of_Moving_average_Type_2)
+eLowest_price_nr3_open = ta.lowest(HA_low_stage2, Lenght_of_Moving_average_Type_2)
+eNative_price_3_open = (eHighest_price_nr3_open - eLowest_price_nr3_open) / Lenght_of_Moving_average_Type_2
+
+eFractal_Dimension_1_open = (math.log(eNative_price_1_open + eNative_price_2_open) - math.log(eNative_price_3_open)) / math.log(2)
+eFractal_Dimension_2_open = eNative_price_1_open > 0 and eNative_price_2_open > 0 and eNative_price_3_open > 0 ? eFractal_Dimension_1_open : nz(eFractal_Dimension_1_open[1])
+
+efactor_of_exponential_smoothing_1_open = math.exp(eNatural_Logorithm_workaround_open * (eFractal_Dimension_2_open - 1))
+efactor_of_exponential_smoothing_old_open = efactor_of_exponential_smoothing_1_open > 1 ? 1 : efactor_of_exponential_smoothing_1_open < 0.01 ? 0.01 : efactor_of_exponential_smoothing_1_open
+
+eNative_price_old_open = (2 - efactor_of_exponential_smoothing_old_open) / efactor_of_exponential_smoothing_old_open
+eNative_price_open = (eFractal_Adaptive_Moving_Average_input3 - eFractal_Adaptive_Moving_Average_input2) * (eNative_price_old_open - 1) / (eFractal_Adaptive_Moving_Average_input3 - 1) + eFractal_Adaptive_Moving_Average_input2
+
+efactor_of_exponential_smoothing_2_open = 2 / (eNative_price_open + 1)
+efactor_of_exponential_smoothing_open = efactor_of_exponential_smoothing_2_open < 2 / (eFractal_Adaptive_Moving_Average_input3 + 1) ? 2 / (eFractal_Adaptive_Moving_Average_input3 + 1) : efactor_of_exponential_smoothing_2_open > 1 ? 1 : efactor_of_exponential_smoothing_2_open
+
+eFractal_Adaptive_Moving_Average_open = 0.0
+eFractal_Adaptive_Moving_Average_open := (1 - efactor_of_exponential_smoothing_open) * nz(eFractal_Adaptive_Moving_Average_open[1]) + efactor_of_exponential_smoothing_open * HA_open_stage2
+
+//high
+
+eFractal_Adaptive_Moving_Average_lenght_part2_high = Lenght_of_Moving_average_Type_2 / 2
+
+eNatural_Logorithm_workaround_high = math.log(2 / (eFractal_Adaptive_Moving_Average_input3 + 1)) / math.log(Exponential)
+
+eHighest_price_nr1_high = ta.highest(HA_high_stage2, eFractal_Adaptive_Moving_Average_lenght_part2_high)
+eLowest_price_nr1_high = ta.lowest(HA_low_stage2, eFractal_Adaptive_Moving_Average_lenght_part2_high)
+eNative_price_1_high = (eHighest_price_nr1_high - eLowest_price_nr1_high) / eFractal_Adaptive_Moving_Average_lenght_part2_high
+
+eHighest_price_nr2_high = ta.highest(HA_high_stage2, eFractal_Adaptive_Moving_Average_lenght_part2_high)[eFractal_Adaptive_Moving_Average_lenght_part2_high]
+eLowest_price_nr2_high = ta.lowest(HA_low_stage2, eFractal_Adaptive_Moving_Average_lenght_part2_high)[eFractal_Adaptive_Moving_Average_lenght_part2_high]
+eNative_price_2_high = (eHighest_price_nr2_high - eLowest_price_nr2_high) / eFractal_Adaptive_Moving_Average_lenght_part2_high
+
+eHighest_price_nr3_high = ta.highest(HA_high_stage2, Lenght_of_Moving_average_Type_2)
+eLowest_price_nr3_high = ta.lowest(HA_low_stage2, Lenght_of_Moving_average_Type_2)
+eNative_price_3_high = (eHighest_price_nr3_high - eLowest_price_nr3_high) / Lenght_of_Moving_average_Type_2
+
+eFractal_Dimension_1_high = (math.log(eNative_price_1_high + eNative_price_2_high) - math.log(eNative_price_3_high)) / math.log(2)
+eFractal_Dimension_2_high = eNative_price_1_high > 0 and eNative_price_2_high > 0 and eNative_price_3_high > 0 ? eFractal_Dimension_1_high : nz(eFractal_Dimension_1_high[1])
+
+efactor_of_exponential_smoothing_1_high = math.exp(eNatural_Logorithm_workaround_high * (eFractal_Dimension_2_high - 1))
+efactor_of_exponential_smoothing_old_high = efactor_of_exponential_smoothing_1_high > 1 ? 1 : efactor_of_exponential_smoothing_1_high < 0.01 ? 0.01 : efactor_of_exponential_smoothing_1_high
+
+eNative_price_old_high = (2 - efactor_of_exponential_smoothing_old_high) / efactor_of_exponential_smoothing_old_high
+eNative_price_high = (eFractal_Adaptive_Moving_Average_input3 - eFractal_Adaptive_Moving_Average_input2) * (eNative_price_old_high - 1) / (eFractal_Adaptive_Moving_Average_input3 - 1) + eFractal_Adaptive_Moving_Average_input2
+
+efactor_of_exponential_smoothing_2_high = 2 / (eNative_price_high + 1)
+efactor_of_exponential_smoothing_high = efactor_of_exponential_smoothing_2_high < 2 / (eFractal_Adaptive_Moving_Average_input3 + 1) ? 2 / (eFractal_Adaptive_Moving_Average_input3 + 1) : efactor_of_exponential_smoothing_2_high > 1 ? 1 : efactor_of_exponential_smoothing_2_high
+
+eFractal_Adaptive_Moving_Average_high = 0.0
+eFractal_Adaptive_Moving_Average_high := (1 - efactor_of_exponential_smoothing_high) * nz(eFractal_Adaptive_Moving_Average_high[1]) + efactor_of_exponential_smoothing_high * HA_high_stage2
+
+// low
+
+eFractal_Adaptive_Moving_Average_lenght_part2_low = Lenght_of_Moving_average_Type_2 / 2
+
+eNatural_Logorithm_workaround_low = math.log(2 / (eFractal_Adaptive_Moving_Average_input3 + 1)) / math.log(Exponential)
+
+eHighest_price_nr1_low = ta.highest(HA_high_stage2, eFractal_Adaptive_Moving_Average_lenght_part2_low)
+eLowest_price_nr1_low = ta.lowest(HA_low_stage2, eFractal_Adaptive_Moving_Average_lenght_part2_low)
+eNative_price_1_low = (eHighest_price_nr1_low - eLowest_price_nr1_low) / eFractal_Adaptive_Moving_Average_lenght_part2_low
+
+eHighest_price_nr2_low = ta.highest(HA_high_stage2, eFractal_Adaptive_Moving_Average_lenght_part2_low)[eFractal_Adaptive_Moving_Average_lenght_part2_low]
+eLowest_price_nr2_low = ta.lowest(HA_low_stage2, eFractal_Adaptive_Moving_Average_lenght_part2_low)[eFractal_Adaptive_Moving_Average_lenght_part2_low]
+eNative_price_2_low = (eHighest_price_nr2_low - eLowest_price_nr2_low) / eFractal_Adaptive_Moving_Average_lenght_part2_low
+
+eHighest_price_nr3_low = ta.highest(HA_high_stage2, Lenght_of_Moving_average_Type_2)
+eLowest_price_nr3_low = ta.lowest(HA_low_stage2, Lenght_of_Moving_average_Type_2)
+eNative_price_3_low = (eHighest_price_nr3_low - eLowest_price_nr3_low) / Lenght_of_Moving_average_Type_2
+
+eFractal_Dimension_1_low = (math.log(eNative_price_1_low + eLowest_price_nr2_low) - math.log(eNative_price_3_low)) / math.log(2)
+eFractal_Dimension_2_low = eNative_price_1_low > 0 and eLowest_price_nr2_low > 0 and eNative_price_3_low > 0 ? eFractal_Dimension_1_low : nz(eFractal_Dimension_1_low[1])
+
+efactor_of_exponential_smoothing_1_low = math.exp(eNatural_Logorithm_workaround_low * (eFractal_Dimension_2_low - 1))
+efactor_of_exponential_smoothing_old_low = efactor_of_exponential_smoothing_1_low > 1 ? 1 : efactor_of_exponential_smoothing_1_low < 0.01 ? 0.01 : efactor_of_exponential_smoothing_1_low
+
+eNative_price_old_low = (2 - efactor_of_exponential_smoothing_old_low) / efactor_of_exponential_smoothing_old_low
+eNative_price_low = (eFractal_Adaptive_Moving_Average_input3 - eFractal_Adaptive_Moving_Average_input2) * (eNative_price_old_low - 1) / (eFractal_Adaptive_Moving_Average_input3 - 1) + eFractal_Adaptive_Moving_Average_input2
+
+efactor_of_exponential_smoothing_2_low = 2 / (eNative_price_low + 1)
+efactor_of_exponential_smoothing_low = efactor_of_exponential_smoothing_2_low < 2 / (eFractal_Adaptive_Moving_Average_input3 + 1) ? 2 / (eFractal_Adaptive_Moving_Average_input3 + 1) : efactor_of_exponential_smoothing_2_low > 1 ? 1 : efactor_of_exponential_smoothing_2_low
+
+eFractal_Adaptive_Moving_Average_low = 0.0
+eFractal_Adaptive_Moving_Average_low := (1 - efactor_of_exponential_smoothing_low) * nz(eFractal_Adaptive_Moving_Average_low[1]) + efactor_of_exponential_smoothing_low * HA_low_stage2
+
+// close
+
+eFractal_Adaptive_Moving_Average_lenght_part2__close = Lenght_of_Moving_average_Type_2 / 2
+
+eNatural_Logorithm_workaround__close = math.log(2 / (eFractal_Adaptive_Moving_Average_input3 + 1)) / math.log(Exponential)
+
+eHighest_price_nr1__close = ta.highest(HA_high_stage2, eFractal_Adaptive_Moving_Average_lenght_part2__close)
+eLowest_price_nr1__close = ta.lowest(HA_low_stage2, eFractal_Adaptive_Moving_Average_lenght_part2__close)
+eNative_price_1__close = (eHighest_price_nr1__close - eLowest_price_nr1__close) / eFractal_Adaptive_Moving_Average_lenght_part2__close
+
+eHighest_price_nr2_close = ta.highest(HA_high_stage2, eFractal_Adaptive_Moving_Average_lenght_part2__close)[eFractal_Adaptive_Moving_Average_lenght_part2__close]
+eLowest_price_nr2_close = ta.lowest(HA_low_stage2, eFractal_Adaptive_Moving_Average_lenght_part2__close)[eFractal_Adaptive_Moving_Average_lenght_part2__close]
+eNative_price_2_close = (eHighest_price_nr2_close - eLowest_price_nr2_close) / eFractal_Adaptive_Moving_Average_lenght_part2__close
+
+eHighest_price_nr3_close = ta.highest(HA_high_stage2, Lenght_of_Moving_average_Type_2)
+eLowest_price_nr3_close = ta.lowest(HA_low_stage2, Lenght_of_Moving_average_Type_2)
+eNative_price_3_close = (eHighest_price_nr3_close - eLowest_price_nr3_close) / Lenght_of_Moving_average_Type_2
+
+eFractal_Dimension_1_close = (math.log(eNative_price_1__close + Native_price_2_close) - math.log(eNative_price_3_close)) / math.log(2)
+eFractal_Dimension_2_close = eNative_price_1__close > 0 and eNative_price_2_close > 0 and eNative_price_3_close > 0 ? eFractal_Dimension_1_close : nz(eFractal_Dimension_1_close[1])
+
+efactor_of_exponential_smoothing_1_close = math.exp(eNatural_Logorithm_workaround__close * (eFractal_Dimension_2_close - 1))
+efactor_of_exponential_smoothing_old_close = efactor_of_exponential_smoothing_1_close > 1 ? 1 : efactor_of_exponential_smoothing_1_close < 0.01 ? 0.01 : efactor_of_exponential_smoothing_1_close
+
+eNative_price_old_close = (2 - efactor_of_exponential_smoothing_old_close) / efactor_of_exponential_smoothing_old_close
+eNative_price_close = (eFractal_Adaptive_Moving_Average_input3 - eFractal_Adaptive_Moving_Average_input2) * (eNative_price_old_close - 1) / (eFractal_Adaptive_Moving_Average_input3 - 1) + eFractal_Adaptive_Moving_Average_input2
+
+efactor_of_exponential_smoothing_2_close = 2 / (eNative_price_close + 1)
+efactor_of_exponential_smoothing_close = efactor_of_exponential_smoothing_2_close < 2 / (eFractal_Adaptive_Moving_Average_input3 + 1) ? 2 / (eFractal_Adaptive_Moving_Average_input3 + 1) : efactor_of_exponential_smoothing_2_close > 1 ? 1 : efactor_of_exponential_smoothing_2_close
+
+eFractal_Adaptive_Moving_Average_close = 0.0
+eFractal_Adaptive_Moving_Average_close := (1 - efactor_of_exponential_smoothing_close) * nz(eFractal_Adaptive_Moving_Average_close[1]) + efactor_of_exponential_smoothing_close * HA_close_stage2
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Variable Index Dynamic Average as type 2
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// Copyright (c) 2018-present, Alex Orekhov (everget)
+// Variable Index Dynamic Average indicator script may be freely distributed under the MIT license.
+// Thanks everget for sharing this script.
+
+// open
+
+// Chande Momentum Oscillator
+ef1_open(em_open) =>
+    em_open >= 0.0 ? em_open : 0.0
+ef2_open(em_open) =>
+    em_open >= 0.0 ? 0.0 : -em_open
+
+eDifference_open = ta.change(HA_open_stage2)
+eSum_of_UP_open = math.sum(ef1_open(eDifference_open), Lenght_of_Moving_average_Type_2)
+eSum_of_DOWN_open = math.sum(ef2_open(eDifference_open), Lenght_of_Moving_average_Type_2)
+
+eCMO_open = (eSum_of_UP_open - eSum_of_DOWN_open) / (eSum_of_UP_open + eSum_of_DOWN_open)
+
+efactor_open = 2 / (Lenght_of_Moving_average_Type_2 + 1)
+
+eVIDYA_open = 0.0
+eVIDYA_open := HA_open_stage2 * efactor_open * math.abs(eCMO_open) + nz(eVIDYA_open[1]) * (1 - efactor_open * math.abs(eCMO_open))
+
+// high
+
+// Chande Momentum Oscillator
+ef1_high(em_high) =>
+    em_high >= 0.0 ? em_high : 0.0
+ef2_high(em_high) =>
+    em_high >= 0.0 ? 0.0 : -em_high
+
+eDifference_high = ta.change(HA_high_stage2)
+eSum_of_UP_high = math.sum(ef1_high(eDifference_high), Lenght_of_Moving_average_Type_2)
+eSum_of_DOWN_high = math.sum(ef2_high(eDifference_high), Lenght_of_Moving_average_Type_2)
+
+eCMO_high = (eSum_of_UP_high - eSum_of_DOWN_high) / (eSum_of_UP_high + eSum_of_DOWN_high)
+
+efactor_high = 2 / (Lenght_of_Moving_average_Type_2 + 1)
+
+eVIDYA_high = 0.0
+eVIDYA_high := HA_high_stage2 * efactor_high * math.abs(eCMO_high) + nz(eVIDYA_high[1]) * (1 - efactor_high * math.abs(eCMO_high))
+
+// low
+
+// Chande Momentum Oscillator
+ef1_low(em_low) =>
+    em_low >= 0.0 ? em_low : 0.0
+ef2_low(em_low) =>
+    em_low >= 0.0 ? 0.0 : -em_low
+
+eDifference_low = ta.change(HA_low_stage2)
+eSum_of_UP_low = math.sum(ef1_low(eDifference_low), Lenght_of_Moving_average_Type_2)
+eSum_of_DOWN_low = math.sum(ef2_low(eDifference_low), Lenght_of_Moving_average_Type_2)
+
+eCMO_low = (eSum_of_UP_low - eSum_of_DOWN_low) / (eSum_of_UP_low + eSum_of_DOWN_low)
+
+efactor_low = 2 / (Lenght_of_Moving_average_Type_2 + 1)
+
+eVIDYA_low = 0.0
+eVIDYA_low := HA_low_stage2 * efactor_low * math.abs(eCMO_low) + nz(eVIDYA_low[1]) * (1 - efactor_low * math.abs(eCMO_low))
+
+// close
+
+// Chande Momentum Oscillator
+ef1_close(em_close) =>
+    em_close >= 0.0 ? em_close : 0.0
+ef2_close(em_close) =>
+    em_close >= 0.0 ? 0.0 : -em_close
+
+eDifference_close = ta.change(HA_close_stage2)
+eSum_of_UP_close = math.sum(ef1_close(eDifference_close), Lenght_of_Moving_average_Type_2)
+eSum_of_DOWN_close = math.sum(ef2_close(eDifference_close), Lenght_of_Moving_average_Type_2)
+
+eCMO_close = (eSum_of_UP_close - eSum_of_DOWN_close) / (eSum_of_UP_close + eSum_of_DOWN_close)
+
+efactor_close = 2 / (Lenght_of_Moving_average_Type_2 + 1)
+
+eVIDYA_close = 0.0
+eVIDYA_close := HA_close_stage2 * efactor_close * math.abs(eCMO_close) + nz(eVIDYA_close[1]) * (1 - efactor_close * math.abs(eCMO_close))
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Triangular Moving Average as type 2
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+eTriangular_Moving_Average_open = ta.sma(ta.sma(HA_open_stage2, Lenght_of_Moving_average_Type_2), Lenght_of_Moving_average_Type_2)
+eTriangular_Moving_Average_high = ta.sma(ta.sma(HA_high_stage2, Lenght_of_Moving_average_Type_2), Lenght_of_Moving_average_Type_2)
+eTriangular_Moving_Average_low = ta.sma(ta.sma(HA_low_stage2, Lenght_of_Moving_average_Type_2), Lenght_of_Moving_average_Type_2)
+eTriangular_Moving_Average_close = ta.sma(ta.sma(HA_close_stage2, Lenght_of_Moving_average_Type_2), Lenght_of_Moving_average_Type_2)
+
+
+// STAGE 3 calculations: The final Heikin-Ashi Open, High, Low, Close values are calculated by doing a second smoothing of the bar values from step 2 by using the moving average type specified by the Moving Average Type 2 Input with a length/period specified by the Moving Average Period 2 Input.
+
+HA_open_stage_final = Moving_average_Type_2 == 'TRIMA' ? eTriangular_Moving_Average_open : Moving_average_Type_2 == 'VIDYA' ? eVIDYA_open : Moving_average_Type_2 == 'FAMA' ? eFractal_Adaptive_Moving_Average_open : Moving_average_Type_2 == 'AMA' ? eAdaptive_moving_average_open : Moving_average_Type_2 == 'HMA' ? eHull_Moving_Average_open : Moving_average_Type_2 == 'TEMA' ? xTriple_EMA_3 : Moving_average_Type_2 == 'SMMA' ? smma_open2 : Moving_average_Type_2 == 'WMA' ? wMoving_Average_open2 : Moving_average_Type_2 == 'EMA' ? eMoving_Average_open2 : Moving_average_Type_2 == 'SMA' ? Moving_Average_open2 : Moving_average_Type_2 == 'LSMA' ? Least_Squares_Moving_Average_open2 : Moving_average_Type_2 == 'T3' ? T3_open_2 : Moving_average_Type_2 == 'DEMA' ? Double_Moving_Average_Exponential_open2 : Moving_average_Type_2 == 'ALMA' ? Arnaud_Legoux_Moving_Average_open2 : Moving_average_Type_2 == 'DEFAULT' ? HA_open_default : na
+HA_high_stage_final = Moving_average_Type_2 == 'TRIMA' ? eTriangular_Moving_Average_high : Moving_average_Type_2 == 'VIDYA' ? eVIDYA_high : Moving_average_Type_2 == 'FAMA' ? eFractal_Adaptive_Moving_Average_high : Moving_average_Type_2 == 'AMA' ? eAdaptive_moving_average_high : Moving_average_Type_2 == 'HMA' ? eHull_Moving_Average_high : Moving_average_Type_2 == 'TEMA' ? xTriple_EMA_6 : Moving_average_Type_2 == 'SMMA' ? smma_high2 : Moving_average_Type_2 == 'WMA' ? wMoving_Average_high2 : Moving_average_Type_2 == 'EMA' ? eMoving_Average_high2 : Moving_average_Type_2 == 'SMA' ? Moving_Average_high2 : Moving_average_Type_2 == 'LSMA' ? Least_Squares_Moving_Average_high2 : Moving_average_Type_2 == 'T3' ? T3_high_2 : Moving_average_Type_2 == 'DEMA' ? Double_Moving_Average_Exponential_high2 : Moving_average_Type_2 == 'ALMA' ? Arnaud_Legoux_Moving_Average_high2 : Moving_average_Type_2 == 'DEFAULT' ? HA_high_default : na
+HA_low_stage_final = Moving_average_Type_2 == 'TRIMA' ? eTriangular_Moving_Average_low : Moving_average_Type_2 == 'VIDYA' ? eVIDYA_low : Moving_average_Type_2 == 'FAMA' ? eFractal_Adaptive_Moving_Average_low : Moving_average_Type_2 == 'AMA' ? eAdaptive_moving_average_low : Moving_average_Type_2 == 'HMA' ? eHull_Moving_Average_low : Moving_average_Type_2 == 'TEMA' ? xTriple_EMA_9 : Moving_average_Type_2 == 'SMMA' ? smma_low2 : Moving_average_Type_2 == 'WMA' ? wMoving_Average_low2 : Moving_average_Type_2 == 'EMA' ? eMoving_Average_low2 : Moving_average_Type_2 == 'SMA' ? Moving_Average_low2 : Moving_average_Type_2 == 'LSMA' ? Least_Squares_Moving_Average_low2 : Moving_average_Type_2 == 'T3' ? T3_low_2 : Moving_average_Type_2 == 'DEMA' ? Double_Moving_Average_Exponential_low2 : Moving_average_Type_2 == 'ALMA' ? Arnaud_Legoux_Moving_Average_low2 : Moving_average_Type_2 == 'DEFAULT' ? HA_low_default : na
+HA_close_stage_final = Moving_average_Type_2 == 'TRIMA' ? eTriangular_Moving_Average_close : Moving_average_Type_2 == 'VIDYA' ? eVIDYA_close : Moving_average_Type_2 == 'FAMA' ? eFractal_Adaptive_Moving_Average_close : Moving_average_Type_2 == 'AMA' ? eAdaptive_moving_average_close : Moving_average_Type_2 == 'HMA' ? eHull_Moving_Average_close : Moving_average_Type_2 == 'TEMA' ? xTriple_EMA_12 : Moving_average_Type_2 == 'SMMA' ? smma_close2 : Moving_average_Type_2 == 'WMA' ? wMoving_Average_close2 : Moving_average_Type_2 == 'EMA' ? eMoving_Average_close2 : Moving_average_Type_2 == 'SMA' ? Moving_Average_close2 : Moving_average_Type_2 == 'LSMA' ? Least_Squares_Moving_Average_close2 : Moving_average_Type_2 == 'T3' ? T3_close_2 : Moving_average_Type_2 == 'DEMA' ? Double_Moving_Average_Exponential_close2 : Moving_average_Type_2 == 'ALMA' ? Arnaud_Legoux_Moving_Average_close2 : Moving_average_Type_2 == 'DEFAULT' ? HA_close_default : na
+
+Open = single_smoothed == false ? HA_open_stage_final : HA_open_stage2
+High = single_smoothed == false ? HA_high_stage_final : HA_high_stage2
+Low = single_smoothed == false ? HA_low_stage_final : HA_low_stage2
+Close = single_smoothed == false ? HA_close_stage_final : HA_close_stage2
+
+plotcandle(Open, High, Low, Close, color=Open < Close ? color.lime : color.red, wickcolor=color.black,display=display.none)
+
+// alertcondition(Open[1] > Close[1] and Open < Close, title='Heikin-Ashi Smoothed from red to green')
+// alertcondition(Open[1] < Close[1] and Open > Close, title='Heikin-Ashi Smoothed from green to red')
+
+/////////////////////////////////////////////////////////////////////////
+//indicator('Momentum adjusted Moving Average by DGT', 'MaMA ʙʏ DGT ☼☾', true)
+
+// -Input ======================================================================================= //
+
+//source = input(close, 'Source')
+length8 = input.int(55, 'Moving Average Length', minval=1)
+exponential = input(true)
+mLength = input.int(30, 'Momentum Length', minval=0)
+accelFactor = input(true, 'Acceleration Factor')
+pLength = input.int(20, 'Probability Length', minval=1)
+offset = input.int(1, 'Offset', minval=-5, maxval=5)
+
+displayFB = input(false, 'Display Feedback Bands (Daily TimeFrame)')
+fbFactor = input.float(.1, 'Feedback Factor', minval=0, maxval=.2, step=.01)
+displayMA = input(false, 'Add Regular Moving Average')
+
+// -Calculation ================================================================================= //
+
+momentum = ta.change(source, mLength)
+acceleration = ta.change(momentum, mLength)
+probability = math.sum(ta.change(source) > 0 ? 1 : 0, pLength) / pLength
+
+adjustedSource = accelFactor ? source + (momentum + .5 * acceleration) * probability : source + momentum * probability
+
+MaMA = exponential ? ta.ema(adjustedSource, length8) : ta.sma(adjustedSource, length8)
+MA = displayMA ? exponential ? ta.ema(source, length8) : ta.sma(source, length) : na
+
+negative = displayFB and timeframe.isdaily ? ta.ema(MaMA / math.abs(1 + fbFactor * adjustedSource / MaMA), 5) : na
+positive = displayFB and timeframe.isdaily ? ta.ema(MaMA / math.abs(1 - fbFactor * adjustedSource / MaMA), 5) : na
+
+// -Plot ======================================================================================== //
+
+p0 = plot(MaMA, 'Momentum adjusted Moving Average', color=source > MaMA ? #006400 : #910000, linewidth=2, offset=offset,display=display.none)
+p1 = plot(negative, 'MaMA - Negative Feedback Effect', color=color.new(#910000, 0), offset=offset)
+p2 = plot(positive, 'MaMA - Positive Feedback Effect', color=color.new(#006400, 0), offset=offset)
+fill(p0, p1, title='Lower MaMA Band', color=color.new(#910000, 95))
+fill(p0, p2, title='Upper MaMA Band', color=color.new(#006400, 95))
+
+plot(MA, 'Regular Moving Average')
+
+// -Alerts ══════════════════════════════════════════════════════════════════════════════════════ //
+
+longAlertCondition3 = ta.crossover(source, MaMA)
+alertcondition(longAlertCondition3, 'Long : Early Warning', 'MaMA - Not Confirmed Probable Long Trade Opportunity\n{{exchange}}:{{ticker}}->\nPrice = {{close}},\nTime = {{time}}')
+alertcondition(longAlertCondition3[1], 'Long : Trading Opportunity', 'MaMA - Probable Long Trade Opportunity\n{{exchange}}:{{ticker}}->\nPrice = {{close}},\nTime = {{time}}')
+
+shortAlertCondition3 = ta.crossunder(source, MaMA)
+alertcondition(shortAlertCondition3, 'Short : Early Warning', 'MaMA - Not Confirmed Probable Short Trade Opportunity\n{{exchange}}:{{ticker}}->\nPrice = {{close}},\nTime = {{time}}')
+alertcondition(shortAlertCondition3[1], 'Short : Trading Opportunity', 'MaMA - Probable Short Trade Opportunity\n{{exchange}}:{{ticker}}->\nPrice = {{close}},\nTime = {{time}}')
+
+// ══════════════════════════════════════════════════════════════════════════════════════════════════ //
+//# * ══════════════════════════════════════════════════════════════════════════════════════════════
+//# *
+//# * Study       : Backtest Framework
+//# * Author      : © dgtrd
+//# * Purpose     : Ability to optimize a study and observe trade simulation statistics accordingly  
+//# *
+//# * Revision History
+//# *  Release    : Nov 21, 2020  : Initial Release
+//# *  Update     : Mar 13, 2021  : Enchanced Backtest Framework
+//# *                               - long/short/stoploss conditions enchaced
+//# *                               - early warning ability added (label + alert)
+//# *
+//# * ══════════════════════════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════════════════════════════ //
+
+// -Inputs ══════════════════════════════════════════════════════════════════════════════════════════ //
+
+isBackTest = input.bool(true, 'Backtest On/Off', group='Backtest Framework')
+dasCapital = input.float(1000., 'Initial Capital', inline='BT1', group='Backtest Framework')
+lenBckTst = input.float(1, 'Period (Year)', minval=0, step=.1, inline='BT1', group='Backtest Framework')
+isStopLoss = input.bool(true, 'Apply Stop Loss, with Stop Loss Set To %', inline='BT2', group='Backtest Framework')
+stopLoss = input.float(1., '', step=.1, minval=0, inline='BT2', group='Backtest Framework') / 100
+isBull = input.bool(true, 'Long : Candle Direction as Confirmation : Short', inline='BT3', group='Backtest Framework')
+isBear = input.bool(true, '', inline='BT3', group='Backtest Framework')
+isSudden = input.bool(true, 'Avoid Sudden Price Changes', group='Backtest Framework')
+isTest = input.bool(false, '❗❗❗ Simulate Trade on Next Bar : Only For Test Purpose (REPAINTS)', group='Backtest Framework')
+lblInOutSL = input.bool(true, 'Trade Entry/Exit Labels  Trade Statistics Label', inline='BT4', group='Backtest Framework')
+lblTrdStat = input.bool(false, '', inline='BT4', group='Backtest Framework')
+
+// -Calculations ════════════════════════════════════════════════════════════════════════════════════ //
+
+startBckTst = time > timenow - lenBckTst * 31556952000
+
+var inTrade = false
+var entryPrice = 0.
+var exitPrice = 0.
+
+if isBackTest
+
+    var capital = dasCapital
+    var trades = 0
+    var win = 0
+    var loss = 0
+
+    bullCandle = close > open
+    bearCandle = close < open
+    stopLossTrigger = ta.crossunder(close, entryPrice * (1 - stopLoss))
+
+    longCondition3 = isTest ? isBull ? isSudden ? longAlertCondition3[1] and not shortAlertCondition3 and bullCandle : longAlertCondition3[1] and bullCandle : isSudden ? longAlertCondition3[1] and not shortAlertCondition3 : longAlertCondition3[1] : isBull ? isSudden ? longAlertCondition3[2] and not shortAlertCondition3[1] and bullCandle[1] : longAlertCondition3[2] and bullCandle[1] : isSudden ? longAlertCondition3[2] and not shortAlertCondition3[1] : longAlertCondition3[1]
+
+    shortCondition3 = isTest ? isBear ? isSudden ? shortAlertCondition3[1] and not longAlertCondition3 and bearCandle : shortAlertCondition3[1] and bearCandle : isSudden ? shortAlertCondition3[1] and not longAlertCondition3 : shortAlertCondition3[1] : isBear ? isSudden ? shortAlertCondition3[2] and not longAlertCondition3[1] and bearCandle[1] : shortAlertCondition3[2] and bearCandle[1] : isSudden ? shortAlertCondition3[2] and not longAlertCondition3[1] : shortAlertCondition3[1]
+
+    stopLossCondition = isStopLoss ? inTrade and not shortCondition3 ? stopLossTrigger : 0 : 0
+
+    if startBckTst and longCondition3 and not inTrade
+        entryPrice := open
+        inTrade := true
+        trades += 1
+
+        if lblInOutSL
+            label longLabel = label.new(bar_index, low, text='L', tooltip='entry price  : ' + str.tostring(entryPrice) + '\nentry value : ' + str.tostring(capital, '#.##'), color=color.green, style=label.style_label_up, textcolor=color.white, textalign=text.align_center, size=size.tiny)
+            longLabel
+
+        alert('long : probable trading opportunity, price ' + str.tostring(close), alert.freq_once_per_bar)
+
+
+    if (shortCondition3 or stopLossCondition) and inTrade
+        exitPrice := stopLossCondition ? close : open
+        inTrade := false
+        capital *= (exitPrice / entryPrice)
+
+        if exitPrice > entryPrice
+            win += 1
+            win
+        else
+            loss += 1
+            loss
+
+        if lblInOutSL
+            text_1 = stopLossCondition ? 'SL' : 'TP'
+            label shortLabel = label.new(bar_index, high, text=text_1, tooltip='change .......... : ' + str.tostring((exitPrice / entryPrice - 1) * 100, '#.##') + '%\nentry/exit price : ' + str.tostring(entryPrice) + ' / ' + str.tostring(exitPrice) + '\nnew capital ..... : ' + str.tostring(capital, '#.##'), color=color.red, style=label.style_label_down, textcolor=color.white, textalign=text.align_center, size=size.tiny)
+            shortLabel
+
+        alert('short : probable trading opportunity, price ' + str.tostring(close), alert.freq_once_per_bar)
+
+
+    var label wLabel = na
+
+    if not inTrade and longAlertCondition3[1] and not shortAlertCondition3
+        wLabel := label.new(bar_index, low, text='⚠️', tooltip='probable long trading opportunity \nawaiting confirmation (next candle)\nif confirmed, backtest tool will execute trade with open price of the canlde', color=color.green, style=label.style_none, textcolor=color.white, textalign=text.align_center, size=size.huge)
+        label.delete(wLabel[1])
+
+        alert('long : early warning : probable trading opportunity, awaiting confirmation (next candle), price ' + str.tostring(close), alert.freq_once_per_bar)
+
+    if inTrade and shortAlertCondition3[1] and not longAlertCondition3
+        wLabel := label.new(bar_index, high, text='⚠️', tooltip='probable short/take profit trading opportunity \nawaiting confirmation (next candle)\nif confirmed, backtest tool will execute trade with open price of the canlde', color=color.green, style=label.style_none, textcolor=color.white, textalign=text.align_center, size=size.huge)
+        label.delete(wLabel[1])
+
+        alert('short : early warning : probable trading opportunity, awaiting confirmation (next candle), price ' + str.tostring(close), alert.freq_once_per_bar)
+
+    if ta.change(time)
+        label.delete(wLabel[1])
+
+    if stopLossCondition
+        alert('stop loss condition, price ' + str.tostring(close), alert.freq_once_per_bar)
+
+
+    if lblTrdStat
+        var years = (timenow - time) / 31556952000
+
+        var yearsTxt = ''
+        var remarks = ''
+
+        if years < lenBckTst
+            lenBckTst := years
+            yearsTxt := str.tostring(lenBckTst, '#.##') + ' Years***'
+            remarks := '\n\n*longs only\n**final value, if trade active displays estimated final value\n***max available data for selected timeframe : # of bars - ' + str.tostring(bar_index)
+            remarks
+        else
+            yearsTxt := str.tostring(lenBckTst, '#.##') + ' Year(s)'
+            remarks := '\n\n*longs only\n**final value - if in trade, displays estimated final value'
+            remarks
+
+        inTradeTxt = inTrade ? 'inTrade' : 'not inTrade'
+        estimated = inTrade ? capital * (close / entryPrice) : capital
+        entryTxt = inTrade ? str.tostring(entryPrice) : 'not inTrade'
+        lastTrdTxt = inTrade ? ', Gain/Loss ' + str.tostring((estimated / capital - 1) * 100, '#.##') + '%, Stop Loss ' + str.tostring(isStopLoss ? entryPrice * (1 - stopLoss) : na) : ''
+        stopLossTxt = isStopLoss ? 'if last value falls by ' + str.tostring(stopLoss * 100) + '% of entry price' : 'not applied'
+
+        tooltipTxt = 'entires/exit caclulations\n' + '-long entry , on next bar when ewo crosses above its signal line (green labels up)\n' + '-take profit, on next bar when ewo crosses below its signal line (red labels down)\n' + '-stop loss ' + stopLossTxt + remarks
+
+        label indiLabel = label.new(time, close, text='☼☾ Trade Statistics*, Trade Period - ' + yearsTxt + '\n═════════════════════════════════════' + '\nSuccess Ratio ...... : ' + str.tostring(win / trades * 100, '#') + '%' + ', # of Trades - ' + str.tostring(trades) + ', Win/Loss - ' + str.tostring(win) + '/' + str.tostring(loss) + '\nGain/Loss % ........ : ' + str.tostring((estimated / dasCapital - 1) * 100, '#') + '%' + ', Initial/Final Value** - ' + str.tostring(dasCapital) + ' / ' + str.tostring(estimated, '#') + '\n\nCurrent TradeStatus - ' + inTradeTxt + lastTrdTxt + '\n═════════════════════════════════════' + '\nEntry Price/Value . : ' + entryTxt + ' / ' + str.tostring(capital, '#.##') + ' ' + inTradeTxt + '\nLast Price/Value ... : ' + str.tostring(close) + ' / ' + str.tostring(estimated, '#.##') + ' ' + inTradeTxt, tooltip=tooltipTxt, color=inTrade ? estimated / dasCapital > 1 ? color.teal : color.maroon : color.gray, xloc=xloc.bar_time, style=label.style_label_left, textcolor=color.white, textalign=text.align_left)
+
+        label.set_x(indiLabel, label.get_x(indiLabel) + math.round(ta.change(time) * 5))
+        label.delete(indiLabel[1])
+
+// -Plotting ════════════════════════════════════════════════════════════════════════════════════ //
+
+bgcolor(isBackTest and startBckTst and startBckTst != startBckTst[1] ? color.blue : na, transp=90)
+plot(inTrade ? entryPrice : exitPrice > 0 ? exitPrice : na, title='Entry/Exit Price Line', color=inTrade ? color.green : color.red, style=plot.style_circles)
+

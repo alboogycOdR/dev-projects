@@ -1,0 +1,472 @@
+// Copyright 2022 (sr_b)
+// Special thanks to all of contributors of community.
+// The script may be freely distributed under the MIT license.
+// ---------------------------------------------------------------------------------------------------------------------------------------
+// last updated 2022, Aug 5
+//
+// .srb suite pin-up
+// .srb suite vol & info
+// .srb suite
+//   
+// This is my trading essential suite. all open-source. 
+// 
+// it is very cumbersome to put a comparison symbol in the Tradingview chart and combine essential individual indicators one by one.
+// Moreover even with such a combination, the chart is messy and visibility is not good.
+// This script suite was developed as a composite-solution to that situation, and will make you happy.    
+// 
+//
+// Recommended setup for .srb suite
+//
+// tradingview | chart setting > Appearance > Top margin 0%, Bottom margin 0% for optimized screen usage  :)
+// tradingview | chart setting > Appearance > Right margin 57 
+//
+// .srb suite vol & info --> Visual Order > Bring to Front
+// .srb suite vol & info --> Pin to scale > No scale (Full-screen)
+// 
+// ---------------------------------------------------------------------------------------------------------------------------------------
+// ---------------------------------------------------------------------------------------------------------------------------------------
+// BTC spot
+// 
+// BINANCE:BTCUSDT     
+// BINANCE:BTCBUSD     
+// FTX:BTCUSD          
+// COINBASE:BTCUSD     
+// HUOBI:BTCUSDT       
+// OKX:BTCUSDT         
+// KUCOIN:BTCUSDT      
+// 
+// BTC perp
+// 
+// BINANCE:BTCUSDTPERP 
+// BINANCE:BTCBUSDPERP
+// BINANCE:BTCPERP
+// BYBIT:BTCUSDT
+// FTX:BTCPERP         
+// OKX:BTCUSDTPERP     
+// BITGET:BTCUSDTPERP   
+//
+// ETH spot
+// 
+// BINANCE:ETHUSDT
+// BINANCE:ETHBUSD
+// FTX:ETHUSD 
+// COINBASE:ETHUSD
+// HUOBI:ETHUSDT
+// OKX:ETHUSDT  
+// KUCOIN:ETHUSDT
+// 
+// ETH perp
+// 
+// BINANCE:ETHUSDTPERP
+// BINANCE:ETHBUSDPERP
+// BINANCE:ETHPERP
+// BYBIT:ETHUSDT
+// FTX:ETHPERP        
+// OKX:ETHUSDTPERP    
+// BITGET:ETHUSDTPERP   
+// ----------------------------------------------------------------------------------------------------------------------------------------
+
+   
+
+//@version=5
+indicator('.srb suite vol & info'  ,overlay=true, format=format.volume, scale=scale.none ,max_labels_count=500)
+ 
+
+
+
+//                                                                                                                                                                                                    
+//    Pre-Define                                                                                                                                                                                      
+//                                                                                                                                                                                                    
+
+//---------------------------------------------------
+var COLOR_TRANSP        = color.new(#ffffff,100)
+var COLOR_BLACK         = color.new(#000000,0) 
+//---------------------------------------------------
+var maColor_N           = color.new(#887788,0)
+var maColor_Up_0        = color.new(#689ec8,0)
+var maColor_Dn_0        = color.new(#ae5a5a,0)
+var maColor_Up_1        = color.new(#1a65ec,0)
+var maColor_Dn_1        = color.new(#d72369,0)
+var maColor_Up_2        = color.new(#00bbff,0)
+var maColor_Dn_2        = color.new(#ff5500,0)
+var maColor_Up_3        = color.new(#11cc00,0)
+var maColor_Dn_3        = color.new(#ff0000,0)
+var maColor_Up_4        = color.new(#30a186,0)
+var maColor_Dn_4        = color.new(#d500a2,0)
+//---------------------------------------------------
+var btcd_symbol         = "CRYPTOCAP:BTC.D"
+var btcoi_symbol        = "BINANCE:BTCUSDTPERP_OI"
+//----------------------------------------------------------------------------------------
+var info_gr             = "👽 Designed for use with open-source [.srb suite series]"
+var separated_pane_gr   = 'To use in separated pane (REQUIRED ❗ Pin-to-Right-Scale)'
+var Aggrvol_gr          = "Auto Aggregated Volume"
+var ultravol_gr         = 'REQUIRED ❗ Overlay, Visual order > Front, No-Scale, Settings > Appearance > Top 0%, Bottom 0%, Right 57'
+//----------------------------------------------------------------------------------------
+var info_tooltip        = " \n 1.  PERP price & basis (=perp - spot) \n\n 2.  BTC.D%, Binance:BTCUSDTPERP OI \n\n 3. Exchange, Symbol \n\n 4. Daily up/down,  Price \n\n 5.  RSI14, ATR14 % and value (for checking volatility)\n "
+var vol_tooltip         = " \n Ultra Volume ! overlay marking \n\n (x2 x4 x6 greater than regular average volume) \n\n it will help you could take the reversal moment easily\n "
+var aggrvol_tooltip     = " \n IMHO, It is recommended to check the Perp volume for ultra-short movements,\n\n and the Spot volume for a little longer movements. But, Don't forget that it completely depends on the market conditions. \n\n You can also review the Aggr.Vol by selecting spot+perp and adjusting its rel.ratio.\n "
+ //----------------------------------------------------------------------------------------
+var ulvol_menu_rg       = "Regular"
+var ulvol_menu_wf       = "W : F"
+
+
+//                                                                                                                                                                                                    
+//    Input                                                                                                                                                                                           
+//                                                                                                                                                                                                    
+info_show               = input.bool  (true         ,title = "Info. Panel  "                            ,inline='Panel1'    ,group=info_gr  ,tooltip=info_tooltip)
+info_loc                = input.bool  (false        ,title = "L/R"                                      ,inline='Panel1'    ,group=info_gr) ? position.bottom_left : position.bottom_right
+usdt_busd_sw            = input.bool  (true         ,title = "USDT PERP, basis = perp-spot  (or BUSD PERP, simple difference value for reference)"   ,inline='Panel2'    ,group=info_gr)
+//---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+use_vol_overlay_chart   = not(input.bool(false      ,title = "Full-Scale    | To display in separated pane"  ,inline='overlay'   ,group=separated_pane_gr))
+info_vol_only           = input.bool  (false        ,title = "Volume only | Info.Panel"    ,inline='Panel3'    ,group=separated_pane_gr)
+//---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+use_agg_crypto_vol      = input.bool  (true         ,title = "BTC, ETH-pair use Aggr. Vol (Auto-detect)",inline='BTCagg'    ,group=Aggrvol_gr)
+agg_crypto_vol_method   = input.string('Spot+Perp'  ,title = "Aggr. Volume Calculation"                 ,inline='BTCagg2'   ,group=Aggrvol_gr   ,options=['Spot only', 'Spot+Perp', 'Perp only'] )
+agg_spot_weight_K_sw    = input.string('3 : 1'        ,title = "Rel. Ratio for Spot+Perp "                ,inline='BTCagg3'   ,group=Aggrvol_gr   ,options=['1 : 1', '3 : 1', '5 : 1', '7 : 1', '10 : 1', '15 : 1'] ,tooltip=aggrvol_tooltip)
+agg_spot_weight_K       = str.tonumber(str.substring(agg_spot_weight_K_sw,0,2))
+//---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ultra_vol_momentum      = input.bool  (true         ,title = "Ultra Vol! Momentum & Caution Mark"       ,inline='ultravol'  ,group=ultravol_gr)
+ultra_vol_color_bar     = input.bool  (false        ,title = "Ultra Vol! Spike Colorize Candle"         ,inline='ultravol1' ,group=ultravol_gr)
+ultra_vol_color_mark    = input.bool  (true         ,title = "Ultra Vol! Spike Vertical-Ray"            ,inline='ultravol2' ,group=ultravol_gr ,tooltip=vol_tooltip)
+see_ultravol_ma         = input.bool  (true         ,title = "See Wide & Focus Criteria Volume MA"      ,inline='ultravolMA',group=ultravol_gr)
+ultra_vol_cr_ma_A       = input.int   (610          ,title = "Wide     "                                ,inline='ultravolw' ,group=ultravol_gr ,options=[112,224,377,610,920])
+bv_ultra_Wide_color     = input.color (#d4e2ff      ,title = ""                                         ,inline='ultravolw' ,group=ultravol_gr)                                 
+bv_ultra_Focus_color    = input.color (#ffff00      ,title = ""                                         ,inline='ultravolw' ,group=ultravol_gr)                                 
+ultra_vol_cr_ma_B       = input.int   (25           ,title = "Focus    "                                ,inline='ultravolf' ,group=ultravol_gr ,options=[9,11,17,25,37,55,88,112])
+ultra_vol_color_lowcontrast = input.bool  (false    ,title = "Low Contrast"                             ,inline='ultravolf' ,group=ultravol_gr)
+ultra_vol_anal_method   = input.string(ulvol_menu_rg,title = "Analytics"                                ,inline='ultravolA' ,group=ultravol_gr ,options=[ulvol_menu_rg,ulvol_menu_wf] )
+bv_ultra_Up_color       = input.color (#00ff17      ,title = ""                                         ,inline='ultravolA' ,group=ultravol_gr)                                 
+bv_ultra_Dn_color       = input.color (#ff1b3a      ,title = ""                                         ,inline='ultravolA' ,group=ultravol_gr)                                 
+//---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+k_atr14       = ta.atr(14)
+k_open  = open
+k_high  = high
+k_low   = low
+k_close = close
+k_volume= volume
+
+
+
+//                                                                                                                                                                                                                
+// BTC agg Volume Calc
+k_agg_volume  = 0.0
+k_agg_spot_v  = 0.0
+k_agg_perp_v  = 0.0
+
+    
+//------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+crypto_vol (_symbol  ,_usd_unit  ,_cont_ratio) =>
+    _volume   = nz(request.security( _symbol , timeframe.period , (volume / (_usd_unit?hl2:1))*_cont_ratio ,ignore_invalid_symbol=true))
+
+
+symbol_is   = switch syminfo.ticker
+    'BTCUSDT'       => 'BTC'
+    'BTCBUSD'       => 'BTC' 
+    'BTCUSD'        => 'BTC' 
+    'BTCUSDTPERP'   => 'BTC' 
+    'BTCPERP'       => 'BTC' 
+    'BTCBUSDPERP'   => 'BTC'
+    'BTCEUR'        => 'BTC' 
+    'BTCKRW'        => 'BTC'
+    'BTCJPY'        => 'BTC'
+    'BTCGBP'        => 'BTC'
+    'BTCUSDC'       => 'BTC'
+    'BTCUST'        => 'BTC' 
+    'BTCF0USTF0'    => 'BTC'
+    'XBTUSD'        => 'BTC'
+    'XBTUSDT'       => 'BTC'
+    
+    'ETHUSDT'       => 'ETH'
+    'ETHBUSD'       => 'ETH' 
+    'ETHUSD'        => 'ETH' 
+    'ETHUSDTPERP'   => 'ETH' 
+    'ETHPERP'       => 'ETH'  
+    'ETHBUSDPERP'   => 'ETH'
+    'ETHEUR'        => 'ETH' 
+    'ETHKRW'        => 'ETH'
+    'ETHJPY'        => 'ETH'
+    'ETHGBP'        => 'ETH'
+    'ETHUSDC'       => 'ETH'
+    'ETHUST'        => 'ETH' 
+    'ETHF0USTF0'    => 'ETH'
+    =>                  ''
+
+// FTX:BTCUSD,       FTX:ETHUSD         = Volume(USD)
+// FTX:BTC-USD PERP, FTX:ETH-USD PERP   = Volume(USD)              
+// BINANCE:BTC-USD  PERP            // Volume(contract),   1 contract = 100 USD,    Volume(BTC) =  (Volume(cont) * 100  USD)  / hl2
+// BINANCE:ETH-USD  PERP            // Volume(contract),   1 contract = 10  USD,    Volume(ETH) =  (Volume(cont) * 10   USD)  / hl2
+// OKX:BTCUSDTPERP                  // Volume(contract),   1 contract = 0.01BTC,    Volume(BTC) =  (Volume(cont) * 0.01 BTC)
+// OKX:ETHUSDTPERP                  // Volume(contract),   1 contract = 0.1ETH ,    Volume(ETH) =  (Volume(cont) * 0.1 ETH)
+// BITGET           // BTC only ; BTC-unit volume after 7,sep.2021 (BITGET changed volume unit)  In the past, the USD unit was used.
+
+k_agg_vol_enable  = use_agg_crypto_vol and ( symbol_is == 'BTC' or symbol_is == 'ETH')
+if k_agg_vol_enable
+    if agg_crypto_vol_method != 'Perp only'
+        k_agg_spot_v := crypto_vol ( symbol_is == 'BTC' ? "BINANCE:BTCUSDT"     : "BINANCE:ETHUSDT"     ,false  ,1)
+                      + crypto_vol ( symbol_is == 'BTC' ? "BINANCE:BTCBUSD"     : "BINANCE:ETHBUSD"     ,false  ,1)
+                      + crypto_vol ( symbol_is == 'BTC' ? "FTX:BTCUSD"          : "FTX:ETHUSD"          ,true   ,1)   
+                      + crypto_vol ( symbol_is == 'BTC' ? "COINBASE:BTCUSD"     : "COINBASE:ETHUSD"     ,false  ,1) 
+                      + crypto_vol ( symbol_is == 'BTC' ? "HUOBI:BTCUSDT"       : "HUOBI:ETHUSDT"       ,false  ,1)
+                      + crypto_vol ( symbol_is == 'BTC' ? "OKX:BTCUSDT"         : "OKX:ETHUSDT"         ,false  ,1)    
+                      + crypto_vol ( symbol_is == 'BTC' ? "KUCOIN:BTCUSDT"      : "KUCOIN:ETHUSDT"      ,false  ,1)
+    if agg_crypto_vol_method != 'Spot only'
+        k_agg_perp_v := crypto_vol ( symbol_is == 'BTC' ? "BINANCE:BTCUSDTPERP" : "BINANCE:ETHUSDTPERP" ,false  ,1)
+                      + crypto_vol ( symbol_is == 'BTC' ? "BINANCE:BTCBUSDPERP" : "BINANCE:ETHBUSDPERP" ,false  ,1)    
+                      + crypto_vol ( symbol_is == 'BTC' ? "BINANCE:BTCPERP"     : "BINANCE:ETHPERP"     ,true   , (symbol_is == 'BTC' ? 100  : 10 ))   
+                      + crypto_vol ( symbol_is == 'BTC' ? "BYBIT:BTCUSDT"       : "BYBIT:ETHUSDT"       ,false  ,1)
+                      + crypto_vol ( symbol_is == 'BTC' ? "FTX:BTCPERP"         : "FTX:ETHPERP"         ,true   ,1)
+                      + crypto_vol ( symbol_is == 'BTC' ? "OKX:BTCUSDTPERP"     : "OKX:ETHUSDTPERP"     ,false  , (symbol_is == 'BTC' ? 0.01 : 0.1))
+                      + (symbol_is == 'BTC' and timestamp('07 SEP 2021 19:00:00 UTC+9') > time ? 0.0 : crypto_vol ( symbol_is == 'BTC' ? "BITGET:BTCUSDTPERP"  : "BITGET:ETHUSDTPERP"  ,false  ,1))
+    if agg_crypto_vol_method == 'Spot only'
+        k_volume := k_agg_spot_v
+    else 
+        k_volume := nz(k_agg_spot_v * agg_spot_weight_K) + k_agg_perp_v
+
+
+
+    
+//                                                                                                                                                                                                                
+k_volume_disable    = nz(k_volume) == 0 ? true : false
+
+
+
+
+
+
+//           
+//    FN     
+//           
+
+vwwma(_src, _length) =>
+    i_vwwma  = nz(ta.wma(_src * k_volume, _length) / ta.wma(k_volume, _length),  ta.wma(_src, _length))
+
+
+
+
+
+//           
+//    CALC   
+//           
+
+//                                                                                                                                                                                                                     
+//       Volume                                                                                                                                                                                                        
+//                                                                                                                                                                                                                     
+bv_candle_sign  = math.sign(k_close - k_open)           // +1 = 양봉, -1= 음봉,  0 = 제자리 (100% 도지)
+//-------------------------------------------------------------------------------------------------------------
+bv_up           = bv_candle_sign == +1 ? k_volume : 0   // 양봉 거래량
+bv_dn           = bv_candle_sign == -1 ? k_volume : 0   // 음봉 거래량
+
+
+
+
+//    Analysis Method                                                                            
+k_volma_A       = ultra_vol_anal_method == ulvol_menu_wf ? vwwma(k_volume,5) : k_volume
+k_volma_B       = k_volume
+
+ 
+//    A     거래량 장기이평 비교
+//--------------------------------------------------------------------------------------------------------------------------------------------------------------- 
+bv_ultravol_crA  = ta.wma(k_volume,ultra_vol_cr_ma_A)
+bv_ultravol_A2   = bv_ultravol_crA*2 <= k_volma_A  and bv_ultravol_crA*3 > k_volma_A ? true : false     // A  x2 ~ 3
+bv_ultravol_A3   = bv_ultravol_crA*3 <= k_volma_A  and bv_ultravol_crA*4 > k_volma_A ? true : false     // A  x3 ~ 4
+bv_ultravol_A4   = bv_ultravol_crA*4 <= k_volma_A  and bv_ultravol_crA*6 > k_volma_A ? true : false     // A  x4 ~ 6
+bv_ultravol_A6   = bv_ultravol_crA*6 <= k_volma_A                                    ? true : false     // A  x6 ~  
+bv_ultravol_Amin = bv_ultravol_crA*2 <= k_volma_A                                                     // A  x2 ~ all condition by crA
+//--------------------------------------------------------------------------------------------------------------------------------------------------------------- 
+bv_reg_color     = bv_candle_sign == +1 ? #009070       : bv_candle_sign == -1 ? #c04838           : #aaaaaa
+bv_ultraA_color  = bv_ultravol_Amin ? bv_candle_sign == +1 ? bv_ultra_Up_color  : bv_candle_sign == -1 ?  bv_ultra_Dn_color : maColor_N    : COLOR_TRANSP
+bv_ultraA_c_tr   = bv_ultravol_A2 ? 90 : bv_ultravol_A3 ? 88 : bv_ultravol_A4 ? 86 : bv_ultravol_A6 ? 84 : 100
+
+
+//    B     거래량 단기이평 비교
+//--------------------------------------------------------------------------------------------------------------------------------------------------------------- 
+bv_ultravol_crB  = ta.sma(k_volume,ultra_vol_cr_ma_B)
+bv_ultravol_B2   = bv_ultravol_crB*2.4 <= k_volma_B and bv_ultravol_crB*4 > k_volma_B ? true : false  // B x2.5 ~ 4
+bv_ultravol_B4   = bv_ultravol_crB*4   <= k_volma_B and bv_ultravol_crB*6 > k_volma_B ? true : false  // B x4 ~
+bv_ultravol_B6   = bv_ultravol_crB*6   <= k_volma_B                                   ? true : false  // B x6 ~ 
+bv_ultravol_Bmin = bv_ultravol_crB*2.4 <= k_volma_B                                                   // B x2.5 ~ all condition by crA
+//--------------------------------------------------------------------------------------------------------------------------------------------------------------- 
+bv_ultraB_color  = bv_ultravol_Bmin ? bv_candle_sign == +1 ? bv_ultra_Up_color : bv_candle_sign == -1 ?bv_ultra_Dn_color : maColor_N     :  COLOR_TRANSP
+bv_ultraB_c_tr   = bv_ultravol_B2   ? 88 : bv_ultravol_B4   ? 86 :  bv_ultravol_B6   ? 84 :100
+
+
+
+//    Analysis Method    
+//--------------------------------------------------------------------------------------------------------------------------------------------------------------- 
+bv_ultraA_mark_color = ultra_vol_anal_method == ulvol_menu_wf ? bv_ultra_Wide_color : bv_ultraA_color
+bv_ultraA_mark_tr    = ultra_vol_color_lowcontrast ? math.min(92,bv_ultraA_c_tr +8) : bv_ultraA_c_tr
+bv_ultraB_mark_color = ultra_vol_anal_method == ulvol_menu_wf ? bv_ultra_Focus_color : bv_ultraB_color
+bv_ultraB_mark_tr    = ultra_vol_color_lowcontrast ? math.min(92,bv_ultraB_c_tr +8) : bv_ultraB_c_tr
+
+
+
+//    울트라볼륨 시 기본 거래량 컬러의 변경    
+//--------------------------------------------------------------------------------------------------------------------------------------------------------------- 
+bv_color         = bv_ultravol_Amin ? bv_ultraA_mark_color : bv_reg_color            // ultra A --> ultra A color = volume bar color
+bv_color        := bv_ultravol_Bmin ? bv_ultraB_mark_color : bv_color                // ultra B --> ultra B color override on volume bar color
+
+
+ 
+
+//              
+//    DISPLAY   
+//              
+
+
+//                                                                                                                                                                                                                     
+//       Information Display                                                                                                                                                                                           
+//                                                                                                                                                                                                                     
+//--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+btcd_c              = request.security(btcd_symbol  ,'' ,close ,ignore_invalid_symbol = true)
+btcoi_c             = request.security(btcoi_symbol ,'' ,close ,ignore_invalid_symbol = true)
+btcd_dp             = str.tostring(nz(btcd_c),'#.0') + '%'
+btcoi_dp            = str.tostring(nz(btcoi_c)/1000,'#.0') + 'K'
+//----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+cr_sym_atr_dp       = '±'+str.tostring((k_atr14/hlc3)*100,format.percent)  + '\n' + str.tostring(k_atr14,format.mintick)
+//----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+today_chg           = request.security(syminfo.tickerid ,'D', (close - close[1])/close *100)
+today_chg_f         = math.sign(today_chg)
+today_chg_color     = today_chg_f == +1 ? maColor_Up_3 : today_chg_f == -1 ? maColor_Dn_3 : color.new(#ffffff,50)
+today_chg_f_str     = today_chg_f == +1 ? '+' : ''
+//----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+crypto_usdt         = syminfo.prefix == 'BINANCE' and str.endswith(syminfo.ticker,'USDT')
+perp_compare_sym    = crypto_usdt ? usdt_busd_sw ? syminfo.prefix + ':' + syminfo.ticker + 'PERP' : syminfo.prefix + ':' + str.replace(syminfo.ticker,'USDT','BUSD') + 'PERP' : ''
+[perp_v, perp_v_str]= request.security(perp_compare_sym,'', [close, str.tostring(close,format.mintick)] ,ignore_invalid_symbol=true)
+perp_na             = nz(perp_v)==0
+
+
+perp_compare_sym_d  = syminfo.ticker(perp_compare_sym)
+perp_compare_sym_d := usdt_busd_sw ? str.replace(perp_compare_sym_d, 'USDTPERP', '-USDT PERP') : str.replace(perp_compare_sym_d, 'BUSDPERP', '-BUSD PERP') 
+//----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+if info_show
+    rsi14          = ta.rsi(close,14)
+    rsi14_ob       = 70 < rsi14,    rsi14_ob_s     = 80 < rsi14
+    rsi14_os       = 30 > rsi14,    rsi14_os_s     = 20 > rsi14 
+    rsi14_n        = not rsi14_ob and not rsi14_os
+    rsi14_color    = switch
+        rsi14_ob => color.new(#00ff00,0)
+        rsi14_os => color.new(#ff0000,0)
+        => color.new(#aaaaaa,0) 
+    
+    k_close_mintick = str.tostring(close,format.mintick)
+    if str.endswith(syminfo.ticker(syminfo.tickerid), '.D')
+        k_close_mintick += "%"
+    
+    
+    
+    
+    // always run
+    var information_panel   = table.new(info_loc, columns=4, rows=9, border_width = 0 ,frame_width=1  )   
+    table.set_frame_color(information_panel ,rsi14_ob or rsi14_os ? color.new(rsi14_color,rsi14_ob_s or rsi14_os_s ? 20:60) : color.new(#222222,0))
+    table.merge_cells(information_panel,0,4,3,4)
+    table.merge_cells(information_panel,0,5,3,5)
+    table.cell(information_panel ,0  ,4  ,'                                        \n' + syminfo.prefix(syminfo.tickerid)  ,text_color=color.new(#ffffff,60)       ,text_size=size.small      ,bgcolor=color.new(COLOR_BLACK,20)    ,text_halign=text.align_center,text_valign=text.align_center)
+    table.cell(information_panel ,0  ,5  ,syminfo.ticker(syminfo.tickerid)          ,text_color=color.new(#ffffff, 0)  ,text_size=size.normal     ,text_halign=text.align_center  ,bgcolor=color.new(COLOR_BLACK,20) )
+    
+    if k_agg_vol_enable
+        aggr_vol_infostr   = agg_crypto_vol_method == 'Spot+Perp' ? agg_crypto_vol_method + '\n' + agg_spot_weight_K_sw : '   '+str.replace(agg_crypto_vol_method,' ','    \n')+' '
+        table.merge_cells(information_panel,1,7,3,7)
+        table.cell(information_panel ,0  ,7  ,aggr_vol_infostr                          ,text_color=color.new(#ffffff,50) ,text_size=size.small     ,text_halign=text.align_center  ,bgcolor=color.new(#22222c,10) ,text_valign=text.align_center) 
+        table.cell(information_panel ,1  ,7  ,str.tostring(k_volume, k_volume < 1000 ? "0.0" : format.volume)      ,text_color=color.new(bv_color,0)  ,text_size=size.normal     ,text_halign=text.align_center  ,bgcolor=color.new(#22222c,10) ,text_valign=text.align_center)
+    else
+        table.merge_cells(information_panel,0,7,3,7)
+        table.cell(information_panel ,0  ,7  ,k_volume_disable ? '- -':str.tostring(k_volume, k_volume < 1000 ? "0.0" : format.volume)      ,text_color=color.new(bv_color,0)  ,text_size=size.normal     ,text_halign=text.align_center  ,bgcolor=color.new(#22222c,10) ,text_valign=text.align_center)
+ 
+    if not info_vol_only
+        table.merge_cells(information_panel,1,6,3,6)
+        table.merge_cells(information_panel,1,8,3,8)
+        table.cell(information_panel ,0  ,6  ,today_chg_f_str + str.tostring(today_chg,format.percent)    ,text_color=today_chg_color        ,text_size=size.normal     ,text_halign=text.align_center  ,bgcolor=color.new(COLOR_BLACK,20) )
+        table.cell(information_panel ,1  ,6  ,k_close_mintick                           ,text_color=color.new(#ffffff,0)   ,text_size=size.large      ,text_halign=text.align_center  ,bgcolor=color.new(COLOR_BLACK,20) ) 
+        table.cell(information_panel ,0  ,8  ,str.tostring(rsi14,"0.0")                 ,text_color=rsi14_color            ,text_size=size.normal     ,text_halign=text.align_center  ,bgcolor=rsi14_n ? color.new(COLOR_BLACK,20)  :color.new(rsi14_color,rsi14_ob_s or rsi14_os_s ? 50:80)) 
+        table.cell(information_panel ,1  ,8  ,cr_sym_atr_dp                             ,text_color=color.new(#ffffff,60)  ,text_size=size.normal     ,text_halign=text.align_center  ,bgcolor=color.new(COLOR_BLACK,20) )
+
+    if syminfo.type == 'crypto' and not info_vol_only
+        table.merge_cells(information_panel,0,3,1,3)
+        table.merge_cells(information_panel,2,3,3,3)
+        table.cell(information_panel ,0  ,3 ,btcd_dp                            ,text_color=color.new(#ffaa33,0)   ,text_size=size.normal     ,text_halign=text.align_center   ,bgcolor=color.new(#22222c,10) )
+        table.cell(information_panel ,2  ,3 ,' '+btcoi_dp                      ,text_color=color.new(#33aaff,0)   ,text_size=size.normal      ,text_halign=text.align_center   ,bgcolor=color.new(#22222c,10) )
+        if crypto_usdt
+            table.merge_cells(information_panel,0,0,3,0)
+            table.merge_cells(information_panel,0,1,1,1)
+            table.merge_cells(information_panel,0,2,1,2)
+            table.merge_cells(information_panel,2,1,3,1)
+            table.merge_cells(information_panel,2,2,3,2)
+            perp_v_c            = COLOR_TRANSP
+            perp_basis          = perp_v - k_close                 // basis = perp - spot,   + contango,  - backwardation 
+            perp_basis_str      = ''
+            perp_basis_c        = COLOR_TRANSP
+            perp_basis_status   = ''
+            perp_basis_status_c = COLOR_TRANSP
+            
+            if perp_na
+                perp_v_str          := "n/a"
+                perp_v_c            := color.new(#ff0000,0)
+                perp_basis_str      := 'no pair' 
+                perp_basis_c        := color.new(#ff0000,0)
+                perp_basis_status   := ''
+            else
+                perp_v_c            := color.new(#ffffff,0)
+                perp_basis_str      := perp_basis != 0 ? (usdt_busd_sw?'b ':'Δ ') + (perp_basis >0 ? '+':'') + str.tostring(perp_basis,'0.00##') : (usdt_busd_sw?'basis 0':'equal')
+                perp_basis_c        := color.new(perp_basis >0 ? #00bbbb : perp_basis <0 ? #ff5500 : #999999,0)
+                perp_basis_status   := usdt_busd_sw ? (perp_basis >0 ? 'contango' : perp_basis <0 ?'backwardation' : 'PERP = spot') : 'simple diff.'
+                perp_basis_status_c := color.new(perp_basis >0 ? #00bbbb:perp_basis <0 ? #ff5500:#999999,0)
+            
+            table.cell(information_panel ,0  ,0  ,'\n'+perp_compare_sym_d   ,text_color=color.new(#ffffff,60)    ,text_size=size.normal     ,bgcolor=color.new(COLOR_BLACK,20)  ,text_halign=text.align_center  ,text_valign=text.align_center)
+            table.cell(information_panel ,0  ,1  ,' '+perp_v_str                ,text_color=perp_v_c             ,text_size=size.normal     ,bgcolor=color.new(COLOR_BLACK,20)  ,text_halign=text.align_center  ,text_valign=text.align_center)
+            table.cell(information_panel ,0  ,2  ,''                                                                                        ,bgcolor=color.new(COLOR_BLACK,20) )       
+            table.cell(information_panel ,2  ,1  ,perp_basis_str            ,text_color=perp_basis_c             ,text_size=size.normal     ,bgcolor=color.new(COLOR_BLACK,20)  ,text_halign=text.align_center  ,text_valign=text.align_top)
+            table.cell(information_panel ,2  ,2  ,perp_basis_status         ,text_color=perp_basis_status_c      ,text_size=size.small      ,bgcolor=color.new(COLOR_BLACK,20)  ,text_halign=text.align_center  ,text_valign=text.align_top)                  
+
+
+
+//                                                                                                                                                                                                                     
+//    Height - Push Top                                                                                                                                                                                                
+//                                                                                                                                                                                                                     
+plot(use_vol_overlay_chart ? k_volume*4  : k_volume* 1.2 ,title='Push Top'                   ,color=COLOR_TRANSP ,editable=false ,style=plot.style_cross  ,linewidth=1)
+
+
+
+//                                                                                                                                                                                                                     
+//    Volume Bar                                                                                                                                                                                                       
+//                                                                                                                                                                                                                     
+plot(k_volume                       ,title='Volume (Auto Aggregated Volume)'                 ,color=color.new(bv_color,(bv_ultravol_Amin or bv_ultravol_Bmin)? 0:30) ,linewidth=1    ,style=plot.style_columns   ,editable=false    ,display=display.all)
+
+
+
+//                                                                                                                                                                                                                     
+//    Wide, Focus MA                                                                                                                                                                                                   
+//                                                                                                                                                                                                                     
+plot(see_ultravol_ma ? bv_ultravol_crA :na          ,title='Volume Wide  criteria MA Area'        ,color=color.new(#000000,60)                      ,linewidth=1    ,style=plot.style_areabr    ,editable=true)
+plot(see_ultravol_ma ? bv_ultravol_crA :na          ,title='Volume Wide  criteria MA Line'        ,color=color.new(bv_ultra_Wide_color ,60)          ,linewidth=1    ,style=plot.style_linebr    ,editable=true)
+plot(see_ultravol_ma ? bv_ultravol_crB :na          ,title='Volume Focus criteria MA Line'        ,color=color.new(bv_ultra_Focus_color,60)          ,linewidth=1    ,style=plot.style_linebr    ,editable=true)
+
+
+//                                                                                                                                                                                                                     
+//       Background                                                                                                                                                                                                    
+//                                                                                                                                                                                                                     
+bgcolor(color.new(#000000,0) ,title='Black Background' ,editable=true)
+
+
+
+//                                                                                                                                                                                                                     
+//       Vol! Ray                                                                                                                                                                                                      
+//                                                                                                                                                                                                                     
+bgcolor(not k_volume_disable and ultra_vol_color_mark and bv_ultravol_Amin ? color.new(bv_ultraA_mark_color, bv_ultraA_mark_tr) :na        ,title='Ultra Vol! Spike Vertical-Ray (Wide)'  ,editable=true)
+bgcolor(not k_volume_disable and ultra_vol_color_mark and bv_ultravol_Bmin ? color.new(bv_ultraB_mark_color, bv_ultraB_mark_tr) :na        ,title='Ultra Vol! Spike Vertical-Ray (Focus)'  ,editable=true)
+
+
+//                                                                                                                                                                                                                     
+//       Bar Color                                                                                                                                                                                                     
+//                                                                                                                                                                                                                     
+barcolor(not k_volume_disable and ultra_vol_color_bar ? bv_ultravol_Bmin ? bv_ultraB_color : bv_ultravol_Amin ? bv_ultraA_color : na :na ,title="Ultra Vol! spike Colorize Candle")
+
+    
+
+//                                                                                                                                                                                                                     
+//    ultravol conditional mark                                                                                                                                                                                 
+//                                                                                                                                                                                                                     
+ultravol_momentum_now  = (bv_ultravol_crA*3 <= k_volma_A) and (bv_ultravol_crB*5 <= k_volma_B) and (ta.highest(k_high,112) <= ta.highest(k_high,14)  or ta.lowest(k_low,112) >= ta.lowest(k_low,14) )
+ultravol_caution_now   = (bv_ultravol_crA*3 <= k_volma_A) and (bv_ultravol_crB*4 <= k_volma_B) and (math.abs(math.avg(k_close[58],k_close[57],k_close[56],k_close[55])-k_close)/k_atr14) > 5
+plotchar( ultra_vol_momentum and ultravol_momentum_now ? k_volume+  k_volma_B/6             : na,  title= 'Ultra Vol! Momentum'   ,editable=true ,char='●' ,color=color.new(#ffffff,0) ,size=size.tiny ,location=location.absolute  )
+plotchar( ultra_vol_momentum and ultravol_caution_now  ? k_volume   : na,  title= 'Ultra Vol! Caution'    ,editable=true ,char='⚠️' ,color=color.new(#ffffff,0) ,size=size.tiny ,location=location.bottom  )
+    

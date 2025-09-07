@@ -1,0 +1,119 @@
+//@version=5
+
+indicator(title='Ez Algo v5', overlay=true, max_labels_count=500)
+
+source = (close)
+
+// Smooth Average Range
+
+per1 = 27
+mult1 = 1.5
+showbuysell = input(true, title="Show Buy & Sell", group="Buy & Sell signals")
+
+per2 = 55
+mult2 = input.float(defval=3, minval=1, maxval=6, title='Sensitivity (1-6)', group="Buy & Sell signals")
+perc  = input.float(defval=2, title='Stop Loss % (0 to Disable)', group="Buy & Sell signals")
+off   = input.float(defval=5, title='Signal Offset', group="Buy & Sell signals")
+
+
+showrsiosob = input(true, title="Show Reversals")
+
+rsi33 = ta.rsi(close, 14)
+rsiob = rsi33 > 75.4
+rsios = rsi33 < 25
+
+plotshape(rsiob, title='', style=shape.diamond, location=location.abovebar, color=color.rgb(233,30,99,70), size=size.tiny)
+plotshape(rsios, title='', style=shape.diamond, location=location.belowbar, color=color.rgb(0,219,255,70), size=size.tiny)
+
+
+//color.rgb(0,119,255,70)
+//color.rgb(233,30,99,70)
+
+smoothrng(x, t, m) =>
+    wper = t * 2 - 1
+    avrng = ta.ema(math.abs(x - x[1]), t)
+    smoothrng = ta.ema(avrng, wper) * m
+    smoothrng
+smrng1 = smoothrng(source, per1, mult1)
+smrng2 = smoothrng(source, per2, mult2)
+smrng = (smrng1 + smrng2) / 2
+
+// Range Filter
+
+rngfilt(x, r) =>
+    rngfilt = x
+    rngfilt := x > nz(rngfilt[1]) ? x - r < nz(rngfilt[1]) ? nz(rngfilt[1]) : x - r : x + r > nz(rngfilt[1]) ? nz(rngfilt[1]) : x + r
+    rngfilt
+filt = rngfilt(source, smrng)
+
+upward = 0.0
+upward := filt > filt[1] ? nz(upward[1]) + 1 : filt < filt[1] ? 0 : nz(upward[1])
+downward = 0.0
+downward := filt < filt[1] ? nz(downward[1]) + 1 : filt > filt[1] ? 0 : nz(downward[1])
+
+hband = filt + smrng
+lband = filt - smrng
+
+longCond = bool(na)
+shortCond = bool(na)
+longCond := source > filt and source > source[1] and upward > 0 or source > filt and source < source[1] and upward > 0
+shortCond := source < filt and source < source[1] and downward > 0 or source < filt and source > source[1] and downward > 0
+
+CondIni = 0
+CondIni := longCond ? 1 : shortCond ? -1 : CondIni[1]
+
+long  = longCond and CondIni[1] == -1
+short = shortCond and CondIni[1] == 1
+
+// Plotting
+labelLong  = showbuysell and long  ? label.new(bar_index, low  - ta.atr(14) * off, 'BUY ', color=color.rgb(0,219,255,0), style=label.style_label_up  , textcolor=color.white) : na
+labelShort = showbuysell and short ? label.new(bar_index, high + ta.atr(14) * off, 'SELL', color=color.rgb(233,30,99,0), style=label.style_label_down, textcolor=color.white) : na
+
+// Alerts
+
+alertcondition(long, title='Long', message='Long')
+alertcondition(short, title='Short', message='Short')
+
+/////////////////////////////////
+
+
+/////////////////////////////////
+
+countBull = ta.barssince(long )
+countBear = ta.barssince(short)
+trigger = nz(countBull, bar_index) < nz(countBear, bar_index) ? 1 : 0
+
+// Colors
+green = color.rgb(77,174,81,0)
+red   = color.rgb(255,82,83,0)
+gray  = color.gray
+
+// Plots
+srcStop = close
+atrBand = srcStop * (perc / 100)
+atrStop = trigger ? srcStop - atrBand : srcStop + atrBand
+lastTrade(src) => ta.valuewhen(long or short, src, 0)
+entry_y = lastTrade(srcStop)
+stop_y = lastTrade(atrStop)
+tp1_y = (entry_y-lastTrade(atrStop))*1   + entry_y
+tp2_y = (entry_y-lastTrade(atrStop))*1.5 + entry_y
+tp3_y = (entry_y-lastTrade(atrStop))*2   + entry_y
+tp4_y = (entry_y-lastTrade(atrStop))*3   + entry_y
+labelTpSl(y, txt, color) =>
+    label labelTpSl = showbuysell and perc != 0 ? label.new(bar_index + 1, y, txt, xloc.bar_index, yloc.price, color, label.style_label_left, color.white, size.normal) : na
+    label.delete(labelTpSl[1])
+labelTpSl(entry_y, "Entry: " + str.tostring(math.round_to_mintick(entry_y)), gray)
+labelTpSl(stop_y , "Stop Loss: " + str.tostring(math.round_to_mintick(atrStop)), red)
+labelTpSl(tp1_y, "Take Profit 1: " + str.tostring(math.round_to_mintick(tp1_y)), green)
+labelTpSl(tp2_y, "Take Profit 2: " + str.tostring(math.round_to_mintick(tp2_y)), green)
+labelTpSl(tp3_y, "Take Profit 3: " + str.tostring(math.round_to_mintick(tp3_y)), green)
+labelTpSl(tp4_y, "Take Profit 4: " + str.tostring(math.round_to_mintick(tp4_y)), green)
+lineTpSl(y, color) =>
+    line lineTpSl = showbuysell and perc != 0 ? line.new(bar_index - (trigger ? countBull : countBear), y, bar_index + 1, y, xloc.bar_index, extend.none, color, line.style_solid) : na
+    line.delete(lineTpSl[1])
+lineTpSl(entry_y, gray)
+lineTpSl(stop_y , red )
+lineTpSl(tp1_y, green)
+lineTpSl(tp2_y, green)
+lineTpSl(tp3_y, green)
+lineTpSl(tp4_y, green)

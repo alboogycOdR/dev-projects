@@ -1,0 +1,29 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// ©Trade Confident
+
+// License Agreement: You are granted a personal license agreement to the following script for use on ONE TrdingView account. 
+// You may NOT resell or distribute this script in any way, this is strictly prohibited and is tracked on TradingView.
+// PLEASE READ: We will take legal action if this script is shared with another TradingView account or modified and reposted on TradingView IN ANY WAY.
+
+//@version=4
+study(title="Price vs. Whale Money Flow", shorttitle="Price vs. Whale Money Flow", format=format.price, precision=2, resolution="")
+adjustment = close==high and close==low or high==low ? 0 : ((2*close-low-high)/(high-low))*volume
+WhaleMoneyFlow = sum(adjustment, 10) / sum(volume, 10)
+whalesource = close
+upper = sum(volume * (change(whalesource) <= 0 ? 0 : whalesource), 14)
+lower = sum(volume * (change(whalesource) >= 0 ? 0 : whalesource), 14)
+_rsi(upper, lower) =>
+    if lower == 0
+        100
+    if upper == 0
+        0
+	100.0 - (100.0 / (1.0 + upper / lower))
+moneystrength = _rsi(upper, lower)
+moneylevelup = rma(max(change(close), 0), 12)
+moneyleveldown = rma(-min(change(close), 0), 12)
+price = moneyleveldown == 0 ? 100 : moneylevelup == 0 ? 0 : 100 - (100 / (1 + moneylevelup / moneyleveldown))
+
+plot(moneystrength+WhaleMoneyFlow, "Whale Money Flow", color=#19CD8B)
+plot(price, "Price", color=#EC407A)
+
+

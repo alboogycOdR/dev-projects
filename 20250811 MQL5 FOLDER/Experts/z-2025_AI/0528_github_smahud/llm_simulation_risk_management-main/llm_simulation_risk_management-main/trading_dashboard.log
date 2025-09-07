@@ -1,0 +1,186 @@
+2025-04-29 12:01:31,512 - __main__ - INFO - Creating simulated data...
+2025-04-29 12:01:33,226 - __main__ - INFO - Simulated data file created at: C:\Users\Alvino\AppData\Local\Temp\natural_gas_data_sample.csv
+2025-04-29 12:01:33,677 - __main__ - INFO - Starting server...
+2025-04-29 12:01:33,678 - __main__ - CRITICAL - Application failed to start: app.run_server has been replaced by app.run
+Traceback (most recent call last):
+  File "C:\Users\Alvino\Documents\DataH\agent_projetc_simulation\llm_analize_De_entradaV3.py", line 771, in main
+    app.run_server(debug=True, port=8050)
+    ^^^^^^^^^^^^^^
+  File "C:\Users\Alvino\Documents\DataH\agents_project01\venv\Lib\site-packages\dash\_obsolete.py", line 22, in __getattr__
+    raise err.exc(err.message)
+dash.exceptions.ObsoleteAttributeException: app.run_server has been replaced by app.run
+2025-04-29 12:02:39,253 - __main__ - INFO - Creating simulated data...
+2025-04-29 12:02:39,302 - __main__ - INFO - Simulated data file created at: C:\Users\Alvino\AppData\Local\Temp\natural_gas_data_sample.csv
+2025-04-29 12:02:39,340 - __main__ - INFO - Starting server...
+2025-04-29 12:02:39,348 - dash.dash - INFO - Dash is running on http://127.0.0.1:8050/
+
+2025-04-29 12:02:45,197 - __main__ - INFO - Creating simulated data...
+2025-04-29 12:02:45,237 - __main__ - INFO - Simulated data file created at: C:\Users\Alvino\AppData\Local\Temp\natural_gas_data_sample.csv
+2025-04-29 12:02:45,280 - __main__ - INFO - Starting server...
+2025-04-29 12:02:59,202 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:02:59,262 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:02:59,492 - __main__ - INFO - LLM decision: ADD_SHORT with confidence 0.9
+2025-04-29 12:02:59,493 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:02:59,494 - __main__ - INFO - LLM decision: HOLD with confidence 0.0
+2025-04-29 12:02:59,497 - __main__ - INFO - LLM decision: HOLD with confidence 0.0
+2025-04-29 12:03:00,700 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:03:00,721 - __main__ - INFO - LLM decision: HOLD with confidence 0.0
+2025-04-29 12:03:01,734 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:03:01,771 - __main__ - INFO - LLM decision: ADD_SHORT with confidence 0.9
+2025-04-29 12:03:02,800 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:03:02,802 - __main__ - INFO - LLM decision: ADD_SHORT with confidence 0.9
+2025-04-29 12:03:56,576 - __main__ - INFO - Creating simulated data...
+2025-04-29 12:03:56,618 - __main__ - INFO - Simulated data file created at: C:\Users\Alvino\Documents\DataH\agents_project01\operacao_agent.csv
+2025-04-29 12:03:56,678 - __main__ - INFO - Starting server...
+2025-04-29 12:03:56,683 - dash.dash - INFO - Dash is running on http://127.0.0.1:8050/
+
+2025-04-29 12:04:01,108 - __main__ - INFO - Creating simulated data...
+2025-04-29 12:04:01,158 - __main__ - INFO - Simulated data file created at: C:\Users\Alvino\Documents\DataH\agents_project01\operacao_agent.csv
+2025-04-29 12:04:01,221 - __main__ - INFO - Starting server...
+2025-04-29 12:04:11,935 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:04:11,967 - __main__ - INFO - LLM decision: ADD_SHORT with confidence 0.9
+2025-04-29 12:04:12,007 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:04:12,075 - __main__ - INFO - LLM decision: HOLD with confidence 0.0
+2025-04-29 12:04:13,178 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:04:13,218 - __main__ - INFO - LLM decision: HOLD with confidence 0.3
+2025-04-29 12:04:14,144 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:04:14,148 - __main__ - INFO - LLM decision: HOLD with confidence 0.3
+2025-04-29 12:04:15,197 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:04:15,214 - __main__ - INFO - LLM decision: HOLD with confidence 0.0
+2025-04-29 12:04:16,483 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:04:16,486 - __main__ - INFO - LLM decision: ADD_SHORT with confidence 0.9
+2025-04-29 12:04:17,398 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:04:17,465 - __main__ - INFO - LLM decision: ADD_SHORT with confidence 0.9
+2025-04-29 12:04:18,444 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:04:18,449 - __main__ - INFO - LLM decision: ADD_SHORT with confidence 0.9
+2025-04-29 12:04:20,623 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:04:20,639 - __main__ - INFO - LLM decision: HOLD with confidence 0.5
+2025-04-29 12:04:21,403 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:04:21,433 - __main__ - INFO - LLM decision: HOLD with confidence 0.3
+2025-04-29 12:04:21,490 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:04:21,504 - __main__ - INFO - LLM decision: HOLD with confidence 0.3
+2025-04-29 12:04:22,261 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:04:22,265 - __main__ - INFO - LLM decision: HOLD with confidence 0.3
+2025-04-29 12:04:23,397 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:04:23,416 - __main__ - INFO - LLM decision: HOLD with confidence 0.4
+2025-04-29 12:04:24,121 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:04:24,187 - __main__ - INFO - LLM decision: HOLD with confidence 0.3
+2025-04-29 12:04:25,155 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:04:25,274 - __main__ - INFO - LLM decision: HOLD with confidence 0.4
+2025-04-29 12:04:26,262 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:04:26,274 - __main__ - INFO - LLM decision: HOLD with confidence 0.4
+2025-04-29 12:04:27,350 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:04:27,355 - __main__ - INFO - LLM decision: HOLD with confidence 0.0
+2025-04-29 12:04:27,931 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:04:27,954 - __main__ - INFO - LLM decision: HOLD with confidence 0.0
+2025-04-29 12:04:29,281 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:04:29,284 - __main__ - INFO - LLM decision: HOLD with confidence 0.5
+2025-04-29 12:04:30,187 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:04:30,265 - __main__ - INFO - LLM decision: HOLD with confidence 0.3
+2025-04-29 12:04:31,321 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:04:31,344 - __main__ - INFO - LLM decision: HOLD with confidence 0.3
+2025-04-29 12:04:32,485 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:04:32,494 - __main__ - INFO - LLM decision: HOLD with confidence 0.3
+2025-04-29 12:04:33,368 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:04:33,464 - __main__ - INFO - LLM decision: HOLD with confidence 0.5
+2025-04-29 12:04:34,223 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:04:34,234 - __main__ - INFO - LLM decision: HOLD with confidence 0.3
+2025-04-29 12:04:35,473 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:04:35,562 - __main__ - INFO - LLM decision: HOLD with confidence 0.5
+2025-04-29 12:04:37,229 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:04:37,246 - __main__ - INFO - LLM decision: HOLD with confidence 0.4
+2025-04-29 12:04:37,309 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:04:37,325 - __main__ - INFO - LLM decision: HOLD with confidence 0.3
+2025-04-29 12:04:39,193 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:04:39,228 - __main__ - INFO - LLM decision: HOLD with confidence 0.3
+2025-04-29 12:04:39,901 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:04:39,917 - __main__ - INFO - LLM decision: HOLD with confidence 0.4
+2025-04-29 12:04:40,053 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:04:40,055 - __main__ - INFO - LLM decision: HOLD with confidence 0.0
+2025-04-29 12:04:41,214 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:04:41,284 - __main__ - INFO - LLM decision: HOLD with confidence 0.3
+2025-04-29 12:04:42,373 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:04:42,395 - __main__ - INFO - LLM decision: HOLD with confidence 0.3
+2025-04-29 12:04:43,138 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:04:43,171 - __main__ - INFO - LLM decision: HOLD with confidence 0.3
+2025-04-29 12:04:45,137 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:04:45,155 - __main__ - INFO - LLM decision: HOLD with confidence 0.3
+2025-04-29 12:04:46,169 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:04:46,171 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:04:46,184 - __main__ - INFO - LLM decision: HOLD with confidence 0.5
+2025-04-29 12:04:46,240 - __main__ - INFO - LLM decision: HOLD with confidence 0.3
+2025-04-29 12:04:47,183 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:04:47,195 - __main__ - INFO - LLM decision: HOLD with confidence 0.5
+2025-04-29 12:04:48,400 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:04:48,413 - __main__ - INFO - LLM decision: HOLD with confidence 0.5
+2025-04-29 12:04:49,269 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:04:49,315 - __main__ - INFO - LLM decision: HOLD with confidence 0.3
+2025-04-29 12:04:50,236 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:04:50,256 - __main__ - INFO - LLM decision: HOLD with confidence 0.5
+2025-04-29 12:04:55,757 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:04:55,865 - __main__ - INFO - LLM decision: ADD_SHORT with confidence 0.9
+2025-04-29 12:04:56,864 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:04:56,874 - __main__ - INFO - LLM decision: HOLD with confidence 0.0
+2025-04-29 12:04:57,357 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:04:57,359 - __main__ - INFO - LLM decision: ADD_SHORT with confidence 0.9
+2025-04-29 12:04:58,503 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:04:58,505 - __main__ - INFO - LLM decision: ADD_SHORT with confidence 0.9
+2025-04-29 12:04:59,469 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:04:59,506 - __main__ - INFO - LLM decision: ADD_SHORT with confidence 0.9
+2025-04-29 12:05:00,636 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:05:00,670 - __main__ - INFO - LLM decision: ADD_SHORT with confidence 0.9
+2025-04-29 12:05:01,237 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:05:01,256 - __main__ - INFO - LLM decision: HOLD with confidence 0.0
+2025-04-29 12:05:02,551 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:05:02,585 - __main__ - INFO - LLM decision: HOLD with confidence 0.3
+2025-04-29 12:05:03,309 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:05:03,335 - __main__ - INFO - LLM decision: HOLD with confidence 0.0
+2025-04-29 12:05:04,137 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:05:04,155 - __main__ - INFO - LLM decision: HOLD with confidence 0.0
+2025-04-29 12:05:05,747 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:05:05,899 - __main__ - INFO - LLM decision: HOLD with confidence 0.0
+2025-04-29 12:05:06,220 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:05:06,235 - __main__ - INFO - LLM decision: HOLD with confidence 0.0
+2025-04-29 12:05:10,940 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:05:11,056 - __main__ - INFO - LLM decision: HOLD with confidence 0.3
+2025-04-29 12:05:11,785 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:05:11,812 - __main__ - INFO - LLM decision: HOLD with confidence 0.0
+2025-04-29 12:05:11,892 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:05:11,894 - __main__ - INFO - LLM decision: HOLD with confidence 0.0
+2025-04-29 12:05:11,926 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:05:11,979 - __main__ - INFO - LLM decision: ADD_SHORT with confidence 0.9
+2025-04-29 12:05:12,137 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:05:12,155 - __main__ - INFO - LLM decision: ADD_SHORT with confidence 0.9
+2025-04-29 12:05:12,365 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:05:12,378 - __main__ - INFO - LLM decision: HOLD with confidence 0.2
+2025-04-29 12:05:14,230 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:05:14,282 - __main__ - INFO - LLM decision: HOLD with confidence 0.0
+2025-04-29 12:05:15,098 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:05:15,127 - __main__ - INFO - LLM decision: HOLD with confidence 0.0
+2025-04-29 12:05:16,460 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:05:16,476 - __main__ - INFO - LLM decision: ADD_SHORT with confidence 0.9
+2025-04-29 12:05:16,648 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:05:16,651 - __main__ - INFO - LLM decision: HOLD with confidence 0.0
+2025-04-29 12:05:17,359 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:05:17,385 - __main__ - INFO - LLM decision: ADD_SHORT with confidence 0.8
+2025-04-29 12:05:18,459 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:05:18,465 - __main__ - INFO - LLM decision: HOLD with confidence 0.0
+2025-04-29 12:05:19,468 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:05:19,476 - __main__ - INFO - LLM decision: ADD_SHORT with confidence 0.9
+2025-04-29 12:05:20,347 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:05:20,365 - __main__ - INFO - LLM decision: ADD_SHORT with confidence 0.9
+2025-04-29 12:05:21,314 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:05:21,326 - __main__ - INFO - LLM decision: ADD_SHORT with confidence 0.9
+2025-04-29 12:05:22,191 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:05:22,267 - __main__ - INFO - LLM decision: HOLD with confidence 0.0
+2025-04-29 12:05:27,031 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:05:27,042 - __main__ - INFO - LLM decision: HOLD with confidence 0.0
+2025-04-29 12:05:27,166 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:05:27,170 - __main__ - INFO - LLM decision: ADD_SHORT with confidence 0.9
+2025-04-29 12:05:27,229 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:05:27,233 - __main__ - INFO - LLM decision: ADD_SHORT with confidence 0.9
+2025-04-29 12:05:27,600 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:05:27,647 - __main__ - INFO - LLM decision: ADD_SHORT with confidence 0.9
+2025-04-29 12:05:27,864 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-04-29 12:05:27,920 - __main__ - INFO - LLM decision: ADD_SHORT with confidence 0.9
+2025-04-29 12:05:29,524 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"

@@ -1,0 +1,1 @@
+This Master module monotors and logs all EA activities

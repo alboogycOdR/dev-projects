@@ -1,0 +1,8 @@
+ICEMAN - COBRA ALGO
+===================
+
+Heiken Range: 14
+Heiken Smooth: 2
+
+ATR Length: 55
+Factor: 3.1

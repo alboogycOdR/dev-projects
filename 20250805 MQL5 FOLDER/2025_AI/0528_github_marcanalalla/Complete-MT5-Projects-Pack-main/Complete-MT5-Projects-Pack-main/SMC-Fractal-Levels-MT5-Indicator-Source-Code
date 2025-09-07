@@ -1,0 +1,280 @@
+//+------------------------------------------------------------------+
+//|                                        FractalLevels_ShortPeriod |
+//|                                        Copyright © 2025, Saddam FX Trader |
+//|                                                saddamfxtrader@gmail.com |
+//+------------------------------------------------------------------+
+#property copyright "Copyright © 2025, saddam"
+#property link      "saddamfxtrader@gmail.com"
+#property description "Fractal Levels - Shortest Period for Quick Breakouts"
+#property version   "1.1"
+#property indicator_chart_window 
+#property indicator_buffers 6
+#property indicator_plots   6
+
+#define RESET 0
+
+//--- Plot 1: Fractal resistance
+#property indicator_type1   DRAW_LINE
+#property indicator_color1  DodgerBlue
+#property indicator_style1  STYLE_SOLID
+#property indicator_width1  1
+#property indicator_label1  "Fractal resistance"
+//--- Plot 2: Fractal support
+#property indicator_type2   DRAW_LINE
+#property indicator_color2  MediumOrchid
+#property indicator_style2  STYLE_SOLID
+#property indicator_width2  1
+#property indicator_label2  "Fractal support"
+//--- Plot 3: UPWARD fractal
+#property indicator_type3   DRAW_ARROW
+#property indicator_color3  DeepSkyBlue
+#property indicator_width3  1
+#property indicator_label3  "UPWARD fractal"
+//--- Plot 4: DOWNWARD fractal
+#property indicator_type4   DRAW_ARROW
+#property indicator_color4  Magenta
+#property indicator_width4  1
+#property indicator_label4  "DOWNWARD fractal"
+//--- Plot 5: UPWARD breakout
+#property indicator_type5   DRAW_ARROW
+#property indicator_color5  Aqua
+#property indicator_width5  1
+#property indicator_label5  "UPWARD breakout"
+//--- Plot 6: DOWNWARD breakout
+#property indicator_type6   DRAW_ARROW
+#property indicator_color6  Gold
+#property indicator_width6  1
+#property indicator_label6  "DOWNWARD breakout"
+
+//--- Input
+input uint LeftBars_  = 2;
+input uint RightBars_ = 2;
+input int  FontSize   = 7;
+input color ResistanceTextColor = clrDodgerBlue;
+input color SupportTextColor = clrMediumOrchid;
+
+//--- Buffers
+double LineUpBuffer[];
+double LineDownBuffer[];
+double ArrowUpBuffer[];
+double ArrowDownBuffer[];
+double ArrowBreakUpBuffer[];
+double ArrowBreakDownBuffer[];
+
+int  min_rates_total;
+uint LeftBars,RightBars;
+
+string font = "Arial";
+
+//+------------------------------------------------------------------+
+//| Custom indicator initialization function                         |
+//+------------------------------------------------------------------+
+int OnInit()
+  {
+   LeftBars=LeftBars_;
+   RightBars=RightBars_;
+   if(LeftBars<2) LeftBars=2;
+   if(RightBars<2) RightBars=2;
+   min_rates_total=int(LeftBars+RightBars+1);
+
+   SetIndexBuffer(0,LineUpBuffer,INDICATOR_DATA);
+   PlotIndexSetInteger(0,PLOT_DRAW_BEGIN,min_rates_total);
+   ArraySetAsSeries(LineUpBuffer,true);
+   PlotIndexSetDouble(0,PLOT_EMPTY_VALUE,0);
+
+   SetIndexBuffer(1,LineDownBuffer,INDICATOR_DATA);
+   PlotIndexSetInteger(1,PLOT_DRAW_BEGIN,min_rates_total);
+   ArraySetAsSeries(LineDownBuffer,true);
+   PlotIndexSetDouble(1,PLOT_EMPTY_VALUE,0);
+
+   SetIndexBuffer(2,ArrowUpBuffer,INDICATOR_DATA);
+   PlotIndexSetInteger(2,PLOT_DRAW_BEGIN,min_rates_total);
+   PlotIndexSetInteger(2,PLOT_ARROW,119);
+   ArraySetAsSeries(ArrowUpBuffer,true);
+   PlotIndexSetDouble(2,PLOT_EMPTY_VALUE,0);
+
+   SetIndexBuffer(3,ArrowDownBuffer,INDICATOR_DATA);
+   PlotIndexSetInteger(3,PLOT_DRAW_BEGIN,min_rates_total);
+   PlotIndexSetInteger(3,PLOT_ARROW,119);
+   ArraySetAsSeries(ArrowDownBuffer,true);
+   PlotIndexSetDouble(3,PLOT_EMPTY_VALUE,0);
+
+   SetIndexBuffer(4,ArrowBreakUpBuffer,INDICATOR_DATA);
+   PlotIndexSetInteger(4,PLOT_DRAW_BEGIN,min_rates_total);
+   PlotIndexSetInteger(4,PLOT_ARROW,34);
+   ArraySetAsSeries(ArrowBreakUpBuffer,true);
+   PlotIndexSetDouble(4,PLOT_EMPTY_VALUE,0);
+
+   SetIndexBuffer(5,ArrowBreakDownBuffer,INDICATOR_DATA);
+   PlotIndexSetInteger(5,PLOT_DRAW_BEGIN,min_rates_total);
+   PlotIndexSetInteger(5,PLOT_ARROW,34);
+   ArraySetAsSeries(ArrowBreakDownBuffer,true);
+   PlotIndexSetDouble(5,PLOT_EMPTY_VALUE,0);
+
+   IndicatorSetInteger(INDICATOR_DIGITS,_Digits);
+   string short_name="Fractal Levels Short";
+   IndicatorSetString(INDICATOR_SHORTNAME,short_name);
+
+   return(INIT_SUCCEEDED);
+  }
+
+//+------------------------------------------------------------------+
+//| Searching for the upper fractal                                  |
+//+------------------------------------------------------------------+
+double isFractalUp(int index,int lBars,int rBars,const double &High[])
+  {
+   int start=index-rBars;
+   int end=index+lBars+1;
+   double max=High[index]; 
+
+   for(int i=start; i<end; i++)
+   {
+      if(i<0 || i>=ArraySize(High)) continue;
+      if(max<High[i] && i!=index)
+        {
+         if(max<High[i]) return(0);
+         if(MathAbs(i-index)>1) return(0);
+        }
+   }
+   return(max);
+  }
+//+------------------------------------------------------------------+
+//| Searching for the lower fractal                                  |
+//+------------------------------------------------------------------+
+double isFractalDown(int index,int lBars,int rBars,const double &Low[])
+  {
+   int start=index-rBars;
+   int end=index+lBars+1;
+   double min=Low[index]; 
+
+   for(int i=start; i<end; i++)
+   {
+      if(i<0 || i>=ArraySize(Low)) continue;
+      if(min>Low[i] && i!=index)
+        {
+         if(min>Low[i]) return(0);
+         if(MathAbs(i-index)>1) return(0);
+        }
+   }
+   return(min);
+  }
+
+//+------------------------------------------------------------------+
+//| Custom indicator iteration function                              |
+//+------------------------------------------------------------------+
+int OnCalculate(
+   const int rates_total,
+   const int prev_calculated,
+   const datetime &time[],
+   const double &open[],
+   const double &high[],
+   const double &low[],
+   const double &close[],
+   const long &tick_volume[],
+   const long &volume[],
+   const int &spread[]
+   )
+  {
+   if(rates_total<min_rates_total) return(RESET);
+
+   int bar, limit;
+   bool full_recalc=(prev_calculated<=0 || prev_calculated>rates_total);
+
+   int min_recalc=3;
+   if(full_recalc)
+      limit = rates_total-min_rates_total;
+   else
+      limit = rates_total - prev_calculated;
+   if(limit<min_recalc)
+      limit=min_recalc;
+   if(limit>rates_total-min_rates_total)
+      limit=rates_total-min_rates_total;
+
+   ArraySetAsSeries(high,true);
+   ArraySetAsSeries(low,true);
+   ArraySetAsSeries(close,true);
+
+   static double lastResistance = 0;
+   static double lastSupport = 0;
+   static int lastResistanceBar = -1;
+   static int lastSupportBar = -1;
+
+   for(bar=limit; bar>=0 && !IsStopped(); bar--)
+     {
+      ArrowUpBuffer[bar]=0.0;
+      ArrowDownBuffer[bar]=0.0;
+      ArrowBreakUpBuffer[bar]=0.0;
+      ArrowBreakDownBuffer[bar]=0.0;
+
+      if(bar<int(RightBars))
+        {
+         LineUpBuffer[bar]=(bar+1<rates_total) ? LineUpBuffer[bar+1] : 0;
+         LineDownBuffer[bar]=(bar+1<rates_total) ? LineDownBuffer[bar+1] : 0;
+         continue;
+        }
+
+      double up=isFractalUp(bar,LeftBars,RightBars,high);
+      if(up!=0)
+      {
+         LineUpBuffer[bar]=up;
+         ArrowUpBuffer[bar]=up;
+         // Store latest resistance for OBJ_TEXT drawing
+         lastResistance = up;
+         lastResistanceBar = bar;
+      }
+      else
+         LineUpBuffer[bar]=(bar+1<rates_total) ? LineUpBuffer[bar+1] : 0;
+
+      double down=isFractalDown(bar,LeftBars,RightBars,low);
+      if(down!=0)
+      {
+         LineDownBuffer[bar]=down;
+         ArrowDownBuffer[bar]=down;
+         // Store latest support for OBJ_TEXT drawing
+         lastSupport = down;
+         lastSupportBar = bar;
+      }
+      else
+         LineDownBuffer[bar]=(bar+1<rates_total) ? LineDownBuffer[bar+1] : 0;
+
+      if(bar+1<rates_total)
+      {
+         if(LineUpBuffer[bar]!=0 && close[bar]>LineUpBuffer[bar] && close[bar+1]<=LineUpBuffer[bar+1])
+            ArrowBreakUpBuffer[bar]=LineUpBuffer[bar];
+         if(LineDownBuffer[bar]!=0 && close[bar]<LineDownBuffer[bar] && close[bar+1]>=LineDownBuffer[bar+1])
+            ArrowBreakDownBuffer[bar]=LineDownBuffer[bar];
+      }
+     }
+
+   // Draw Fractal resistance and support price on the chart for the most recent fractal
+   DrawFractalPrice("FractalResistance", lastResistance, lastResistanceBar, ResistanceTextColor, "Fractal resistance: ");
+   DrawFractalPrice("FractalSupport", lastSupport, lastSupportBar, SupportTextColor, "Fractal support: ");
+
+   return(rates_total);
+  }
+
+//+------------------------------------------------------------------+
+//| Draw Price Label on Chart                                        |
+//+------------------------------------------------------------------+
+void DrawFractalPrice(const string objName, double price, int bar, color clr, string prefix)
+  {
+   long chart_id=0;
+   ObjectDelete(chart_id,objName);
+
+   if(bar<0 || price==0.0) return;
+
+   datetime dt = iTime(_Symbol, _Period, bar);
+   string priceText = prefix + DoubleToString(price, _Digits);
+
+   ObjectCreate(chart_id,objName,OBJ_TEXT,0,dt,price);
+   ObjectSetInteger(chart_id,objName,OBJPROP_COLOR,clr);
+   ObjectSetInteger(chart_id,objName,OBJPROP_FONTSIZE,FontSize);
+   ObjectSetString(chart_id,objName,OBJPROP_FONT,font);
+
+   // Anchor left upper (default position)
+   ObjectSetInteger(chart_id,objName,OBJPROP_ANCHOR,ANCHOR_LEFT_UPPER);
+
+   ObjectSetString(chart_id,objName,OBJPROP_TEXT,priceText);
+  }
+
+//+------------------------------------------------------------------+

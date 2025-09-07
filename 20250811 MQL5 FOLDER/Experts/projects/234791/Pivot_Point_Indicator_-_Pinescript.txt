@@ -1,0 +1,28 @@
+//@version=4
+study("Standalone Pivot Points (Alternating)", overlay=true)
+
+// Inputs
+prd = input(defval=2, title="Pivot Point Period", minval=1, maxval=50)
+
+// Variables to track the last plotted pivot type
+var bool last_was_high = na
+
+// Calculate Pivot High/Low
+float ph = pivothigh(prd, prd)
+float pl = pivotlow(prd, prd)
+
+// Variables for plotting
+float plot_high = na
+float plot_low = na
+
+// Logic to alternate pivot highs and lows
+if ph and (na(last_was_high) or not last_was_high)
+    plot_high := ph
+    last_was_high := true
+else if pl and (na(last_was_high) or last_was_high)
+    plot_low := pl
+    last_was_high := false
+
+// Plot Pivot Points
+plotshape(plot_high, text="H", style=shape.labeldown, color=color.red, textcolor=color.white, location=location.abovebar, transp=0, offset=-prd, title="Pivot High")
+plotshape(plot_low, text="L", style=shape.labelup, color=color.green, textcolor=color.white, location=location.belowbar, transp=0, offset=-prd, title="Pivot Low")

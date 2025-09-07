@@ -1,0 +1,115 @@
+//@version=5
+indicator(' RSI mod', overlay=false)
+
+src = input(title='Source', defval=close, group = 'rsi setting')
+for_rsi = input(title='RSI_period', defval=20, group = 'rsi setting')
+for_ma = input(title='BB period', defval=50, group = 'rsi setting')
+for_mult = input(title='BB band', defval=2, group = 'rsi setting')
+for_sigma = 0.1
+current_rsi = ta.rsi(src, for_rsi)
+basis = ta.ema(current_rsi, for_ma)
+dev = for_mult * ta.stdev(current_rsi, for_ma)
+upper = basis + dev
+lower = basis - dev
+disp_up = basis + (upper - lower) * for_sigma
+disp_down = basis - (upper - lower) * for_sigma
+color_rsi = current_rsi >= disp_up ? color.purple : current_rsi <= disp_down ? color.white : color.yellow
+rsi_Green = ta.crossover(current_rsi, disp_up)
+rsi_Red = ta.crossunder(current_rsi, disp_down)
+h1 = hline(70, color=#d4d4d4, linewidth=1)
+h2 = hline(30, color=#d4d4d4, linewidth=1)
+plot(current_rsi, color=color_rsi, linewidth=2)
+//
+matype = input.string(title='MA Type', defval='EMA', options=['EMA', 'HMA'], group = 'MA setting')
+
+ma_len1 = input.int(title="Short EMA1 Length", defval=8, group = 'MA setting')
+ma_len2 = input.int(title="Long EMA1 Length",  defval=50, group = 'MA setting')
+ma_len3 = input.int(title="Short EMA2 Length", defval=13, group = 'MA setting')
+ma_len4 = input.int(title="Long EMA2 Length", defval=50, group = 'MA setting')
+ma_len5 = input.int(title="Short EMA3 Length", defval=21, group = 'MA setting')
+ma_len6 = input.int(title="Long EMA3 Length", defval=50, group = 'MA setting')
+ma_len7 = input.int(title="Short EMA4 Length", defval=34, group = 'MA setting')
+ma_len8 = input.int(title="Long EMA4 Length",  defval=50, group = 'MA setting')
+ma_len9 = input.int(title="Short EMA5 Length",  defval=42, group = 'MA setting')
+ma_len10 = input.int(title="Long EMA5 Length",  defval=50, group = 'MA setting')
+
+ma_offset = 0
+f_ma(malen) =>
+    float result = 0
+    if matype == 'EMA'
+        result := ta.ema(current_rsi, malen)
+        result
+    if matype == 'HMA'
+        result := ta.hma(current_rsi, malen)
+        result
+    result
+
+htf_ma1 = f_ma(ma_len1)
+htf_ma2 = f_ma(ma_len2)
+htf_ma3 = f_ma(ma_len3)
+htf_ma4 = f_ma(ma_len4)
+htf_ma5 = f_ma(ma_len5)
+htf_ma6 = f_ma(ma_len6)
+htf_ma7 = f_ma(ma_len7)
+htf_ma8 = f_ma(ma_len8)
+htf_ma9 = f_ma(ma_len9)
+htf_ma10 = f_ma(ma_len10)
+
+emacloudleading = 0
+mashort1 = htf_ma1
+malong1 = htf_ma2
+mashort2 = htf_ma3
+malong2 = htf_ma4
+mashort3 = htf_ma5
+malong3 = htf_ma6
+mashort4 = htf_ma7
+malong4 = htf_ma8
+mashort5 = htf_ma9
+malong5 = htf_ma10
+
+cloudcolour1 = mashort1 >= malong1 ? color.new(color.purple, 35) : color.new(color.gray, 40)
+cloudcolour2 = mashort2 >= malong2 ? color.new(color.purple, 40) : color.new(color.gray, 45)
+cloudcolour3 = mashort3 >= malong3 ? color.new(color.purple, 45) : color.new(color.gray, 50)
+cloudcolour4 = mashort4 >= malong4 ? color.new(color.purple, 50) : color.new(color.gray, 55)
+cloudcolour5 = mashort5 >= malong5 ? color.new(color.purple, 55) : color.new(color.gray, 60)
+
+mashortcolor1 = mashort1 >= mashort1[1] ? color.new(color.purple, 35) : color.new(color.gray, 35)
+mashortcolor2 = mashort2 >= mashort2[1] ? color.new(color.purple, 40) : color.new(color.gray, 40)
+mashortcolor3 = mashort3 >= mashort3[1] ? color.new(color.purple, 45) : color.new(color.gray, 45)
+mashortcolor4 = mashort4 >= mashort4[1] ? color.new(color.purple, 50) : color.new(color.gray, 50)
+mashortcolor5 = mashort5 >= mashort5[1] ? color.new(color.purple, 55) : color.new(color.gray, 55)
+
+
+mashortline1 = plot(mashort1, color=mashortcolor1, linewidth=0, offset=emacloudleading, title='Short Leading 1',display=display.none)
+mashortline2 = plot(mashort2, color=mashortcolor2, linewidth=0, offset=emacloudleading, title='Short Leading 2',display=display.none)
+mashortline3 = plot(mashort3, color=mashortcolor3, linewidth=0, offset=emacloudleading, title='Short Leading 3',display=display.none)
+mashortline4 = plot(mashort4, color=mashortcolor4, linewidth=0, offset=emacloudleading, title='Short Leading 4',display=display.none)
+mashortline5 = plot(mashort5, color=mashortcolor5, linewidth=0, offset=emacloudleading, title='Short Leading 5',display=display.none)
+
+malongcolor1 = malong1 >= malong1[1] ? color.new(color.purple, 35) : color.new(color.gray, 35)
+malongcolor2 = malong2 >= malong2[1] ? color.new(color.purple, 40) : color.new(color.gray, 40)
+malongcolor3 = malong3 >= malong3[1] ? color.new(color.purple, 45) : color.new(color.gray, 45)
+malongcolor4 = malong4 >= malong4[1] ? color.new(color.purple, 50) : color.new(color.gray, 50)
+malongcolor5 = malong5 >= malong5[1] ? color.new(color.purple, 55) : color.new(color.gray, 55)
+
+malongline1 = plot(malong1, color=malongcolor1, linewidth=0, offset=emacloudleading, title='Long Leading 1',display=display.none)
+malongline2 = plot(malong2, color=malongcolor2, linewidth=0, offset=emacloudleading, title='Long Leading 2',display=display.none)
+malongline3 = plot(malong3, color=malongcolor3, linewidth=0, offset=emacloudleading, title='Long Leading 3',display=display.none)
+malongline4 = plot(malong4, color=malongcolor4, linewidth=0, offset=emacloudleading, title='Long Leading 4',display=display.none)
+malongline5 = plot(malong5, color=malongcolor5, linewidth=0, offset=emacloudleading, title='Long Leading 5',display=display.none)
+
+fill(mashortline1, malongline1, color=cloudcolour1, title='Cloud1')
+fill(mashortline2, malongline2, color=cloudcolour2, title='Cloud2')
+fill(mashortline3, malongline3, color=cloudcolour3, title='Cloud3')
+fill(mashortline4, malongline4, color=cloudcolour4, title='Cloud4')
+fill(mashortline5, malongline5, color=cloudcolour5, title='Cloud5')
+
+length =input(title='BB period', defval=20, group = 'BB setting')
+mult = input(title='BB band', defval=1.8, group = 'BB setting')
+basi = ta.sma(current_rsi, length)
+dev1 = mult * ta.stdev(current_rsi, length)
+upper1 = basi + dev1
+lower1 = basi - dev1
+offset = 0
+p1 = plot(upper1, "Upper", color=color.aqua, offset = offset)
+p2 = plot(lower1, "Lower", color=color.orange , offset = offset)

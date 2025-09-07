@@ -1,0 +1,27 @@
+//@version=5
+indicator("CCI and MACD buy and sell signals")
+
+// CCI
+cciPeriod     = input.int(14, minval=1)
+cciOverbought = input.int(100, minval=1)
+cciOversold   = input.int(-100, maxval=-1)
+
+// MACD
+macdFastEmaPeriod    = input.int(12, minval=1)
+macdSlowEmaPeriod    = input.int(26, minval=1)
+macdSignalLinePeriod = input.int(9, minval=1)
+
+// Calculate CCI
+cci = ta.cci(close, cciPeriod)
+
+// Calculate MACD
+macdLine       = ta.ema(close, macdFastEmaPeriod) - ta.ema(close, macdSlowEmaPeriod)
+macdSignalLine = ta.sma(macdLine, macdSignalLinePeriod)
+
+// Calculate buy and sell signals
+buySignal  = cci < cciOversold   and macdLine > macdSignalLine
+sellSignal = cci > cciOverbought and macdLine < macdSignalLine
+
+// Plot buy and sell signals on the chart
+plot(buySignal  ? 1 : na, "Buy signal" , color.green, 4, plot.style_circles)
+plot(sellSignal ? 1 : na, "Sell signal", color.red  , 4, plot.style_circles)

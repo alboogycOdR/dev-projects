@@ -1,0 +1,31 @@
+//@version=4
+
+study(title="EzAlgo V19", shorttitle="eMAs visualized", overlay=true)
+
+// EMA input//
+Length1 = input(9, minval=1)
+Length2 = input(21, minval=1)
+Length3 = input(55, minval=1)
+xPrice = close
+// EMA //
+ma1 = ema(xPrice, Length1)
+ma2 = ema(xPrice, Length2)
+ma3 = ema(xPrice, Length3)
+// EMA plot //
+p1 = plot(ma1, linewidth=1, color=color.green, title="Short Trend EMA")
+p2 = plot(ma2, linewidth=1, color=color.yellow, title="Medium Trend EMA")
+p3 = plot(ma3, linewidth=1, color=color.red, title="Long Trend EMA")
+
+// Fill //
+allUp = if ma1 > ma2 and ma2 > ma3 
+    color.green 
+medUpShortDown = if ma1 < ma2 and ma2 > ma3
+    color.blue
+medDownShortUp = if ma1 > ma2 and ma2 < ma3
+    color.orange
+allDown = if ma1 < ma2 and ma2 < ma3
+    color.red
+bgcolor(allUp, transp = 80, color = allUp)
+bgcolor(medUpShortDown, transp = 80, color = medUpShortDown)
+bgcolor(medDownShortUp, transp = 80, color = medDownShortUp)
+bgcolor(allDown, transp = 80, color = allDown)

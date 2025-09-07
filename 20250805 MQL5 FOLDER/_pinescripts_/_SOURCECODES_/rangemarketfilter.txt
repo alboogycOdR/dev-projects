@@ -1,0 +1,32 @@
+//@version=4
+study("Chop Market Filter")
+
+//len=input(500, title="Length", type=input.integer)
+//src=input(close, title="Source", type=input.source)
+//dist_limit_long_h = input(7.5, title="% Distance Threshold Center (Long)", step = 0.5, minval=0.0)
+//dist_limit_long_l = input(-20, title="% Distance Threshold Lower (Long)", step = 0.5, maxval=0.0)
+//dist_limit_short_l= input(-7.5, title="% Distance Threshold Center (Short)", step = 0.5, maxval=0.0)
+//dist_limit_short_h= input(20, title="% Distance Threshold Upper (Short)", step = 0.5, minval=0.0)
+
+
+len = input(21, title='Length')
+src = input(close, title='Source')
+dist_limit_long_h = input(0.05, title='% Distance Threshold Center (Long)', step=0.1, minval=0.0)
+dist_limit_long_l = input(-0.2, title='% Distance Threshold Lower (Long)', step=0.1, maxval=0.0)
+dist_limit_short_l = input(-0.05, title='% Distance Threshold Center (Short)', step=0.1, maxval=0.0)
+dist_limit_short_h = input(0.2, title='% Distance Threshold Upper (Short)', step=0.1, minval=0.0)
+
+//ma = sma(src, len)
+
+ma=sma(src,len)
+dist=src-ma
+distpc=100*(dist/ma)
+plot(distpc, linewidth=2, color=color.white, transp=30)
+
+p1 = hline(dist_limit_long_h, color=color.lime, title="% Distance Threshold Center (Long)" , linestyle=hline.style_dotted)
+p2 = hline(dist_limit_short_l, color=color.red, title="% Distance Threshold Center (Short)", linestyle=hline.style_dotted)
+p3 = hline(dist_limit_long_l, color=color.red, title="% Distance Threshold Lower (Long)")
+p4 = hline(dist_limit_short_h, color=color.lime, title="% Distance Threshold Upper (Short)")
+fill(p1, p2, color=#C7C1C4, transp=80, title="Chop Zone")
+fill(p1, p4, color=color.lime, transp=80, title="Long Only")
+fill(p2, p3, color=color.red, transp=80, title="Short Only")

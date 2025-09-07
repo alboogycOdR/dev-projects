@@ -1,0 +1,730 @@
+//@version=5
+indicator("Indicator - 2", overlay=false)
+
+
+// Get user input
+strategy    = input.string("Heiken Ashi Oscillator", "Strategy", ["Heiken Ashi Oscillator", "Heiken Ashi MACD", "QQE MOD","MATRIX SERIES" , "SQUEEZ MOMENTUM" , "LINEAR REG CANDLES" , "PUMP & DUMP DETECTOR" , "QQE" ,"PND"])
+
+
+BullCol   = input(#00ffcc, "Bullish Color", group="COLOURS")
+BearCol   = input(#e53eda , "Bearish Color", group="COLOURS")
+f_macd(src, fast, slow) =>
+    (ta.ema(src, fast) - ta.ema(src, slow)) / (ta.ema(high - low, slow)) * 100
+
+src = input.source(close, "Source", group = "GLOBAL MACD")
+fast = input.int(12, "Fast Length", group = "GLOBAL MACD")
+slow = input.int(26, "Slow Length", group = "GLOBAL MACD")
+signal = input.int(9, "Signal Length", group = "GLOBAL MACD")
+modtype = "Hybrid"
+
+
+RSI_Period = input(6, title='RSI Length', group = "QQE MOD")
+SF = input(5, title='RSI Smoothing', group = "QQE MOD")
+QQE = input(3, title='Fast QQE Factor', group = "QQE MOD")
+ThreshHold = input(3, title='Thresh-hold', group = "QQE MOD")
+length = input.int(50, minval=1, title='Bollinger Length')
+mult = input.float(0.35, minval=0.001, maxval=5, step=0.1, title='BB Multiplier', group = "QQE MOD")
+RSI_Period2 = input(6, title='RSI Length', group = "QQE MOD")
+SF2 = input(5, title='RSI Smoothing', group = "QQE MOD")
+QQE2 = input(1.61, title='Fast QQE2 Factor', group = "QQE MOD")
+ThreshHold2 = input(3, title='Thresh-hold', group = "QQE MOD")
+src2 = input(close, title='RSI Source', group = "QQE MOD")
+
+
+Smoother = input(5, title='Smoother', group = "MATRIX SERIES")
+SupResPeriod = input(50, title='SR - Period', group = "MATRIX SERIES")
+SupResPercentage = input(100, title='SR - Percentage', group = "MATRIX SERIES")
+PricePeriod = input(16, title='Price Period', group = "MATRIX SERIES")
+
+
+revshow = input.bool(true, "", inline = "0", group = "UI Options")
+revt = input.int(100, "Reversion Threshold", options = [100, 150], inline = "0", group = "UI Options")
+colbar = input.string("None", "Bar Coloring", ["None", "MidLine", "Candles", "Signal Cross", "Extremities", "Reversions"], group = "UI Options")
+hol = input.bool(true, "Hollow Candles", group = "UI Options")
+
+
+Istyle = input.string("Area",title = "Style",options = ["Area","Histogram"] , group = "Basic - Settings")
+
+bayesPeriod = input(20, title='Trend Lookback Period' , group = "Basic - Settings")
+
+ShowPump     = input(true, title='Pump Detector', group = "Pump & Dump - Settings" , inline = "PND")
+ShowDump     = input(true, title='Dump Detector' , group = "Pump & Dump - Settings" , inline = "PND")
+bbSmaPeriod  = input(20, title='Trend Agility', group = "Pump & Dump - Settings")
+bbStdDevMult = input.float(2.5, title='Pump & Dump Sensitivity', maxval=50.0, group = "Pump & Dump - Settings")
+smaPeriod    = input(11, title='Pump & Dump Average' , group = "Pump & Dump - Settings")
+
+
+macd = f_macd(src, fast, slow)
+sig = ta.ema(macd, signal)
+hist = macd - sig
+
+o_macd = macd[1]
+h_macd = math.max(macd, macd[1])
+l_macd = math.min(macd, macd[1])
+c_macd = macd
+
+haClose = (o_macd + h_macd + l_macd + c_macd) / 4
+haOpen = float(na)
+haOpen := na(haOpen[1]) ? (o_macd + c_macd) / 2 : (nz(haOpen[1]) + nz(haClose[1])) / 2
+haHigh = math.max(h_macd, math.max(haOpen, haClose))
+haLow = math.min(l_macd, math.min(haOpen, haClose))
+
+colup = BullCol
+coldn = BearCol
+colsig = chart.fg_color
+h_col = hist > 0 ? (hist > hist[1] ? color.new(BullCol , 10) :  color.new(BullCol , 60)) : (hist > hist[1] ?  color.new(BearCol , 60) : color.new(BearCol , 10))
+
+haColor = switch
+    haClose > haOpen => colup
+    haClose < haOpen => coldn
+
+hline(strategy == "Heiken Ashi Oscillator" ? 0 : na, "Mid Line", #ffffff80, hline.style_solid)
+
+//max = hline( strategy == "Heiken Ashi Oscillator" and modtype != "Histogram" ? 200 : 100, display = display.none)
+hh = hline( strategy == "Heiken Ashi Oscillator" and modtype != "Histogram" ? 150 : 75, display = display.none)
+lh = hline( strategy == "Heiken Ashi Oscillator" and modtype != "Histogram" ? 100 : 50, display = display.none)
+
+fill(lh, hh, color = strategy == "Heiken Ashi Oscillator" ?  color.new(BearCol , 60) : na)
+
+
+//min = hline( strategy == "Heiken Ashi Oscillator" and modtype != "Histogram" ? -200 : -100, display = display.none)
+ll = hline( strategy == "Heiken Ashi Oscillator" and modtype != "Histogram" ? -150 : -75, display = display.none)
+hl = hline( strategy == "Heiken Ashi Oscillator" and modtype != "Histogram" ? -100 : -50, display = display.none)
+
+fill(ll, hl,strategy == "Heiken Ashi Oscillator" ? color.new(BullCol , 60) : na)
+
+plotcandle( strategy == "Heiken Ashi Oscillator" and modtype != "Histogram" ? haOpen : na, haHigh, haLow, haClose, "𝗠𝗔𝗖𝗗", hol ? haClose > haOpen ? na : haColor : haColor, haColor, bordercolor = haColor)
+plot( strategy == "Heiken Ashi Oscillator" and modtype != "Histogram" ? sig : na, "𝗦𝗶𝗴𝗻𝗮𝗹", colsig)
+
+plotshape( strategy == "Heiken Ashi Oscillator" and modtype != "Histogram" ? revshow ? haHigh > revt and haClose < haOpen and not (haClose[1] < haOpen[1]) ? haHigh + 40 : na : na : na, "OB", shape.triangledown, location.absolute, coldn, size = size.tiny)
+plotshape( strategy == "Heiken Ashi Oscillator" and modtype != "Histogram" ? revshow ? haLow < -revt and haClose > haOpen and not (haClose[1] > haOpen[1]) ? haLow - 40 : na : na : na, "OS", shape.triangleup, location.absolute, colup, size = size.tiny)
+
+color col = switch colbar
+    "None" => na
+    "MidLine" => macd > 0 ? colup : coldn
+    "Extremities" => macd > revt ? coldn : macd < -revt ? colup : #b3b3b3c2
+    "Reversions" => macd > revt and macd < macd[1] and not (macd[1] < macd[2]) ? coldn : macd < -revt and macd > macd[1] and not (macd[1] > macd[2]) ? colup : #b3b3b3c2
+    "Candles" => haClose > haOpen ? colup : coldn
+    "Signal Cross" => sig > haClose ? coldn : colup
+
+barcolor(col)
+
+
+
+// Histogram
+plot(strategy == "Heiken Ashi MACD" ? hist : na, "Heiken Ashi MACD", h_col, 1, plot.style_columns)
+
+// QQE MOD
+
+
+Wilders_Period = RSI_Period * 2 - 1
+
+
+Rsi = ta.rsi(src, RSI_Period)
+RsiMa = ta.ema(Rsi, SF)
+AtrRsi = math.abs(RsiMa[1] - RsiMa)
+MaAtrRsi = ta.ema(AtrRsi, Wilders_Period)
+dar = ta.ema(MaAtrRsi, Wilders_Period) * QQE
+
+longband = 0.0
+shortband = 0.0
+trend = 0
+
+DeltaFastAtrRsi = dar
+RSIndex = RsiMa
+newshortband = RSIndex + DeltaFastAtrRsi
+newlongband = RSIndex - DeltaFastAtrRsi
+longband := RSIndex[1] > longband[1] and RSIndex > longband[1] ? math.max(longband[1], newlongband) : newlongband
+shortband := RSIndex[1] < shortband[1] and RSIndex < shortband[1] ? math.min(shortband[1], newshortband) : newshortband
+cross_1 = ta.cross(longband[1], RSIndex)
+trend := ta.cross(RSIndex, shortband[1]) ? 1 : cross_1 ? -1 : nz(trend[1], 1)
+FastAtrRsiTL = trend == 1 ? longband : shortband
+////////////////////
+
+basis = ta.sma(FastAtrRsiTL - 50, length)
+dev = mult * ta.stdev(FastAtrRsiTL - 50, length)
+upper = basis + dev
+lower = basis - dev
+color_bar = RsiMa - 50 > upper ? #00c3ff : RsiMa - 50 < lower ? #ff0062 : color.gray
+
+
+//
+// Zero cross
+QQEzlong = 0
+QQEzlong := nz(QQEzlong[1])
+QQEzshort = 0
+QQEzshort := nz(QQEzshort[1])
+QQEzlong := RSIndex >= 50 ? QQEzlong + 1 : 0
+QQEzshort := RSIndex < 50 ? QQEzshort + 1 : 0
+//  
+
+Zero = hline(strategy == "QQE MOD" ? 0 : na, color=color.white, linestyle=hline.style_dotted, linewidth=1)
+
+////////////////////////////////////////////////////////////////
+
+Wilders_Period2 = RSI_Period2 * 2 - 1
+
+
+Rsi2 = ta.rsi(src2, RSI_Period2)
+RsiMa2 = ta.ema(Rsi2, SF2)
+AtrRsi2 = math.abs(RsiMa2[1] - RsiMa2)
+MaAtrRsi2 = ta.ema(AtrRsi2, Wilders_Period2)
+dar2 = ta.ema(MaAtrRsi2, Wilders_Period2) * QQE2
+longband2 = 0.0
+shortband2 = 0.0
+trend2 = 0
+
+DeltaFastAtrRsi2 = dar2
+RSIndex2 = RsiMa2
+newshortband2 = RSIndex2 + DeltaFastAtrRsi2
+newlongband2 = RSIndex2 - DeltaFastAtrRsi2
+longband2 := RSIndex2[1] > longband2[1] and RSIndex2 > longband2[1] ? math.max(longband2[1], newlongband2) : newlongband2
+shortband2 := RSIndex2[1] < shortband2[1] and RSIndex2 < shortband2[1] ? math.min(shortband2[1], newshortband2) : newshortband2
+cross_2 = ta.cross(longband2[1], RSIndex2)
+trend2 := ta.cross(RSIndex2, shortband2[1]) ? 1 : cross_2 ? -1 : nz(trend2[1], 1)
+FastAtrRsi2TL = trend2 == 1 ? longband2 : shortband2
+
+
+//
+// Zero cross
+QQE2zlong = 0
+QQE2zlong := nz(QQE2zlong[1])
+QQE2zshort = 0
+QQE2zshort := nz(QQE2zshort[1])
+QQE2zlong := RSIndex2 >= 50 ? QQE2zlong + 1 : 0
+QQE2zshort := RSIndex2 < 50 ? QQE2zshort + 1 : 0
+//  
+
+hcolor2 = RsiMa2 - 50 > ThreshHold2 ? color.silver : RsiMa2 - 50 < 0 - ThreshHold2 ? color.silver : na
+plot(strategy == "QQE MOD" ? FastAtrRsi2TL - 50: na, title='QQE Line', color=color.new(color.white, 0), linewidth=2)
+plot(strategy == "QQE MOD" ?RsiMa2 - 50: na, color=hcolor2, title='Histo2', style=plot.style_columns, transp=50)
+
+Greenbar1 = RsiMa2 - 50 > ThreshHold2
+Greenbar2 = RsiMa - 50 > upper
+
+Redbar1 = RsiMa2 - 50 < 0 - ThreshHold2
+Redbar2 = RsiMa - 50 < lower
+plot(strategy == "QQE MOD" and Greenbar1 and Greenbar2 == 1 ? RsiMa2 - 50 : na, title='QQE Up', style=plot.style_columns, color=color.new(BullCol, 0))
+plot(strategy == "QQE MOD" and Redbar1 and Redbar2 == 1 ? RsiMa2 - 50 : na, title='QQE Down', style=plot.style_columns, color=color.new(BearCol, 0))
+
+
+
+// Matrix Series
+
+ob = 200
+os = -200
+
+nn = Smoother
+
+ys1 = (high + low + open * 2) / 4
+rk3 = ta.ema(ys1, nn)
+rk4 = ta.stdev(ys1, nn)
+rk5 = (ys1 - rk3) * 200 / rk4
+rk6 = ta.ema(rk5, nn)
+up = ta.ema(rk6, nn)
+down = ta.ema(up, nn)
+
+Oo = up < down ? up : down
+Ll = up < down ? down : up
+Cc = Ll
+
+plotcandle(strategy == "MATRIX SERIES" ? Oo : na, up < down ? Cc : Oo, up < down ? Oo : Cc, Cc, title='Matrix Series', color=up < down ? BearCol : BullCol, wickcolor=color.gray)
+
+hline(strategy == "MATRIX SERIES" ? 200 : na, color=BearCol, linewidth=2)
+hline(strategy == "MATRIX SERIES" ? -200 : na, color=BullCol, linewidth=2)
+
+UPshape = up > 200 and up > down ? up : na
+DOWNshape = down < -200 and up > down ? down : na
+
+plot(strategy == "MATRIX SERIES" ? UPshape : na, style=plot.style_cross, color=color.new(color.white, 0), linewidth=1)
+plot(strategy == "MATRIX SERIES" ? DOWNshape : na, style=plot.style_cross, color=color.new(color.white, 0), linewidth=1)
+//barcolor(color=up > down ? BullCol : BearCol)
+
+
+
+// SQUEEZ MOMENTUM INDICATOR
+
+higherRes = input.timeframe('', title = "MTF" , group='SQUEEZ MOMENTUM INDICATOR')
+
+htf_indicator() =>
+    length = input(20, title='BB Length', group='SQUEEZ MOMENTUM INDICATOR')
+    mult = input(2.0, title='BB MultFactor', group='SQUEEZ MOMENTUM INDICATOR')
+    lengthKC = input(20, title='KC Length', group='SQUEEZ MOMENTUM INDICATOR')
+    multKC = input(1.5, title='KC MultFactor', group='SQUEEZ MOMENTUM INDICATOR')
+
+    useTrueRange = input(true, title='Use TrueRange (KC)', group='SQUEEZ MOMENTUM INDICATOR')
+
+    // Calculate BB
+    source = close
+    basis = ta.sma(source, length)
+    dev = mult * ta.stdev(source, length)
+    upperBB = basis + dev
+    lowerBB = basis - dev
+
+    // Calculate KC
+    ma = ta.sma(source, lengthKC)
+    range_1 = useTrueRange ? ta.tr : high - low
+    rangema = ta.sma(range_1, lengthKC)
+    upperKC = ma + rangema * multKC
+    lowerKC = ma - rangema * multKC
+
+    sqzOn = lowerBB > lowerKC and upperBB < upperKC
+    sqzOff = lowerBB < lowerKC and upperBB > upperKC
+    noSqz = sqzOn == false and sqzOff == false
+
+    val = ta.linreg(source - math.avg(math.avg(ta.highest(high, lengthKC), ta.lowest(low, lengthKC)), ta.sma(close, lengthKC)), lengthKC, 0)
+
+    iff_1 = val > nz(val[1]) ? BullCol : BullCol
+    iff_2 = val < nz(val[1]) ? BearCol : color.maroon
+    bcolor = val > 0 ? iff_1 : iff_2
+
+    scolor = noSqz ? color.blue : sqzOn ? color.black : color.gray
+    [val, bcolor, scolor, noSqz, sqzOn]
+
+[val, bcolor, scolor, noSqz, sqzOn] = request.security(syminfo.tickerid, higherRes, htf_indicator())
+
+plot(strategy == "SQUEEZ MOMENTUM" ? val : na, color=bcolor, style=plot.style_histogram, linewidth=4)  //,title="Current TF")
+plot(strategy == "SQUEEZ MOMENTUM" ? 0 : na, color=scolor, style=plot.style_cross, linewidth=2)  //,title="Current TF")
+
+bcolor_green_light = bcolor == BullCol
+bcolor_green = bcolor == color.new(BullCol , 60)
+bcolor_red_light = bcolor == color.new(BearCol , 60)
+bcolor_red = bcolor == BearCol
+
+bcolor_gray = scolor == color.gray
+bcolor_black = scolor == color.black
+
+//bgcolor(noSqz and not noSqz[1]?BearCol:na,transp=50)
+alertcondition(bcolor_gray and not bcolor_gray[1], title='No Squeez', message='No Squeez')
+alertcondition(bcolor_black and not bcolor_black[1], title='Squeez On ', message='Squeez On')
+
+alertcondition(bcolor_green and not bcolor_green[1], title=' Green ', message='Green ')
+alertcondition(bcolor_green_light and not bcolor_green_light[1], title='Light Green', message='Light Green')
+alertcondition(bcolor_red_light and not bcolor_red_light[1], title='Light Red', message='Light Red')
+alertcondition(bcolor_red and not bcolor_red[1], title='Red', message='Red')
+
+
+
+bbBasis = ta.sma(close, bbSmaPeriod)
+bbStdDev = bbStdDevMult * ta.stdev(close, bbSmaPeriod)
+
+bbUpper = bbBasis + bbStdDev
+bbLower = bbBasis - bbStdDev
+// Bayesian Theorem Starts
+// AO
+aoFast = 5
+aoSlow = 34
+ao = ta.sma(hl2, aoFast) - ta.sma(hl2, aoSlow)
+colorAo = ta.change(ao) > 0 ? #00DBFF : #E91E63
+
+// AC
+acFast = 5
+acSlow = 34
+xSMA1_hl2 = ta.sma(hl2, acFast)
+xSMA2_hl2 = ta.sma(hl2, acSlow)
+xSMA1_SMA2 = xSMA1_hl2 - xSMA2_hl2
+xSMA_hl2 = ta.sma(xSMA1_SMA2, acFast)
+ac = xSMA1_SMA2 - xSMA_hl2
+cClr = ac > ac[1] ? color.blue : #E91E63
+
+acAo = (ac + ao) / 2
+
+maAcAoPeriod = 13
+showMaAcAo = false
+maAcAo = ta.vwma(acAo, maAcAoPeriod)
+
+// Combine AC & AO
+acIsBlue = ac > ac[1]
+acIsRed = not(ac > ac[1])
+aoIsGreen = ta.change(ao) > 0
+aoIsRed = not(ta.change(ao) > 0)
+acAoIsBullish = acIsBlue and aoIsGreen
+acAoIsBearish = acIsRed and acIsRed
+acAoColorIndex = acAoIsBullish ? 1 : acAoIsBearish ? -1 : 0
+
+// Alligator
+smma(src, length) =>
+    smma = 0.0
+    smma := na(smma[1]) ? ta.sma(src, length) : (smma[1] * (length - 1) + src) / length
+    smma
+lipsLength = 5
+teethLength = 8
+jawLength = 13
+lipsOffset = 3
+teethOffset = 5
+jawOffset = 8
+lips = smma(hl2, lipsLength)
+teeth = smma(hl2, teethLength)
+jaw = smma(hl2, jawLength)
+
+// SMA
+
+smaValues = ta.sma(close, smaPeriod)
+
+
+
+// Next candles are breaking Down
+probBbUpperUpSeq = close > bbUpper ? 1 : 0
+probBbUpperUp = math.sum(probBbUpperUpSeq, bayesPeriod) / bayesPeriod
+probBbUpperDownSeq = close < bbUpper ? 1 : 0
+probBbUpperDown = math.sum(probBbUpperDownSeq, bayesPeriod) / bayesPeriod
+
+probUpBbUpper = probBbUpperUp / (probBbUpperUp + probBbUpperDown)
+
+probBbBasisUpSeq = close > bbBasis ? 1 : 0
+probBbBasisUp = math.sum(probBbBasisUpSeq, bayesPeriod) / bayesPeriod
+probBbBasisDownSeq = close < bbBasis ? 1 : 0
+probBbBasisDown = math.sum(probBbBasisDownSeq, bayesPeriod) / bayesPeriod
+
+probUpBbBasis = probBbBasisUp / (probBbBasisUp + probBbBasisDown)
+
+probSmaUpSeq = close > smaValues ? 1 : 0
+probSmaUp = math.sum(probSmaUpSeq, bayesPeriod) / bayesPeriod
+probSmaDownSeq = close < smaValues ? 1 : 0
+probSmaDown = math.sum(probSmaDownSeq, bayesPeriod) / bayesPeriod
+
+probUpSma = probSmaUp / (probSmaUp + probSmaDown)
+
+sigmaProbsDown = nz(probUpBbUpper * probUpBbBasis * probUpSma / probUpBbUpper * probUpBbBasis * probUpSma + (1 - probUpBbUpper) * (1 - probUpBbBasis) * (1 - probUpSma))
+
+// Next candles are breaking Up
+probDownBbUpper = probBbUpperDown / (probBbUpperDown + probBbUpperUp)
+probDownBbBasis = probBbBasisDown / (probBbBasisDown + probBbBasisUp)
+probDownSma = probSmaDown / (probSmaDown + probSmaUp)
+
+sigmaProbsUp = nz(probDownBbUpper * probDownBbBasis * probDownSma / probDownBbUpper * probDownBbBasis * probDownSma + (1 - probDownBbUpper) * (1 - probDownBbBasis) * (1 - probDownSma))
+
+
+
+// Linear Reg Candles
+
+//   //   //  signal_length = input.int(title='Signal Smoothing', minval=1, maxval=200, defval=11)
+//   //   //  sma_signal = input(title='Simple MA (Signal Line)', defval=true)
+//   //   //  
+//   //   //  lin_reg = input(title='Lin Reg', defval=true)
+//   //   //  linreg_length = input.int(title='Linear Regression Length', minval=1, maxval=200, defval=11)
+//   //   //  
+//   //   //  bopen = lin_reg ? ta.linreg(open, linreg_length, 0) : open
+//   //   //  bhigh = lin_reg ? ta.linreg(high, linreg_length, 0) : high
+//   //   //  blow = lin_reg ? ta.linreg(low, linreg_length, 0) : low
+//   //   //  bclose = lin_reg ? ta.linreg(close, linreg_length, 0) : close
+//   //   //  
+//   //   //  r = bopen < bclose
+//   //   //  
+//   //   //  signalXlin = sma_signal ? ta.sma(bclose, signal_length) : ta.ema(bclose, signal_length)
+//   //   //  
+//   //   //  plotcandle(strategy == "LINEAR REG CANDLES" and r ? bopen : na, r ? bhigh : na, r ? blow : na, r ? bclose : na, title='LinReg Candles', color=BullCol, wickcolor=BullCol, bordercolor=BullCol, editable=true)
+//   //   //  plotcandle( strategy == "LINEAR REG CANDLES" and strategy == "Heiken Ashi Oscillator" and strategy == "Heiken Ashi MACD"  and strategy == "QQE MOD" and strategy == "MATRIX SERIES" and strategy == "SQUEEZ MOMENTUM" and strategy == "PUMP & DUMP DETECTOR" and r  ? na : bopen, r ? na : bhigh, r ? na : blow, r ? na : bclose, title='LinReg Candles', color=color.red, wickcolor=color.red, bordercolor=color.red, editable=true)
+//   //   //  
+//   //   //  //plot(strategy == "LINEAR REG CANDLES" ? signalXlin : na, color=color.new(color.white, 0)) // Getting Out of the TV Limits 
+
+
+//functions
+xrf(values, length) =>
+    r_val = float(na)
+    if length >= 1
+        for i = 0 to length by 1
+            if na(r_val) or not na(values[i])
+                r_val := values[i]
+                r_val
+    r_val
+xsa(src, len, wei) =>
+    sumf = 0.0
+    ma = 0.0
+    out = 0.0
+    sumf := nz(sumf[1]) - nz(src[len]) + src
+    ma := na(src[len]) ? na : sumf / len
+    out := na(out[1]) ? ma : (src * wei + out[1] * (len - wei)) / len
+    out
+
+xfl(cond, lbk) =>
+    out = 0.0
+    itemp = 0
+    for i = lbk to 0 by 1
+        if itemp > 0
+            out := 0.0
+            itemp := itemp[1] - 1
+            itemp
+        else
+            if cond[i] == false
+                out := 0.0
+                out
+            else
+                out := 1.0
+                itemp := lbk + 1
+                itemp
+    outb = out == 1 ? true : false
+    out
+
+
+xsl(src, len) =>
+    out = 0.0
+    lrc = ta.linreg(src, len, 0)
+    lrprev = ta.linreg(src[1], len, 0)
+    out := (lrc - lrprev) / timeframe.multiplier
+    out
+
+xcn(cond, len) =>
+    _xcn = 0
+    for i = 1 to len by 1
+        if cond[i - 1]
+            _xcn += 1
+            _xcn
+        else
+            _xcn += 0
+            _xcn
+    _xcn
+
+xda(src, coeff) =>
+    out = 0.0
+    out := coeff * src + (1 - coeff) * nz(out[1])
+    out
+xkdj(m, n1, n2) =>
+    ed = -0.4 * xrf(close, 4) - 0.4 * xrf(close, 3) - 1.1 * xrf(close, 2) + 0.9 * xrf(close, 1) + 2 * close
+    rsv = (xsa(ed, 4, 1) - ta.lowest(low, m)) / (ta.highest(high, m) - ta.lowest(low, m)) * 100
+    k = xsa(rsv, n1, 1)
+    d = xsa(k, n2, 1)
+    j = 2 * k - 1 * d
+    [k, d, j]
+
+//algo
+x_1 = xsa((close - ta.lowest(low, 9)) / (ta.highest(high, 9) - ta.lowest(low, 9)) * 100, 3, 1)
+x_2 = xsa((close - ta.lowest(low, 10)) / (ta.highest(high, 10) - ta.lowest(low, 10)) * 100, 3, 1)
+
+trendx2 = xsa((x_2 - 50) * 2, 3, 1) + xsa((x_1 - 50) * 2, 3, 1) / 1
+// _trend = iff(x_3<=xrf(x_3,1),x_3,na)
+
+//PLOT courtesy of @animecummer
+var grad = array.new_color(na)
+if barstate.isfirst
+    array.push(grad, color.gray)
+    array.push(grad, #ff00ff)
+    array.push(grad, #ff00f7)
+    array.push(grad, #ff00ef)
+    array.push(grad, #ff00e8)
+    array.push(grad, #ff00e0)
+    array.push(grad, #ff00d8)
+    array.push(grad, #ff00d1)
+    array.push(grad, #ff00ca)
+    array.push(grad, #ff00c2)
+    array.push(grad, #ff00bb)
+    array.push(grad, #ff00b4)
+    array.push(grad, #ff00ae)
+    array.push(grad, #ff00a7)
+    array.push(grad, #ff00a1)
+    array.push(grad, #ff009a)
+    array.push(grad, #ff0094)
+    array.push(grad, #ff008e)
+    array.push(grad, #ff0088)
+    array.push(grad, #ff0383)
+    array.push(grad, #ff147d)
+    array.push(grad, #ff1f78)
+    array.push(grad, #ff2773)
+    array.push(grad, #ff2e6e)
+    array.push(grad, #ff356a)
+    array.push(grad, #ff3b65)
+    array.push(grad, #ff4061)
+    array.push(grad, #ff455d)
+    array.push(grad, #ff4959)
+    array.push(grad, #ff4e55)
+    array.push(grad, #ff5252)
+    array.push(grad, #ff5a4e)
+    array.push(grad, #ff6349)
+    array.push(grad, #ff6b44)
+    array.push(grad, #ff743f)
+    array.push(grad, #ff7d3a)
+    array.push(grad, #ff8634)
+    array.push(grad, #ff8f2e)
+    array.push(grad, #ff9827)
+    array.push(grad, #ffa120)
+    array.push(grad, #ffab17)
+    array.push(grad, #ffb40b)
+    array.push(grad, #ffbe00)
+    array.push(grad, #ffc700)
+    array.push(grad, #ffd000)
+    array.push(grad, #ffda00)
+    array.push(grad, #ffe300)
+    array.push(grad, #ffec00)
+    array.push(grad, #fff600)
+    array.push(grad, #ffff00)
+    array.push(grad, #ffff00)
+    array.push(grad, #eefd1d)
+    array.push(grad, #ddfb2d)
+    array.push(grad, #ccf83a)
+    array.push(grad, #bcf546)
+    array.push(grad, #adf150)
+    array.push(grad, #9eee59)
+    array.push(grad, #8fea62)
+    array.push(grad, #81e66a)
+    array.push(grad, #74e172)
+    array.push(grad, #66dc79)
+    array.push(grad, #5ad87f)
+    array.push(grad, #4dd385)
+    array.push(grad, #41cd8a)
+    array.push(grad, #36c88f)
+    array.push(grad, #2cc393)
+    array.push(grad, #24bd96)
+    array.push(grad, #1fb798)
+    array.push(grad, #1eb299)
+    array.push(grad, #21ac9a)
+    array.push(grad, #26a69a)
+    array.push(grad, #26a99d)
+    array.push(grad, #26aca0)
+    array.push(grad, #26afa3)
+    array.push(grad, #26b1a6)
+    array.push(grad, #25b4aa)
+    array.push(grad, #25b7ad)
+    array.push(grad, #25bab0)
+    array.push(grad, #24bdb3)
+    array.push(grad, #24c0b6)
+    array.push(grad, #24c3ba)
+    array.push(grad, #23c6bd)
+    array.push(grad, #23c9c0)
+    array.push(grad, #22ccc4)
+    array.push(grad, #21cfc7)
+    array.push(grad, #20d2ca)
+    array.push(grad, #20d5ce)
+    array.push(grad, #1fd8d1)
+    array.push(grad, #1edbd4)
+    array.push(grad, #1cded8)
+    array.push(grad, #1be1db)
+    array.push(grad, #1ae4df)
+    array.push(grad, #18e7e2)
+    array.push(grad, #17eae6)
+    array.push(grad, #15ede9)
+    array.push(grad, #12f0ed)
+    array.push(grad, #10f3f0)
+    array.push(grad, #0df6f4)
+
+rsival = math.round(ta.rsi(trendx2, 21))
+gradcolor = array.get(grad, rsival)
+
+
+lengthx2 = input.int(50, 'RSI Length', minval=1, group='GENERAL SETTINGS')
+SSF = input.int(30, 'RSI Smoothing Factor', minval=1, group='GENERAL SETTINGS')
+showsignals = input(title='Show Signals', defval=false, group='GENERAL SETTINGS')
+
+
+RSIx_Period = input(14, 'RSI Period')
+Slow_Factor = input(2, 'Slow Factor')
+QQEx = input(4.236, 'QQE')
+ShowMoMoCloud = input(false, 'ShowMoMoCloud')
+
+// Label Style input with pull-down menu
+styleOption = input.string(title='Label Style', options=['label_up', 'label_down', 'label_left', 'label_right', 'label_lower_left', 'label_lower_right', 'label_upper_left', 'label_upper_right', 'label_center', 'None'], defval='None')
+
+// Turn the input into a proper label style value
+labelStyle = styleOption == 'label_up' ? label.style_label_up : styleOption == 'label_down' ? label.style_label_down : styleOption == 'label_left' ? label.style_label_left : styleOption == 'label_right' ? label.style_label_right : styleOption == 'label_lower_left' ? label.style_label_lower_left : styleOption == 'label_lower_right' ? label.style_label_lower_right : styleOption == 'label_upper_left' ? label.style_label_upper_left : styleOption == 'label_upper_right' ? label.style_label_upper_right : styleOption == 'label_center' ? label.style_label_center : styleOption == 'None' ? label.style_none : label.style_label_down
+
+// ————— Calculations
+Wilder_Period = RSIx_Period * 2 - 1
+rsiVal = ta.rsi(src, RSI_Period)
+rsi_ma = ta.ema(rsiVal, Slow_Factor)
+
+atr_rsi = math.abs(rsi_ma[1] - rsi_ma)
+atr_rsi_ma = ta.ema(atr_rsi, Wilder_Period)
+darx = ta.ema(atr_rsi_ma, Wilder_Period) * QQEx
+
+
+
+if ta.cross(RSIndex, shortband[1])
+    trend := 1
+    trend
+else if ta.cross(longband[1], RSIndex)
+    trend := -1
+    trend
+else if not na(trend[1])
+    trend := trend[1]
+    trend
+else
+    trend := 1
+    trend
+
+ColorFastAtrRsiTL = FastAtrRsiTL == FastAtrRsiTL[1] ? color.red : color(#e16d2f)
+
+// ————— Plots
+pFastAtrRsiTL = plot(strategy == "QQE"  ? FastAtrRsiTL : na, 'FastAtrRsiTL', color=ColorFastAtrRsiTL, linewidth=3)
+prsi_ma = plot(strategy == "QQE" ? rsi_ma : na, 'rsi_ma', color=color.new(#71e1b4, 0), linewidth=3)
+
+//plot(90, "care", color.gray)
+//plot(50, 'mid', color.new(color.gray, 0))
+//plot(67, 'OB', color.new(color.red, 0))
+//plot(33, 'OS', color.new(color.yellow, 0))
+
+//MoMo Cloud
+fill(pFastAtrRsiTL , prsi_ma, color=FastAtrRsiTL > rsi_ma ? color.red : color.green, title='MoMoCloud', transp=ShowMoMoCloud ? 35 : 100)
+
+BReversal = ta.crossunder(rsi_ma, 33) ? rsi_ma : na
+plot(strategy == "QQE" ? BReversal : na, 'BReversal', color=color.new(color.white, 0), linewidth=2, style=plot.style_circles)
+SReversal = ta.crossover(rsi_ma, 67) ? rsi_ma : na
+plot(strategy == "QQE" ? SReversal : na, 'SReversal', color=color.new(color.white, 0), linewidth=2, style=plot.style_circles)
+Cross = ta.cross(rsi_ma, 50) ? rsi_ma : na
+//plot(strategy == "QQE" ? Cross : na, 'Cross', color=color.new(color.white, 0), linewidth=2, style=plot.style_circles)
+
+
+// ————— Alerts
+alertcondition(ta.crossover(rsi_ma, FastAtrRsiTL), title='Buy Signal', message='Blue Line Cross above Orange Line, Green MoMo Cloud, Bullish')
+alertcondition(ta.crossover(FastAtrRsiTL, rsi_ma), title='Sell Signal', message='Orange Line Cross above Blue Line, Red MoMo Cloud, Bearish')
+
+plot(ShowDump and strategy == "PND" ? sigmaProbsDown * 100 : na, title='Dump Detector', color=color.new(#E91E63, 50), linewidth=2 , style=plot.style_area)
+plot(ShowPump and strategy == "PND" ? sigmaProbsUp * 100 : na, title='Pump Detector', color=color.new(#00DBFF, 50), linewidth=2 , style=plot.style_area)
+
+RSII = ta.ema(ta.rsi(src, lengthx2), SSF)
+
+TR = math.abs(RSII - RSII[1])
+
+wwalpha = 1 / lengthx2
+
+WWMA = 0.0
+
+WWMA := wwalpha * TR + (1 - wwalpha) * nz(WWMA[1])
+
+ATRRSI = 0.0
+
+ATRRSI := wwalpha * WWMA + (1 - wwalpha) * nz(ATRRSI[1])
+
+AREXFAST = ta.ema(ta.rsi(src, lengthx2), SSF)
+
+QUP = AREXFAST + ATRRSI * 4.236
+QDN = AREXFAST - ATRRSI * 4.236
+
+AREXSLOW = 0.0
+
+AREXSLOW := QUP < nz(AREXSLOW[1]) ? QUP : AREXFAST > nz(AREXSLOW[1]) and AREXFAST[1] < nz(AREXSLOW[1]) ? QDN : QDN > nz(AREXSLOW[1]) ? QDN : AREXFAST < nz(AREXSLOW[1]) and AREXFAST[1] > nz(AREXSLOW[1]) ? QUP : nz(AREXSLOW[1])
+
+Colorh = AREXFAST > 60 ? BullCol : AREXFAST < 40 ? BearCol : na
+
+//ARXF = plot(AREXFAST, 'AREX FAST', color=color.new(color.maroon, 0), linewidth=2, display=display.none, editable = false)
+
+plot(strategy == "PUMP & DUMP DETECTOR"  ?  AREXFAST : na, color=Colorh, linewidth=2, style=plot.style_histogram, histbase=50)
+
+//plot(strategy == "PUMP & DUMP DETECTOR" ?  AREXFAST : na, color=gradcolor, linewidth=2, style=plot.style_line, histbase=50)
+
+//ARXS = plot(AREXSLOW, 'AREX SLOW', color=color.new(color.white, 0), linewidth=2, display=display.none , editable = false)
+
+BearLimit = hline(strategy == "PUMP & DUMP DETECTOR"  ? 60 : na, color=color.gray, linestyle=hline.style_dashed)
+BullLimt = hline(strategy == "PUMP & DUMP DETECTOR"  ? 40 : na, color=color.gray, linestyle=hline.style_dashed)
+
+bulllim = 40
+bearlim = 60
+BullSignalr = ta.crossover(AREXFAST, AREXSLOW) and AREXFAST < bulllim
+BearSignallr = ta.crossunder(AREXFAST, AREXSLOW) and AREXFAST > bearlim
+
+cru = ta.crossunder(AREXFAST, bearlim)
+
+
+plotshape(BullSignalr and showsignals ? AREXSLOW * 0.995 : na, title='Bull', text='Bull', location=location.absolute, style=shape.labelup, size=size.tiny, color=color.new(color.black, 50), textcolor=color.new(color.white, 50))
+plotshape(BearSignallr and showsignals ? AREXSLOW * 1.005 : na, title='Bear', text='Bear', location=location.absolute, style=shape.labeldown, size=size.tiny, color=color.new(color.black, 50), textcolor=color.new(color.white, 50))
+
+
+hline(strategy == "PUMP & DUMP DETECTOR" ? 50 : na)
+
+alertcondition(ta.cross(AREXFAST, AREXSLOW), title='Cross Alert', message='AREX Crossing Signal!')
+alertcondition(ta.crossover(AREXFAST, AREXSLOW), title='Crossover Alarm', message='AREX Bull SIGNAL!')
+alertcondition(ta.crossunder(AREXFAST, AREXSLOW), title='Crossunder Alarm', message='AREX Bear SIGNAL!')
+alertcondition(ta.crossover(AREXFAST, 50), title='Cross 0 Up Alert', message='AREX FAST Crossing 0 UP!')
+alertcondition(ta.crossunder(AREXFAST, 50), title='Cross 0 Down Alert', message='AREX FAST Crossing 0 DOWN!')
+alertcondition(ta.crossover(AREXFAST, 60), title='Cross 10 Up Alert', message='AREX Above 10 UPTREND SIGNAL!')
+alertcondition(ta.crossunder(AREXFAST, 40), title='Cross -10 Down Alert', message='AREX Below -10 DOWNTREND SIGNAL!')
+alertcondition(ta.crossunder(AREXFAST, 60) or ta.crossover(AREXFAST, 40), title='SIDEWAYS', message='AREX Entering Sideways Market!')
+

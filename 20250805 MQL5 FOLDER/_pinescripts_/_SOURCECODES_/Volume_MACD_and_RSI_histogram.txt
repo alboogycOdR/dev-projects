@@ -1,0 +1,126 @@
+﻿// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © premium
+
+//@version=5
+indicator("Volume MACD and RSI histogram")
+
+length = input(7, "RSI Length")
+ma_length=input(4,"Moving Average Length")
+source = input(hlc3)
+ma_select = input.string(title="Moving Average Type", defval="KAMA", options=["NONE","SMA", "EMA", "WMA", "HMA", "JMA", "KAMA"])
+i_fastAlpha = input.float(3, "KAMA's alpha (only for KAMA)", minval=0, step=0.5)
+// rsi_val=math.min(100,math.max(-100,(ta.rsi(source, length) - 50) * 4 ))
+rsi_val=ta.rsi(source, length) - 50
+fastAlpha = 2.0 / (i_fastAlpha + 1)
+slowAlpha = 2.0 / (31)
+MA_selector(src, length) =>
+    ma = 0.0
+    if ma_select == "NONE"
+        ma:=src
+        ma
+    if ma_select == "SMA"
+        ma := ta.sma(src, length)
+        ma
+
+    if ma_select == "EMA"
+        ma := ta.ema(src, length)
+        ma
+
+    if ma_select == "WMA"
+        ma := ta.wma(src, length)
+        ma
+    if ma_select == "HMA"
+        ma := ta.hma(src,length)
+        ma
+    if ma_select == "JMA"
+        beta = 0.45*(length-1)/(0.45*(length-1)+2)
+        alpha = beta
+        tmp0 = 0.0, tmp1 = 0.0, tmp2 = 0.0, tmp3 = 0.0, tmp4 = 0.0
+        tmp0 := (1-alpha)*src + alpha*nz(tmp0[1])
+        tmp1 := (src - tmp0[0])*(1-beta) + beta*nz(tmp1[1])
+        tmp2 := tmp0[0] + tmp1[0]
+        tmp3 := (tmp2[0] - nz(tmp4[1]))*((1-alpha)*(1-alpha)) + (alpha*alpha)*nz(tmp3[1])
+        tmp4 := nz(tmp4[1]) + tmp3[0]
+        ma := tmp4
+        ma
+    if ma_select == "KAMA"
+        momentum = math.abs(ta.change(src, length))
+        volatility = math.sum(math.abs(ta.change(src)), length)
+        efficiencyRatio = volatility != 0 ? momentum / volatility : 0
+        smoothingConstant = math.pow((efficiencyRatio * (fastAlpha - slowAlpha)) + slowAlpha, 2)
+        var kama = 0.0
+        kama := nz(kama[1], src) + smoothingConstant * (src - nz(kama[1], src))
+        ma:=kama
+        ma
+    ma
+
+transp = 85
+nzVolume = nz(volume)
+volAvgS  = ta.sma(nzVolume, 13)
+
+vbcbColor = if close < open
+    if nzVolume > volAvgS * 1.618034
+        color.new(#910000,transp)
+    else if nzVolume >= volAvgS * .618034 and nzVolume <= volAvgS * 1.618034
+        color.new(color.red,transp)
+    else
+        color.new(color.orange,transp)
+else
+    if nzVolume > volAvgS * 1.618034
+        color.new(#006400,transp)
+    else if nzVolume >= volAvgS * .618034 and nzVolume <= volAvgS * 1.618034
+        color.new(color.green,transp)
+    else
+        color.new(#7FFFD4,transp)
+
+bgcolor(nzVolume ? vbcbColor : na, title='Volume')
+
+val=MA_selector(rsi_val,ma_length)
+plot_color=val >= 0 ? (val > val[1] ? color.lime : color.orange) : (val < val[1] ? color.maroon : color.orange)
+plot(val,color=plot_color, style=plot.style_columns)
+
+
+length2 = 100
+spike = close - open
+x = ta.stdev(spike,length2)
+y = ta.stdev(spike,length2) * -1
+barcolor(color = spike > x and spike > 0 ? color.green : spike < y and spike < 0 ? color.red : color.yellow )
+
+
+
+fastLen = input.int(12, "Short period")
+slowLen = input.int(26, "Long period")
+signalLen = input.int(9, "Smoothing period")
+
+fastMA = ta.ema(volume * close, fastLen) / ta.ema(volume, fastLen)
+slowMA = ta.ema(volume * close, slowLen) / ta.ema(volume, slowLen)
+vmacd = fastMA - slowMA
+signalMA = ta.ema(vmacd, signalLen)
+// hist=vmacd-signalMA
+// h_color=hist >= 0 ? (hist > hist[1] ? color.lime : color.orange) : (hist < hist[1] ? color.maroon : color.orange)
+// plot(hist, style=plot.style_histogram , color=h_color, linewidth=3)
+
+color= vmacd>=0 ? (vmacd>vmacd[1] ? color.rgb(6, 114, 9) : color.orange) : (vmacd < vmacd[1] ? color.maroon : color.orange)
+zeroLine=plot(0, color=color.rgb(255, 255, 255, 100) )
+vmacdLine=plot(vmacd, color=color, linewidth=3)
+fill(zeroLine, vmacdLine, color.rgb(178, 181, 190, 90))
+plot(signalMA, color=color.white, linewidth=1, style = plot.style_cross)
+
+// length = 100
+// spike = close - open
+// x = ta.stdev(spike,length)
+// y = ta.stdev(spike,length) * -1
+// barcolor(color = spike > x and spike > 0 ? color.green : spike < y and spike < 0 ? color.red : color.yellow )
+Cross = ta.cross(vmacd, 0)
+Color = ta.crossover(vmacd, 0) ? color.green : color.red
+plotshape(Cross, title='', style=shape.labelup, location=location.bottom , size=size.tiny, color=Color)
+
+input1 = input(title='Fast Length', defval=3)
+input2 = input(title='Slow Length', defval=9)
+pivR = input(title='Wolfpack Wave Pivot Lookback Right', defval=1)
+pivL = input(title='Wolfpack Wave Pivot Lookback Left', defval=18)
+fastmaa = ta.ema(close, input1)
+fastmab = ta.ema(close, input2)
+bspread = (fastmaa - fastmab) * 1.001
+m = bspread > 0 ? color.new(color.lime, 0) : color.new(color.red, 0)
+plot(bspread, color=m)

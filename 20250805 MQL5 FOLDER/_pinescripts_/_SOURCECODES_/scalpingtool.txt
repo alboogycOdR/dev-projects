@@ -1,0 +1,88 @@
+// This work is licensed under a Attribution-NonCommercial-ShareAlike 4.0 International (CC BY-NC-SA 4.0) https://creativecommons.org/licenses/by-nc-sa/4.0/
+// © LuxAlgo
+
+//@version=5
+indicator("Range Breakout Signals (Intrabar) [LuxAlgo]", "LuxAlgo - Range Breakout Signals (Intrabar)", overlay = true)
+//-----------------------------------------------------------------------------}
+//Settings
+//-----------------------------------------------------------------------------{
+tf = input.timeframe('1', 'Intrabar Timeframe', inline = 'tf')
+auto = input(true, inline = 'tf')
+
+mode = input.string('Trend Following', options = ['Trend Following', 'Reversal'])
+filter = input(false, 'Filter Out Successive Signals')
+
+//-----------------------------------------------------------------------------}
+//Extremities
+//-----------------------------------------------------------------------------{
+var float max = na
+var float min = na
+var usetf = auto ? timeframe.from_seconds(timeframe.in_seconds(timeframe.period) / 20) : tf
+
+[c, n] = request.security_lower_tf(syminfo.tickerid, usetf, [close, bar_index])
+
+//Check for array size
+if not auto and timeframe.in_seconds(timeframe.period) / timeframe.in_seconds(tf) <= 2
+    runtime.error("Chart timeframe is incompatible with intrabar timeframe. Use a lower intrabar timeframe or an higher chart timeframe.")
+
+//Intrabar R2
+float r = na
+if c.size() > 2
+    cov = c.covariance(n)
+    den = c.stdev() * n.stdev()
+    r := cov / den
+
+r := r * r
+max := r < .5 ? high : max
+min := r < .5 ? low : min
+
+//-----------------------------------------------------------------------------}
+//Breakouts
+//-----------------------------------------------------------------------------{
+var os = 0
+var allow_up = true
+var allow_dn = true
+
+up = switch mode
+    'Reversal' => close > min and open < min and allow_up and os != 1
+    => close > max and open < max and allow_up and os != 1
+
+dn = switch mode
+    'Reversal' => close < max and open > max and allow_dn and os != -1
+    => close < min and open > min and allow_dn and os != -1
+
+allow_up := max != max[1] ? true : up ? false : allow_up
+allow_dn := min != min[1] ? true : dn ? false : allow_dn
+
+os := not filter ? 0 : up ? 1 : dn ? -1 : os 
+
+//-----------------------------------------------------------------------------}
+//Plots
+//-----------------------------------------------------------------------------{
+//Levels
+plot(max, 'Upper', max != max[1] ? na : #2157f3)
+plot(min, 'Lower', min != min[1] ? na : #2157f3)
+
+//Breakout labels
+plotshape(up ? low : na, "Upward Breakout"
+  , shape.labelup
+  , location.absolute
+  , color(na)
+  , text = "▲"
+  , textcolor = #089981
+  , size = size.tiny)
+
+plotshape(dn ? high : na, "Downward Breakout"
+  , shape.labeldown
+  , location.absolute
+  , color(na)
+  , text = "▼"
+  , textcolor = #f23645
+  , size = size.tiny)
+
+//Barcolor
+barcolor(close > open and r > .5 ? #089981
+  : close < open and r > .5 ? #f23645
+  : c.size() > 0 ? color(na) : na)
+
+//-----------------------------------------------------------------------------}

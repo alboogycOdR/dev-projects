@@ -1,0 +1,574 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// ©Kromut76
+//@version=5
+indicator("BBLWMAOA Remastered Prototype", overlay=true)
+
+histLabel   	  = input.int(0,'', minval=0, inline = 'STAT', group = "SUPPORTING DATA FOR ANALYSIS", tooltip= 'ini dipergunakan untuk menganalisa historical data dari yg terbaru hingga beberapa periode kebelakang')
+hideLabel   	  = input(true,'Hide Statistical Panel | Historical Readings', inline = 'STAT', group="SUPPORTING DATA FOR ANALYSIS", tooltip = 'centang bila ingin menyembunyikan panel statistik')
+
+//Bollinger Bands inputs
+showBB      = input.bool(false, group= "Bollinger Bands")
+showBBOASig = input.bool(false,"Buy/Sell signal BB-Awesome Osc",group= "Bollinger Bands")
+bb_src10    = input(close, 'BB Source', group='Bollinger Bands')
+lengthBB    = input.int(14, maxval=200, group = 'Bollinger Bands')
+mult        = input.int(2,maxval=200,group='Bollinger Bands')
+fast_ma_len = input.int(3,'Fast EMA length', minval=2, group='Bollinger Bands')
+
+// Awesome Inputs
+nLengthSlow = input.int(34, minval=1, title='Awesome Length Slow', group='Bollinger Bands')
+nLengthFast = input.int(5, minval=1, title='Awesome Length Fast', group='Bollinger Bands')
+
+//Formulas Bollinger Bands
+basis = ta.sma(bb_src10, lengthBB)
+dev = ta.stdev(bb_src10, lengthBB)
+dev2 = mult * dev
+
+upper1 = basis + dev
+lower1 = basis - dev
+upper2 = basis + dev2
+lower2 = basis - dev2
+
+//Style
+colorBasis = bb_src10 >= basis ? #8ad400 : #e91e63
+
+//Plots
+pBasis  = plot(showBB ? basis : na, linewidth=5, title="BB Basis", color=colorBasis)
+pUpper1 = plot(showBB ? upper1 : na, title="BB Upper1", color=color.new(color.blue, 0), style=plot.style_linebr)
+pUpper2 = plot(showBB ? upper2 : na, title="BB Upper2", color=color.new(color.blue, 0))
+pLower1 = plot(showBB ? lower1 : na, title="BB Lower1", color=color.new(color.blue, 0), style=plot.style_linebr)
+pLower2 = plot(showBB ? lower2 : na, title="BB Lower2", color=color.new(color.blue, 00))
+
+//Fills
+fill(pBasis, pUpper2, color =showBB ? color.new(color.blue, 80) : na)
+fill(pUpper1, pUpper2, color=showBB ? color.new(color.blue, 90) : na)
+fill(pBasis, pLower2, color =showBB ? color.new(color.gray, 80) : na)
+fill(pLower1, pLower2, color=showBB ? color.new(color.gray, 90) : na)
+
+// Breakout Indicator Inputs
+ema_1 = ta.ema(bb_src10, lengthBB)
+sma_1 = ta.sma(bb_src10, lengthBB)
+fast_ma = ta.ema(bb_src10, fast_ma_len)
+
+// Calculate Awesome Oscillator
+xSMA1_hl2 = ta.sma(hl2, nLengthFast)
+xSMA2_hl2 = ta.sma(hl2, nLengthSlow)
+xSMA1_SMA2 = xSMA1_hl2 - xSMA2_hl2
+// Calculate direction of AO
+AO = xSMA1_SMA2 >= 0 ? xSMA1_SMA2 > xSMA1_SMA2[1] ? 1 : 2 : xSMA1_SMA2 > xSMA1_SMA2[1] ? -1 : -2
+
+// plot fast ma
+plot(fast_ma, title='Fast EMA', color=color.new(color.white, 10), linewidth=1)
+
+// Calc breakouts
+break_down = ta.crossunder(fast_ma, basis) and close < basis and math.abs(AO) == 2 //and (not bb_filter or close > lower)
+break_up = ta.crossover(fast_ma, basis) and close > basis and math.abs(AO) == 1 //and (not bb_filter or close < upper)
+
+// Show Break Alerts
+plotshape(showBBOASig and break_down, title='Breakout Down', style=shape.triangledown, location=location.abovebar, size=size.tiny, text=' Jual', textcolor = color.white)
+plotshape(showBBOASig and break_up, title='Breakout Up', style=shape.triangleup, location=location.belowbar, size=size.tiny, text='Beli', textcolor = color.white)
+
+//{ LWMA Custom Weighted Function
+get_lwma(src, period, weight) =>
+    price = src
+    sub = weight / period - 1
+    float p = na
+    float d = na
+    float sum = 0
+    float divider = 0
+    for i = 0 to period - 1 by 1
+        p := price[i] * (weight - i - sub)
+        d := weight - i - sub
+        sum += p
+        divider += d
+        divider
+    sum / divider
+//}--LWMA Custom Weighted 
+
+/// Sample Usage
+showLWMA5 = input.bool(false,"Show LWMA 5 low and high", group = 'LWMA 5')
+lwma_source1 = input(low, title='LWMA 5 Low:', group = 'LWMA 5')
+lwma_period1 = input.int(5, title='LWMA Lookback Period:', minval=1, step=1, group = 'LWMA 5')
+lwma_weight1 = input.int(6, title='LWMA Weight:', minval=1, step=1, group = 'LWMA 5')
+
+lwma_source2 = input(high, title='LWMA 5 High:', group = 'LWMA 5')
+lwma_period2 = input.int(5, title='LWMA Lookback Period:', minval=1, step=1, group = 'LWMA 5')
+lwma_weight2 = input.int(6, title='LWMA Weight:', minval=1, step=1, group = 'LWMA 5')
+
+showLWMA10 = input.bool(false,"Show LWMA 10 low and high", group = 'LWMA 10')
+lwma_source3 = input(low, title='LWMA 10 low:', group = 'LWMA 10')
+lwma_period3 = input.int(10, title='LWMA Lookback Period:', minval=1, step=1, group = 'LWMA 10')
+lwma_weight3 = input.int(11, title='LWMA Weight:', minval=1, step=1, group = 'LWMA 10')
+
+lwma_source4 = input(high, title='LWMA 10 High:', group = 'LWMA 10')
+lwma_period4 = input.int(10, title='LWMA Lookback Period:', minval=1, step=1, group = 'LWMA 10')
+lwma_weight4 = input.int(11, title='LWMA Weight:', minval=1, step=1, group = 'LWMA 10')
+
+colorChange = input(true, title='Directional color change?')
+
+lwma1 = get_lwma(lwma_source1, lwma_period1, lwma_weight1)
+lwma2 = get_lwma(lwma_source2, lwma_period2, lwma_weight2)
+lwma3 = get_lwma(lwma_source3, lwma_period3, lwma_weight3)
+lwma4 = get_lwma(lwma_source4, lwma_period4, lwma_weight4)
+
+mahi5_p = get_lwma(lwma_source2[1], lwma_period2, lwma_weight2)
+malo5_p = get_lwma(lwma_source1[1], lwma_period1, lwma_weight1)
+
+lwmaRise1 = lwma1[1] < lwma1
+lwmaFall1 = lwma1[1] > lwma1
+
+lwmaRise2 = lwma2[1] < lwma2
+lwmaFall2 = lwma2[1] > lwma2
+
+lwmaRise3 = lwma3[1] < lwma3
+lwmaFall3 = lwma3[1] > lwma3
+
+lwmaRise4 = lwma4[1] < lwma4
+lwmaFall4 = lwma4[1] > lwma4
+
+LWMARibbon1 = lwma1>= lwma2 ?  color.green : color.red
+LWMARibbon2 = lwma1>= lwma2 ?  color.gray: color.gray
+
+lColor1 = colorChange ? lwmaRise1 ? color.green : color.red : color.blue
+lColor2 = colorChange ? lwmaRise2 ? color.green : color.red : color.blue
+lColor3 = colorChange ? lwmaRise3 ? color.lime : color.red : color.blue
+lColor4 = colorChange ? lwmaRise4 ? color.lime : color.red : color.blue
+
+plwma1 = plot(showLWMA5 ? lwma1 : na, color=lColor1, title = "LWMA 5 Low", linewidth=1)
+plwma2 = plot(showLWMA5 ? lwma2 : na, color=lColor2, title = "LWMA 5 High", linewidth=1)
+plwma3 = plot(showLWMA10? lwma3 : na, color=lColor3, title = "LWMA 10 Low", linewidth=2)
+plwma4 = plot(showLWMA10? lwma4 : na, color=lColor4, title = "LWMA 10 High", linewidth=2)
+
+//fill(plwma1, plwma2,       title="LWMA 5 Ribbon", color=LWMARibbon1, transp=80)
+//fill(plwma3, plwma4,       title="LWMA 10 Ribbon", color=LWMARibbon2, transp=90)
+
+plot_signal_ret     =input.bool(false,title="Plot Signal RET")
+plot_signal_ext     =input.bool(false,title="Plot Signal EXT")
+plot_signal_csa     =input.bool(false,title="Plot Signal CSA")
+plot_signal_mmt     =input.bool(false,title="Plot Signal MMT")
+plot_signal_ali     =input.bool(false,title="Plot Alien Candle")
+
+//signal RET
+reject_mahi = high > lwma2 and close < lwma2 and close < lwma4 and close < basis and lwma2 < basis
+plotshape(reject_mahi and plot_signal_ret, style=shape.triangledown, location=location.abovebar, color=color.new(color.yellow, 0))
+reject_malo = low < lwma1 and close > lwma1 and close > lwma3 and close > basis and lwma1 > basis
+plotshape(reject_malo and plot_signal_ret, style=shape.triangleup, location=location.belowbar, color=color.new(color.green, 50))
+
+//signal CSA
+csak_sell = open > basis and close < basis
+plotshape(csak_sell and plot_signal_csa, style=shape.diamond, location=location.abovebar, color=color.new(color.red, 50))
+csak_buy = open < basis and close > basis
+plotshape(csak_buy and plot_signal_csa, style=shape.diamond, location=location.belowbar, color=color.new(color.green, 50))
+
+csaa = close < lwma3 or close > lwma4
+//extreme
+//ext_sell=(close[1] > upper2_p) and (open > upper2) and (close < upper2) and (mahi5_p > upper2_p)
+candle_sz_p = math.abs(close[1] - open[1])
+candle_sz = math.abs(close - open)
+//engulfing type extreme
+ext_sell = close[1] > open[1] and close < upper2 and close < open and (mahi5_p > upper2 or lwma2 > upper2) and candle_sz > candle_sz_p / 2
+plotshape(ext_sell and plot_signal_ext, style=shape.xcross, location=location.abovebar, color=color.new(color.red, 50))
+ext_buy = close[1] < open[1] and close > lower1 and close > open and (malo5_p < lower2 or lwma1 < lower1) and candle_sz > candle_sz_p / 2
+plotshape(ext_buy and plot_signal_ext, style=shape.xcross, location=location.belowbar, color=color.new(color.green, 50))
+
+//mmt
+mmt_sell = close < lower1 and open > lower1
+plotshape(mmt_sell and plot_signal_mmt, style=shape.arrowdown, location=location.belowbar, color=color.new(color.red, 50))
+mmt_buy = close > upper2 and open < upper2
+plotshape(mmt_buy and plot_signal_mmt, style=shape.arrowup, location=location.abovebar, color=color.new(color.green, 50))
+
+//alien
+ali_sell = open < lower1 and close < lower1
+plotshape(ali_sell and plot_signal_ali, style=shape.flag, location=location.belowbar, color=color.new(color.red, 50))
+ali_buy = open > upper2 and close > upper2
+plotshape(ali_buy and plot_signal_ali, style=shape.flag, location=location.abovebar, color=color.new(color.green, 50))
+
+
+//shortCondition = crossunder(security(tickerid, Period, close),security(tickerid, Period, open))
+signal_reentry = reject_mahi or reject_malo
+signal_csak = csak_sell or csak_buy
+signal_extreme = ext_sell or ext_buy
+signal_csm = mmt_sell or mmt_buy
+signal_alien = ali_sell or ali_buy
+signal_mahi = close > lwma2
+signal_malo = close < lwma1
+
+signal_csaa = csaa
+
+alertcondition(reject_malo, "buy", "buy-reject MALO5")
+alertcondition(reject_mahi, "sell", "sell-reject MAHI5")
+alertcondition(signal_reentry, 'REENTRY', 'REENTRY')
+alertcondition(signal_csak, 'CSAK', 'CSAK')
+alertcondition(signal_extreme, 'EXTREME', 'EXTREME')
+alertcondition(signal_csm, 'CSM', 'CSM')
+alertcondition(signal_alien, 'ALIEN', 'ALIEN')
+alertcondition(signal_mahi, 'MAHI', 'MAHI5')
+alertcondition(signal_malo, 'MALO', 'MALO5')
+alertcondition(signal_csaa, 'CSAA', 'CSAA/CHK')
+
+EMAlen3 = 50
+src3 = close
+out3 = ta.ema(src3, EMAlen3)
+ema3color = out3 > out3[1] ? #00bcd4 : #e91e63
+ema3 = plot(out3, title='EMA 55', linewidth=2, color=color.new(ema3color, 50), offset=0, display=display.none)
+
+//Parabolic SAR/////////////////////////////////////////////////////////////////
+start = 0.02
+increment = 0.01
+maximum = 0.2
+psar = ta.sar(start, increment, maximum)
+plot(psar, "ParabolicSAR", style=plot.style_circles, color=#ffffff, display = display.none)
+
+// ALERTS
+//if lwmaRise and not lwmaRise[1]
+//    alert('LWMA is Rising', alert.freq_once_per_bar)
+//if lwmaFall and not lwmaFall[1]
+//    alert('LWMA is Falling', alert.freq_once_per_bar)
+
+//=========SUPERTREND CALCULATION METRICS=========================
+//group_st     = 'SuperTrend Calculation Metrics'
+stMultIchi   = 1 //stMultIchi   = input.int(1 , '  SuperTrend Ichimoku : Multiplier Factor'    , minval=1, group = group_st)
+stLengthIchi = 14 //stLengthIchi = input.int(14, '  SuperTrend Ichimoku : Length of ATR Periods', minval=1, group = group_st)
+stMultDMI    = 2 //stMultDMI    = input.int(2 , '  SuperTrend DMI : Multiplier Factor'         , minval=1, group = group_st)
+stLengthDMI  = 14 //stLengthDMI  = input.int(14, '  SuperTrend DMI : Length of ATR Periods'     , minval=1, group = group_st)
+
+//group_color  = 'ADX'
+adxSmoothing = 14 //input.int(14, '  Directional Movement : ADX Smoothing'        , minval=1, group = group_color)
+diLength     = 14 //input.int(14, '  Directional Movement : DI Length'            , minval=1, group = group_color)
+strongTrend  = 25 //input(25    , '  Directional Movement : Strong Trend Theshold'          , group = group_color)
+weakTrend    = 17 //input(17    , '  Directional Movement : Weak Trend Theshold'            , group = group_color)
+
+conversionPeriods   = 9 //input.int(9 , '  Ichimoku Cloud : Conversion Line Periods', minval=1, group = group_color)
+basePeriods         = 26 //input.int(26, '  Ichimoku Cloud : Base Line Periods'      , minval=1, group = group_color)
+laggingSpan2Periods = 52 //input.int(52, '  Ichimoku Cloud : Lagging Span 2 Periods' , minval=1, group = group_color)
+displacement        = 26 //input.int(26, '  Ichimoku Cloud : Displacement'           , minval=1, group = group_color)
+
+vwcbLen      = 21 //input.int(21     , '  Volume Weighted Colored Bars : Length'        , minval=1           , group = group_color)
+vwcbUpper    = 1.618 //input.float(1.618, '  Volume Weighted Colored Bars : Upper Theshold', minval=0.1, step=.1, group = group_color)
+vwcbLower    = .618 //input.float(.618 , '  Volume Weighted Colored Bars : Lower Theshold', minval=0.1, step=.1, group = group_color)
+
+//group_panel   = 'Statistical Panel : Momentum Indicators'
+rsiSrc        = close //input.source (close, '  RSI : Source', group=group_panel)
+rsiLength     = 14 //input.int(14, '  RSI : Length', minval=1, group=group_panel)
+rsiOversold   = 30 //input.int(30, '  RSI : OverSold Theshold', minval=1, group=group_panel)
+rsiOverbought = 70 //input.int(70, '  RSI : OverBought Theshold', minval=1, group=group_panel)
+
+stochLengthK    = 14// input.int(14, '  Stoch : %K', minval=1, group=group_panel)
+stochLengthD    = 3 //input.int(3, '  Stoch : %D', minval=1, group=group_panel)
+stochSmoothingK = 3 //input.int(3, '  Stoch : Smoothing', minval=1, group=group_panel)
+stochOversold   = 20 //input.int(20, '  Stoch : OverSold Theshold', minval=1, group=group_panel)
+stochOverbought = 80 //input.int(80, '  Stoch : OverBought Theshold', minval=1, group=group_panel)
+
+macdSrc          = close// input.source(close, '  MACD : Source1', group=group_panel)
+macdFastLength   = 12//input.int(12, '  MACD : Fast Length', minval=1, group=group_panel)
+macdSlowLength   = 26//input.int(26, '  MACD : Slow Length', minval=1, group=group_panel)
+macdSignalLength = 9//input.int(9, '  MACD : Signal Smoothing Length', minval=1, group=group_panel)
+
+dprLength    = 13//input.int(13, 'DPR : Pressure Length', minval=1, group=group_panel)
+upperBand    = 75//input.int(75, 'DPR : Pressure Upper Band', minval=50, maxval=99, group=group_panel)
+lowerBand    = 25//input.int(25, 'DPR : Pressure Lower Band', minval=1 , maxval=49, group=group_panel)
+
+//source1 = input(title="Source1", defval=close)
+source1 = close
+nzVolune = nz(volume)
+
+// -Calculations ================================================================================ //
+// SuperTrends
+[superTrendIchi, dirIchi] = ta.supertrend(stMultIchi, stLengthIchi)
+[superTrendDMI , dirDMI]  = ta.supertrend(stMultDMI , stLengthDMI )
+
+// Directional Movement Index 
+[diplus, diminus, adxValue] = ta.dmi(diLength, adxSmoothing)
+
+dmiBull = diplus   >= diminus and adxValue >= strongTrend
+dmiBear = diplus   <  diminus and adxValue >= strongTrend
+dmiWeak = adxValue < strongTrend and adxValue > weakTrend
+
+// Ichimoku Cloud 
+donchian(len)  => math.avg(ta.lowest(len), ta.highest(len))
+conversionLine = donchian(conversionPeriods)
+baseLine       = donchian(basePeriods)
+leadLine1      = math.avg(conversionLine, baseLine)
+leadLine2      = donchian(laggingSpan2Periods)
+
+aboveCloud     = source1 > leadLine1[displacement - 1] and source1 > leadLine2[displacement - 1]
+belowCloud     = source1 < leadLine1[displacement - 1] and source1 < leadLine2[displacement - 1]
+inCloud        = source1 > leadLine1[displacement - 1] and source1 < leadLine2[displacement - 1] or source1 < leadLine1[displacement - 1] and source1 > leadLine2[displacement - 1]
+
+// dpr
+buyPressure  = 0.
+sellPressure = 0.
+priceDelta   = 0.
+priceRange   = 0.
+dpr          = 0.
+dominance    = 0.
+
+if nzVolune
+    for i = 0 to dprLength
+        priceDelta := close[i] - open[i]
+        priceRange := high[i]  - low[i]
+    
+        if priceDelta > 0
+            buyPressure += priceDelta / priceRange * nzVolune[i]
+
+        if priceDelta < 0
+            sellPressure += priceDelta / priceRange * nzVolune[i]
+
+    dominance := buyPressure + math.abs(sellPressure)
+        
+    if dominance != 0.
+        dpr := 100 * (buyPressure / dominance)
+    else
+        dpr := 50
+   
+// Volume Weighted Colored Bars
+avrg     = ta.sma(nzVolune, vwcbLen)
+
+// Label
+lbStat  = histLabel > 0 ? 'Historical Status of ' + syminfo.description + '\n   -exchange: ' + syminfo.prefix + '\n   -timeframe: ' + timeframe.period + '\n   -history: ' + str.tostring(histLabel) + ' bar(s) earlier' : 
+                          'Current Status of '    + syminfo.description + '\n   -exchange: ' + syminfo.prefix + '\n   -timeframe: ' + timeframe.period
+
+stText  = source1 > superTrendIchi and source1 > superTrendDMI ? ' 🟢  both bullish' : 
+          source1 < superTrendIchi and source1 < superTrendDMI ? ' 🔴  both bearish' : 
+          source1 < superTrendIchi and source1 > superTrendDMI or source1 > superTrendIchi and source1 < superTrendDMI ? ' ⚫ trendless or transitioning' : na
+
+adxMom  = adxValue > adxValue[1] ? ' and growing' : ' and falling'
+diStat  = diplus >= diminus ? '\n   -diplus(' + str.tostring(diplus, '#.##') + ') >= diminus(' + str.tostring(diminus, '#.##') + ')' : 
+                              '\n   -diplus(' + str.tostring(diplus, '#.##') + ') < diminus(' + str.tostring(diminus, '#.##') + ')'
+
+dmiText = dmiBull ? '🟢  bullish\n   -adx(' + str.tostring(adxValue, '#.##') + ')' + adxMom + diStat : 
+          dmiBear ? '🔴  bearish\n   -adx(' + str.tostring(adxValue, '#.##') + ')' + adxMom + diStat : 
+          '⚫ trendless\n   -adx('  + str.tostring(adxValue, '#.##') + ')' + adxMom + diStat
+
+tkStat  = conversionLine >= baseLine ? '\n   -tenkan-sen(' + str.tostring(conversionLine, format.mintick) + ') >= kijun-sen(' + str.tostring(baseLine, format.mintick) + ')' : 
+                                       '\n   -tenkan-sen(' + str.tostring(conversionLine, format.mintick) + ') < kijun-sen(' + str.tostring(baseLine, format.mintick) + ')'
+
+kumoStt = leadLine1 > leadLine2 ? '\n   -green kumo cloud ahead' : '\n   -red kumo cloud ahead'
+ichiTxt = aboveCloud ? '🟢  bullish\n   -price action above the kumo cloud' + tkStat + kumoStt : 
+          belowCloud ? '🔴  bearish\n   -price action below the kumo cloud' + tkStat + kumoStt : 
+          inCloud ? '⚫  trendless or transitioning\n   -price action within the kumo cloud' + tkStat + kumoStt : na
+
+dprChg = ta.change(dpr) > 0 ? '🟢  bullish\n       - growing (previous dpr(' + str.tostring(dpr[1], '#.##') + ')' : 
+                              '🔴  bearish\n       - falling (previous dpr(' + str.tostring(dpr[1], '#.##') + ')'
+
+volText = nzVolune >  avrg * vwcbUpper ? str.tostring(nzVolune, format.volume) + ' 🟢  high above average (' + str.tostring(avrg, format.volume) + ')' : 
+          nzVolune >= avrg * vwcbLower and volume <= avrg * vwcbUpper ? str.tostring(volume, format.volume) + ' ⚫  average volume(' + str.tostring(avrg, format.volume) + ')' : 
+          str.tostring(volume, format.volume) + ' 🔴  low below average(' + str.tostring(avrg, format.volume) + ')'
+
+// Trend Statistical Panel
+if not hideLabel
+
+    // RSI
+    rsiValue = ta.rsi(rsiSrc, rsiLength)
+    rsiText = rsiValue >= 50 ? rsiValue > rsiOverbought ? '🟢  bullish (overbought)' : rsiValue > 60 ? '🟢  bullish (rsi > 60)' : '⚫ bullish (50 < rsi < 60)' : rsiValue < rsiOversold ? '🔴  bearish (oversold)' : rsiValue < 40 ? '🔴  bearish (rsi < 40)' : '⚫  bearish (40 < rsi < 50)'
+    rsiText := ta.change(rsiValue) > 0 ? rsiText + '\n   -rsi(' + str.tostring(rsiValue, '#.##') + ') and rising' : rsiText + '\n   -rsi(' + str.tostring(rsiValue, '#.##') + ') and falling'
+
+    // Stochastic
+    stochK = ta.sma(ta.stoch(close, high, low, stochLengthK), stochSmoothingK)
+    stochD = ta.sma(stochK, stochLengthD)
+    stochMom = ta.change(stochK) > 0 ? ', stochK rising' : ', stochK falling'
+    stochStat = stochK > stochOverbought ? ' (overbought)' : stochK < stochOversold ? ' (oversold)' : ''
+    stochText = stochK > stochD ? '🟢  bullish' + stochStat + '\n   -%k(' + str.tostring(stochK, '#.##') + ') > %d(' + str.tostring(stochD, '#.##') + ')' + stochMom : '🔴  bearish' + stochStat + '\n   -%k(' + str.tostring(stochK, '#.##') + ') < %d(' + str.tostring(stochD, '#.##') + ')' + stochMom
+
+    // MACD
+    [macdLine, signalLine, histLine] = ta.macd(macdSrc, macdFastLength, macdSlowLength, macdSignalLength)
+    macdMom = ta.change(histLine) > 0 ? ', momentum rising' : ', momentum falling'
+    macdText = macdLine > signalLine ? '🟢  bullish (macd > signal)' + macdMom : '🔴  bearish (macd < signal)' + macdMom
+
+
+    label indiLabel = label.new(time, source1[1], text=lbStat[histLabel] + 
+         '\n\nSuperTrends (Trend):' + stText[histLabel] + 
+         '\n\nDirectional Movement (trend): ' + dmiText[histLabel] + 
+         '\n\nIchimoku Cloud (Trend): ' + ichiTxt[histLabel] + 
+         '\n\nRSI (Momentum): ' + rsiText[histLabel] + 
+         '\n\nStochastic (Momentum): ' + stochText[histLabel] + 
+         '\n\nMACD (Momentum): ' + macdText[histLabel] +
+         '\n\nDPR (Pressure)  : ' + dprChg[histLabel] +
+         '\n\nVolume (Pressure): ' + volText[histLabel], 
+         tooltip='Tolong baca dan pahami indicator-indicator ini sebelum mengambil keputusan', color=#4262ba, xloc=xloc.bar_time, style=label.style_label_left, textcolor=color.white, textalign=text.align_left)
+         
+    label.set_x(indiLabel, label.get_x(indiLabel) + math.round(ta.change(time) * 5))
+    label.delete(indiLabel[1])
+    label indiLabel2 = label.new(histLabel > 0 ? time[histLabel] : na, low[histLabel] * 0.89, color=#4262ba, xloc=xloc.bar_time, style=label.style_triangleup, size=size.tiny)
+    label.delete(indiLabel2[1])
+
+//Input
+buyonly    =  input.bool   (title="Find entry  Long",     defval=true,   group="Fibo Set up Find entry")
+sellonly   =  input.bool    (title="Find entry Short",   defval=false,   group="Fibo Set up Find entry")
+
+leftbars    = input.int(10,     minval=1, title='Pivot Detection: Left Bars', group = "Set up Pivot High/Low")
+rightbars   = input.int(5,      minval=1, title='Pivot Detection: Right Bars', group = "Set up Pivot High/Low")
+
+width_fibo          = input.int(2,      minval=1, title='Width Fibonacci levels',   group = "Custom Selection",             inline = "1")
+width_sup_res       = input.int(2,      minval=1, title='Width Sup/Res levels',     group = "Custom Selection",             inline = "2")
+width_trendline     = input.int(2,      minval=1, title='Width Trendline',     group = "Custom Selection")
+
+extend_fibo         = input.int(20,      minval=1, title='Extention',                group = "Custom Selection",             inline = "1")
+color_fibo_label    = input.color(color.new(color.yellow, 0), title="Color Labels", group = "Custom Selection",             inline = "1")
+extend_sup_res      = input.int(20,      minval=1, title='Extention',                group = "Custom Selection",             inline = "2")
+
+
+// Pivots
+ph = ta.pivothigh(high,     leftbars, rightbars)
+pl = ta.pivotlow(low,       leftbars, rightbars)
+
+//Caculate Support/Resistant levels based on Pivots
+phvalue1    = ta.valuewhen(ph, high[rightbars], 0)
+phbar1      = ta.valuewhen(ph, bar_index[rightbars], 0),        phv1low = ta.valuewhen(ph, close[rightbars]>open[rightbars] ? close[rightbars] : open[rightbars], 0)
+phvalue2    = ta.valuewhen(ph, high[rightbars], 1)
+phbar2      = ta.valuewhen(ph, bar_index[rightbars], 1),        phv2low = ta.valuewhen(ph, close[rightbars]>open[rightbars] ? close[rightbars] : open[rightbars], 1)
+phbar3      = ta.valuewhen(ph, bar_index[rightbars], 2),
+phvalue3    = ta.valuewhen(ph, high[rightbars], 2)
+
+plvalue1    = ta.valuewhen(pl, low[rightbars], 0)
+plbar1      = ta.valuewhen(pl, bar_index[rightbars], 0),        plv1low = ta.valuewhen(pl, close[rightbars]<open[rightbars] ? close[rightbars] : open[rightbars], 0)
+plvalue2    = ta.valuewhen(pl, low[rightbars], 1)
+plbar2      = ta.valuewhen(pl, bar_index[rightbars], 1)
+plbar3      = ta.valuewhen(pl, bar_index[rightbars], 2),        plv2low = ta.valuewhen(pl, close[rightbars]<open[rightbars] ? close[rightbars] : open[rightbars], 1)
+plvalue3    = ta.valuewhen(pl, low[rightbars], 2)
+
+plotshape(ph, style=shape.diamond, location=location.abovebar, color=color.new(color.red, 0),    title='Pivot High',    offset=-rightbars)
+plotshape(pl, style=shape.diamond, location=location.belowbar, color=color.new(color.green, 0),  title='Pivot Low',     offset=-rightbars)
+
+
+//Calculate trendlines
+_slope(x1, x2, y1, y2)  =>
+    m = (y2 - y1) / (x2 - x1)
+    m
+get_y_oxy(m, x1, y1)    =>
+    b = y1 - m * x1
+    b
+get_y(m, b, ts)         =>
+    Y = m * ts + b
+    Y
+int         res_x1 = na
+float       res_y1 = na
+int         res_x2 = na
+float       res_y2 = na
+int         sup_x1 = na
+float       sup_y1 = na
+int         sup_x2 = na
+float       sup_y2 = na
+res_x1 := ph ? phbar2 : res_x1[1]
+res_y1 := ph ? phvalue2 : res_y1[1]
+res_x2 := ph ? phbar3 : res_x2[1]
+res_y2 := ph ? phvalue3 : res_y2[1]
+res_m = _slope(res_x1, res_x2, res_y1, res_y2)
+res_b = get_y_oxy(res_m, res_x1, res_y1)
+res_y = get_y(res_m, res_b, bar_index)
+
+sup_x1 := pl ? plbar2 : sup_x1[1]
+sup_y1 := pl ? plvalue2 : sup_y1[1]
+sup_x2 := pl ? plbar3 : sup_x2[1]
+sup_y2 := pl ? plvalue3 : sup_y2[1]
+sup_m = _slope(sup_x1, sup_x2, sup_y1, sup_y2)
+sup_b = get_y_oxy(sup_m, sup_x1, sup_y1)
+sup_y = get_y(sup_m, sup_b, bar_index)
+
+// Setup Alert
+alert_input         = input.string(title='Set alert Long Trade when price test',    defval='Fibo 0.5', options=['Fibo 0.382', 'Fibo 0.5', 'Fibo 0.618', 'Fibo 0.786', 'Support Zone', 'Trendline'], group='Set up Alert')
+alertshort_input    = input.string(title='Set alert Short Trade when price test',   defval='Fibo 0.5', options=['Fibo 0.382', 'Fibo 0.5', 'Fibo 0.618', 'Fibo 0.786', 'Resistant Zone', 'Trendline'], group='Set up Alert')
+
+distance_x = timenow + math.round(ta.change(time) * 1)
+
+//Draw Fibonacci levels, Support levels and labels
+if ph and phvalue1 > phvalue2 and buyonly == true
+    line.new(plbar1, plvalue1,                              phbar1, phvalue1,                                                   style=line.style_arrow_right, color=color.lime, width = 2)
+    line.new(plbar1, phvalue1,                              phbar1+ rightbars+extend_fibo, phvalue1,                               style=line.style_solid, color=color.new(color.silver, 60), width = width_fibo)
+    line.new(plbar1, phvalue1-(phvalue1-plvalue1)*0.236,    phbar1+ rightbars+extend_fibo, phvalue1-(phvalue1-plvalue1)*0.236,     style=line.style_solid, color=color.new(color.red, 60), width = width_fibo)
+    line.new(plbar1, phvalue1-(phvalue1-plvalue1)*0.382,    phbar1+ rightbars+extend_fibo, phvalue1-(phvalue1-plvalue1)*0.382,     style=line.style_solid, color=color.new(#81c784, 60), width = width_fibo)
+    line.new(plbar1, phvalue1-(phvalue1-plvalue1)*0.500,    phbar1+ rightbars+extend_fibo, phvalue1-(phvalue1-plvalue1)*0.500,     style=line.style_solid, color=color.new(color.green, 60), width = width_fibo)
+    line.new(plbar1, phvalue1-(phvalue1-plvalue1)*0.618,    phbar1+ rightbars+extend_fibo, phvalue1-(phvalue1-plvalue1)*0.618,     style=line.style_solid, color=color.new(#089981, 60), width = width_fibo)
+    line.new(plbar1, phvalue1-(phvalue1-plvalue1)*0.786,    phbar1+ rightbars+extend_fibo, phvalue1-(phvalue1-plvalue1)*0.786,     style=line.style_solid, color=color.new(color.aqua, 60), width = width_fibo)
+    line.new(plbar1, plvalue1,                              phbar1+ rightbars+extend_fibo, plvalue1,                               style=line.style_solid, color=color.new(color.silver, 60), width = width_fibo)
+    p1=line.new(phbar2, phv2low,                               phbar1+ rightbars+extend_sup_res, phv2low,                                 style=line.style_solid, color=color.new(color.lime, 20), width = width_sup_res)
+    p2=line.new(phbar2, phvalue2,                              phbar1+ rightbars+extend_sup_res, phvalue2,                                style=line.style_solid, color=color.new(color.lime, 20), width = width_sup_res)
+    linefill.new(p1, p2, color = color.new(color.lime, transp =85))
+    if phvalue2 < phvalue3
+        line.new(phbar3, phvalue3, phbar2, phvalue2, style=line.style_dotted, color=color.red, width = width_trendline)
+        line.new(phbar2, phvalue2, bar_index, res_y, style=line.style_dotted, color=color.red, width = width_trendline)
+    if close<phvalue1-(phvalue1-plvalue1)*0.382 and alert_input == 'Fibo 0.382'
+        alert(message = "Fibo 0.382", freq = alert.freq_once_per_bar)
+    if close<phvalue1-(phvalue1-plvalue1)*0.500 and alert_input == 'Fibo 0.5'
+        alert(message = "Fibo 0.5", freq = alert.freq_once_per_bar)
+    if close<phvalue1-(phvalue1-plvalue1)*0.618 and alert_input == 'Fibo 0.618'
+        alert(message = "Fibo 0.618", freq = alert.freq_once_per_bar)
+    if close<phvalue1-(phvalue1-plvalue1)*0.786 and alert_input == 'Fibo 0.786'
+        alert(message = "Fibo 0.786", freq = alert.freq_once_per_bar)
+    if close<phvalue2                           and alert_input == 'Support Zone'
+        alert(message = "Support Zone", freq = alert.freq_once_per_bar)
+    if close<res_y + res_y*0.005                and alert_input == 'Trendline'
+        alert(message = "Trendline",    freq = alert.freq_once_per_bar)
+    var label labelfibo0 = na
+    label.delete(labelfibo0)
+    labelfibo0 := label.new(x=distance_x, y=phvalue1-(phvalue1-plvalue1)*0,        text='0', color=color.new(#000000, 100), textcolor = color_fibo_label, size=size.small, style=label.style_label_left, xloc=xloc.bar_time, yloc=yloc.price)
+    var label labelfibo236 = na
+    label.delete(labelfibo236)
+    labelfibo236 := label.new(x=distance_x, y=phvalue1-(phvalue1-plvalue1)*0.236,  text='0.236', color=color.new(#000000, 100), textcolor = color_fibo_label, size=size.small, style=label.style_label_left, xloc=xloc.bar_time, yloc=yloc.price)
+    var label labelfibo382 = na
+    label.delete(labelfibo382)
+    labelfibo382 := label.new(x=distance_x, y=phvalue1-(phvalue1-plvalue1)*0.382,  text='0.382', color=color.new(#000000, 100), textcolor = color_fibo_label, size=size.small, style=label.style_label_left, xloc=xloc.bar_time, yloc=yloc.price)
+    var label labelfibo5 = na
+    label.delete(labelfibo5)
+    labelfibo5 := label.new(x=distance_x, y=phvalue1-(phvalue1-plvalue1)*0.5,      text='0.5', color=color.new(#000000, 100), textcolor = color_fibo_label, size=size.small, style=label.style_label_left, xloc=xloc.bar_time, yloc=yloc.price)
+    var label labelfibo618 = na
+    label.delete(labelfibo618)
+    labelfibo618 := label.new(x=distance_x, y=phvalue1-(phvalue1-plvalue1)*0.618,  text='0.618', color=color.new(#000000, 100), textcolor = color_fibo_label, size=size.small, style=label.style_label_left, xloc=xloc.bar_time, yloc=yloc.price)
+    var label labelfibo786 = na
+    label.delete(labelfibo786)
+    labelfibo786 := label.new(x=distance_x, y=phvalue1-(phvalue1-plvalue1)*0.786,  text='0.786', color=color.new(#000000, 100), textcolor = color_fibo_label, size=size.small, style=label.style_label_left, xloc=xloc.bar_time, yloc=yloc.price)
+    var label labelfibo1 = na
+    label.delete(labelfibo1)
+    labelfibo1 := label.new(x=distance_x, y=phvalue1-(phvalue1-plvalue1)*1, text='1', color=color.new(#000000, 100), textcolor = color_fibo_label, size=size.small, style=label.style_label_left, xloc=xloc.bar_time, yloc=yloc.price)
+
+
+//Draw Fibonacci levels, Resistant levels and labels
+if pl and plvalue1 < plvalue2 and sellonly == true
+    line.new(phbar1, phvalue1,                              plbar1, plvalue1,                                                   style=line.style_arrow_right, color=color.red, width = 2)
+    line.new(phbar1, plvalue1,                              plbar1+ rightbars+extend_fibo, plvalue1,                               style=line.style_solid, color=color.new(color.silver, 60), width = width_fibo)
+    line.new(plbar1, plvalue1-(plvalue1-phvalue1)*0.236,    plbar1+ rightbars+extend_fibo, plvalue1-(plvalue1-phvalue1)*0.236,     style=line.style_solid, color=color.new(color.red, 60), width = width_fibo)
+    line.new(plbar1, plvalue1-(plvalue1-phvalue1)*0.382,    plbar1+ rightbars+extend_fibo, plvalue1-(plvalue1-phvalue1)*0.382,     style=line.style_solid, color=color.new(#81c784, 60), width = width_fibo)
+    line.new(plbar1, plvalue1-(plvalue1-phvalue1)*0.500,    plbar1+ rightbars+extend_fibo, plvalue1-(plvalue1-phvalue1)*0.500,     style=line.style_solid, color=color.new(color.green, 60), width = width_fibo)
+    line.new(plbar1, plvalue1-(plvalue1-phvalue1)*0.618,    plbar1+ rightbars+extend_fibo, plvalue1-(plvalue1-phvalue1)*0.618,     style=line.style_solid, color=color.new(#089981, 60), width = width_fibo)
+    line.new(plbar1, plvalue1-(plvalue1-phvalue1)*0.786,    plbar1+ rightbars+extend_fibo, plvalue1-(plvalue1-phvalue1)*0.786,     style=line.style_solid, color=color.new(color.aqua, 60), width = width_fibo)
+    line.new(phbar1, phvalue1,                              plbar1+ rightbars+extend_fibo, phvalue1,                               style=line.style_solid, color=color.new(color.silver, 60), width = width_fibo)
+    p1=line.new(plbar2, plv2low,                               plbar1+ rightbars+extend_sup_res, plv2low,                                 style=line.style_solid, color=color.new(color.red, 20), width = width_sup_res)
+    p2=line.new(plbar2, plvalue2,                              plbar1+ rightbars+extend_sup_res, plvalue2,                                style=line.style_solid, color=color.new(color.red, 20), width = width_sup_res)
+    linefill.new(p1, p2, color = color.new(color.red, transp =85))
+    if plvalue2 > plvalue3
+        line.new(plbar3, plvalue3, plbar2, plvalue2, style=line.style_dotted, color=color.lime, width = width_trendline)
+        line.new(plbar2, plvalue2, bar_index, sup_y, style=line.style_dotted, color=color.lime, width = width_trendline)
+    if close>plvalue1-(plvalue1-phvalue1)*0.382 and alertshort_input == 'Fibo 0.382'
+        alert(message = "Fibo 0.382", freq = alert.freq_once_per_bar)
+    if close>plvalue1-(plvalue1-phvalue1)*0.500 and alertshort_input == 'Fibo 0.5'
+        alert(message = "Fibo 0.5", freq = alert.freq_once_per_bar)
+    if close>plvalue1-(plvalue1-phvalue1)*0.618 and alertshort_input == 'Fibo 0.618'
+        alert(message = "Fibo 0.618", freq = alert.freq_once_per_bar)
+    if close>plvalue1-(plvalue1-phvalue1)*0.786 and alertshort_input == 'Fibo 0.786'
+        alert(message = "Fibo 0.786", freq = alert.freq_once_per_bar)
+    if close>plvalue2                           and alertshort_input == 'Resistant Zone'
+        alert(message = "Resistant Zone",   freq = alert.freq_once_per_bar)
+    if close>sup_y - sup_y*0.005                and alertshort_input == 'Trendline'
+        alert(message = "Trendline",        freq = alert.freq_once_per_bar)
+    var label labelfibo0 = na
+    label.delete(labelfibo0)
+    labelfibo0 := label.new(x=distance_x, y=plvalue1-(plvalue1-phvalue1)*0,        text='0', color=color.new(#000000, 100), textcolor = color_fibo_label, size=size.small, style=label.style_label_left, xloc=xloc.bar_time, yloc=yloc.price)
+    var label labelfibo236 = na
+    label.delete(labelfibo236)
+    labelfibo236 := label.new(x=distance_x, y=plvalue1-(plvalue1-phvalue1)*0.236,  text='0.236', color=color.new(#000000, 100), textcolor = color_fibo_label, size=size.small, style=label.style_label_left, xloc=xloc.bar_time, yloc=yloc.price)
+    var label labelfibo382 = na
+    label.delete(labelfibo382)
+    labelfibo382 := label.new(x=distance_x, y=plvalue1-(plvalue1-phvalue1)*0.382,  text='0.382', color=color.new(#000000, 100), textcolor = color_fibo_label, size=size.small, style=label.style_label_left, xloc=xloc.bar_time, yloc=yloc.price)
+    var label labelfibo5 = na
+    label.delete(labelfibo5)
+    labelfibo5 := label.new(x=distance_x, y=plvalue1-(plvalue1-phvalue1)*0.5,      text='0.5', color=color.new(#000000, 100), textcolor = color_fibo_label, size=size.small, style=label.style_label_left, xloc=xloc.bar_time, yloc=yloc.price)
+    var label labelfibo618 = na
+    label.delete(labelfibo618)
+    labelfibo618 := label.new(x=distance_x, y=plvalue1-(plvalue1-phvalue1)*0.618,  text='0.618', color=color.new(#000000, 100), textcolor = color_fibo_label, size=size.small, style=label.style_label_left, xloc=xloc.bar_time, yloc=yloc.price)
+    var label labelfibo786 = na
+    label.delete(labelfibo786)
+    labelfibo786 := label.new(x=distance_x, y=plvalue1-(plvalue1-phvalue1)*0.786,  text='0.786', color=color.new(#000000, 100), textcolor = color_fibo_label, size=size.small, style=label.style_label_left, xloc=xloc.bar_time, yloc=yloc.price)
+    var label labelfibo1 = na
+    label.delete(labelfibo1)
+    labelfibo1 := label.new(x=distance_x, y=plvalue1-(plvalue1-phvalue1)*1,        text='1', color=color.new(#000000, 100), textcolor = color_fibo_label, size=size.small, style=label.style_label_left, xloc=xloc.bar_time, yloc=yloc.price)
+
+

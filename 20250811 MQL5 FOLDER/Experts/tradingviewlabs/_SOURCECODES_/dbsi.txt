@@ -1,0 +1,154 @@
+//@version=5
+indicator("DBSI", overlay=true)
+show_bg=input(false, title="Color signals")
+import gogulescu/IndicatorsLib/1 as indi
+
+
+qqe(flip_only, param_1, param_2, param_3)=>
+    RSI_Period = param_1
+    SF = param_2
+    QQE=param_3
+    Wilders_Period = RSI_Period * 2 - 1
+    
+    Rsi = ta.rsi(close,RSI_Period)
+    RsiMa = ta.ema(Rsi, SF)
+    AtrRsi = math.abs(RsiMa[1] - RsiMa)
+    MaAtrRsi = ta.ema(AtrRsi, Wilders_Period)
+    dar = ta.ema(MaAtrRsi,Wilders_Period) * QQE
+    
+    DeltaFastAtrRsi= dar
+    RSIndex=RsiMa
+    newshortband=  RSIndex + DeltaFastAtrRsi
+    newlongband= RSIndex - DeltaFastAtrRsi
+    longband=0.0
+    longband:=RSIndex[1] > longband[1] and RSIndex > longband[1]?math.max(longband[1],newlongband):newlongband
+    shortband=0.0
+    shortband:=RSIndex[1] < shortband[1] and  RSIndex < shortband[1]?math.min(shortband[1], newshortband):newshortband
+    trend=0.0
+    trend:=ta.cross(RSIndex, shortband[1])?1:ta.cross(longband[1], RSIndex)?-1:nz(trend[1],1)
+    FastAtrRsiTL = trend==1? longband: shortband
+    
+    signal = 0
+    if flip_only
+        signal := ta.crossover(RsiMa,FastAtrRsiTL)?1:ta.crossunder(RsiMa,FastAtrRsiTL)?-1:0
+    else
+        signal := RsiMa > FastAtrRsiTL?1:(RsiMa<FastAtrRsiTL?-1:0)
+    signal
+
+
+cmo(flip_only, param_1=26)=>
+    length = param_1
+    src = close
+    momm = ta.change(src)
+    m1 = momm >= 0.0 ? momm : 0.0
+    m2 =  momm >= 0.0 ? 0.0 : -momm
+    sm1 = math.sum(m1, length)
+    sm2 = math.sum(m2, length)
+    chandeMO = 100 * (sm1-sm2)/sm1+sm2
+    sig = 0
+    if flip_only
+        sig := ta.crossover(chandeMO, 0)?1:ta.crossunder(chandeMO, 0)?-1:0
+    else
+        sig := chandeMO>0?1:-1
+    sig
+
+macdnorm()=>
+    sma = 10
+    lma = 21
+    tsp = 8
+    np = 50
+    type = 1
+    
+    sh = type == 1 ? ta.ema(close,sma)  
+     : type == 2 ? ta.wma(close, sma)
+     : ta.sma(close, sma)
+    
+    lon=type == 1 ? ta.ema(close,lma) 
+     : type == 2 ? ta.wma(close, lma)
+     : ta.sma(close, lma)
+    
+    ratio = math.min(sh,lon)/math.max(sh,lon)
+    Mac = (sh>lon?2-ratio:ratio)-1
+    MacNorm = ((Mac-ta.lowest(Mac, np)) /(ta.highest(Mac, np)-ta.lowest(Mac, np)+.000001)*2)- 1
+    MacNorm2 = np<2?Mac:MacNorm
+    Trigger = ta.wma(MacNorm2, tsp)
+    sig=MacNorm2>Trigger?1:MacNorm2<Trigger?-1:0
+    sig
+
+
+up=0
+down=0
+sig=0
+
+sig := cmo(false,8)
+up:=sig>0?(up+1):up
+down:=sig<0?(down+1):down
+
+sig := indi.vortex(false,7)
+up:=sig>0?(up+1):up
+down:=sig<0?(down+1):down
+
+sig := macdnorm()
+up:=sig>0?(up+1):up
+down:=sig<0?(down+1):down
+
+sig := indi.dmi(false,10)
+up:=sig>0?(up+1):up
+down:=sig<0?(down+1):down
+
+sig := indi.cronex(false,19,4)
+up:=sig>0?(up+1):up
+down:=sig<0?(down+1):down
+
+sig := indi.stc(false,9,12,3)
+up:=sig>0?(up+1):up
+down:=sig<0?(down+1):down
+
+sig := indi.itrend(false,13,8)
+up:=sig>0?(up+1):up
+down:=sig<0?(down+1):down
+
+sig := indi.macd_mirror(false,13,8)
+up:=sig>0?(up+1):up
+down:=sig<0?(down+1):down
+
+sig := indi.ash_v2(false,8,3)
+up:=sig>0?(up+1):up
+down:=sig<0?(down+1):down
+
+sig := qqe(false,8,1,3)
+up:=sig>0?(up+1):up
+down:=sig<0?(down+1):down
+
+upclr=color.new(color.lime, 60)
+downclr=color.new(color.red, 60)
+history=input(20, title="History")
+
+bgcolor(show_bg and ta.crossover(up,down)?color.lime:na, transp=90)
+bgcolor(show_bg and ta.crossover(down,up)?color.red:na, transp=90)
+
+plotchar(up==0?low:na,location=location.belowbar, show_last=history, color=upclr, char='', text="0")
+plotchar(up==1?low:na,location=location.belowbar, show_last=history, color=upclr, char='', text="1")
+plotchar(up==2?low:na,location=location.belowbar, show_last=history, color=upclr, char='', text="2")
+plotchar(up==3?low:na,location=location.belowbar, show_last=history, color=upclr, char='', text="3")
+plotchar(up==4?low:na,location=location.belowbar, show_last=history, color=upclr, char='', text="4")
+plotchar(up==5?low:na,location=location.belowbar, show_last=history, color=upclr, char='', text="5")
+plotchar(up==6?low:na,location=location.belowbar, show_last=history, color=upclr, char='', text="6")
+plotchar(up==7?low:na,location=location.belowbar, show_last=history, color=upclr, char='', text="7")
+plotchar(up==8?low:na,location=location.belowbar, show_last=history, color=upclr, char='', text="8")
+plotchar(up==9?low:na,location=location.belowbar, show_last=history, color=upclr, char='', text="9")
+plotchar(up==10?low:na,location=location.belowbar, show_last=history, color=upclr, char='', text="10")
+plotchar(up==11?low:na,location=location.belowbar, show_last=history, color=upclr, char='', text="11")
+
+plotchar(down==0?high:na,location=location.abovebar, show_last=history, color=downclr, char="", text="0")
+plotchar(down==1?high:na,location=location.abovebar, show_last=history, color=downclr, char="", text="1")
+plotchar(down==2?high:na,location=location.abovebar, show_last=history, color=downclr, char="", text="2")
+plotchar(down==3?high:na,location=location.abovebar, show_last=history, color=downclr, char="", text="3")
+plotchar(down==4?high:na,location=location.abovebar, show_last=history, color=downclr, char="", text="4")
+plotchar(down==5?high:na,location=location.abovebar, show_last=history, color=downclr, char="", text="5")
+plotchar(down==6?high:na,location=location.abovebar, show_last=history, color=downclr, char="", text="6")
+plotchar(down==7?high:na,location=location.abovebar, show_last=history, color=downclr, char="", text="7")
+plotchar(down==8?high:na,location=location.abovebar, show_last=history, color=downclr, char="", text="8")
+plotchar(down==9?high:na,location=location.abovebar, show_last=history, color=downclr, char="", text="9")
+plotchar(down==10?high:na,location=location.abovebar, show_last=history, color=downclr, char="", text="10")
+plotchar(down==11?high:na,location=location.abovebar, show_last=history, color=downclr, char="", text="11")

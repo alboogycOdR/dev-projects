@@ -1,0 +1,84 @@
+//@version=5
+// original script: @youdi
+strategy('3SomEMARSI Strategy', overlay=true, commission_type=strategy.commission.percent, commission_value=0.02, currency=currency.USD, slippage=2, initial_capital=10000)
+
+// Input and Variable strategy
+mafast = input.int(3, minval=1, step=1, maxval=29, title='3MA Fast (days)')
+maslow = input.int(100, minval=30, maxval=200, title='3MA Slow (days)')
+rsiValue = input.int(20, minval=15, maxval=50, title='Buy when RSI goes above')
+orderStake = input.float(95, 'Order Stake (%)', minval=0, step=0.01) / 100
+
+xEMA1 = ta.ema(close, mafast)
+xEMA2 = ta.ema(xEMA1, mafast)
+xEMA3 = ta.ema(xEMA2, mafast)
+emaFast = 3 * xEMA1 - 3 * xEMA2 + xEMA3
+
+xxEMA1 = ta.ema(close, maslow)
+xxEMA2 = ta.ema(xxEMA1, maslow)
+xxEMA3 = ta.ema(xxEMA2, maslow)
+emaSlow = 3 * xxEMA1 - 3 * xxEMA2 + xxEMA3
+
+// Non-repainting resolution using security() function
+NonRepemaFast = request.security(syminfo.tickerid, timeframe.period, emaFast)
+NonRepemaSlow = request.security(syminfo.tickerid, timeframe.period, emaSlow)
+
+// Strategy belief
+cond1 = emaFast < emaSlow
+cond2 = ta.rising(emaFast, 3) and ta.falling(emaSlow, 3)
+cond4 = ta.rising(emaFast, 4) and ta.rising(emaSlow, 3)
+cond5 = ta.crossover(emaFast, emaSlow)
+cond6 = ta.rsi(close, 14) > rsiValue
+enterLong = cond1 and cond2 and cond6 or cond4 and cond6 or cond5 and cond6 or ta.crossover(ta.rsi(close, 14), 30)
+orderSize = strategy.equity * orderStake / close
+
+// Trailing Stoploss (SL)
+i_activationPct = input.float(1, title='Trailing Stop is activated after price moves x% from Entry', step=0.1) / 100
+i_trailOffset = input.int(800, title='Trailing Stop in ticks (pair specific)', minval=1, step=100)  // You'll have to tweak per pair
+var float activationLevel = na  // The price needs to pass this price in order to activate the trailing Stop Loss
+
+// Non-repainting resolution using security() function
+activationLevel := request.security(syminfo.tickerid, timeframe.period, activationLevel)
+
+// Take profit
+tp = input.float(2.2, minval=-100, step=0.1, title='Take Profit (%) -100 to disable') / 100
+takeProfit = strategy.position_avg_price * (1 + tp)
+
+i_sl = input.float(6, title='Stop Loss (%)', step=0.1) / 100
+var float entryPrice = na
+var float stopLossPrice = na
+
+showPlots = input(defval=false, title='Show Plots')
+
+// Non-repainting resolution using security() function
+entryPrice := request.security(syminfo.tickerid, timeframe.period, entryPrice)
+stopLossPrice := request.security(syminfo.tickerid, timeframe.period, stopLossPrice)
+
+// Enter long
+if enterLong and strategy.opentrades == 0
+    entryPrice := close
+    stopLossPrice := entryPrice * (1 - i_sl)
+    strategy.entry('Open Long Position', strategy.long, orderSize, when=strategy.position_size <= 0, comment='Buy')
+    activationLevel := entryPrice + entryPrice * i_activationPct
+    strategy.exit('Open Long Position', stop=stopLossPrice, trail_price=activationLevel, trail_offset=i_trailOffset, comment='Sell Stop')
+
+// Plots
+var tstop = float(na)
+if high >= activationLevel and strategy.opentrades > 0
+    tstop := math.max(high - i_trailOffset * syminfo.mintick, nz(tstop[1]))
+    tstop
+else
+    tstop := na
+    tstop
+
+if ta.crossover(high, takeProfit) and takeProfit != -100 and tstop < takeProfit
+    strategy.close('Open Long Position', comment='Sell Profit')
+
+plot(showPlots ? emaFast : na, 'emaFast', color=color.new(#00ffcc, 0))
+plot(showPlots ? emaSlow : na, 'emaSlow', color=color.new(color.orange, 0))
+plot(showPlots ? activationLevel : na, 'activationLevel', style=plot.style_linebr, color=color.new(color.blue, 0))
+plot(showPlots ? stopLossPrice : na, 'stoploss', style=plot.style_linebr, color=color.new(color.red, 0))
+plot(showPlots ? takeProfit : na, 'Take Profit', style=plot.style_linebr, color=color.new(color.green, 0))
+plot(showPlots ? tstop : na, 'Trailing Stoploss', style=plot.style_linebr, color=color.new(color.white, 0))
+
+Watermark = table.new(position.middle_center, 1, 4, border_width=5)
+table.cell(Watermark, 0, 0, text='Yudi Pratama Algo ver.1.0', text_color=color.new(#ffffff, 46), text_size=size.normal)

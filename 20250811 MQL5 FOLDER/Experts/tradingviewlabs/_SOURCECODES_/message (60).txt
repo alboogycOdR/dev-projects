@@ -1,0 +1,130 @@
+//@version=5
+
+indicator(title='Heatmap Volume [xdecow]', shorttitle='HVol [xdecow]', max_bars_back=2000, format=format.volume)
+
+length = input.int(610, title='MA Length', minval=2)
+slength = input.int(610, title='Std Length', minval=2)
+cmode = input.string('Heatmap', 'Color Mode', options=['Heatmap', 'Up/Down'])
+zmode = input.string('Backgrounds', 'Display Heatmap Zones as', options=['None', 'Lines', 'Backgrounds', 'Both'])
+bcolor_enabled = input(true, 'Colored bars')
+osc = input(false, 'Show as oscillator')
+
+thresholdExtraHigh = input.float(4, title='Extra High Volume Threshold')
+thresholdHigh = input(2.5, title='High Volume Threshold')
+thresholdMedium = input.float(1, title='Medium Volume Threshold')
+thresholdNormal = input(-0.5, title='Normal Volume Threshold')
+
+// heatmap colors
+chm1 = #ff1100  // extra high red
+chm2 = #ff3f0e  // high orange
+chm3 = #ffcf03  // medium yellow
+chm4 = #9598a1  // normal
+chm5 = #434651  // low
+// heatmap colors
+chmthresholdExtraHigh = input(chm1, 'Heatmap Extra High')
+chmthresholdHigh = input(chm2, 'Heatmap High')
+chmthresholdMedium = input(chm3, 'Heatmap Medium')
+chmthresholdNormal = input(chm4, 'Heatmap Normal')
+chmthresholdLow = input(chm5, 'Heatmap Low')
+// up colors
+cupthresholdExtraHigh = input(#3fff00, 'Up Extra High')
+cupthresholdHigh = input(#4caf50, 'Up High')
+cupthresholdMedium = input(#4f8c52, 'Up Medium')
+cupthresholdNormal = input(#434651, 'Up Normal')
+cupthresholdLow = input(#2a2e39, 'Up Low')
+
+// down colors
+cdnthresholdExtraHigh = input(#ff1100, 'Down Extra High')
+cdnthresholdHigh = input(#ff3f0e, 'Down High')
+cdnthresholdMedium = input(#ff9800, 'Down Medium')
+cdnthresholdNormal = input(#787b86, 'Down Normal')
+cdnthresholdLow = input(#434651, 'Down Low')
+// 
+cthresholdExtraHighUp = cmode == 'Heatmap' ? chmthresholdExtraHigh : cupthresholdExtraHigh
+cthresholdHighUp = cmode == 'Heatmap' ? chmthresholdHigh : cupthresholdHigh
+cthresholdMediumUp = cmode == 'Heatmap' ? chmthresholdMedium : cupthresholdMedium
+cthresholdNormalUp = cmode == 'Heatmap' ? chmthresholdNormal : cupthresholdNormal
+cthresholdLowUp = cmode == 'Heatmap' ? chmthresholdLow : cupthresholdLow
+
+cthresholdExtraHighDn = cmode == 'Heatmap' ? chmthresholdExtraHigh : cdnthresholdExtraHigh
+cthresholdHighDn = cmode == 'Heatmap' ? chmthresholdHigh : cdnthresholdHigh
+cthresholdMediumDn = cmode == 'Heatmap' ? chmthresholdMedium : cdnthresholdMedium
+cthresholdNormalDn = cmode == 'Heatmap' ? chmthresholdNormal : cdnthresholdNormal
+cthresholdLowDn = cmode == 'Heatmap' ? chmthresholdLow : cdnthresholdLow
+
+length := length > bar_index + 1 ? bar_index + 1 : length
+slength := slength > bar_index + 1 ? bar_index + 1 : slength
+pstdev(Series, Period) =>
+    mean = math.sum(Series, Period) / Period
+    summation = 0.0
+    for i = 0 to Period - 1 by 1
+        sampleMinusMean = nz(Series[i]) - mean
+        summation += sampleMinusMean * sampleMinusMean
+        summation
+    return_1 = math.sqrt(summation / Period)
+    return_1
+
+
+mean = ta.sma(volume, length)
+std = pstdev(volume, slength)
+stdbar = (volume - mean) / std
+dir = close > open
+v = osc ? volume - mean : volume
+mosc = osc ? 0 : mean
+
+
+bcolor = stdbar > thresholdExtraHigh ? dir ? cthresholdExtraHighUp : cthresholdExtraHighDn : stdbar > thresholdHigh ? dir ? cthresholdHighUp : cthresholdHighDn : stdbar > thresholdMedium ? dir ? cthresholdMediumUp : cthresholdMediumDn : stdbar > thresholdNormal ? dir ? cthresholdNormalUp : cthresholdNormalDn : dir ? cthresholdLowUp : cthresholdLowDn
+// heatmap lines
+zshow_lines = zmode == 'Lines' or zmode == 'Both'
+zshow_backgrounds = zmode == 'Backgrounds' or zmode == 'Both'
+tst = ta.highest(v, math.min(300, bar_index + 1)) * 9999
+ts0 = osc ? ta.lowest(v, math.min(300, bar_index + 1)) * 9999 : 0
+ts1 = std * thresholdExtraHigh + mosc
+ts2 = std * thresholdHigh + mosc
+ts3 = std * thresholdMedium + mosc
+ts4 = std * thresholdNormal + mosc
+
+barcolor(bcolor_enabled ? bcolor : na, editable=false)
+// 
+pt = plot(zshow_backgrounds ? tst : na, color=na, display=display.none, editable=false)
+p0 = plot(zshow_backgrounds ? ts0 : na, color=na, display=display.none, editable=false)
+
+p1 = plot(zshow_backgrounds ? ts1 : na, color=na, display=display.none, editable=false)
+p2 = plot(zshow_backgrounds ? ts2 : na, color=na, display=display.none, editable=false)
+p3 = plot(zshow_backgrounds ? ts3 : na, color=na, display=display.none, editable=false)
+p4 = plot(zshow_backgrounds ? ts4 : na, color=na, display=display.none, editable=false)
+// 
+tpf = 85
+//
+fill(p1, p2, chm2, title='High heatmap zone', transp=tpf)
+fill(p2, p3, chm3, title='Medium heatmap zone', transp=tpf)
+fill(p3, p4, chm4, title='Normal heatmap zone', transp=tpf)
+fill(p4, p0, chm5, title='Low heatmap zone', transp=tpf)
+// volume
+plot(v, color=bcolor, style=plot.style_columns, title='Volume', editable=false, transp=0)
+// 
+plot(osc ? na : mean, color=color.new(#000000, 0), linewidth=2, title='Moving Average', style=plot.style_line, display=display.none)
+// 
+tpp = 50
+plot(zshow_lines ? ts1 : na, color=chm1, title='Extra High heatmap line', transp=tpp)
+plot(zshow_lines ? ts2 : na, color=chm2, title='High heatmap line', transp=tpp)
+plot(zshow_lines ? ts3 : na, color=chm3, title='Medium heatmap line', transp=tpp)
+plot(zshow_lines ? ts4 : na, color=chm4, title='Normal heatmap line', transp=tpp)
+
+//
+conditionExtraHigh = stdbar > thresholdExtraHigh
+conditionHigh = stdbar <= thresholdExtraHigh and stdbar > thresholdHigh
+conditionMedium = stdbar <= thresholdHigh and stdbar > thresholdMedium
+conditionNormal = stdbar <= thresholdMedium and stdbar > thresholdNormal
+conditionLow = stdbar <= thresholdNormal
+alertcondition(conditionExtraHigh, title='Any Extra High Vol', message='Any Bar Extra High Volume Threshold')
+alertcondition(conditionExtraHigh and open < close, title='Up Extra High', message='Up Bar Extra High Volume Threshold')
+alertcondition(conditionExtraHigh and open > close, title='Down Extra High', message='Down Bar Extra High Volume Threshold')
+alertcondition(conditionHigh, title='Any High Vol', message='Any Bar High Volume Threshold')
+alertcondition(conditionHigh and open < close, title='Up High Vol', message='Up Bar High Volume Threshold')
+alertcondition(conditionHigh and open > close, title='Down High Vol', message='Down Bar High Volume Threshold')
+alertcondition(conditionMedium, title='Any Medium Vol', message='Any Bar Medium Volume Threshold')
+alertcondition(conditionMedium and open < close, title='Up Medium Vol', message='Up Bar Medium Volume Threshold')
+alertcondition(conditionMedium and open > close, title='Down Medium Vol', message='Down Bar Medium Volume Threshold')
+
+

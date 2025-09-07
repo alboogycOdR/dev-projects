@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en" data-color-scheme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Forex Arbitrage Trading System - Interactive Demo</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Header Section -->
+        <header class="header">
+            <div class="header-content">
+                <h1>Forex Arbitrage Trading System</h1>
+                <p class="header-subtitle">Interactive Demo - Real-time Cross-Rate Arbitrage Detection</p>
+                <div class="header-timestamp">
+                    <span class="status-indicator"></span>
+                    <span id="lastUpdate">Last Update: --:--:--</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- System Status Bar -->
+        <div class="status-bar">
+            <div class="status-item">
+                <span class="status-label">System Status:</span>
+                <span class="status status--success" id="systemStatus">RUNNING</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">Session:</span>
+                <span id="tradingSession">London</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">Uptime:</span>
+                <span id="uptime">2h 34m</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">Connection:</span>
+                <span class="status status--success" id="connection">STABLE</span>
+            </div>
+        </div>
+
+        <!-- Currency Pairs Monitor -->
+        <section class="card currency-monitor">
+            <div class="card__header">
+                <h2>Currency Pairs Monitor</h2>
+                <div class="auto-refresh-indicator">
+                    <span class="refresh-dot"></span>
+                    Auto-refresh: 5s
+                </div>
+            </div>
+            <div class="card__body">
+                <div class="table-container">
+                    <table class="data-table" id="currencyTable">
+                        <thead>
+                            <tr>
+                                <th>Symbol</th>
+                                <th>Bid Price</th>
+                                <th>Ask Price</th>
+                                <th>Spread</th>
+                                <th>Change</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="currencyTableBody">
+                            <!-- Data populated by JavaScript -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- Performance Dashboard -->
+        <section class="card performance-dashboard">
+            <div class="card__header">
+                <h2>Performance Dashboard</h2>
+            </div>
+            <div class="card__body">
+                <div class="stats-grid">
+                    <div class="stat-item">
+                        <div class="stat-value" id="totalTrades">247</div>
+                        <div class="stat-label">Total Trades</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value" id="winRate">68.4%</div>
+                        <div class="stat-label">Win Rate</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value" id="avgProfit">$23.50</div>
+                        <div class="stat-label">Avg Profit</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value" id="currentBalance">$11,320</div>
+                        <div class="stat-label">Current Balance</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value" id="dailyProfit">$156</div>
+                        <div class="stat-label">Daily Profit</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value" id="openPositions">3</div>
+                        <div class="stat-label">Open Positions</div>
+                    </div>
+                </div>
+                <div class="chart-container">
+                    <img src="https://pplx-res.cloudinary.com/image/upload/v1749375617/pplx_code_interpreter/98839be3_cj3ouo.jpg" alt="Equity Curve" class="performance-chart">
+                </div>
+            </div>
+        </section>
+
+        <!-- Arbitrage Opportunities -->
+        <section class="card arbitrage-opportunities">
+            <div class="card__header">
+                <h2>Arbitrage Opportunities</h2>
+                <div class="opportunity-count">
+                    <span class="count-badge" id="opportunityCount">3</span>
+                    Active Opportunities
+                </div>
+            </div>
+            <div class="card__body">
+                <div class="table-container">
+                    <table class="data-table opportunities-table" id="arbitrageTable">
+                        <thead>
+                            <tr>
+                                <th>Pair</th>
+                                <th>Real Price</th>
+                                <th>Synthetic Price</th>
+                                <th>Spread</th>
+                                <th>Profit Potential</th>
+                                <th>Action</th>
+                                <th>Confidence</th>
+                            </tr>
+                        </thead>
+                        <tbody id="arbitrageTableBody">
+                            <!-- Data populated by JavaScript -->
+                        </tbody>
+                    </table>
+                </div>
+                <div class="arbitrage-chart">
+                    <img src="https://pplx-res.cloudinary.com/image/upload/v1749375536/pplx_code_interpreter/33abed05_xj7b2t.jpg" alt="Arbitrage Opportunity Chart" class="opportunity-chart">
+                </div>
+            </div>
+        </section>
+
+        <!-- Synthetic Price Calculation -->
+        <section class="card synthetic-calc">
+            <div class="card__header">
+                <h2>Synthetic Price Calculation</h2>
+            </div>
+            <div class="card__body">
+                <div class="calc-example">
+                    <h3>EURGBP Cross Rate Example</h3>
+                    <div class="calc-formula">
+                        <div class="formula-step">
+                            <span class="formula-label">Method 1 (Bid/Ask):</span>
+                            <span class="formula-text">EURUSD Bid ÷ GBPUSD Ask = 1.0856 ÷ 1.2647 = 0.8586</span>
+                        </div>
+                        <div class="formula-step">
+                            <span class="formula-label">Method 2 (Ask/Bid):</span>
+                            <span class="formula-text">EURUSD Ask ÷ GBPUSD Bid = 1.0858 ÷ 1.2645 = 0.8587</span>
+                        </div>
+                        <div class="formula-step result">
+                            <span class="formula-label">Real Market Price:</span>
+                            <span class="formula-text">0.8584 (Bid) / 0.8586 (Ask)</span>
+                        </div>
+                        <div class="formula-step profit">
+                            <span class="formula-label">Arbitrage Spread:</span>
+                            <span class="formula-text">0.0002 - 0.0003 (0.2-0.3 pips)</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="system-flowchart">
+                    <img src="https://pplx-res.cloudinary.com/image/upload/v1749375737/pplx_code_interpreter/b069e795_p2klcr.jpg" alt="System Architecture" class="flowchart-img">
+                </div>
+            </div>
+        </section>
+
+        <!-- System Controls -->
+        <section class="card system-controls">
+            <div class="card__header">
+                <h2>System Controls</h2>
+            </div>
+            <div class="card__body">
+                <div class="control-grid">
+                    <div class="control-group">
+                        <h3>Trading Controls</h3>
+                        <button class="btn btn--primary control-btn" id="startStopBtn">
+                            <span class="btn-icon">⏸</span>
+                            Stop System
+                        </button>
+                        <button class="btn btn--secondary control-btn" id="resetBtn">
+                            <span class="btn-icon">🔄</span>
+                            Reset
+                        </button>
+                    </div>
+                    
+                    <div class="control-group">
+                        <h3>Risk Settings</h3>
+                        <div class="form-group">
+                            <label class="form-label" for="maxTrades">Max Trades:</label>
+                            <input type="number" class="form-control" id="maxTrades" value="5" min="1" max="20">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="lotSize">Lot Size:</label>
+                            <select class="form-control" id="lotSize">
+                                <option value="0.1">0.1</option>
+                                <option value="0.5" selected>0.5</option>
+                                <option value="1.0">1.0</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="spreadThreshold">Spread Threshold (pips):</label>
+                            <input type="number" class="form-control" id="spreadThreshold" value="2" min="1" max="10" step="0.1">
+                        </div>
+                    </div>
+
+                    <div class="control-group">
+                        <h3>System Status</h3>
+                        <div class="status-indicators">
+                            <div class="indicator-item">
+                                <span class="indicator-dot active"></span>
+                                <span>Data Feed</span>
+                            </div>
+                            <div class="indicator-item">
+                                <span class="indicator-dot active"></span>
+                                <span>Risk Engine</span>
+                            </div>
+                            <div class="indicator-item">
+                                <span class="indicator-dot active"></span>
+                                <span>Execution Engine</span>
+                            </div>
+                            <div class="indicator-item">
+                                <span class="indicator-dot warning"></span>
+                                <span>High Volatility Alert</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

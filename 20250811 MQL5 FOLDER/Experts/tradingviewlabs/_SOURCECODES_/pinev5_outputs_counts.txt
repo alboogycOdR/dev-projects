@@ -1,0 +1,10 @@
+// Every output in Pine v5 and how much it counts (max 64)
+// alertcondition = 1
+// barcolor       = 1
+// bgcolor        = 1
+// plot           = 1
+// plotarrow      = 1
+// plotchar       = 1
+// plotshape      = 1
+// plotbar        = 4
+// plotcandle     = 4

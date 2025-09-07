@@ -1,0 +1,47 @@
+//@version=5
+indicator("Sniper Signals [DeltaAlgo]", overlay = true)
+
+//user inputs
+show = input.bool(true, "Show Sniper Signals", group = "sniper settings")
+tres = input.bool(false, "Auto Treshold", group = "sniper settings")
+
+sl = input.bool(true, "Auto Stop Loss Line?", group = "advanced")
+
+//
+f = tres ? ta.ema(ta.stoch(ta.sma(ta.rsi(close, 14), 20), 10, 5, 17), 15) : ta.ema(ta.stoch(ta.sma(ta.rsi(close, 14), 20), 10, 5, 17), 1)
+
+var alrB = false
+buySnipe = f >= f[1] and f[1] < f[2]
+
+var alrS = false
+sellSnipe = f <= f[1] and f[1] > f[2]
+
+//
+
+plotshape(show ? buySnipe : na, "Buy Snipe", shape.labelup, location.belowbar, color.new(#58f190, 30), 0, "Buy", #ffffff, size = size.small)
+plotshape(show ? sellSnipe : na, "Buy Snipe", shape.labeldown, location.abovebar, color.new(#d13b6d, 30), 0, "Sell", #ffffff, size = size.small)
+
+//candle
+color bull = color.from_gradient(f, 700, 1100, #522d8c, #d13b6d)
+color bear = color.from_gradient(f, 200, 700, #58f190, #522d8c)
+
+barcolor(f > 750 ? bull : bear)
+
+// sl
+n = bar_index
+l = close - (ta.atr(30) * 1.5)
+
+line s = na
+if buySnipe
+    s := sl ? line.new(n, l, n + 21, l, extend = extend.none, color = #d13b6d, style = line.style_dashed, width = 1) : na
+
+slPrice = ta.valuewhen(buySnipe, l, 1)
+
+if sellSnipe
+    alrS := true
+if buySnipe
+    alrS := false
+
+slSignal = ta.crossunder(close, slPrice) and not alrS
+
+plotshape(show ? slSignal : na, "SL Exit", shape.xcross, color = color.new(#2f48f9, 75))

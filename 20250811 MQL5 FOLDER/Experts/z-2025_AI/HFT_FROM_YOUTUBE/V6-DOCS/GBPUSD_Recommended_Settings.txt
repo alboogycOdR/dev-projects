@@ -1,0 +1,34 @@
+# Recommended Settings for GBPUSD (vs your BTCUSD settings)
+
+## Current BTCUSD Settings (causing issues on GBPUSD):
+Delta=2.0
+MaxDistance=15.0  
+Stop=30.0
+MaxTrailing=8.0
+MaxSpread=5555
+
+## Recommended GBPUSD Settings:
+Delta=0.5          // Reduced from 2.0 - GBPUSD spreads are much smaller
+MaxDistance=3.0    // Reduced from 15.0 - smaller price movements
+Stop=5.0           // Reduced from 30.0 - 5x average spread is reasonable
+MaxTrailing=2.0    // Reduced from 8.0 - proportional reduction
+MaxSpread=50       // Reduced from 5555 - GBPUSD spreads are typically 1-5 pips
+
+## Explanation:
+- BTCUSD has spreads of 20-50 points, GBPUSD has spreads of 1-3 pips
+- BTCUSD price moves in 10-100 point ranges, GBPUSD moves in 5-20 pip ranges
+- The scale difference is roughly 10-20x, so all parameters should be reduced accordingly
+
+## Alternative Conservative Settings:
+Delta=0.3
+MaxDistance=2.0
+Stop=3.0
+MaxTrailing=1.5
+MaxSpread=30
+
+## Test Settings (very conservative):
+Delta=0.2
+MaxDistance=1.5
+Stop=2.0
+MaxTrailing=1.0
+MaxSpread=20 

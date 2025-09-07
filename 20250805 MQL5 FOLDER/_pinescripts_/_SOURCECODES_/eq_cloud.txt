@@ -1,0 +1,9 @@
+//@version=5
+indicator("Lux Algo EQ cloud", overlay=true)
+eq_cloud(len, mult) =>
+    n = math.ceil(math.sqrt(len))
+    ema1 = ta.ema(ta.ema(close, n), n)
+    ema2 = ta.ema(ta.ema(high - low, n), n)
+    cloud = math.avg(ema1 + ema2 * mult, ema1 - ema2 * mult)
+eq_cloud = eq_cloud(500, 5)
+fill(plot(eq_cloud, "", na), plot(eq_cloud[30], "", na), eq_cloud > eq_cloud[30] ? color.new(color.blue, 65) : color.new(color.red, 65))

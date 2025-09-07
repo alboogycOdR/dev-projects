@@ -1,0 +1,189 @@
+# Strength Meter + Order Block EA - Settings Template
+# Copy these settings when attaching the EA to your chart
+
+========================================
+CONSERVATIVE SETTINGS (Low Risk)
+========================================
+RiskPercent = 0.5
+RiskReward = 2.0
+StopLossPips = 15
+MaxTradesPerPair = 1
+AutoTrading = false (start with manual signals)
+MinStrengthDiff = 7.0
+StrengthPeriod = 20
+OB_LookbackBars = 30
+BOS_LookbackBars = 15
+OB_MinSize = 15.0
+
+========================================
+MODERATE SETTINGS (Medium Risk)
+========================================
+RiskPercent = 1.0
+RiskReward = 2.0
+StopLossPips = 10
+MaxTradesPerPair = 2
+AutoTrading = true
+MinStrengthDiff = 5.0
+StrengthPeriod = 14
+OB_LookbackBars = 50
+BOS_LookbackBars = 20
+OB_MinSize = 10.0
+
+========================================
+AGGRESSIVE SETTINGS (High Risk)
+========================================
+RiskPercent = 2.0
+RiskReward = 1.5
+StopLossPips = 8
+MaxTradesPerPair = 3
+AutoTrading = true
+MinStrengthDiff = 4.0
+StrengthPeriod = 10
+OB_LookbackBars = 70
+BOS_LookbackBars = 25
+OB_MinSize = 8.0
+
+========================================
+SCALPING SETTINGS (Very Active)
+========================================
+RiskPercent = 0.5
+RiskReward = 1.0
+StopLossPips = 5
+MaxTradesPerPair = 5
+AutoTrading = true
+MinStrengthDiff = 3.0
+StrengthPeriod = 8
+OB_LookbackBars = 30
+BOS_LookbackBars = 10
+OB_MinSize = 5.0
+
+========================================
+SWING TRADING SETTINGS (Long Term)
+========================================
+RiskPercent = 1.5
+RiskReward = 3.0
+StopLossPips = 25
+MaxTradesPerPair = 1
+AutoTrading = true
+MinStrengthDiff = 8.0
+StrengthPeriod = 30
+OB_LookbackBars = 100
+BOS_LookbackBars = 40
+OB_MinSize = 20.0
+
+========================================
+DASHBOARD CUSTOMIZATION
+========================================
+DashboardX = 20 (left side)
+DashboardY = 50 (top position)
+PanelColor = clrDarkSlateGray (dark theme)
+TextColor = clrWhite (white text)
+
+Alternative Dashboard Colors:
+- Light Theme: PanelColor = clrWhiteSmoke, TextColor = clrBlack
+- Blue Theme: PanelColor = clrNavy, TextColor = clrCyan
+- Green Theme: PanelColor = clrDarkGreen, TextColor = clrLime
+
+========================================
+SYMBOL-SPECIFIC RECOMMENDATIONS
+========================================
+
+XAUUSD (Gold):
+- Use Conservative or Moderate settings
+- Increase StopLossPips to 20-30
+- Reduce MaxTradesPerPair to 1
+
+EURUSD, GBPUSD:
+- Standard Moderate settings work well
+- Good for beginners
+
+USDJPY:
+- Reduce StopLossPips to 8-12
+- Works well with Aggressive settings
+
+NAS100, US30 (Indices):
+- Use Conservative settings only
+- Increase StopLossPips to 50-100 points
+- Set MaxTradesPerPair to 1
+
+GBPJPY, EURJPY (Volatile pairs):
+- Use Conservative settings
+- Increase StopLossPips to 20-25
+- Monitor during Asian session
+
+========================================
+TRADING SESSION RECOMMENDATIONS
+========================================
+
+London Session (08:00-17:00 GMT):
+- Best for EUR, GBP pairs
+- Use standard settings
+
+New York Session (13:00-22:00 GMT):
+- Best for USD pairs and indices
+- Overlap with London (13:00-17:00) is optimal
+
+Asian Session (00:00-09:00 GMT):
+- Best for JPY pairs
+- Use more conservative settings
+- Lower volume, wider spreads
+
+========================================
+RISK MANAGEMENT TIPS
+========================================
+
+1. Start with Conservative settings
+2. Test on demo account for at least 1 week
+3. Never risk more than 2% per trade
+4. Monitor during high-impact news events
+5. Adjust MaxTradesPerPair based on market volatility
+6. Use AutoTrading = false initially to learn signals
+7. Export logs daily to track performance
+
+========================================
+TROUBLESHOOTING COMMON ISSUES
+========================================
+
+No Signals Appearing:
+- Check if symbols are available with your broker
+- Reduce MinStrengthDiff to 3.0-4.0
+- Increase OB_LookbackBars to 70-100
+
+Too Many Signals:
+- Increase MinStrengthDiff to 6.0-8.0
+- Reduce MaxTradesPerPair
+- Increase OB_MinSize
+
+Frequent Stop Losses:
+- Increase StopLossPips
+- Use more conservative settings
+- Check market volatility
+
+Dashboard Not Visible:
+- Adjust DashboardX and DashboardY
+- Check if chart window is large enough
+- Restart EA if necessary
+
+========================================
+BACKTESTING RECOMMENDATIONS
+========================================
+
+Period: Use at least 3-6 months of data
+Quality: 90% modeling quality minimum
+Spread: Set realistic spread for your broker
+Initial Deposit: $10,000 minimum for testing
+Optimization: Test different MinStrengthDiff values (3.0-8.0)
+
+========================================
+BROKER COMPATIBILITY
+========================================
+
+Recommended Broker Features:
+- Low spreads (< 2 pips for major pairs)
+- Fast execution (< 100ms)
+- All symbols available (XAUUSD, NAS100, US30)
+- No restrictions on EA trading
+- Reliable data feed
+
+Test these symbols before going live:
+EURUSD, GBPUSD, USDJPY, XAUUSD, NAS100, US30 

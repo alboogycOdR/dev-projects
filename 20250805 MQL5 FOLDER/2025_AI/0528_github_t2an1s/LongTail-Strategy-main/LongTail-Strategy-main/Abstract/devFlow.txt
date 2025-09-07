@@ -1,0 +1,14 @@
+- test grid manager
+- modularize rule handler
+- build out rule handler
+- robust and test sequence handler
+- session handler
+- Integration testing
+
+- write script get Asian session range as csv for 10years
+
+rand TO-Do
+// -- To-Do --
+// All functions should operate on any symbol(across modules).
+// - ensure set deviation, order filling policy
+// - check symbol specifics; min-volume, tick size, tick value. goal to determine grid size and minimum term(base volume)

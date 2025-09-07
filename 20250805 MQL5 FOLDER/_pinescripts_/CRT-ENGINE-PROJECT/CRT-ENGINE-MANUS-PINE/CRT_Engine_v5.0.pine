@@ -1,0 +1,369 @@
+//@version=5
+indicator("Institutional CRT Engine v5.0", "CRT Engine v5.0", overlay=true, max_lines_count=500, max_labels_count=500)
+// INPUTS ────────────────────────────────────────────────────────────────────────
+//                                                                                -
+// CRT Core Settings
+g_model         = "Model Selection"
+i_model_choice  = input.string("1H - 9 AM NY", "CRT Model", 
+  options=["1H - 1 AM Asia", "1H - 5 AM London", "1H - 9 AM NY", "4H - London Open (00:00)", "4H - London Close (04:00)", "4H - NY Open (08:00)"], 
+  group = g_model, tooltip="Select the session candle to base the CRT range on. Both 1-Hour and 4-Hour models are available.")
+
+i_entry_model   = input.string("MSS + FVG", "Entry Logic", ["MSS + FVG", "Aggressive Turtle Soup"], group = g_model,
+  tooltip = "MSS + FVG is recommended. It waits for a Market Structure Shift after the sweep, then enters on the FVG. 'Aggressive Turtle Soup' enters immediately on the sweep, which is higher risk.")
+
+// Advanced Filters
+g_filters           = "Advanced Contextual Filters"
+i_use_htf_kl_filter = input.bool(true, "Require HTF Key Level Confluence", group = g_filters,
+  tooltip = "If checked, a setup is ONLY valid if the manipulation sweep occurs within a pre-identified H4 FVG or Orderblock. This is a powerful quality filter.")
+i_kl_lookback       = input.int(20, "HTF Key Level Lookback (H4 Bars)", group=g_filters, minval=5)
+i_use_smt_filter    = input.bool(false, "Enable SMT Divergence Filter", group = g_filters,
+  tooltip = "Filters for Smart Money Technique divergence between the current asset and a correlated one at the point of manipulation.")
+i_smt_symbol        = input.string("ES1!", "SMT Correlated Symbol", group = g_filters)
+
+// Display & Alerts
+g_display       = "Display & Alert Settings"
+i_show_boxes    = input.bool(true, "Show CRT Range Box", group = g_display)
+i_show_labels   = input.bool(true, "Show Buy/Sell Signals", group = g_display)
+i_alerts_on     = input.bool(true, "Enable Alerts", group = g_display)
+i_alert_freq    = input.string("Once Per Bar Close", "Alert Frequency", ["Once Per Bar", "Once Per Bar Close"], group=g_display)
+
+//                                                                                -
+//  INTERNAL STATE MANAGEMENT ─────────────────────────────────────────────────────
+//                                                                                -
+var string a_freq = i_alert_freq == "Once Per Bar" ? alert.freq_once_per_bar : alert.freq_once_per_bar_close
+
+// Determine CRT timeframe and target hour based on user's model selection.
+var string crt_timeframe_str = "60"
+var int    target_hour_ny   = 9
+var string ny_timezone = "America/New_York"
+
+if str.contains(i_model_choice, "1H")
+    crt_timeframe_str := "60"
+    if str.contains(i_model_choice, "1 AM")
+        target_hour_ny := 1
+    else if str.contains(i_model_choice, "5 AM")
+        target_hour_ny := 5
+    else if str.contains(i_model_choice, "9 AM")
+        target_hour_ny := 9
+else if str.contains(i_model_choice, "4H")
+    crt_timeframe_str := "240"
+    if str.contains(i_model_choice, "(00:00)")
+        target_hour_ny := 0
+    else if str.contains(i_model_choice, "(04:00)")
+        target_hour_ny := 4
+    else if str.contains(i_model_choice, "(08:00)")
+        target_hour_ny := 8
+
+// --- State Machine ---
+var string state_bull = "WAITING_FOR_RANGE"
+var string state_bear = "WAITING_FOR_RANGE"
+
+// --- State Variables ---
+var float crt_high = na
+var float crt_low = na
+var float mss_level_bull = na
+var float mss_level_bear = na
+var float entry_fvg_high = na
+var float entry_fvg_low = na
+var int   range_bar_index = na
+
+// --- Time Management ---
+is_new_day = ta.change(dayofweek(time, "America/New_York"))
+if is_new_day
+    state_bull := "WAITING_FOR_SWEEP"
+    state_bear := "WAITING_FOR_SWEEP"
+    mss_level_bull := na, mss_level_bear := na
+    entry_fvg_high := na, entry_fvg_low := na
+
+//                                                                                -
+//  CORE FUNCTIONS ────────────────────────────────────────────────────────────────
+//                                                                                -
+// Finds the most recent valid swing low on the current timeframe.
+f_findLastSwingLow(len) =>
+    ta.pivotlow(low, len, len)
+
+// Finds the most recent valid swing high on the current timeframe.
+f_findLastSwingHigh(len) =>
+    ta.pivothigh(high, len, len)
+
+// Looks for a Fair Value Gap (FVG) to use as our precise entry zone.
+f_findEntryFVG(bool is_bullish) =>
+    float fvg_h = na, float fvg_l = na
+    if is_bullish and high[2] < low
+        fvg_h := low
+        fvg_l := high[2]
+    if not is_bullish and low[2] > high
+        fvg_h := low[2]
+        fvg_l := high
+    [fvg_h, fvg_l]
+
+// [FILTER] Checks if a liquidity sweep is occurring at a major HTF Key Level (H4 FVG/OB).
+f_isAtHTFKeyLevel(bool check_bullish) =>
+    [h4_high, h4_low, h4_close, h4_open] = request.security(syminfo.tickerid, "240", [high, low, close, open], lookahead = barmerge.lookahead_off)
+    bool is_in_zone = false
+    for i = 1 to i_kl_lookback
+        if check_bullish
+            bool is_bull_fvg = h4_low[i] > h4_high[i+2]
+            if is_bull_fvg and low <= h4_low[i]
+                is_in_zone := true
+                break
+            bool is_bull_ob = h4_close[i] < h4_open[i] and h4_close[i-1] > h4_open[i-1]
+            if is_bull_ob and low <= h4_high[i]
+                is_in_zone := true
+                break
+        else
+            bool is_bear_fvg = h4_high[i] < h4_low[i+2]
+            if is_bear_fvg and high >= h4_high[i]
+                is_in_zone := true
+                break
+            bool is_bear_ob = h4_close[i] > h4_open[i] and h4_close[i-1] < h4_open[i-1]
+            if is_bear_ob and high >= h4_low[i]
+                is_in_zone := true
+                break
+    is_in_zone
+
+// [FILTER] Checks for SMT Divergence at the point of manipulation.
+f_detectSMTDivergence(bool check_bullish) =>
+    [smt_high, smt_low] = request.security(i_smt_symbol, timeframe.period, [high, low], lookahead=barmerge.lookahead_off)
+    bool smt_exists = false
+    if check_bullish
+        smt_exists := low < low[1] and smt_low > smt_low[1]
+    else
+        smt_exists := high > high[1] and smt_high < smt_high[1]
+    smt_exists
+
+//                                                                                -
+//  MAIN INDICATOR LOGIC & STATE MACHINE ──────────────────────────────────────────
+//                                                                                -
+// === CORRECTED, ROBUST RANGE DETECTION LOGIC =// Get the time and price data of the higher timeframe candle corresponding to the current bar.
+[htf_time, htf_open, htf_high, htf_low, htf_close] = request.security(syminfo.tickerid, crt_timeframe_str, [time, open, high, low, close], lookahead = barmerge.lookahead_off)
+
+// A new HTF candle starts when its time value changes.
+is_new_htf_candle = ta.change(htf_time)
+
+// Check the hour of the candle that JUST completed in New York time.
+bool is_target_candle_completed = hour(htf_time[1], ny_timezone) == target_hour_ny
+
+bool new_range_set = false
+// Set the new range on the first bar of a new HTF candle, IF the completed candle was our target.
+if is_new_htf_candle and is_target_candle_completed
+    // The high/low of the completed candle are the htf_high/htf_low values from the previous bar.
+    crt_high := htf_high[1]
+    crt_low := htf_low[1]
+    range_bar_index := bar_index
+    new_range_set := true
+    
+    // Reset the state machine to look for a sweep of this new, confirmed range.
+    state_bull := "WAITING_FOR_SWEEP"
+    state_bear := "WAITING_FOR_SWEEP"
+
+// --- Time Management ---
+is_new_day = ta.change(dayofweek(time, ny_timezone))
+if is_new_day
+    state_bull := "WAITING_FOR_RANGE"
+    state_bear := "WAITING_FOR_RANGE"
+    mss_level_bull := na, mss_level_bear := na
+    entry_fvg_high := na, entry_fvg_low := na
+    crt_high := na, crt_low := na // Reset CRT range at the start of a new day
+    if not na(rangeBox)
+        box.delete(rangeBox)       else
+            mss_level_bull := f_findLastSwingHigh(5) 
+            if not na(mss_level_bull)
+                state_bull := "WAITING_FOR_MSS"
+
+    if state_bull == "WAITING_FOR_MSS" and close > mss_level_bull
+        [fvg_h, fvg_l] = f_findEntryFVG(true)
+        if not na(fvg_h)
+            entry_fvg_high := fvg_h
+            entry_fvg_low := fvg_l
+            state_bull := "WAITING_FOR_ENTRY"
+        
+    // --- Bearish Setup Logic ---
+    if state_bear == "WAITING_FOR_SWEEP" and high > crt_high
+        if i_use_htf_kl_filter and not f_isAtHTFKeyLevel(false)
+            state_bear := "INVALID"
+        else
+            mss_level_bear := f_findLastSwingLow(5)
+            if not na(mss_level_bear)
+                state_bear := "WAITING_FOR_MSS"
+    
+    if state_bear == "WAITING_FOR_MSS" and close < mss_level_bear
+        [fvg_h, fvg_l] = f_findEntryFVG(false)
+        if not na(fvg_h)
+            entry_fvg_high := fvg_h
+            entry_fvg_low := fvg_l
+            state_bear := "WAITING_FOR_ENTRY"
+
+    //                                                                                -
+    //  SIGNALS & ALERTS ──────────────────────────────────────────────────────────────
+    //                                                                                -
+    bool buySignal = false, sellSignal = false
+
+    // Bullish Entry Trigger
+    if state_bull == "WAITING_FOR_ENTRY" and high > entry_fvg_low and low <= entry_fvg_high
+        if i_use_smt_filter and not f_detectSMTDivergence(true)
+            state_bull := "INVALID"
+        else
+            buySignal := true
+            state_bull := "TRIGGERED", state_bear := "INVALID"
+
+    // Bearish Entry Trigger
+    if state_bear == "WAITING_FOR_ENTRY" and low < entry_fvg_high and high >= entry_fvg_low
+        if i_use_smt_filter and not f_detectSMTDivergence(false)
+            state_bear := "INVALID"
+        else
+            sellSignal := true
+            state_bear := "TRIGGERED", state_bull := "INVALID"
+        
+    //                                                                                -
+    //  VISUALIZATIONS ────────────────────────────────────────────────────────────────
+    //                                                                                -
+    var box rangeBox = na
+    var label crtHighLabel = na
+    var label crtLowLabel = na
+
+    if new_range_set and i_show_boxes
+        if not na(rangeBox)
+            box.delete(rangeBox)
+        if not na(crtHighLabel)
+            label.delete(crtHighLabel)
+        if not na(crtLowLabel)
+            label.delete(crtLowLabel)
+        
+        rangeBox := box.new(range_bar_index, crt_high, bar_index + 1, crt_low, 
+         border_color=color.new(color.gray, 50), 
+         bgcolor=color.new(color.gray, 95),
+         extend=extend.right)
+
+        crtHighLabel := label.new(range_bar_index, crt_high, "CRT High: " + str.tostring(crt_high, format.mintick), 
+             xloc=xloc.bar_index, yloc=yloc.price, style=label.style_label_left, 
+             color=color.new(color.gray, 50), textcolor=color.white, size=size.small)
+        crtLowLabel := label.new(range_bar_index, crt_low, "CRT Low: " + str.tostring(crt_low, format.mintick), 
+             xloc=xloc.bar_index, yloc=yloc.price, style=label.style_label_left, 
+             color=color.new(color.gray, 50), textcolor=color.white, size=size.small)
+    else if i_show_boxes and not new_range_set and not na(rangeBox)
+        // Update existing box to extend to current bar
+        box.set_right(rangeBox, bar_index + 1)
+        // Update label positions
+        if not na(crtHighLabel)
+            label.set_x(crtHighLabel, bar_index)
+        if not na(crtLowLabel)
+            label.set_x(crtLowLabel, bar_index)
+    // Plot Buy/Sell Signals
+    if buySignal and i_show_labels
+        label.new(bar_index, low - ta.atr(14), "▲\nBUY", style=label.style_label_up, color=color.new(color.green, 20), textcolor=color.white)
+        if i_alerts_on
+            alert("Institutional CRT Engine: Bullish Setup Confirmed (" + syminfo.ticker + ", " + timeframe.period + ")", freq=a_freq)
+        
+    if sellSignal and i_show_labels
+        label.new(bar_index, high + ta.atr(14), "▼\nSELL", style=label.style_label_down, color=color.new(color.red, 20), textcolor=color.white)
+        if i_alerts_on
+            alert("Institutional CRT Engine: Bearish Setup Confirmed (" + syminfo.ticker + ", " + timeframe.period + ")", freq=a_freq)
+
+
+
+
+// ────────────────────────────────────────────────────────────────────────
+//  3-CANDLE PATTERN DETECTION FUNCTIONS ──────────────────────────────────
+// ────────────────────────────────────────────────────────────────────────
+
+// Checks for a bullish Three White Soldiers pattern
+f_isThreeWhiteSoldiers() =>
+    bool cond1 = close[2] < open[2] // First candle bearish
+    bool cond2 = close[1] > open[1] and close[1] > close[2] // Second candle bullish, closes higher than first
+    bool cond3 = close[0] > open[0] and close[0] > close[1] // Third candle bullish, closes higher than second
+    bool cond4 = open[1] > open[2] and open[1] < close[2] // Second opens within first's body
+    bool cond5 = open[0] > open[1] and open[0] < close[1] // Third opens within second's body
+    cond1 and cond2 and cond3 and cond4 and cond5
+
+// Checks for a bearish Three Black Crows pattern
+f_isThreeBlackCrows() =>
+    bool cond1 = close[2] > open[2] // First candle bullish
+    bool cond2 = close[1] < open[1] and close[1] < close[2] // Second candle bearish, closes lower than first
+    bool cond3 = close[0] < open[0] and close[0] < close[1] // Third candle bearish, closes lower than second
+    bool cond4 = open[1] < open[2] and open[1] > close[2] // Second opens within first's body
+    bool cond5 = open[0] < open[1] and open[0] > close[1] // Third opens within second's body
+    cond1 and cond2 and cond3 and cond4 and cond5
+
+// Checks for a bullish Morning Star pattern
+f_isMorningStar() =>
+    bool cond1 = close[2] < open[2] // First candle bearish
+    bool cond2 = math.abs(close[1] - open[1]) <= (high[1] - low[1]) * 0.3 // Second candle small body (doji/spinning top)
+    bool cond3 = close[0] > open[0] and close[0] > open[2] // Third candle bullish, closes well into first's body
+    bool cond4 = open[1] < close[2] // Second candle gaps down (optional, but common)
+    cond1 and cond2 and cond3 and cond4
+
+// Checks for a bearish Evening Star pattern
+f_isEveningStar() =>
+    bool cond1 = close[2] > open[2] // First candle bullish
+    bool cond2 = math.abs(close[1] - open[1]) <= (high[1] - low[1]) * 0.3 // Second candle small body (doji/spinning top)
+    bool cond3 = close[0] < open[0] and close[0] < open[2] // Third candle bearish, closes well into first's body
+    bool cond4 = open[1] > close[2] // Second candle gaps up (optional, but common)
+    cond1 and cond2 and cond3 and cond4
+
+// Checks for a bullish Three Inside Up pattern
+f_isThreeInsideUp() =>
+    bool cond1 = close[2] < open[2] // First candle bearish
+    bool cond2 = close[1] > open[1] and open[1] > close[2] and close[1] < open[2] // Second candle bullish inside first
+    bool cond3 = close[0] > open[0] and close[0] > high[1] // Third candle bullish, closes above second's high
+    cond1 and cond2 and cond3
+
+// Checks for a bearish Three Inside Down pattern
+f_isThreeInsideDown() =>
+    bool cond1 = close[2] > open[2] // First candle bullish
+    bool cond2 = close[1] < open[1] and open[1] < close[2] and close[1] > open[2] // Second candle bearish inside first
+    bool cond3 = close[0] < open[0] and close[0] < low[1] // Third candle bearish, closes below second's low
+    cond1 and cond2 and cond3
+
+
+
+
+// 3-Candle Patterns
+g_3_candle_patterns = "3-Candle Pattern Settings"
+i_enable_3ws = input.bool(false, "Enable Three White Soldiers", group = g_3_candle_patterns)
+i_enable_3bc = input.bool(false, "Enable Three Black Crows", group = g_3_candle_patterns)
+i_enable_ms = input.bool(false, "Enable Morning Star", group = g_3_candle_patterns)
+i_enable_es = input.bool(false, "Enable Evening Star", group = g_3_candle_patterns)
+i_enable_3iu = input.bool(false, "Enable Three Inside Up", group = g_3_candle_patterns)
+i_enable_3id = input.bool(false, "Enable Three Inside Down", group = g_3_candle_patterns)
+
+
+
+
+// ────────────────────────────────────────────────────────────────────────
+//  3-CANDLE PATTERN INTEGRATION ──────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────────────
+
+bool three_candle_pattern_detected = false
+string pattern_name = ""
+
+if barstate.isconfirmed
+    if i_enable_3ws and f_isThreeWhiteSoldiers()
+        three_candle_pattern_detected := true
+        pattern_name := "Three White Soldiers"
+    else if i_enable_3bc and f_isThreeBlackCrows()
+        three_candle_pattern_detected := true
+        pattern_name := "Three Black Crows"
+    else if i_enable_ms and f_isMorningStar()
+        three_candle_pattern_detected := true
+        pattern_name := "Morning Star"
+    else if i_enable_es and f_isEveningStar()
+        three_candle_pattern_detected := true
+        pattern_name := "Evening Star"
+    else if i_enable_3iu and f_isThreeInsideUp()
+        three_candle_pattern_detected := true
+        pattern_name := "Three Inside Up"
+    else if i_enable_3id and f_isThreeInsideDown()
+        three_candle_pattern_detected := true
+        pattern_name := "Three Inside Down"
+
+if three_candle_pattern_detected and i_show_labels
+    label.new(bar_index, high, pattern_name, 
+     style=label.style_label_down, 
+     color=color.new(color.blue, 20), 
+     textcolor=color.white, 
+     size=size.small)
+    if i_alerts_on
+        alert("Institutional CRT Engine: " + pattern_name + " detected on " + syminfo.ticker + ", " + timeframe.period, freq=a_freq)
+
+

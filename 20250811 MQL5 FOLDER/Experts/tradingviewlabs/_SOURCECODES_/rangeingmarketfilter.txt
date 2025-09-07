@@ -1,0 +1,44 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © PuguForex 2021
+
+//@version=5
+indicator('Directional Volatility and Volume')
+
+inpVolatilityPeriod = input.int(title   ='Volatility period'   , minval=1    , defval=5)
+inpVolatilityMethod = input.string(title="Volatility smoothing", defval="SMA", options = ["RMA", "SMA", "EMA", "WMA"])
+inpVolumePeriod     = input.int(title   ='Volume period'       , minval=1    , defval=14)
+inpVolumeMethod     = input.string(title="Volume smoothing"    , defval="SMA", options = ["RMA", "SMA", "EMA", "WMA"])
+inpZonePeriod       = input.int(title   ='Zone period'         , minval=1    , defval=14)
+inpZoneMethod       = input.string(title="Zone smoothing"      , defval="SMA", options = ["RMA", "SMA", "EMA", "WMA"])
+
+maFunction(source, length, methodInput) =>
+    switch methodInput
+        "RMA" => ta.rma(source, length)
+        "WMA" => ta.wma(source, length)
+        "EMA" => ta.ema(source, length)
+        => ta.sma(source, length)
+
+zeroLine = maFunction(hl2  , inpZonePeriod      , inpZoneMethod)
+val      = maFunction(close, inpVolatilityPeriod, inpVolatilityMethod) - zeroLine
+znUp     = maFunction(high , inpZonePeriod      , inpZoneMethod)       - zeroLine
+znDn     = maFunction(low  , inpZonePeriod      , inpZoneMethod)       - zeroLine
+
+vol      = close > open ? volume : -volume
+volSm    = maFunction(vol, inpVolumePeriod, inpVolumeMethod)
+
+upBr     = ta.crossover(val,znUp)
+dnBr     = ta.crossunder(val,znDn)
+
+if upBr
+    alert("Volatility broke upper zone",alert.freq_once_per_bar_close)
+
+if dnBr
+    alert("Volatility broke lower zone",alert.freq_once_per_bar_close)
+
+valColor = val > znUp ? color.green : color.red
+volColor = volSm > 0 ? color.blue : volSm < 0 ? color.orange : color.silver
+
+plot(val, title='Volatility', style=plot.style_columns, color=valColor)
+plot(znUp, title='Volume Up', style=plot.style_columns, color=volColor)
+plot(znDn, title='Volume Dn', style=plot.style_columns, color=volColor)
+

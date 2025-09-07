@@ -1,0 +1,1135 @@
+//+------------------------------------------------------------------+
+//|                                                      ProjectName |
+//|                                      Copyright 2020, CompanyName |
+//|                                       http://www.companyname.net |
+//+------------------------------------------------------------------+
+
+//+------------------------------------------------------------------+
+//|                                       TelegramSignalTrader_V1.mq5|
+//|                      Copyright 2023, Your Name/Company           |
+//|                                              https://www.xxxx.com|
+//+------------------------------------------------------------------+
+#property copyright "Copyright 2023, Your Name/Company"
+#property link      "https://www.xxxx.com"
+#property version   "1.00"
+#property description "Connects to a local web service to fetch Telegram signals"
+#property description "and execute trades. Requires external script."
+#property strict
+
+#include <Trade\Trade.mqh> // Standard trading class
+/*
+change:
+2025 - 04  29
+
+Inputs: Changed EnumVolumeType to EnumGlobalVolumeMode with only MinimumLot and RiskPercent. Added InpVolumeMode. Removed InpVolumeType and InpFixedVolume.
+CalculateVolume:
+Completely removed the reference to signal.volume.
+Uses a switch based on the new InpVolumeMode input.
+case MinimumLot:: Directly assigns lot_min to volume.
+case RiskPercent:: Contains the risk calculation logic (requires signal.open_price and signal.stop_loss). Includes essential validation for this mode (Risk% > 0, SL/Open prices valid, SL != Open, Balance > 0, TickValue > 0, LossPerLot > 0).
+Validation & Constraints: Keeps the crucial final steps to normalize the volume according to lot_step and clamp it between lot_min and lot_max. Uses better precision based on SYMBOL_VOLUME_LIMIT_DIGITS. Includes final checks.
+Now, regardless of the source or signal content, the EA will only use one of the two selected methods globally to determine the trade volume. Remember that RiskPercent mode still depends on receiving valid Open and Stop Loss prices in the signal string from Python.
+
+
+
+
+known issues:
+_____________________________________
+   issue still with receive and act on CLOSE instructions
+
+
+v.next
+_____________________________________
+   Next Steps & Considerations:
+   Testing: The most important step now is rigorous testing on a Demo account. Observe the EA's behaviour with live signals (or carefully crafted test signals sent to your test channel if you have one).
+   Does it correctly identify BUY/SELL signals?
+   Does it correctly apply the skip logic (skipping trades where the current price is worse than the signal open or beyond SL/TP)? Check the log messages.
+   Does it place MARKET orders when the conditions are met?
+   Are the Volume, SL, and TP values applied correctly to the placed market orders?
+   Does the #CLOSE signal logic work as expected (identifying and closing the specific trade based on symbol and open price)?
+   Volume Calculation Mode: Test the different InpVolumeType settings (SignalVolume, FixedVolume, RiskPercent) to ensure they calculate and apply the lot size correctly. Pay attention to the Risk Percent calculation logs to see if the resulting volume makes sense based on your balance and the SL distance.
+   Symbol Suffix/Prefix: Ensure this is correctly configured for all symbols you expect signals for (EURUSD, XAUUSD, AUDUSD, etc.).
+   Error Handling: Keep an eye on the MT5 journal and Experts tab for any new error codes during trade execution (e.g., insufficient funds, invalid SL/TP distance for the broker, connection issues, etc.).
+   Python Script Reliability: Ensure the Python script runs reliably in the background. If the machine restarts or the script crashes, the EA won't get signals. Consider using tools like screen, tmux (Linux/Mac), or setting it up as a Windows Service for long-term running.
+   JSON Robustness (Future): Remember the MQL5 JSON parser is still very basic. If the signal format from Telegram changes even slightly (extra spaces, different field order), the GetJsonValue function might break. Replacing it with a proper MQL5 JSON library (you can find some free ones online or purchase them) would make the EA significantly more robust in V2.
+   Modification Signals (Future): This version doesn't handle signals that might instruct you to modify an existing trade's SL or TP. That would require additional parsing logic and MQL5 order modification functions (OrderModify, PositionModify).
+
+
+v1.2/3
+_____________________________________
+
+v1.4
+Future Goal (V4): Introduce a separate Python component that runs daily to:
+Scrape selected Forex analysis websites (respecting robots.txt and Terms of Service).
+Extract relevant analysis text for specific instruments (e.g., XAUUSD).
+Use an LLM API to summarize the text and determine a daily directional bias (Bullish/Bearish/Neutral).
+Store this bias (e.g., in a file or simple database).
+Modify the main Python signal aggregator (V3) to read this daily bias and use it to filter incoming real-time signals (e.g., only process BUY signals if the daily bias is Bullish or Neutral). The Flask endpoint and MQL5 EA might not need significant changes if filtering happens entirely within the Python aggregator before the signal string is generated.
+This revised V4 is much more concrete and manageable than the initial broad AI integration ideas. It leverages AI for a specific, high-value task (expert summarization) in a non-real-time context, reducing complexity and latency concerns.
+
+v1.1
+_____________________________________
+   New Logic Summary:
+   BUY Signal:
+   SKIP if Current Ask < Signal Open Price.
+   SKIP if Current Ask >= Signal Take Profit Price.
+   SKIP if Current Ask < Signal Stop Loss Price (Implied, good to keep this check).
+   If NONE of the above skip conditions are met, place a MARKET BUY order.
+   SELL Signal:
+   SKIP if Current Bid > Signal Open Price.
+   SKIP if Current Bid <= Signal Take Profit Price.
+   SKIP if Current Bid > Signal Stop Loss Price (Implied, good to keep this check).
+   If NONE of the above skip conditions are met, place a MARKET SELL order.
+
+
+Key Changes:
+   Removed Pending Order Logic: The entire block related to priceDifference, tolerancePoints, and trade.OrderOpen for pending orders has been removed.
+   Removed Pending Price Adjustments: The code checking Buy Stop / Sell Limit placement relative to Ask/Bid and adjusting entryPrice is removed.
+   New Skip Logic: Added explicit if/else if blocks for both BUY and SELL actions to check the three skip conditions:
+   Price worse than signal open (ask < open for BUY, bid > open for SELL).
+   Price already beyond TP (ask >= tp for BUY, bid <= tp for SELL).
+   Price already beyond SL (ask < sl for BUY, bid > sl for SELL) - kept for safety.
+   Clear Logging: Added specific PrintFormat messages to explain why a signal is being skipped based on the new rules, including relevant prices.
+   Direct Market Execution: If none of the skip conditions are met, the code proceeds directly to calculate volume and execute trade.Buy or trade.Sell.
+InpPipsTolerance Ignored: Note that the InpPipsTolerance input parameter is no longer used by this function's logic. You might want to add a comment to the input definition or remove it in a future version.
+*/
+//--- Input Parameters
+// Telegram Settings
+input string InpWebServerUrl = "http://127.0.0.1:5000/get_signal"; // URL for the Python signal server
+input int    InpPollingIntervalSeconds = 300;    // How often to check for signals (300s = 5 mins)
+input int    InpSignalExpiryMinutes = 60;        // Ignore signals older than this (minutes)
+input int    InpMaxConnectionRetries = 3;        // Max retries if web request fails
+
+// Symbol Matching
+input string InpSymbolPrefix = "";               // Prefix for symbols (e.g., "fx.")
+input string InpSymbolSuffix = "";               // Suffix for symbols (e.g., ".pro")
+
+// Trade Execution Settings
+input double InpPipsTolerance = 50.0;             // Max pips difference from signal open price for Market Order
+//enum         EnumVolumeType {
+//   SignalVolume, // Use volume from Telegram signal
+//   FixedVolume,  // Use fixed volume below
+//   RiskPercent   // Calculate volume based on risk % of Balance
+//};
+enum EnumGlobalVolumeMode {
+   MinimumLot,    // Always use broker's minimum allowed lot size
+   RiskPercent    // Calculate volume based on risk % of Balance/Equity
+};
+input EnumGlobalVolumeMode InpVolumeMode = RiskPercent; // Global volume mode
+input double InpRiskPercent = 1.0;              // Risk percentage if RiskPercent selected
+
+// input EnumVolumeType InpVolumeType = SignalVolume; // Volume calculation mode
+// input double InpFixedVolume = 0.10;            // Fixed lot size if FixedVolume selected
+
+
+input ulong  InpMagicNumber = 123456;           // Magic number for EA's trades
+input uint   InpSlippage = 3;                   // Slippage in points for Market Orders
+
+input double InpClosePriceTolerancePips = 1.0;  // Max pips diff. for matching CLOSE signal open price
+
+// --- NEW: Breakeven & Trailing Stop Settings ---
+input group      "Breakeven/Trailing Stop on CLOSE Signal"
+input int        InpBreakevenMinProfitPoints = 10; // Minimum profit in POINTS before moving SL to BE (0 to disable min profit check)
+input double     InpBreakevenBufferPips    = 2.0; // Pips ADDED to open price for BE SL (covers spread/commission est.)
+input bool       InpUseTrailingStop      = true; // Apply ATR Trailing Stop AFTER BE move (or always if signal comes)
+input int        InpTrailAtrPeriod       = 14;   // ATR Period for trailing stop
+input double     InpTrailAtrMultiplier   = 2.5;  // ATR Multiplier for trail distance
+input int        InpTrailStepPoints      = 1;    // Minimum SL move in POINTS required for trail step
+input group      "_____________________________"
+
+
+// Notification Settings
+input bool   InpSendEmailAlerts = false;         // Enable email alerts on critical errors
+input bool   InpSendPushAlerts = true;           // Enable push notification alerts on critical errors
+
+//--- Global Variables
+CTrade      trade;                        // Trading object
+string      g_web_service_url;          // Store the input URL
+int         g_poll_interval_millis;       // Polling interval in milliseconds
+long        g_expiry_seconds;           // Signal expiry in seconds
+int         g_conn_retry_count = 0;     // Web request retry counter
+long        g_last_processed_message_id = -1; // Initialize to -1 to process first valid signal
+datetime    g_last_error_notify_time = 0; // To avoid spamming notifications
+MqlTick     g_latest_tick;              // To store latest tick info
+//int         g_digits;                     // Symbol digits
+//double      g_point;                      // Symbol point size
+
+//--- Signal Data Structure
+struct SignalData {
+   long     message_id;
+   long     timestamp;
+   string   action;     // "BUY", "SELL", "CLOSE"
+   string   symbol;     // e.g., "AUDUSD"
+   double   volume;
+   double   open_price;
+   double   stop_loss;
+   double   take_profit;
+   long original_open_msg_id; // Holds the OPEN signal's ID for comment matching
+   bool     is_valid;   // Was parsing successful?
+};
+
+//+------------------------------------------------------------------+
+//| Expert initialization function                                   |
+//+------------------------------------------------------------------+
+int OnInit()
+{
+   //--- Check URL setting in MT5 options
+   if (!IsUrlAllowed(InpWebServerUrl)) {
+      Alert("Error: URL '", InpWebServerUrl, "' is not added to the list of allowed URLs in Tools -> Options -> Expert Advisors!");
+      ExpertRemove(); // Stop the EA
+      return (INIT_FAILED);
+   }
+   //--- Initialize global variables
+   g_web_service_url = InpWebServerUrl;
+   g_poll_interval_millis = InpPollingIntervalSeconds * 1000;
+   g_expiry_seconds = InpSignalExpiryMinutes * 60;
+   if(g_poll_interval_millis < 1000) { // Minimum reasonable interval
+      Print("Error: Polling interval too short. Setting to 5 seconds.");
+      g_poll_interval_millis = 5000;
+   }
+   //--- Setup trading object
+   trade.SetExpertMagicNumber(InpMagicNumber);
+   trade.SetDeviationInPoints(InpSlippage);
+   //--- Set timer
+   if(!EventSetMillisecondTimer(g_poll_interval_millis)) {
+      Print("Error setting timer! Code: ", GetLastError());
+      return(INIT_FAILED);
+   }
+   Print("Telegram Signal Trader V1 Initialized. Polling URL: ", g_web_service_url, ", Interval: ", InpPollingIntervalSeconds, "s");
+   //--- Get symbol properties (can be done here or symbol-specifically later)
+   //--- OK
+   return(INIT_SUCCEEDED);
+}
+//+------------------------------------------------------------------+
+//| Check if URL is allowed                                          |
+//+------------------------------------------------------------------+
+bool IsUrlAllowed(string url)
+{
+   // This is a rudimentary check. A more robust check might parse the URL better.
+   // MT5 doesn't provide a direct function to verify against the list.
+   // We rely on WebRequest failing later if it's not allowed.
+   // For now, just return true and let WebRequest handle the security restriction.
+   return true;
+}
+//+------------------------------------------------------------------+
+//| Expert deinitialization function                                 |
+//+------------------------------------------------------------------+
+void OnDeinit(const int reason)
+{
+   //--- Kill timer
+   EventKillTimer();
+   Print("Telegram Signal Trader V1 Deinitialized. Reason: ", reason);
+   // Optional: Save g_last_processed_message_id to GlobalVariable or File
+}
+
+//+------------------------------------------------------------------+
+//| Expert timer function                                            |
+//+------------------------------------------------------------------+
+void OnTimer()
+{
+   FetchAndProcessSignal();
+}
+
+//+------------------------------------------------------------------+
+//| Handle "CLOSE" Signal: Moves SL to BE / Applies Trailing Stop    |
+//+------------------------------------------------------------------+
+/*
+Loops through positions filtered by Symbol and Magic Number.
+Checks profitability against InpBreakevenMinProfitPoints.
+Calculates the target breakeven SL price including the buffer (InpBreakevenBufferPips) and a basic commission estimate.
+Checks if the target BE SL is valid (respects Stops Level, is better than current SL).
+If valid, calls trade.PositionModify to move SL only.
+If InpUseTrailingStop is true, calculates ATR value and the target trailing SL.
+Checks if the target Trailing SL is valid (respects Stops Level, is better than current SL, and has moved enough based on InpTrailStepPoints).
+If valid, calls trade.PositionModify to update SL.
+Returns true if any PositionModify call succeeded, false otherwise.
+*/
+bool HandleSecureTradeSignal(const SignalData &signal, const string brokerSymbol)
+{
+   PrintFormat("Handling Secure Trade signal (orig ID: %d) for symbol %s", signal.message_id, brokerSymbol);
+   bool modification_made = false; // Track if we actually modified any position
+   // --- Get Symbol-Specific Info ---
+   if(!SymbolSelect(brokerSymbol, true)) { // Ensure symbol selected for info/trading
+      Print("HandleSecureTradeSignal: Failed to select symbol ", brokerSymbol);
+      return false;
+   }
+   int digits = (int)SymbolInfoInteger(brokerSymbol, SYMBOL_DIGITS);
+   double point = SymbolInfoDouble(brokerSymbol, SYMBOL_POINT);
+   long stops_level = SymbolInfoInteger(brokerSymbol, SYMBOL_TRADE_STOPS_LEVEL);
+   double tick_size = SymbolInfoDouble(brokerSymbol, SYMBOL_TRADE_TICK_SIZE);
+   double tick_value = SymbolInfoDouble(brokerSymbol, SYMBOL_TRADE_TICK_VALUE); // May need for precise commission calc
+   //double commission_per_lot = SymbolInfoDouble(brokerSymbol, SYMBOL_TRADE_COMMISSION_CHARGE); // Check SYMBOL_TRADE_COMMISSION_TYPE too
+   // Calculate Buffer in Points
+   double be_buffer_points = InpBreakevenBufferPips * point;
+   // Simple commission estimate in points (adjust if needed based on commission type/value)
+   // This is a rough estimate - more complex calc needed if commission isn't fixed per lot or in account currency
+   //if (commission_per_lot > 0 && tick_value > 0 && SymbolInfoDouble(brokerSymbol, SYMBOL_TRADE_CONTRACT_SIZE) > 0)
+   // {
+   //     double contract_size = SymbolInfoDouble(brokerSymbol, SYMBOL_TRADE_CONTRACT_SIZE);
+   //     // Example assuming commission is per lot in ACCOUNT CURRENCY
+   //     double commission_cost_per_point = tick_value * 1.0; // Rough guess: if tick value is cost per point per lot
+   //     if(commission_cost_per_point > 0) {
+   //         double commission_points_per_lot = commission_per_lot / commission_cost_per_point;
+   //         be_buffer_points += commission_points_per_lot * point; // Add commission estimate points
+   //         PrintFormat("Added commission estimate of %.2f points to BE buffer.", commission_points_per_lot);
+   //     }
+   // }
+   // Ensure buffer is at least ticksize
+   be_buffer_points = MathMax(be_buffer_points, tick_size);
+   // --- Calculate ATR for Trailing Stop (if enabled) ---
+   double atr_value = 0;
+   if(InpUseTrailingStop) {
+      // Get ATR value - using timeframe of the current chart EA is attached to
+      double atr_buffer[];
+      if(CopyBuffer(iATR(brokerSymbol, _Period, InpTrailAtrPeriod), 0, 0, 1, atr_buffer) > 0) {
+         atr_value = atr_buffer[0];
+         PrintFormat("ATR(%d) on %s %s = %.*f", InpTrailAtrPeriod, brokerSymbol, EnumToString(_Period), digits, atr_value);
+      }
+      else {
+         Print("Failed to get ATR value for ", brokerSymbol, " ", EnumToString(_Period));
+         // Optionally disable trailing if ATR fails, or use a fallback default distance
+      }
+   }
+   double trail_distance_points = atr_value * InpTrailAtrMultiplier;
+   double trail_step_points_abs = InpTrailStepPoints * point; // Absolute step distance
+   // --- Iterate through open positions ---
+   for(int i = PositionsTotal() - 1; i >= 0; i--) {
+      ulong ticket = PositionGetTicket(i);
+      if (ticket == 0) continue;
+      // Check Magic Number and Symbol
+      if(PositionGetInteger(POSITION_MAGIC) == InpMagicNumber && PositionGetString(POSITION_SYMBOL) == brokerSymbol) {
+         // --- Get Position Info ---
+         double pos_open_price = PositionGetDouble(POSITION_PRICE_OPEN);
+         double pos_sl = PositionGetDouble(POSITION_SL);
+         double pos_tp = PositionGetDouble(POSITION_TP);
+         double pos_profit = PositionGetDouble(POSITION_PROFIT);
+         long pos_type = PositionGetInteger(POSITION_TYPE); // POSITION_TYPE_BUY or POSITION_TYPE_SELL
+         bool is_buy = (pos_type == POSITION_TYPE_BUY);
+         PrintFormat("Checking position #%d (%s), Profit: %.2f", ticket, EnumToString((ENUM_POSITION_TYPE)pos_type), pos_profit);
+         // --- Breakeven Logic ---
+         bool sl_moved_to_be = false;
+         double min_profit_points = InpBreakevenMinProfitPoints * point;
+         if(pos_profit >= min_profit_points) { // Check if profit meets minimum points threshold
+            // Calculate Breakeven SL
+            double target_be_sl = 0;
+            if(is_buy) {
+               target_be_sl = pos_open_price + be_buffer_points;
+            }
+            else {   // Is Sell
+               target_be_sl = pos_open_price - be_buffer_points;
+            }
+            target_be_sl = NormalizeDouble(target_be_sl, digits); // Normalize
+            // Check if proposed BE SL is actually better than current SL
+            bool is_be_better = (is_buy && target_be_sl > pos_sl) || (!is_buy && (target_be_sl < pos_sl || pos_sl == 0)); // Consider pos_sl=0 case?
+            // Add Check: Only move to BE if current price hasn't already blown past it significantly? Less critical usually.
+            if(is_be_better) {
+               // Check if BE SL respects stops level from current market price
+               if(!SymbolInfoTick(brokerSymbol, g_latest_tick)) {
+                  Print("Failed to get current tick for stops level check during BE.");
+                  continue; // Skip modifying this pos if tick fails
+               }
+               double current_market_bid = g_latest_tick.bid; // Need for sell stop modify check
+               double current_market_ask = g_latest_tick.ask; // Need for buy stop modify check
+               double min_stop_distance = stops_level * point;
+               bool respects_stops_level = false;
+               if (is_buy) { // Modifying SL for a BUY position
+                  respects_stops_level = (target_be_sl <= current_market_bid - min_stop_distance); // Buy SL must be below Bid
+               }
+               else {   // Modifying SL for a SELL position
+                  respects_stops_level = (target_be_sl >= current_market_ask + min_stop_distance); // Sell SL must be above Ask
+               }
+               if (respects_stops_level) {
+                  PrintFormat("Ticket #%d: Profit sufficient (%.2f >= %.2f pts). Moving SL to Breakeven @ %.*f",
+                              ticket, pos_profit, min_profit_points, digits, target_be_sl);
+                  // --- Modify Position SL to BE ---
+                  if(trade.PositionModify(ticket, target_be_sl, pos_tp)) {
+                     PrintFormat("Breakeven SL Move successful for ticket %d.", ticket);
+                     pos_sl = target_be_sl; // Update local variable for subsequent trailing check
+                     sl_moved_to_be = true;
+                     modification_made = true; // Mark that we did something
+                  }
+                  else {
+                     PrintFormat("Breakeven SL Move FAILED for ticket %d. Error: %d - %s", ticket, trade.ResultRetcode(), trade.ResultComment());
+                     // Might fail if price moved too close while calculating, retry later?
+                  }
+               }
+               else {
+                  PrintFormat("Ticket #%d: Breakeven SL %.*f invalid (StopsLevel). Current Bid=%.*f Ask=%.*f",
+                              ticket, digits, target_be_sl, digits, current_market_bid, digits, current_market_ask);
+               }
+            }
+            else {
+               PrintFormat("Ticket #%d: Profit sufficient, but calculated BE SL (%.*f) not better than current SL (%.*f).",
+                           ticket, digits, target_be_sl, digits, pos_sl);
+            }
+         } // End Profit check for BE
+         else {
+            PrintFormat("Ticket #%d: Profit (%.2f) not sufficient for Breakeven (Min Points: %.2f).",
+                        ticket, pos_profit, min_profit_points);
+         }
+         // --- ATR Trailing Stop Logic (Only if Enabled) ---
+         // Typically applied *after* BE is set, or maybe always on any profitable trade on CLOSE signal?
+         // Current logic: apply if BE was set OR if trailing is enabled regardless
+         if(InpUseTrailingStop && atr_value > 0 && trail_distance_points > 0) {
+            if(!SymbolInfoTick(brokerSymbol, g_latest_tick)) {
+               Print("Failed to get current tick for trailing stop calculation.");
+               continue; // Skip trailing if tick fails
+            }
+            double current_market_bid = g_latest_tick.bid; // Current price for trailing calc
+            double current_market_ask = g_latest_tick.ask; // Current price for trailing calc
+            double target_trail_sl = 0;
+            if(is_buy) {
+               target_trail_sl = current_market_bid - trail_distance_points;
+            }
+            else {   // Sell
+               target_trail_sl = current_market_ask + trail_distance_points;
+            }
+            target_trail_sl = NormalizeDouble(target_trail_sl, digits);
+            // Check if proposed Trail SL is better than current SL (pos_sl reflects BE move if it happened)
+            // AND if it has moved enough according to the step
+            bool is_trail_better = (is_buy && target_trail_sl > pos_sl) || (!is_buy && (target_trail_sl < pos_sl || pos_sl == 0));
+            bool step_achieved = MathAbs(target_trail_sl - pos_sl) >= trail_step_points_abs;
+            if (is_trail_better && step_achieved) {
+               // Check if trail SL respects stops level
+               double min_stop_distance = stops_level * point;
+               bool respects_stops_level = false;
+               if (is_buy) { // Modifying SL for BUY pos
+                  respects_stops_level = (target_trail_sl <= current_market_bid - min_stop_distance); // Buy SL must be below Bid
+               }
+               else {   // Modifying SL for SELL pos
+                  respects_stops_level = (target_trail_sl >= current_market_ask + min_stop_distance); // Sell SL must be above Ask
+               }
+               if(respects_stops_level) {
+                  PrintFormat("Ticket #%d: Applying Trailing Stop. New Trail SL: %.*f (Current SL: %.*f, ATR: %.*f, Mult: %.1f)",
+                              ticket, digits, target_trail_sl, digits, pos_sl, digits, atr_value, InpTrailAtrMultiplier);
+                  // --- Modify Position SL to Trail Target ---
+                  if(trade.PositionModify(ticket, target_trail_sl, pos_tp)) {
+                     PrintFormat("Trailing Stop Move successful for ticket %d.", ticket);
+                     modification_made = true; // Mark modification
+                  }
+                  else {
+                     PrintFormat("Trailing Stop Move FAILED for ticket %d. Error: %d - %s", ticket, trade.ResultRetcode(), trade.ResultComment());
+                  }
+               }
+               else {
+                  PrintFormat("Ticket #%d: Proposed Trail SL %.*f invalid (StopsLevel). Current Bid=%.*f Ask=%.*f",
+                              ticket, digits, target_trail_sl, digits, current_market_bid, digits, current_market_ask);
+               }
+            } // End Trail is better & step achieved check
+            else if (is_trail_better && !step_achieved) {
+               PrintFormat("Ticket #%d: Trailing Stop requires bigger move (%.*f vs %.*f, Step: %d pts)",
+                           ticket, digits, target_trail_sl, digits, pos_sl, InpTrailStepPoints);
+            }
+         } // End Trailing Stop Logic Check
+         // --- Decide if we only process ONE position per CLOSE signal? ---
+         // If yes, we could 'break;' here after handling the first matching position found.
+         // Current logic iterates through ALL matching positions for the symbol. Choose based on desired behavior.
+         // break; // Uncomment to only apply BE/Trail to the most recent matching position
+      } // End if(MagicNumber && Symbol match)
+   } // End loop through positions
+   return modification_made; // Return true if any SL was successfully modified
+}
+
+
+//+------------------------------------------------------------------+
+//| Fetch data from the web service and start processing             |
+//+------------------------------------------------------------------+
+void FetchAndProcessSignal()
+{
+   // --- CORRECTED APPROACH: Use char[] for response data ---
+   char              post_data[];      // For GET request, the body data is empty
+   char              result[];         // char array to receive response body
+   string            result_headers;   // string for response headers
+   int               timeout_ms = 5000; // 5 second timeout for web request
+   // We are sending GET, so request body ('data[]') is empty.
+   // Set appropriate headers for a simple GET request (optional but good practice)
+   // If your Python server requires specific headers, add them here.
+   //string headers = "Content-Type: application/json\r\nAccept: application/json\r\nConnection: Close\r\n";
+   string headers = "Accept: text/plain\r\nConnection: Close\r\n"; // Changed Accept header slightly
+   ArrayResize(post_data, 0);
+   ResetLastError(); // Reset last error before WebRequest
+   int res = WebRequest("GET",
+                        g_web_service_url,
+                        headers,            // Custom headers
+                        timeout_ms,         // Timeout
+                        post_data,          // Empty request body data for GET
+                        result,             // <<< char[] array to STORE the RESPONSE BODY
+                        result_headers);    // string to store response headers
+   //--- Check result
+   if(res == -1) {
+      Print("WebRequest Error: ", GetLastError());
+      g_conn_retry_count++;
+      if(g_conn_retry_count > InpMaxConnectionRetries) {
+         // Avoid spamming notifications, e.g., only notify once every 15 mins
+         if(TimeCurrent() - g_last_error_notify_time > 900) {
+            NotifyUser("CRITICAL: Failed to connect to signal server " + g_web_service_url + " after " + (string)InpMaxConnectionRetries + " retries. Error: " + (string)GetLastError());
+            g_last_error_notify_time = TimeCurrent();
+            // Optionally reset counter to try again later, or keep it high to stop trying for a while
+            // g_conn_retry_count = 0; // To retry again later
+         }
+      }
+      return; // Exit this timer event
+   }
+   else if (res != 200) { // Check for HTTP success code
+      PrintFormat("WebRequest failed: HTTP Code %d received from %s", res, g_web_service_url);
+      // Treat non-200 also as a retry scenario potentially
+      g_conn_retry_count++;
+      if(g_conn_retry_count > InpMaxConnectionRetries) {
+         if(TimeCurrent() - g_last_error_notify_time > 900) {
+            NotifyUser("CRITICAL: Received HTTP non-OK response (" + (string)res +") from signal server " + g_web_service_url + " after " + (string)InpMaxConnectionRetries + " retries.");
+            g_last_error_notify_time = TimeCurrent();
+         }
+      }
+      return;
+   }
+   //--- Success - Reset retry counter
+   g_conn_retry_count = 0;
+   //--- Convert response data to string
+   //string jsonResponse = CharArrayToString(data);
+   //Print("Received response: ", jsonResponse); // Log raw response
+   //--- Check if the response result array is actually populated ---
+   int result_size = ArraySize(result);
+   if(result_size <= 0) {
+      Print("WebRequest successful (Code 200) but received empty response body (result array size is 0).");
+      return; // Nothing to parse
+   }
+   //--- Convert response char array to string --- CORRECTED LINE
+   // string jsonResponse = CharArrayToString(result); // Convert the 'result' array now
+   // Print("Received response: ", jsonResponse); // Log raw response string
+   // SignalData signal;
+   // if(ParseSimpleJson(jsonResponse, signal)) {
+   //    if(signal.is_valid) {
+   //       ProcessSignal(signal);
+   //    }
+   // }
+   // else {
+   //    Print("Failed to parse JSON response."); // Parsing function will print details
+   // }
+   //replaced by
+   string signalString = CharArrayToString(result);
+   Print("==========");
+   Print("==SIGNL==");
+   Print("Received signal string: ", signalString);
+   // --- NEW StringSplit Parsing Logic ---
+   string parts[]; // Dynamic array for split results
+   int num_parts = StringSplit(signalString, '|', parts);
+   int expected_parts = 9;
+   if(num_parts != expected_parts) {
+      PrintFormat("Error parsing signal string: Expected %d parts, got %d. String: '%s'", expected_parts, num_parts, signalString);
+      return; // Cannot process malformed string
+   }
+   // --- Populate the SignalData Struct from parts ---
+   SignalData signal;
+   signal.is_valid = false; // Assume invalid until parsed successfully
+   signal.original_open_msg_id = 0; // Initialize
+   // Assign and Convert (Add error checking around conversions if desired)
+   signal.message_id = (long)StringToInteger(parts[0]); // Use explicit cast if needed
+   signal.timestamp  = (long)StringToInteger(parts[1]); // Use explicit cast if needed
+   //=====action
+   StringTrimRight(parts[2]);
+   StringTrimLeft(parts[2]);
+   StringToUpper(parts[2]);
+   signal.action     = parts[2];
+   //=====symbol
+   StringTrimRight(parts[3]);
+   StringTrimLeft(parts[3]);
+   //StringToUpper(parts[3]);
+   signal.symbol     = parts[3];
+   //=====open_price
+   string upperAction=signal.action;
+   // --- Parse action-specific fields ---
+   if (upperAction == "BUY" || upperAction == "SELL") {
+      signal.open_price  = StringToDouble(parts[4]);//todo
+      signal.stop_loss   = StringToDouble(parts[5]);//todo
+      signal.take_profit = StringToDouble(parts[6]);//todo
+      signal.volume      = StringToDouble(parts[7]);//todo
+   }
+   else if (upperAction == "CLOSE") {
+      //signal.original_open_msg_id = (long)StringToInteger(parts[8]);
+      signal.open_price  = StringToDouble(parts[4]); // Not used for matching
+      signal.stop_loss   = StringToDouble(parts[5]); // Should be 0 from Python
+      signal.take_profit = StringToDouble(parts[6]); // Should be 0 from Python
+      signal.volume      = StringToDouble(parts[7]); // Should be 0 from Python
+      signal.original_open_msg_id = (long)StringToInteger(parts[8]); // Parsed, but not used for core BE/Trail logic
+   }
+   else {
+      PrintFormat("Error: Invalid action '%s' parsed from signal string part.", signal.action);
+      return;
+   }
+   // --- Basic Validation (After parsing parts) ---
+   // You can add more checks here (e.g., on price values being reasonable)
+   if (signal.message_id <= 0 || signal.timestamp <= 0 || signal.action == "" || signal.symbol == "") {
+      PrintFormat("Error parsing signal parts: Invalid essential data found (MsgID=%d, TS=%d, Action='%s', Symbol='%s').",signal.message_id, signal.timestamp, signal.action, signal.symbol);
+      return;
+   }
+   // ... validate essentials, INCLUDING signal.original_open_msg_id for CLOSE action ...
+   //if (signal.action == "CLOSE" && signal.original_open_msg_id <= 0) {
+   //   PrintFormat("Error parsing CLOSE signal: Missing or invalid original_open_msg_id (%d).", signal.original_open_msg_id);
+   //   return;
+   //}
+   if (signal.action != "CLOSE" && (signal.open_price <= 0 || signal.stop_loss <= 0 || signal.take_profit <= 0)) {
+      PrintFormat("Error parsing OPEN/BUY/SELL signal parts: Invalid prices/sl/tp.");
+      return;
+   }
+   // Mark as valid *IF* basic parsing succeeded (actual logic happens in ProcessSignal)
+   signal.is_valid = true;
+   // --- Call the existing processing function ---
+   // NO CHANGE HERE: ProcessSignal expects a populated SignalData struct
+   if(signal.is_valid) { // Pass only if basic parsing looks ok
+      ProcessSignal(signal);
+   }
+   else {
+      Print("Signal marked invalid after parsing delimited string parts.");
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Process a Validated Signal                                       |
+//+------------------------------------------------------------------+
+void ProcessSignal(const SignalData &signal)
+{
+   PrintFormat("Check: Incoming ID=%d, Last Processed ID=%d", signal.message_id, g_last_processed_message_id); // <<< ADD THIS DEBUG LINE
+   PrintFormat("Processing Signal ID: %d, Action: %s, Symbol: %s", signal.message_id, signal.action, signal.symbol);
+   //--- Check if already processed
+   if(signal.message_id <= g_last_processed_message_id && signal.action != "CLOSE") {
+      // Allow reprocessing CLOSE signal if needed for trailing/BE adjustments
+      // Optional: More sophisticated check - maybe track which positions have been secured by a CLOSE signal ID?
+      Print("Signal ID ", signal.message_id, " (non-CLOSE) already processed or older. Skipping..");
+      return;
+   }
+   //--- Check expiry
+   datetime signalTime = (datetime)signal.timestamp; // Convert Unix timestamp
+   if(TimeCurrent() - signalTime > g_expiry_seconds) {
+      Print("Signal ID ", signal.message_id, " expired (Timestamp: ", TimeToString(signalTime), "). Skipping.");
+      //g_last_processed_message_id = signal.message_id; // Mark as processed even if expired
+      // Mark processed only if not a potentially re-applicable CLOSE/BE signal
+      if (signal.action != "CLOSE") g_last_processed_message_id = signal.message_id;
+      return;
+   }
+   //--- Handle Symbol
+   string brokerSymbol = HandleSymbol(signal.symbol);
+   //TODO:  WE WILL ASSUME THE SYMBOL BEING SENT IN IS CORRECT OTHER THAN THE # THAT IT HAS
+   //WE WILL FIX THIS LATER
+   if(brokerSymbol == "") {
+      Print("Signal ID ", signal.message_id, " skipped. Symbol '", signal.symbol, "' (adjusted: '", InpSymbolPrefix + signal.symbol + InpSymbolSuffix, "') not found or invalid on broker.");
+      //g_last_processed_message_id = signal.message_id; // Mark as processed
+      // Mark processed only if not CLOSE
+      if (signal.action != "CLOSE") g_last_processed_message_id = signal.message_id;
+      return;
+   }
+   Print("symbol : "+brokerSymbol);
+   // Refresh symbol properties for the specific symbol
+   int g_digits = (int)SymbolInfoInteger(brokerSymbol, SYMBOL_DIGITS);
+   double g_point = SymbolInfoDouble(brokerSymbol, SYMBOL_POINT);
+   //--- Handle based on Action
+   bool action_handled  = false; // Track if we actually attempted a trade action
+   if(signal.action == "BUY" || signal.action == "SELL") {
+      action_handled  = HandleOpenSignal(signal, brokerSymbol);
+   }
+   else if(signal.action == "CLOSE") {
+      action_handled  = HandleSecureTradeSignal(signal, brokerSymbol);
+   }
+   // --- Update last processed ID *if* the signal was valid and processed (even if trade execution failed/skipped)
+   //g_last_processed_message_id = signal.message_id;
+   //Print("Updated last processed Message ID to: ", g_last_processed_message_id);
+   // Optional: Save g_last_processed_message_id periodically or on successful action
+   if(signal.action != "CLOSE" || action_handled) { // If OPEN or if Secure action did something
+      // Only update if the current signal ID is newer
+      if (signal.message_id > g_last_processed_message_id) {
+         g_last_processed_message_id = signal.message_id;
+         Print("Updated last processed Message ID to: ", g_last_processed_message_id);
+      }
+   }
+   else if (signal.action == "CLOSE" && !action_handled) {
+      Print("SecureTradeSignal processed for ID ", signal.message_id, " but no modifications made to positions.");
+      // Don't update g_last_processed_message_id in this case, allowing trailing logic to re-run on next poll if needed.
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Cleans symbol, applies prefix/suffix, and validates existence    |
+//+------------------------------------------------------------------+
+string HandleSymbol(string signalSymbol)
+{
+   /*string cleanedSymbol = */StringReplace(signalSymbol, "#", ""); // Remove # if present
+   string potentialSymbol = InpSymbolPrefix + signalSymbol + InpSymbolSuffix;
+   return potentialSymbol;
+   // Check if symbol exists and is usable
+   if(!SymbolSelect(potentialSymbol, true)) {
+      Print("Failed to select symbol: ", potentialSymbol, " Error: ", GetLastError());
+      // Attempt to refresh symbols and try again once - broker might need it
+      //SymbolsRefresh(); //todo
+      Sleep(500); // Brief pause
+      if(!SymbolSelect(potentialSymbol, true)) {
+         Print("Failed to select symbol ", potentialSymbol, " even after refresh.");
+         return "";
+      }
+   }
+   if(SymbolInfoInteger(potentialSymbol, SYMBOL_SELECT) == 0) { // Check if it's truly available in MarketWatch
+      Print("Symbol ", potentialSymbol, " not visible in Market Watch. Please add it.");
+      // Attempt to select it one more time
+      if(!SymbolSelect(potentialSymbol, true)) {
+         return ""; // Still failed
+      }
+      // Recheck visibility after selection attempt
+      if(SymbolInfoInteger(potentialSymbol, SYMBOL_SELECT) == 0) {
+         return ""; // If still not visible, give up.
+      }
+   }
+   // Further check if trade is allowed
+   ENUM_SYMBOL_TRADE_MODE tradeMode = (ENUM_SYMBOL_TRADE_MODE)SymbolInfoInteger(potentialSymbol, SYMBOL_TRADE_MODE);
+   if(tradeMode == SYMBOL_TRADE_MODE_DISABLED || tradeMode == SYMBOL_TRADE_MODE_CLOSEONLY) { // Cannot open new trades
+      Print("Symbol ", potentialSymbol, " exists but trading is disabled or close-only.");
+      return "";
+   }
+   // Return the normalized symbol name from broker (handles case sensitivity etc.)
+   //return SymbolInfoString(potentialSymbol, SYMBOL_NAME);  //TODO
+   return potentialSymbol;
+}
+
+//+------------------------------------------------------------------+
+//| Handle OPEN BUY/SELL Signal -- REVISED MARKET-ONLY LOGIC         |
+//+------------------------------------------------------------------+
+bool HandleOpenSignal(const SignalData &signal, const string brokerSymbol)
+{
+   // --- Get Debug Symbol ---
+   // PrintFormat("Debug HandleOpenSignal: Received Symbol = '%s'", brokerSymbol); // Keep if needed
+   Print(__FUNCTION__);
+   Print("brokerSymbol: "+brokerSymbol);
+   //--- Get current market prices ---
+   if(SymbolInfoTick("Step Index 400", g_latest_tick)) Print("1");
+   else if(SymbolInfoTick("step index 400", g_latest_tick)) Print("2");
+   else if(SymbolInfoTick("STEP INDEX 400", g_latest_tick)) Print("3");
+   else Print("NOT FOUND");
+   if(!SymbolInfoTick(brokerSymbol, g_latest_tick)) {
+      PrintFormat("Error getting tick for '%s'. Error: %d", brokerSymbol, GetLastError());
+      return false;
+   }
+   double ask = g_latest_tick.ask;
+   double bid = g_latest_tick.bid;
+   // Check for valid market prices
+   if (ask <= 0 || bid <= 0) {
+      Print("Invalid current market prices (<=0) for ", brokerSymbol," Ask:", ask, " Bid:", bid);
+      return false;
+   }
+   int g_digits = (int)SymbolInfoInteger(brokerSymbol, SYMBOL_DIGITS);
+   double g_point = SymbolInfoDouble(brokerSymbol, SYMBOL_POINT);
+   //--- Normalize signal prices according to broker symbol digits ---
+   double signal_open_norm = NormalizeDouble(signal.open_price, (int)SymbolInfoInteger(brokerSymbol, SYMBOL_DIGITS));
+   double signal_sl_norm = NormalizeDouble(signal.stop_loss, (int)SymbolInfoInteger(brokerSymbol, SYMBOL_DIGITS));
+   double signal_tp_norm = NormalizeDouble(signal.take_profit, (int)SymbolInfoInteger(brokerSymbol, SYMBOL_DIGITS));
+   //--- Validate signal prices make logical sense (SL/TP relative to Open) ---
+   // (Keeping this basic check is still good practice)
+   if (signal.action == "BUY") {
+      if (signal_sl_norm >= signal_open_norm || signal_tp_norm <= signal_open_norm) {
+         PrintFormat("Invalid Buy signal structure for %s: Open=%.*f, SL=%.*f, TP=%.*f",
+                     brokerSymbol, g_digits, signal_open_norm, g_digits, signal_sl_norm, g_digits, signal_tp_norm);
+         return false; // Signal structure is invalid
+      }
+   }
+   else {   // SELL
+      if (signal_sl_norm <= signal_open_norm || signal_tp_norm >= signal_open_norm) {
+         PrintFormat("Invalid Sell signal structure for %s: Open=%.*f, SL=%.*f, TP=%.*f",
+                     brokerSymbol, g_digits, signal_open_norm, g_digits, signal_sl_norm, g_digits, signal_tp_norm);
+         return false; // Signal structure is invalid
+      }
+   }
+   //--- NEW Market-Only Entry Logic ---
+   bool execute_market_order = false;
+   string skip_reason = "";
+   if (signal.action == "BUY") {
+      // Conditions to SKIP the BUY trade
+      if (ask < signal_open_norm) {
+         skip_reason = "Current Ask is below Signal Open Price.";
+      }
+      else if (ask >= signal_tp_norm) {
+         skip_reason = "Current Ask is at or beyond Signal TP.";
+      }
+      else if (ask < signal_sl_norm) {
+         // Although likely covered by 'ask < signal_open_norm', keep for explicit safety
+         skip_reason = "Current Ask is below Signal SL.";
+      }
+      else {
+         // If none of the skip conditions are met, proceed with Market Buy
+         execute_market_order = true;
+      }
+      // Log Skip reason or Intent to trade
+      if (!execute_market_order) {
+         PrintFormat("Skipping BUY Signal ID %d (%s): %s (Ask: %.*f, Signal Open: %.*f, SL: %.*f, TP: %.*f)",
+                     signal.message_id, brokerSymbol, skip_reason,
+                     g_digits, ask, g_digits, signal_open_norm, g_digits, signal_sl_norm, g_digits, signal_tp_norm);
+         return false; // Indicate processed but skipped
+      }
+      else {
+         PrintFormat("Proceeding with MARKET BUY for Signal ID %d (%s). (Ask: %.*f >= Signal Open: %.*f AND Ask < Signal TP: %.*f)",
+                     signal.message_id, brokerSymbol, g_digits, ask, g_digits, signal_open_norm, g_digits, signal_tp_norm);
+      }
+   }
+   else { // Action == SELL
+      // Conditions to SKIP the SELL trade
+      if (bid > signal_open_norm) {
+         skip_reason = "Current Bid is above Signal Open Price.";
+      }
+      else if (bid <= signal_tp_norm) {
+         skip_reason = "Current Bid is at or beyond Signal TP.";
+      }
+      else if (bid > signal_sl_norm) {
+         // Although likely covered by 'bid > signal_open_norm', keep for explicit safety
+         skip_reason = "Current Bid is above Signal SL.";
+      }
+      else {
+         // If none of the skip conditions are met, proceed with Market Sell
+         execute_market_order = true;
+      }
+      // Log Skip reason or Intent to trade
+      if (!execute_market_order) {
+         PrintFormat("Skipping SELL Signal ID %d (%s): %s (Bid: %.*f, Signal Open: %.*f, SL: %.*f, TP: %.*f)",
+                     signal.message_id, brokerSymbol, skip_reason,
+                     g_digits, bid, g_digits, signal_open_norm, g_digits, signal_sl_norm, g_digits, signal_tp_norm);
+         return false; // Indicate processed but skipped
+      }
+      else {
+         PrintFormat("Proceeding with MARKET SELL for Signal ID %d (%s). (Bid: %.*f <= Signal Open: %.*f AND Bid > Signal TP: %.*f)",
+                     signal.message_id, brokerSymbol, g_digits, bid, g_digits, signal_open_norm, g_digits, signal_tp_norm);
+      }
+   }
+   // --- If we reached here, execute_market_order must be true ---
+   //--- Calculate Volume ---
+   double volume = CalculateVolume(signal, brokerSymbol);
+   if(volume <= 0) {
+      Print("Invalid volume calculated (", volume, ") for ", brokerSymbol, ". Skipping trade.");
+      return false;
+   }
+   //--- Prepare for Market Execution ---
+   string orderComment = "TG_SigID_" + (string)signal.message_id + "_Mkt"; // Append Mkt
+   bool result = false;
+   trade.SetTypeFillingBySymbol(brokerSymbol); // Ensure correct filling mode
+   //--- Execute Market Order ---
+   PrintFormat("Attempting Market %s for %s @ Market, Vol: %.2f, SL: %.*f, TP: %.*f",
+               signal.action, brokerSymbol, volume, g_digits, signal_sl_norm, g_digits, signal_tp_norm);
+   trade.SetTypeFillingBySymbol(brokerSymbol); // Set filling mode based on symbol
+   if (signal.action == "BUY") {
+      result = trade.Buy(volume, brokerSymbol, ask, signal_sl_norm, signal_tp_norm, orderComment);
+   }
+   else {   // SELL
+      result = trade.Sell(volume, brokerSymbol, bid, signal_sl_norm, signal_tp_norm, orderComment);
+   }
+   //--- Log Result ---
+   if(result) {
+      PrintFormat("Market %s Order successful. Deal: %d, Order: %d", signal.action, (int)trade.ResultDeal(), (int)trade.ResultOrder());
+   }
+   else {
+      PrintFormat("Market %s Order FAILED. Error code: %d. Reason: %s", signal.action, (int)trade.ResultRetcode(), trade.ResultComment());
+   }
+   return result; // Return true if trade was attempted (succeeded or failed), false if validation stopped it before attempt
+}
+//+------------------------------------------------------------------+
+//| Handle CLOSE Signal                                              |
+//+------------------------------------------------------------------+
+//bool HandleCloseSignal(const SignalData &signal, const string brokerSymbol)
+//{
+//   if (signal.original_open_msg_id <= 0) {
+//      Print("Error in HandleCloseSignal: Invalid original_open_msg_id (0) received for CLOSE.");
+//      return false;
+//   }
+//   int g_digits = (int)SymbolInfoInteger(brokerSymbol, SYMBOL_DIGITS);
+//   double g_point = SymbolInfoDouble(brokerSymbol, SYMBOL_POINT);
+//   string expectedComment = "TG_SigID_" + (string)signal.original_open_msg_id + "_Mkt"; // MATCHES OPEN COMMENT
+//   PrintFormat("Attempting CLOSE for %s based on Expected Comment: '%s' (Orig. Open ID: %d)",
+//               brokerSymbol, expectedComment, signal.original_open_msg_id);
+//   PrintFormat("Attempting CLOSE for %s matching Open Price ~%.5f", brokerSymbol, signal.open_price);
+//   bool position_found = false;
+//   bool close_attempted = false;
+//   bool position_found_matching_comment = false;
+//   int closed_count = 0;
+//   double closePriceTolerancePoints = InpClosePriceTolerancePips * g_point;
+//   double signal_open_norm = NormalizeDouble(signal.open_price, g_digits);
+//   trade.SetTypeFillingBySymbol(brokerSymbol); // Set fill type just in case
+//   // // Iterate through all open positions
+//   // for(int i = PositionsTotal() - 1; i >= 0; i--) { // Loop backwards when potentially closing
+//   //    ulong ticket = PositionGetTicket(i);
+//   //    if (ticket == 0) continue;
+//   //    if(PositionGetInteger(POSITION_MAGIC) == InpMagicNumber &&
+//   //          PositionGetString(POSITION_SYMBOL) == brokerSymbol) {
+//   //       position_found = true; // Found a position managed by this EA for this symbol
+//   //       // Get position details
+//   //       double positionOpenPrice = PositionGetDouble(POSITION_PRICE_OPEN);
+//   //       // Compare open prices within tolerance
+//   //       if(MathAbs(positionOpenPrice - signal_open_norm) <= closePriceTolerancePoints) {
+//   //          PrintFormat("Found matching position Ticket: %d, Symbol: %s, Open: %.5f. Attempting to close.",
+//   //                      ticket, brokerSymbol, positionOpenPrice);
+//   //          // Close the position by ticket
+//   //          bool close_result = trade.PositionClose(ticket, InpSlippage);
+//   //          close_attempted = true;
+//   //          if(close_result) {
+//   //             PrintFormat("PositionClose successful for ticket %d. Deal: %d", ticket, (int)trade.ResultDeal());
+//   //             closed_count++;
+//   //             // V1 assumes one close signal = one position. If multiple might match, decide if you need to break or continue.
+//   //             break; // Stop after closing the first match found for this CLOSE signal
+//   //          }
+//   //          else {
+//   //             PrintFormat("PositionClose FAILED for ticket %d. Error code: %d. Reason: %s",
+//   //                         ticket, (int)trade.ResultRetcode(), trade.ResultComment());
+//   //             // Decide if you should break even on failure, or continue checking other positions (if expecting duplicates)
+//   //             break; // Stop after first *attempt* for V1
+//   //          }
+//   //       }
+//   //       else {
+//   //          PrintFormat("Position Ticket %d for %s matches Magic#, but Open Price %.5f does not match signal's required Open Price %.5f (Tolerance: %.5f)",
+//   //                      ticket, brokerSymbol, positionOpenPrice, signal_open_norm, closePriceTolerancePoints);
+//   //       }
+//   //    }
+//   // } // End loop through positions
+//   for (int i = PositionsTotal() - 1; i >= 0; i--) {
+//      ulong ticket = PositionGetTicket(i);
+//      if (ticket == 0) continue;
+//      // Check Magic Number and Symbol
+//      if (PositionGetInteger(POSITION_MAGIC) == InpMagicNumber && PositionGetString(POSITION_SYMBOL) == brokerSymbol) {
+//         string positionComment = PositionGetString(POSITION_COMMENT);
+//         // --- Compare Comments ---
+//         if (positionComment == expectedComment) {
+//            position_found_matching_comment = true;
+//            PrintFormat("Found matching position by Comment! Ticket: %d, Comment: '%s'. Attempting to close.", ticket, positionComment);
+//            // Close the position by ticket
+//            bool close_result = trade.PositionClose(ticket, InpSlippage);
+//            close_attempted = true;
+//            if (close_result) {
+//               PrintFormat("PositionClose successful for ticket %d. Deal: %d", ticket, (int)trade.ResultDeal());
+//            }
+//            else {
+//               PrintFormat("PositionClose FAILED for ticket %d. Code: %d. Reason: %s", ticket, (int)trade.ResultRetcode(), trade.ResultComment());
+//            }
+//            // Assume one CLOSE matches one OPEN -> break after finding/attempting
+//            break;
+//         }
+//      }
+//   }
+//   if (!position_found_matching_comment) {
+//      PrintFormat("No open position found for %s with matching comment '%s'.", brokerSymbol, expectedComment);
+//      // It's possible the position was already closed manually or hit SL/TP.
+//      // We still processed the signal.
+//   }
+//   // if(close_attempted) {
+//   //    // We attempted a close based on this signal ID
+//   //    return true; // Signal was acted upon (attempted close)
+//   // }
+//   // else if (position_found) {
+//   //    // Positions existed but none matched the open price
+//   //    Print("No open positions for ", brokerSymbol," matched the required Open Price ", signal_open_norm," from CLOSE signal ID ", signal.message_id);
+//   //    return true; // Processed signal, but no match
+//   // }
+//   // else {
+//   //    Print("No open positions found with Magic# ", InpMagicNumber, " for symbol ", brokerSymbol);
+//   return true; // Return true indicating signal was processed (action attempted or no match found)
+//}
+//+------------------------------------------------------------------+
+//| Calculate Volume based on Input Settings                         |
+//+------------------------------------------------------------------+
+// double CalculateVolume(const SignalData &signal, const string brokerSymbol)
+// {
+//    double volume = 0.0;
+//    double lot_min = SymbolInfoDouble(brokerSymbol, SYMBOL_VOLUME_MIN);
+//    double lot_max = SymbolInfoDouble(brokerSymbol, SYMBOL_VOLUME_MAX);
+//    double lot_step = SymbolInfoDouble(brokerSymbol, SYMBOL_VOLUME_STEP);
+//    switch(InpVolumeType) {
+//    case SignalVolume:
+//       volume = signal.volume; // Assume volume from signal is valid (V1)
+//       if(volume <= 0) {
+//          Print("Signal volume is zero or negative: ", volume);
+//          return 0.0;
+//       }
+//       break;
+//    case FixedVolume:
+//       volume = InpFixedVolume;
+//       if(volume <= 0) {
+//          Print("Fixed volume setting is zero or negative: ", volume);
+//          return 0.0;
+//       }
+//       break;
+//    case RiskPercent: {
+//       if (InpRiskPercent <= 0) {
+//          Print("Risk Percent setting is zero or negative: ", InpRiskPercent);
+//          return 0.0;
+//       }
+//       // Get account info
+//       double balance = AccountInfoDouble(ACCOUNT_BALANCE); // Or ACCOUNT_EQUITY
+//       double riskAmount = balance * (InpRiskPercent / 100.0);
+//       double slPoints = MathAbs(signal.open_price - signal.stop_loss) / SymbolInfoDouble(brokerSymbol, SYMBOL_POINT);
+//       if(slPoints <= 0) {
+//          Print("Stop Loss distance is zero or negative. Cannot calculate risk-based volume.");
+//          return 0.0;
+//       }
+//       // Get tick value
+//       double tickValue = SymbolInfoDouble(brokerSymbol, SYMBOL_TRADE_TICK_VALUE);
+//       double contractSize = SymbolInfoDouble(brokerSymbol, SYMBOL_TRADE_CONTRACT_SIZE); // Needed if tick value isn't per lot per point in account currency
+//       // Check tick value - calculation might need adjustment based on SYMBOL_TRADE_TICK_VALUE_PROFIT/LOSS and account currency
+//       if (tickValue <= 0 || contractSize <=0) {
+//          Print("Tick value (",tickValue,") or Contract Size (", contractSize,") invalid for risk calculation on ", brokerSymbol);
+//          return 0.0;
+//       }
+//       // Formula depends slightly on what tickValue represents. Common formula:
+//       // Loss per Lot = SL points * Tick Value * (Lots * Contract Size if tick value isn't per lot) - Check Tick value documentation or broker specs!
+//       // Assuming Tick Value IS the value per 1 lot per point change in account currency:
+//       double lossPerLot = slPoints * tickValue;
+//       if(lossPerLot <= 0) {
+//          Print("Calculated loss per lot is zero or negative. Cannot calculate risk-based volume.");
+//          return 0.0;
+//       }
+//       volume = riskAmount / lossPerLot;
+//       PrintFormat("Risk Calc: Balance=%.2f, Risk%%=%.2f, RiskAmt=%.2f, SL Pts=%.1f, TickVal=%.5f, LossPerLot=%.2f -> Prelim Vol=%.4f",
+//                   balance, InpRiskPercent, riskAmount, slPoints, tickValue, lossPerLot, volume);
+//       break;
+//    }
+//    default:
+//       Print("Unknown volume calculation type!");
+//       return 0.0;
+//    }
+//    //--- Normalize and constrain volume
+//    volume = NormalizeDouble(volume, 2); // Normalize to standard lot precision first
+//    // Apply step: volume = floor(volume / lot_step) * lot_step; - This truncates down. Rounding might be better.
+//    volume = round(volume / lot_step) * lot_step;
+//    volume = NormalizeDouble(volume, 2); // Re-normalize after step calc
+//    if(volume < lot_min && lot_min > 0) {
+//       PrintFormat("Calculated volume %.4f is below minimum %.4f. Using minimum.", volume, lot_min);
+//       volume = lot_min;
+//    }
+//    if(volume > lot_max && lot_max > 0) {
+//       PrintFormat("Calculated volume %.4f is above maximum %.4f. Using maximum.", volume, lot_max);
+//       volume = lot_max;
+//    }
+//    PrintFormat("Final Calculated Volume for %s: %.2f", brokerSymbol, volume);
+//    return volume;
+// }
+//+------------------------------------------------------------------+
+//| Calculate Volume based on Global Setting (Minimum or Risk %)     |
+//| REVISED FUNCTION                                                 |
+//+------------------------------------------------------------------+
+double CalculateVolume(const SignalData &signal, const string brokerSymbol)
+{
+   // Signal's volume field (signal.volume) is now completely ignored
+   double volume = 0.0;
+   double lot_min = SymbolInfoDouble(brokerSymbol, SYMBOL_VOLUME_MIN);
+   double lot_max = SymbolInfoDouble(brokerSymbol, SYMBOL_VOLUME_MAX);
+   double lot_step = SymbolInfoDouble(brokerSymbol, SYMBOL_VOLUME_STEP);
+   int vol_digits = 0;
+   if(lot_step > 0) { // Calculate digits based on step
+      string step_str = DoubleToString(lot_step, 8); // Convert step to string with high precision
+      int    dot_pos = StringFind(step_str, ".");
+      if(dot_pos >= 0) {
+         vol_digits = StringLen(step_str) - dot_pos - 1;
+         // Remove trailing zeros conceptually, although DoubleToString might handle this
+         // Example: 0.01 -> "0.01" -> len 4, dot_pos 1 -> digits 4-1-1 = 2
+         // Example: 0.1 -> "0.1" -> len 3, dot_pos 1 -> digits 3-1-1 = 1
+      }
+   }
+   if(vol_digits <= 0) vol_digits = 2; // Fallback precision if step is 1 or calc fails
+   if (lot_min <= 0 || lot_max <= 0 || lot_step <= 0) {
+      PrintFormat("Error: Invalid lot settings for %s (Min:%.*f Max:%.*f Step:%.*f)",
+                  brokerSymbol, vol_digits, lot_min, vol_digits, lot_max, vol_digits, lot_step);
+      return 0.0; // Cannot proceed without valid lot settings
+   }
+   // --- Determine Volume based on Global Input Setting ---
+   switch(InpVolumeMode) {
+   case MinimumLot:
+      volume = lot_min; // Simply use the minimum allowed lot size
+      PrintFormat("Using Minimum Lot Volume for %s: %.*f", brokerSymbol, vol_digits, volume);
+      break; // Exit the switch
+   case RiskPercent: {
+      // Scope for variables
+      PrintFormat("Calculating Volume for %s based on Risk Percent...", brokerSymbol);
+      // --- Validation for Risk Percent Mode ---
+      if (InpRiskPercent <= 0) {
+         Print("Error: Risk Percent input is zero or negative (%.2f%%). Cannot calculate volume.", InpRiskPercent);
+         return 0.0;
+      }
+      // Requires valid Open Price and Stop Loss from the signal for calculation
+      if (signal.open_price <= 0 || signal.stop_loss <= 0) {
+         PrintFormat("Error: Cannot calculate Risk Percent volume for Signal ID %d. Missing/invalid Open Price (%.5f) or Stop Loss (%.5f).",
+                     signal.message_id, signal.open_price, signal.stop_loss);
+         return 0.0;
+      }
+      // Ensure SL and Open are different
+      if(signal.open_price == signal.stop_loss) {
+         PrintFormat("Error: Cannot calculate Risk Percent volume for Signal ID %d. Open Price equals Stop Loss (%.5f).",
+                     signal.message_id, signal.open_price);
+         return 0.0;
+      }
+      // --- Perform Risk Calculation (Similar to before) ---
+      double balance = AccountInfoDouble(ACCOUNT_BALANCE); // Or ACCOUNT_EQUITY
+      if(balance <= 0) {
+         Print("Error: Invalid Account Balance (<=0) for risk calc.");
+         return 0.0;
+      }
+      double riskAmount = balance * (InpRiskPercent / 100.0);
+      double point = SymbolInfoDouble(brokerSymbol, SYMBOL_POINT);
+      double slPoints = MathAbs(signal.open_price - signal.stop_loss) / point;
+      if(slPoints <= 0) { // Should be caught by previous check, but good practice
+         Print("Error: Stop Loss distance is zero or negative after calculation. Cannot calculate volume.");
+         return 0.0;
+      }
+      double tickValue = SymbolInfoDouble(brokerSymbol, SYMBOL_TRADE_TICK_VALUE);
+      if (tickValue <= 0) { // Essential check
+         PrintFormat("Error: Invalid Tick Value (<=0) for %s risk calculation.", brokerSymbol);
+         return 0.0;
+      }
+      // Assuming Tick Value is per 1 lot per point in account currency
+      double lossPerLot = slPoints * tickValue;
+      if(lossPerLot <= 0) {
+         PrintFormat("Error: Calculated loss per lot is zero or negative (%.2f). Cannot calculate volume.", lossPerLot);
+         return 0.0;
+      }
+      volume = riskAmount / lossPerLot; // Calculated volume based on risk
+      PrintFormat("Risk Calc: Balance=%.2f, Risk%%=%.2f, RiskAmt=%.2f, SL Pts=%.1f, TickVal=%.5f, LossPerLot=%.2f -> Prelim Vol=%.*f",
+                  balance, InpRiskPercent, riskAmount, slPoints, tickValue, lossPerLot, vol_digits, volume);
+      break; // Exit the RiskPercent case block
+   } // Closing brace for RiskPercent scope
+   default:
+      Print("Error: Unknown volume mode setting encountered!");
+      return 0.0; // Should not happen if enum is used correctly
+   } // End switch
+   // --- Final Volume Validation and Constraints (Applied to result of MinimumLot or RiskPercent) ---
+   if (volume <= 0) { // Check before normalization
+      PrintFormat("Error: Volume calculation resulted in zero or negative value (%.*f) before normalization.", vol_digits, volume);
+      // If mode was MinimumLot, this implies lot_min itself was <=0, caught earlier.
+      // If mode was RiskPercent, this means risk calc failed or balance is tiny.
+      return 0.0;
+   }
+   // --- Normalize to Lot Step ---
+   // Note: RiskPercent can result in values needing careful rounding/stepping
+   volume = round(volume / lot_step) * lot_step;
+   // Re-normalize double precision after rounding (important!)
+   volume = NormalizeDouble(volume, vol_digits);
+   // --- Clamp to Min/Max ---
+   string reason = "";
+   if(volume < lot_min) {
+      volume = lot_min;
+      reason = " (Adjusted to Min)";
+      PrintFormat("Warning: Calculated/Rounded volume %.*f is below minimum. Using Min Lot: %.*f", vol_digits, round(volume / lot_step) * lot_step, vol_digits, lot_min); // Log pre-adjustment attempt
+   }
+   if(volume > lot_max) {
+      volume = lot_max;
+      reason = " (Adjusted to Max)";
+      PrintFormat("Warning: Calculated/Rounded volume %.*f is above maximum. Using Max Lot: %.*f", vol_digits, round(volume / lot_step) * lot_step, vol_digits, lot_max); // Log pre-adjustment attempt
+   }
+   // Final sanity check after adjustments
+   if(volume < lot_min || volume > lot_max) {
+      PrintFormat("Error: Final volume %.*f is still outside Min/Max limits after adjustment. Cannot trade.", vol_digits, volume);
+      return 0.0;
+   }
+   PrintFormat("Final Calculated Volume for %s: %.*f%s", brokerSymbol, vol_digits, volume, reason);
+   return volume;
+}
+//+------------------------------------------------------------------+
+//| Sends Notifications                                              |
+//+------------------------------------------------------------------+
+void NotifyUser(string message)
+{
+   Print(message); // Always print to journal
+   if(InpSendPushAlerts) {
+      SendNotification(message);
+   }
+   if(InpSendEmailAlerts) {
+      SendMail("Telegram EA Alert: " + _Symbol, message);
+   }
+}
+//+------------------------------------------------------------------+

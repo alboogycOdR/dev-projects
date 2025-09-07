@@ -1,0 +1,140 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © moneymovesalgo
+// @version=5
+
+//█▀▄▀█ █▀█ █▄ █ █▀▀ █▄█   █▀▄▀█ █▀█ █ █ █▀▀ █▀   ▄▀█ █   █▀▀ █▀█
+//█ ▀ █ █▄█ █ ▀█ ██▄  █    █ ▀ █ █▄█ ▀▄▀ ██▄ ▄█   █▀█ █▄▄ █▄█ █▄█
+
+
+indicator("Money Moves Smoothed RSI - Free [1.0]", shorttitle="Money Moves SRSI - Free [1.0]", overlay=false)
+
+// 
+// Plot and Value Logic Functions
+f_RSI(source, period) =>
+    rsi = ta.rsi(close, period)
+    _rsi = ta.wma(rsi, period)
+    _rsi
+
+f_GetMATypeShortName(maType) =>
+    shortName = switch(maType)
+        "Simple" => "SMA"
+        "Exponential" => "EMA"
+        "Weighted" => "WMA"
+        "Hull" => "HMA"
+        "Volume-Weighted" => "VWMA"    
+
+f_IsIncreasing(source) =>
+    increasing = source > source[1]
+
+f_isOverPrice(source) =>
+    overPrice = source >= close
+
+f_DetermineRSIColor(source, Style, bullcolor, bearcolor, singleColor) =>
+    col = switch Style
+        "Single Color" =>
+            singleColor
+        "Increasing/Decreasing" =>
+            f_IsIncreasing(source) ? bullcolor : bearcolor
+
+getSize(string sizeString) =>
+    t = sizeString == "Auto" ? size.auto : sizeString == "Huge" ? size.huge : sizeString == "Large" ? size.large : sizeString == "Normal" ? size.normal : sizeString == "ta.small" ? size.small : sizeString == "Tiny" ? size.tiny : na  
+
+_tfString(tf) =>
+    str = "Chart"
+    if (str.contains(tf, "H") or  (str.contains(tf, "S")) or (str.contains(tf, "D")) or (str.contains(tf, "W")) or (str.contains(tf, "M")))
+        str := tf
+    else if (not na(str.tonumber(tf)))
+        str := tf == '180' ? "3h" : tf == '240' ? "4h" : tf == '480' ? "8h" : tf == '120' ? "2h" : tf == '60' ? "1h" : tf + "m"
+
+tfString(tf) =>
+    str = "Chart"
+    if (str.contains(tf, "H") or  (str.contains(tf, "S")) or (str.contains(tf, "D")) or (str.contains(tf, "W")) or (str.contains(tf, "M")))
+        str := tf
+    else if (not na(str.tonumber(tf)))
+        str := tf == '180' ? "3h" : tf == '240' ? "4h" : tf == '480' ? "8h" : tf == '120' ? "2h" : tf == '60' ? "1h" : tf + "m"
+    else 
+        str := _tfString(timeframe.period)
+
+f_CrossOver(source, crossTarget) =>
+    crossOver = ta.crossover(source, crossTarget)
+    
+f_CrossUnder(source, crossTarget) =>
+    crossOver = ta.crossunder(source, crossTarget)
+
+f_GetMarkerPosition(markerPosition) =>
+    position = switch markerPosition
+        "Below Bar" => location.belowbar
+        "Above Bar" => location.abovebar
+        "On RSI Line" => location.absolute
+
+
+
+//color bullcolor = #00DBFF
+//color bearcolor = #E91E63
+
+
+Overbought_Level = input.float(70.0, "OB Level", group = "🌟COLORING🌟" , inline = "OB")
+bullcolor = input.color(#00DBFF, "Bullish Color", group = "🌟COLORING🌟", inline = "OB")
+
+Oversold_Level = input.float(30.0, "OS Level", group = "🌟COLORING🌟" , inline = "OS")
+bearcolor = input.color(#E91E63 , "Bearish Color", group = "🌟COLORING🌟" , inline = "OS")
+
+f_MA(maType, source, period) =>
+    ma = switch(maType)
+        "Simple" => ta.sma(source,period)
+        "Exponential" => ta.ema(source,period)
+        "Weighted" => ta.wma(source,period)
+        "Hull" => ta.hma(source,period)
+        "Volume-Weighted" => ta.vwma(source,period)
+
+
+
+TBRIS_Showd = input.bool(true, "Show RSI", group="🧬RSI SETTINGS🧬")
+TBRIS_Period = input.int(10, "Period", group="🧬RSI SETTINGS🧬")
+TBRIS_Source = input.source(close, "Source", group="🧬RSI SETTINGS🧬")
+TBRIS_ColoringStyle = input.string("Increasing/Decreasing", "Coloring Style", options=["Single Color", "Increasing/Decreasing"], group="🧬RSI SETTINGS🧬")
+
+
+Smooth_RSIs = input.bool(true, "Smooth RSI |", group = "🌊RSI SMOOTHING🌊" , inline = "SRSI")
+Smoothing_Style = input.string("Weighted", "Type", options=["Weighted", "Exponential", "Volume-Weighted", "Simple", "Hull"], group = "🌊RSI SMOOTHING🌊"  , inline = "SRSI")
+
+
+TBRIS_LabelShowd = input.bool(true, "Show Label", group="🎫RSI LABLE SETTINGS🎫")
+TBRIS_ShowLabelLine = input.bool(true, "Show Label Line", group="🎫RSI LABLE SETTINGS🎫")
+TBRIS_LabelSize = input.string("Normal", "Size", options=["Auto", "Tiny", "Small", "Normal", "Large", "Huge"], group="🎫RSI LABLE SETTINGS🎫")
+TBRIS_LabelOffsetInBars = input.int(35, "Label Offset (in Bars)", group="🎫RSI LABLE SETTINGS🎫")
+
+FinalBullColor = bearcolor 
+FinalBearColor = bullcolor 
+
+TBRIS_Value = TBRIS_Showd ? f_RSI(TBRIS_Source, TBRIS_Period): na
+TBRIS_Color = f_DetermineRSIColor(TBRIS_Value, TBRIS_ColoringStyle, FinalBearColor, FinalBullColor, color.blue)
+_TBRIS_Color = TBRIS_Color
+RSI1Plot = plot(TBRIS_Showd ? TBRIS_Value : na, color=_TBRIS_Color, linewidth=1, title="🌊 TimeFrame RSI")
+
+
+
+OBColor = bearcolor 
+OSColor = bullcolor 
+overBoughtPlot = plot(Overbought_Level, "🌊 Overbought Level 🌊", color=color.new(OBColor,50))
+rsiLowerBand = plot(Oversold_Level, "🌊 Oversold Level 🌊", color=color.new(OSColor,50))
+
+fill(RSI1Plot, overBoughtPlot, bottom_color = TBRIS_Value >= Overbought_Level ? color.new(chart.bg_color, 70) : na, top_color =  TBRIS_Value >= Overbought_Level ? color.new(FinalBullColor, 70) : na, bottom_value = Overbought_Level, top_value = TBRIS_Value)
+
+fill(RSI1Plot, rsiLowerBand, top_color = TBRIS_Value <= Oversold_Level ? color.new(chart.bg_color, 70) : na, bottom_color =  TBRIS_Value <= Oversold_Level ? color.new(FinalBearColor, 70) : na, top_value = Oversold_Level, bottom_value = TBRIS_Value)
+
+
+// Variable Declaration
+var TBRIS_Label = label(na)
+var TBRIS_Label_Line = line(na)
+
+if (barstate.islast)
+    if (TBRIS_LabelShowd and TBRIS_Showd)
+        if (not na(TBRIS_Label))
+            label.delete(TBRIS_Label)
+            line.delete(TBRIS_Label_Line)
+        if (TBRIS_ShowLabelLine)
+            TBRIS_Label_Line := line.new(bar_index, TBRIS_Value, bar_index + TBRIS_LabelOffsetInBars, TBRIS_Value,
+              xloc=xloc.bar_index, extend=extend.none, color=_TBRIS_Color, width=1, style=line.style_dashed)
+        TBRIS_Label := label.new(bar_index + TBRIS_LabelOffsetInBars, TBRIS_Value, color=color.new(color.rgb(0,0,0),100), style=label.style_label_left, text="✨" + (Smooth_RSIs ? f_GetMATypeShortName(Smoothing_Style) : "") + " " + "RSI" + " ➜ " + str.tostring(math.round_to_mintick(TBRIS_Value)), 
+          textcolor=_TBRIS_Color, size=getSize(TBRIS_LabelSize))

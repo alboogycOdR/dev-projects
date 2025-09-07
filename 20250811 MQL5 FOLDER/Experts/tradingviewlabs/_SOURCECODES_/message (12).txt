@@ -1,0 +1,86 @@
+//@version=4
+study("Smart Trail", overlay = true, resolution = "")
+
+// inputs //
+//{
+trailType        = input("modified", "Trailtype", options = ["modified", "unmodified"])
+ATRPeriod        = input(10, "ATR Period")
+ATRFactor        = input(4, "ATR Factor")
+smoothing        = input(8, 'Smoothing')
+
+norm_o = security(tickerid(syminfo.prefix,syminfo.ticker), timeframe.period, open)
+norm_h = security(tickerid(syminfo.prefix,syminfo.ticker), timeframe.period, high)
+norm_l = security(tickerid(syminfo.prefix,syminfo.ticker), timeframe.period, low)
+norm_c = security(tickerid(syminfo.prefix,syminfo.ticker), timeframe.period, close)
+//}
+
+//////// FUNCTIONS //////////////
+//{
+// Wilders ma //
+Wild_ma(_src, _malength) =>
+    _wild  = 0.0
+    _wild := nz(_wild[1]) + (_src - nz(_wild[1])) / _malength
+
+/////////// TRUE RANGE CALCULATIONS ///////////////// 
+HiLo = min(norm_h - norm_l, 1.5 * nz(sma((norm_h - norm_l), ATRPeriod)))
+
+HRef = norm_l<= norm_h[1] ?
+ norm_h - norm_c[1] :
+ (norm_h - norm_c[1]) - 0.5 * (norm_l- norm_h[1])
+
+LRef = norm_h >= norm_l[1] ?
+ norm_c[1] - norm_l:
+ (norm_c[1] - norm_l) - 0.5 * (norm_l[1] - norm_h)
+
+trueRange =
+ trailType == "modified" ? max(HiLo, HRef, LRef) :
+ max(norm_h - norm_l, abs(norm_h - norm_c[1]), abs(norm_l - norm_c[1]))
+//}
+
+
+/////////// TRADE LOGIC ////////////////////////
+//{
+loss = ATRFactor * Wild_ma(trueRange, ATRPeriod)
+
+Up = norm_c - loss
+Dn = norm_c + loss
+
+TrendUp   = Up
+TrendDown = Dn
+Trend     = 1
+
+TrendUp   := norm_c[1] > TrendUp[1]   ? max(Up, TrendUp[1])   : Up
+TrendDown := norm_c[1] < TrendDown[1] ? min(Dn, TrendDown[1]) : Dn
+
+Trend := norm_c > TrendDown[1] ? 1 : norm_c < TrendUp[1]? -1 : nz(Trend[1],1)
+trail = Trend == 1? TrendUp : TrendDown
+
+ex = 0.0
+ex :=
+ crossover(Trend, 0)  ? norm_h :
+ crossunder(Trend, 0) ? norm_l :
+ Trend == 1  ? max(ex[1], norm_h) :
+ Trend == -1 ? min(ex[1], norm_l) : ex[1]
+//}
+
+// //////// PLOT TP and SL /////////////
+//{
+line1 = plot(sma(trail, smoothing), "Trailingstop", style = plot.style_line, color = Trend == 1 ? color.new(#2157f9, 0) : Trend == -1 ? color.new(#ff1100, 0) : na)
+//}
+
+////// FIBONACCI LEVELS ///////////
+//{
+state = Trend == 1 ? "long" : "short"
+
+fib1Level = 61.8
+fib2Level = 78.6
+fib3Level = 88.6
+
+f1 = ex + (trail - ex) * fib1Level / 100
+f2 = ex + (trail - ex) * fib2Level / 100
+f3 = ex + (trail - ex) * fib3Level / 100
+l100 = trail + 0
+
+Fib2 = plot(sma(f2, smoothing),  "Fib 2", style = plot.style_line, transp = 100)
+
+fill(line1, Fib2, color = state == "long"? color.new(#2157f9, 80) : state == "short"? color.new(#ff1100, 80) : na)

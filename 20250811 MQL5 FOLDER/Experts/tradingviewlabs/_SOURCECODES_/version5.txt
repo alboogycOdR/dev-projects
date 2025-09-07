@@ -1,0 +1,35 @@
+//@version=5
+strategy("Reversal Signal Strategy", overlay=true)
+
+length = input.int(20, "Volatility Length")
+volatility = ta.atr(length)
+
+mfiLength = input.int(14, "MFI Length")
+mfi = ta.mfi(close, mfiLength)
+
+ma1Length = input.int(9, "MA 1 Length")
+ma2Length = input.int(21, "MA 2 Length")
+ma1 = ta.sma(close, ma1Length)
+ma2 = ta.sma(close, ma2Length)
+
+tpSignalLevel = input.int(40, "Overbought TP Level", minval=0, maxval=100)
+slSignalLevel = input.int(49, "Oversold TP Level", minval=0, maxval=100)
+
+isTrending = volatility > ta.sma(volatility, 50)
+peakDipSignal = mfi < 30 and ta.crossover(ma1, ma2)
+troughRallySignal = mfi > 70 and ta.crossunder(ma1, ma2)
+
+if peakDipSignal
+    strategy.entry("Buy", strategy.long)
+    label.new(x=bar_index, y=low, color=color.green, style=label.style_label_up, text="Buy", textcolor=color.white)
+    if mfi == tpSignalLevel or mfi == 57
+        label.new(x=bar_index, y=high, color=color.green, style=label.style_label_up, text="TP", textcolor=color.white)
+
+if troughRallySignal
+    strategy.entry("Sell", strategy.short)
+    label.new(x=bar_index, y=high, color=color.red, style=label.style_label_down, text="Sell", textcolor=color.white)
+    if mfi == slSignalLevel or mfi == 58
+        label.new(x=bar_index, y=low, color=color.red, style=label.style_label_down, text="TP", textcolor=color.white)
+
+plotshape(peakDipSignal, title="Peak-Dip Signal", location=location.belowbar, color=color.green, style=shape.labelup, text="Buy")
+plotshape(troughRallySignal, title="Trough-Rally Signal", location=location.abovebar, color=color.red, style=shape.labeldown, text="Sell")

@@ -1,0 +1,50 @@
+//@version=5
+//@ moneymovesalgo
+indicator( "Money Moves [Trend Exhaustion]", overlay=true)
+
+colors = input.string(title='Color Scheme', defval='DARK', options=['DARK', 'LIGHT'] , group = "Color Scheme")
+bullcolor = colors == 'DARK' ? #00DBFF : color.rgb(0, 255, 8) 
+bearcolor = colors == 'DARK' ? #E91E63 : color.rgb(255, 0, 0)
+
+
+ShowTEX = input.bool(true, "Show Trend Exhaustion Points", group="Money Moves [Trend Exhaustion]")
+TE1 = input(true, 'TE - 1' , group="Money Moves [Trend Exhaustion]" , inline = "TEX")
+TE2 = input(true, 'TE - 2' , group="Money Moves [Trend Exhaustion]" , inline = "TEX")
+TE3 = input(true, 'TE - 3' , group="Money Moves [Trend Exhaustion]" , inline = "TEX")
+//TE4 = input(true, 'TE - 4' , group="Money Moves [Trend Exhaustion]" , inline = "TEX")
+
+rsiLengthInput = input.int(22, minval=1, title="Exhaustion Strength ", group="Money Moves [Trend Exhaustion]")
+rsiSourceInput = input.source(close, "Source", group="Money Moves [Trend Exhaustion]")
+maTypeInput = ta.sma(close, 14)
+up66 = ta.rma(math.max(ta.change(rsiSourceInput), 0), rsiLengthInput)
+down = ta.rma(-math.min(ta.change(rsiSourceInput), 0), rsiLengthInput)
+rsi66 = down == 0 ? 100 : up66 == 0 ? 0 : 100 - (100 / (1 + up66 / down))
+rsiMA = maTypeInput
+
+long1 = ta.crossover(rsi66, 30)
+long2 = ta.crossover(rsi66, 20)
+long3 = ta.crossover(rsi66, 15)
+//long4 = ta.crossover(rsi66, 10)
+
+// SHORT
+short1 = ta.crossunder(rsi66, 70)
+short2 = ta.crossunder(rsi66, 80)
+short3 = ta.crossunder(rsi66, 85)
+//short4 = ta.crossunder(rsi66, 90)
+
+// LONG
+plotshape(long1 and ShowTEX and TE1, "GO LONG 1", style=shape.circle, location=location.belowbar,size=size.tiny, color = color.new(bullcolor , 60) , text="1" , textcolor = bullcolor , editable = false)
+plotshape(long2 and ShowTEX and TE2, "GO LONG 2", style=shape.circle, location=location.belowbar,size=size.tiny, color = color.new(bullcolor , 50), text="2" , textcolor = bullcolor , editable = false)
+plotshape(long3 and ShowTEX and TE3, "GO LONG 3", style=shape.circle, location=location.belowbar,size=size.tiny, color = color.new(bullcolor , 10), text="3", textcolor = bullcolor , editable = false)
+//plotshape(long4 and ShowTEX, "GO LONG 4", style=shape.circle, location=location.belowbar,size=size.tiny, color=color.gray, text="4")
+
+// SHORT
+plotshape(short1 and ShowTEX and TE1, "GO SHORT 1", style=shape.circle, location=location.abovebar,size=size.tiny,  color = color.new(bearcolor , 60) , text="1" , textcolor = bearcolor , editable = false)
+plotshape(short2 and ShowTEX and TE2, "GO SHORT 2", style=shape.circle, location=location.abovebar,size=size.tiny,  color = color.new(bearcolor , 50) , text="2" , textcolor = bearcolor , editable = false)
+plotshape(short3 and ShowTEX and TE3, "GO SHORT 3", style=shape.circle, location=location.abovebar,size=size.tiny,  color = color.new(bearcolor , 10) , text="3" , textcolor = bearcolor , editable = false)
+//plotshape(short4 and ShowTEX, "GO SHORT 4", style=shape.circle, location=location.abovebar,size=size.tiny, color=color.gray, text="4")
+
+
+alertcondition(long1 or short1 , 'Trend Exhausted - 1', 'Trend Exhausted | Strength - 1 ')
+alertcondition(long2 or short2 , 'Trend Exhausted - 2', 'Trend Exhausted | Strength - 2 ')
+alertcondition(long3 or short3 , 'Trend Exhausted - 3', 'Trend Exhausted | Strength - 3 ')

@@ -1,0 +1,36 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Algo_Alert
+
+//@version=5
+indicator(title="ℳ Momentum Bias Index [Algo Alert]", timeframe="", timeframe_gaps=true)
+len = input.int(10, minval=1, title="Momentum Length")
+leng = input.int(5, minval=1, title="Bias Length")
+lengg = input.int(30, minval=1, title="Impulse Boundary Length")
+mult = input.float(3.0, minval=1, title="Standard Deviation Multiplier")
+src = input(close, title="Source")
+mode = input.bool(false, "Overlay Mode")
+green = input.color(#00ffbb, "Up Color") //#00ffbb
+dgreen = input.color(#008461, "Secondary Up Color")
+red = input.color(#ff1100, "Down Color") //#ff1100
+dred = input.color(#840900, "Secondary Down Color")
+mom = src - src[len]
+sd = mom / (ta.ema(high - low, len)) * 100
+momup = sd > 0 ? sd : 0
+momdown = sd < 0 ? sd : 0
+momupbias = math.sum(momup, leng)
+momdownbias = -math.sum(momdown, leng)
+
+bound = ta.ema(math.avg(momdownbias, momupbias), lengg) + ta.stdev(math.avg(momdownbias, momupbias), lengg)*mult
+
+plot(momupbias, color = momupbias > momupbias[1] ? green : dgreen, style = plot.style_columns, display = not mode ? display.all : display.none)
+plot(momdownbias, color = momdownbias > momdownbias[1] ? red : dred, style = plot.style_columns, display = not mode ? display.all : display.none)
+plot(bound, style = plot.style_circles, color = color.gray, display = not mode ? display.all : display.none)
+
+plotshape(ta.crossunder(momdownbias,momdownbias[1]) and momdownbias > bound and momdownbias > momupbias ? momdownbias * 1.2 : na, title = "bullish tp Signal", color = color.new(green, 30), textcolor = color.rgb(255, 255, 255), text = "TP", style = shape.labelup, location = location.belowbar, size = size.tiny, display = mode ? display.all : display.none)
+plotshape(ta.crossunder(momupbias,momupbias[1]) and momupbias > bound and momupbias > momdownbias ? momupbias * 1.2 : na, title = "bearish tp Signal", color = color.new(red, 30), textcolor = color.rgb(255, 255, 255), text = "TP", style = shape.labeldown, location = location.abovebar, size = size.tiny, display = mode ? display.all : display.none)
+plotchar(ta.crossunder(momdownbias,momdownbias[1]) and momdownbias > bound and momdownbias > momupbias ? momdownbias * 1.2 : na, "bullish tp Signal", "X", location.absolute, color = color.new(green, 30), size = size.tiny, display = not mode ? display.all : display.none)
+plotchar(ta.crossunder(momupbias,momupbias[1]) and momupbias > bound and momupbias > momdownbias ? momupbias * 1.2 : na, "bearish tp Signal", "X", location.absolute, color = color.new(red, 30), size = size.tiny, display = not mode ? display.all : display.none)
+
+candlecolor = momupbias > momdownbias and mode ? green : momupbias < momdownbias and mode ? red : (mode ? color.gray : na)
+
+plotcandle(open, high, low, close, "candle color", candlecolor, candlecolor, bordercolor = candlecolor, display = mode ? display.all : display.none)

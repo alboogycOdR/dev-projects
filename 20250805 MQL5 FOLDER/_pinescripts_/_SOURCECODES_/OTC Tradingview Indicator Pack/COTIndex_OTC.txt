@@ -1,0 +1,79 @@
+
+// Users & Producers: Commercial Positions
+// Large Specs (Hedge Fonds): Non-commercial Positions
+// Retail: Non-reportable Positions
+
+//@version=5
+int weeks = input.int(26, "Number of weeks", minval=1)
+int upperExtreme = input.int(80, "Upper Threshold in %", minval=50)
+int lowerExtreme = input.int(20, "Lower Threshold in %", minval=1)
+bool hideCurrentWeek = input(true, "Hide the current week until market close")
+bool markExtremes = input(false, "Mark long and short extremes")
+bool showSmallSpecs = input(true, "Show small speculators index")
+bool showProducers = input(true, "Show producers index")
+bool showLargeSpecs = input(true, "Show large speculators index")
+indicator("COT INDEX", shorttitle="COT INDEX", format=format.percent, precision=0)
+
+import TradingView/LibraryCOT/2 as cot
+
+// Function to fix some symbols.
+var string Root_Symbol = syminfo.root
+var string CFTC_Code_fixed = cot.convertRootToCOTCode("Auto")
+if Root_Symbol == "HG"
+    CFTC_Code_fixed := "085692"
+else if Root_Symbol == "LBR"
+    CFTC_Code_fixed := "058644"
+
+// Function to request COT data for Futures only.
+dataRequest(metricName, isLong) =>
+    tickerId = cot.COTTickerid('Legacy', CFTC_Code_fixed, false, metricName, isLong ? "Long" : "Short", "All")
+    value = request.security(tickerId, "1D", close, ignore_invalid_symbol = true)
+    if barstate.islastconfirmedhistory and na(value)
+        runtime.error("Could not find relevant COT data based on the current symbol.")
+    value
+
+
+// Function to calculate net long positions.
+netLongCommercialPositions() =>
+    commercialLong = dataRequest("Commercial Positions", true)
+    commercialShort = dataRequest("Commercial Positions", false)
+    commercialLong - commercialShort
+
+netLongLargePositions() =>
+    largeSpecsLong = dataRequest("Noncommercial Positions", true)
+    largeSpecsShort = dataRequest("Noncommercial Positions", false)
+    largeSpecsLong - largeSpecsShort
+
+netLongSmallPositions() =>
+    smallSpecsLong = dataRequest("Nonreportable Positions", true)
+    smallSpecsShort = dataRequest("Nonreportable Positions", false)
+    smallSpecsLong - smallSpecsShort
+
+calcIndex(netPos) =>
+    minNetPos = ta.lowest(netPos, weeks)
+    maxNetPos = ta.highest(netPos, weeks)
+    if maxNetPos != minNetPos
+        100 * (netPos - minNetPos) / (maxNetPos - minNetPos)
+    else
+        na
+
+// Calculate the Commercials Position Index.
+commercialsIndex = calcIndex(netLongCommercialPositions())
+largeSpecsIndex = calcIndex(netLongLargePositions())
+smallSpecsIndex = calcIndex(netLongSmallPositions())
+
+// Conditional logic based on user input
+plotValueCommercials = hideCurrentWeek ? (timenow >= time_close ? commercialsIndex : na) : (showProducers ? commercialsIndex : na)
+plotValueLarge = hideCurrentWeek ? (timenow >= time_close ? largeSpecsIndex : na) : (showLargeSpecs ? largeSpecsIndex : na)
+plotValueSmall = hideCurrentWeek ? (timenow >= time_close ? smallSpecsIndex : na) : (showSmallSpecs ? smallSpecsIndex : na)
+
+// Plot the index and horizontal lines
+plot(plotValueCommercials, "Commercials", color=color.blue, style=plot.style_line, linewidth=2)
+plot(plotValueLarge, "Large Speculators", color=color.red, style=plot.style_line, linewidth=1)
+plot(plotValueSmall, "Small Speculators", color=color.green, style=plot.style_line, linewidth=1)
+hline(upperExtreme, "Upper Threshold", color=color.green, linestyle=hline.style_solid, linewidth=1)
+hline(lowerExtreme, "Lower Threshold", color=color.red, linestyle=hline.style_solid, linewidth=1)
+
+/// Marking extremes with background color
+bgcolor(markExtremes and (commercialsIndex >= upperExtreme or largeSpecsIndex >= upperExtreme or smallSpecsIndex >= upperExtreme) ? color.new(color.gray, 90) : na, title="Upper Threshold")
+bgcolor(markExtremes and (commercialsIndex <= lowerExtreme or largeSpecsIndex <= lowerExtreme or smallSpecsIndex <= lowerExtreme) ? color.new(color.gray, 90) : na, title="Lower Threshold")

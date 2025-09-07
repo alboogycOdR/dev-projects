@@ -1,0 +1,60 @@
+//@version=5
+indicator(title='Auto Support Resistance with EMA Crossover', overlay=true)
+
+// Auto Support Resistance Script
+barsBack = input.int(100, minval=2, step=1, title="(x) Bars Back")
+
+var line tl = na // Trendline
+var line support = na // Support line
+var line resistance = na // Resistance line
+
+// Function to get Resistance
+findResistance(barsBack) =>
+    ta.highest(close, barsBack)
+
+// Function to get Support
+findSupport(barsBack) =>
+    ta.lowest(close, barsBack)
+
+r = findResistance(barsBack)
+s = findSupport(barsBack)
+
+if barstate.islast
+    line.delete(tl)
+    line.delete(support)
+    line.delete(resistance)
+    tl := line.new(x1=time[barsBack], y1=close[barsBack], 
+                  x2=time, y2=close,
+                  xloc=xloc.bar_time,
+                  color=color.blue,
+                  width=2)
+    
+    resistance := line.new(x1=time[barsBack], y1=r,
+                  x2=time, y2=r,
+                  xloc=xloc.bar_time,
+                  color=color.red,
+                  width=1)
+    
+    support := line.new(x1=time[barsBack], y1=s,
+                  x2=time, y2=s,
+                  xloc=xloc.bar_time,
+                  color=color.green,
+                  width=1)
+
+// Big EMA Cross Short EMA Strategy
+bigEMALength = input(50, title="Big EMA Length")
+shortEMALength = input(20, title="Short EMA Length")
+
+bigEMA = ta.ema(close, bigEMALength)
+shortEMA = ta.ema(close, shortEMALength)
+
+sellSignal = ta.crossover(bigEMA, shortEMA)
+buySignal = ta.crossunder(bigEMA, shortEMA)
+
+plot(bigEMA, color=color.blue, title="Big EMA")
+plot(shortEMA, color=color.red, title="Short EMA")
+
+plotshape(sellSignal, title="Sell Signal", location=location.abovebar, color=color.red, style=shape.triangledown)
+plotshape(buySignal, title="Buy Signal", location=location.belowbar, color=color.green, style=shape.triangleup)
+plotshape(sellSignal ? ta.valuewhen(sellSignal, close, 0) : na, title="Sell Signal", location=location.abovebar, color=color.red, style=shape.circle, size=size.small)
+plotshape(buySignal ? ta.valuewhen(buySignal, close, 0) : na, title="Buy Signal", location=location.belowbar, color=color.green, style=shape.circle, size=size.small)

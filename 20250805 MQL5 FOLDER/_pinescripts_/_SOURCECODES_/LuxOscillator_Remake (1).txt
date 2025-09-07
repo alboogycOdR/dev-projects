@@ -1,0 +1,71 @@
+//@version=5
+
+// join discord.gg/35JC3RvvMs to see more exclusive FREE indicators
+
+indicator('LuxAlgo Premium Oscillators', 'Lux Algo Premium Oscillators [5.0.1]')
+
+type = input.string('Ultimate Stochastic', 'Type', ['Ultimate Stochastic', 'Ultimate MACD',
+     'Ultimate RSI', 'Piviot'], group='basic settings')
+length = input.int(17, 'Length', group='basic settings', minval=10, maxval=35)
+
+fastM = input.int(12, 'Ultimate MACD Fast', group='ultimate macd')
+slowM = input.int(26, 'Ultimate MACD Slow', group='ultimate macd')
+signalM = input.int(9, 'Ultimate MACD Signal', group='ultimate macd')
+
+// functions for ultimate stochastic
+
+rsi = (ta.rsi(ta.wma(close, 9), length) / 100) * 100
+ma = ta.ema(rsi, length)
+
+original = plot(type == 'Ultimate Stochastic' ? ta.ema(rsi, length) : na, transp=100)
+unoriginal = plot(type == 'Ultimate Stochastic' ? ta.sma(rsi, length - 7) : na, transp=100)
+plot(type == 'Ultimate Stochastic' ? 90 : na, 'Overbought', #00db0a)
+plot(type == 'Ultimate Stochastic' ? 10 : na, 'Oversold', #ff1000)
+
+ori = ta.ema(rsi, length)
+unori = ta.sma(rsi, length - 7)
+
+// stochastic gradient color
+
+color green = color.from_gradient(rsi, 10, 90, #0ff00c, #076f0c)
+color red = color.from_gradient(rsi, 10, 90, #9f0800, #ff0000)
+
+// stochastic filler
+
+fill(original, unoriginal, title='Stochastic Fill', color = unori > ori ? green : red)
+
+// functions for ultimate macd
+
+cga = #26a69a
+cgb = #ffccd2
+cfa = #b2dfdb
+cfb = #ef5350
+cm = #0094ff
+cs = #ff6a00
+
+fast_ma = ta.ema(close, fastM)
+slow_ma = ta.ema(close, slowM)
+macd = fast_ma - slow_ma
+signal = ta.sma(macd, signalM)
+hist = macd - signal
+
+plot(type == 'Ultimate MACD' ? hist : na, 'MACD Histogram', style=plot.style_columns, 
+     color=(hist>=0 ? (hist[1] < hist ?
+     cga : cfa) : (hist[1] < hist ? cgb : cfb) ), transp=0)
+plot(type == 'Ultimate MACD' ? macd : na, title="MACD", color=cm, transp=0)
+plot(type == 'Ultimate MACD' ? signal : na, title="Signal", color=cs, transp=0)
+
+// functions for ultimate rsi
+
+urC = macd > signal ? #00db0a : #ff1000
+
+plot(type == 'Ultimate RSI' ? rsi : na, 'Ultimate RSI', color = urC)
+
+// functions for piviot
+
+period1 = 1
+
+pivot = ((high + low + close) / 3)
+out1 = ta.sma(ta.wma(pivot, period1), period1)
+
+plot(type == 'Piviot' ? out1 : na, color=#990000, title='Piviot Point')

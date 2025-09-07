@@ -1,0 +1,49 @@
+//@version=5
+indicator(title='Elite Oscillator stochastic', shorttitle='Elite Oscillator stochastic')
+n1 = 12
+n2 = 19
+obLevel1 = 63
+obLevel2 = 58
+osLevel1 = -63
+osLevel2 = -58
+ec1 = input(true)
+ec2 = input(true)
+
+ap = hlc3
+esa = ta.ema(ap, n1)
+d = ta.ema(math.abs(ap - esa), n1)
+ci = (ap - esa) / (0.015 * d)
+tci = ta.ema(ci, n2)
+
+wt1 = tci
+wt2 = ta.sma(wt1, 4)
+
+crs = ta.cross(wt1, wt2) and wt2 > obLevel2 ? true : na
+crs2 = ta.cross(wt1, wt2) and wt2 < osLevel2 ? true : na
+
+
+
+
+
+
+
+p3 = plot(obLevel1, color=color.new(color.red, 100), title='Over Bought Level 1n', editable=false)
+p4 = plot(obLevel2, color=color.new(color.red, 100), title='Over Bought Level 2n', editable=false)
+fill(p3, p4, color=color.rgb(255,0,0,70))
+
+p5 = plot(osLevel1, color=color.new(color.green, 100), title='Over Sold Level 1n', editable=false)
+p6 = plot(osLevel2, color=color.new(color.green, 100), title='Over Sold Level 2n', editable=false)
+fill(p5, p6, color=color.rgb(0,255,0,70))
+
+p1 = plot(wt1, color=color.rgb(0,0,0,100), title='wave green', editable=false)
+p2 = plot(wt2, color=color.rgb(0,0,0,100), title='wave red', editable=false)
+fill(p1, p2, color=wt1 > wt2 ? color.rgb(38,198,218,35) : color.rgb(201,5,5,35))
+
+ovb = ta.crossover(wt2, wt1)
+ovs = ta.crossover(wt1, wt2)
+
+plot(ovb and wt1 > obLevel1 ? wt2 : na, color=color.rgb(201,5,5,0), style=plot.style_circles, linewidth=5)
+plot(ovs and wt1 < osLevel1 ? wt2 : na, color=color.rgb(38,198,218,0), style=plot.style_circles, linewidth=5)
+
+
+

@@ -1,0 +1,15 @@
+//@version=5
+indicator("Smoothed Moving Average", "SMMA", overlay=true)
+
+len = input(7, "Length")
+src = input(close, "Source")
+
+smma(src, len) => ta.ema(src, len * 2 - 1)
+
+smma(src, len) =>
+    sma = ta.sma(src, len)
+    smma = 0.0, smma := na(smma[1]) ? sma : (smma[1] * (len - 1) + src) / len
+
+smma = smma(src, len)
+
+plot(smma)

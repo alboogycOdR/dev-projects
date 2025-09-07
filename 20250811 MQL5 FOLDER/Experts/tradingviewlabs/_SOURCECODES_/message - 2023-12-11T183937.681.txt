@@ -1,0 +1,89 @@
+//@version=5
+indicator('discord.gg/indicator', overlay=true)
+
+
+
+showDashboard = input.bool(true, title='Enable dashboard', inline='dashboard')
+dashboardType = ('Advanced dashboard')
+
+xDashBoard = input.int(80, 'dashboard distance', minval=20, maxval=1000, step=10)
+
+
+
+// Security function
+secSMA(_res) =>
+    request.security(syminfo.tickerid, showDashboard ? _res : timeframe.period, ta.sma(ohlc4, 200) < close, lookahead=barmerge.lookahead_on)
+
+
+
+//}
+
+
+advDash = dashboardType == 'Advanced dashboard'
+
+
+// Simple dashboard has the following timeframes in it
+    // 1. Current
+trendCurrent = ta.sma(close, 200) < close ? '🟢' : '🔴 '
+
+    // 2. 15min
+trend15min = secSMA(showDashboard ? '15' : '15') ? '🟢' : '🔴'
+
+    // 3. 1hr
+trend1hr = secSMA(showDashboard ? '60' : '15') ? '🟢' : '🔴'
+
+    // 4. 4hr
+trend4hr = secSMA(showDashboard ? '240' : '15') ? '🟢' : '🔴'
+
+    // 5. 1D
+trend1d = secSMA(showDashboard ? '1D' : '15') ? '🟢' : '🔴'
+
+
+
+// Advanced dashboard trends
+    // 1. 1min
+trend1min = secSMA(advDash and showDashboard ? '1' : '15') ? '🟢' : '🔴'
+
+    // 2. 3min
+trend3min = secSMA(advDash and showDashboard ? '3' : '15') ? '🟢' : '🔴'
+
+    // 3. 5min
+trend5min = secSMA(advDash and showDashboard ? '5' : '15') ? '🟢' : '🔴'
+
+    // 4. 10min
+trend10min = secSMA(advDash and showDashboard ? '10' : '15') ? '🟢' : '🔴'
+
+    // 5. 30min
+trend30min = secSMA(advDash and showDashboard ? '30' : '15') ? '🟢' : '🔴'
+
+    // 6. 2hr
+trend12hr = secSMA(advDash and showDashboard ? '720' : '15') ? '🟢' : '🔴'
+
+    // 7. 12hr
+trend2hr = secSMA(advDash and showDashboard ? '120' : '15') ? '🟢' : '🔴'
+
+
+
+
+
+
+rsiTrend = ta.rsi(close, 14)
+
+// RSI condition
+rsiCond = rsiTrend < 30 ? 'Oversold (' + str.tostring(math.round(rsiTrend, 2)) + ')' : rsiTrend > 70 ? 'Overbought (' + str.tostring(math.round(rsiTrend, 2)) + ')' : 'Healthy (' + str.tostring(math.round(rsiTrend, 2)) + ')'
+
+
+// ATR function
+atrTrend = ta.atr(14)
+atrTrendCond = atrTrend > ta.ema(ta.sma(atrTrend, 100), 100) ? 'Trending' : 'Ranging'
+
+
+btime = int(ta.sma(time - time[1], 50))
+
+label dashboard = na
+
+if showDashboard
+    dashboard := label.new(x=time + btime * xDashBoard, y=(ta.highest(20) + ta.lowest(20)) / 2, text='🌿discord.gg/indicator🌿' + '\n\nCurrent Trend: ' +  trendCurrent + '\nPrice condition: ' + rsiCond + '\nVolume: ' + str.tostring(math.round(volume * close, 2)) + ' ' + syminfo.currency + '\nVolatility: ' + atrTrendCond + '\n\n_____________________'  + (advDash ? '\n\n1min: ' + trend1min : '') + (advDash ? '\n3min: ' + trend3min : '') + (advDash ? '\n5min: ' + trend5min : '') + (advDash ? '\n10min: ' + trend10min : '') + '\n15min: ' + trend15min + (advDash ? '\n30min: ' + trend30min : '') + '\n1hr: ' + trend1hr + (advDash ? '\n2hr: ' + trend2hr : '') + '\n4hr: ' + trend4hr + (advDash ? '\n12hr: ' + trend12hr : '') + '\nDaily: ' + trend1d, color=color.rgb(11,221,109,70), textcolor=#C0C0C0, style=label.style_label_left, xloc=xloc.bar_time, yloc=yloc.price, textalign=text.align_left)
+    dashboard
+
+label.delete(dashboard[1])

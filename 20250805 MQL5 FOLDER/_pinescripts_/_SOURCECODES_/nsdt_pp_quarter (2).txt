@@ -1,0 +1,244 @@
+//@version=5
+//Credit for prices and alerts goes to QuantNomad.
+
+indicator(title='NSDT Pivot Points Plus', shorttitle='NSDT Pivot Points Plus', overlay=true, max_lines_count=150)
+
+//FIND FIRST BAR
+is_newbar(res) =>
+    ch = 0
+    if res == 'Y'
+        t = year(time('D'))
+        ch := ta.change(t) != 0 ? 1 : 0
+        ch
+    else
+        t = time(res)
+        ch := ta.change(t) != 0 ? 1 : 0
+        ch
+    ch
+
+nround(x) =>
+    n = x < 10 ? 3 : x < 100 ? 2 : x < 1000 ? 1 : 0
+    math.round(x * math.pow(10, n)) / math.pow(10, n)
+
+//INPUTS
+show_levels = input(true, title='Show Price Levels')
+LineColor = input.string('blue', title='Major Line Color', options=['aqua', 'black', 'blue', 'fuchsia', 'gray', 'green', 'lime', 'maroon', 'navy', 'olive', 'orange', 'purple', 'red', 'silver', 'teal', 'white', 'yellow'])
+LineColorX = input.string('gray', title='Minor Line Color', options=['aqua', 'black', 'blue', 'fuchsia', 'gray', 'green', 'lime', 'maroon', 'navy', 'olive', 'orange', 'purple', 'red', 'silver', 'teal', 'white', 'yellow'])
+LineColorXX = input.string('yellow', title='Quarter Line Color', options=['aqua', 'black', 'blue', 'fuchsia', 'gray', 'green', 'lime', 'maroon', 'navy', 'olive', 'orange', 'purple', 'red', 'silver', 'teal', 'white', 'yellow'])
+TextColor = input.string('blue', title='Text Color', options=['aqua', 'black', 'blue', 'fuchsia', 'gray', 'green', 'lime', 'maroon', 'navy', 'olive', 'orange', 'purple', 'red', 'silver', 'teal', 'white', 'yellow'])
+PP_Period = input.string(title='Period', defval='Day', options=['Day', 'Week', 'Month', 'Year'])
+PP_Res = PP_Period == 'Day' ? 'D' : PP_Period == 'Week' ? 'W' : PP_Period == 'Month' ? 'M' : 'Y'
+
+//COLORS
+f_set_color(selection) =>
+    ret = color.black
+    if selection == 'gray'
+        ret := color.gray
+        ret
+    if selection == 'green'
+        ret := color.green
+        ret
+    if selection == 'aqua'
+        ret := color.aqua
+        ret
+    if selection == 'blue'
+        ret := color.blue
+        ret
+    if selection == 'fuchsia'
+        ret := color.fuchsia
+        ret
+    if selection == 'lime'
+        ret := color.lime
+        ret
+    if selection == 'maroon'
+        ret := color.maroon
+        ret
+    if selection == 'navy'
+        ret := color.navy
+        ret
+    if selection == 'white'
+        ret := color.white
+        ret
+    if selection == 'yellow'
+        ret := color.yellow
+        ret
+    if selection == 'olive'
+        ret := color.olive
+        ret
+    if selection == 'orange'
+        ret := color.orange
+        ret
+    if selection == 'purple'
+        ret := color.purple
+        ret
+    if selection == 'red'
+        ret := color.red
+        ret
+    if selection == 'silver'
+        ret := color.silver
+        ret
+    if selection == 'teal'
+        ret := color.teal
+        ret
+    ret
+
+//CALCULATIONS
+//High
+CurrentHigh = 0.0
+CurrentHigh := is_newbar(PP_Res) ? high : math.max(CurrentHigh[1], high)
+
+PrevHigh = 0.0
+PrevHigh := is_newbar(PP_Res) ? CurrentHigh[1] : PrevHigh[1]
+
+//Low
+CurrentLow = 0.0
+CurrentLow := is_newbar(PP_Res) ? low : math.min(CurrentLow[1], low)
+
+PrevLow = 0.0
+PrevLow := is_newbar(PP_Res) ? CurrentLow[1] : PrevLow[1]
+
+//Close
+PrevClose = 0.0
+PrevClose := is_newbar(PP_Res) ? close[1] : PrevClose[1]
+
+//CALCULATE PIVOTS
+PP = (PrevHigh + PrevLow + PrevClose) / 3
+R1 = PP + PP - PrevLow
+S1 = PP - (PrevHigh - PP)
+R2 = PP + PrevHigh - PrevLow
+S2 = PP - (PrevHigh - PrevLow)
+R3 = PrevHigh + 2 * (PP - PrevLow)
+S3 = PrevLow - 2 * (PrevHigh - PP)
+
+PPR11 = PP + (R1 - PP) * .25
+PPS11 = PP - (PP - S1) * .25
+R1R21 = R1 + (R2 - R1) * .25
+S1S21 = S1 - (S1 - S2) * .25
+R2R31 = R2 + (R3 - R2) * .25
+S2S31 = S2 - (S2 - S3) * .25
+
+PPR1 = PP + (R1 - PP) * .5
+PPS1 = PP - (PP - S1) * .5
+R1R2 = R1 + (R2 - R1) * .5
+S1S2 = S1 - (S1 - S2) * .5
+R2R3 = R2 + (R3 - R2) * .5
+S2S3 = S2 - (S2 - S3) * .5
+
+PPR12 = PP + (R1 - PP) * .75
+PPS12 = PP - (PP - S1) * .75
+R1R22 = R1 + (R2 - R1) * .75
+S1S22 = S1 - (S1 - S2) * .75
+R2R32 = R2 + (R3 - R2) * .75
+S2S32 = S2 - (S2 - S3) * .75
+
+bars_sinse = 0
+bars_sinse := is_newbar(PP_Res) ? 0 : bars_sinse[1] + 1
+
+//PLOT LEVELS
+PPLine = line.new(bar_index[bars_sinse], PP, bar_index, PP, color=f_set_color(LineColor), style=line.style_solid, extend=extend.right)
+S1Line = line.new(bar_index[bars_sinse], S1, bar_index, S1, color=f_set_color(LineColor), style=line.style_solid, extend=extend.right)
+S2Line = line.new(bar_index[bars_sinse], S2, bar_index, S2, color=f_set_color(LineColor), style=line.style_solid, extend=extend.right)
+S3Line = line.new(bar_index[bars_sinse], S3, bar_index, S3, color=f_set_color(LineColor), style=line.style_solid, extend=extend.right)
+R1Line = line.new(bar_index[bars_sinse], R1, bar_index, R1, color=f_set_color(LineColor), style=line.style_solid, extend=extend.right)
+R2Line = line.new(bar_index[bars_sinse], R2, bar_index, R2, color=f_set_color(LineColor), style=line.style_solid, extend=extend.right)
+R3Line = line.new(bar_index[bars_sinse], R3, bar_index, R3, color=f_set_color(LineColor), style=line.style_solid, extend=extend.right)
+PPR1Line = line.new(bar_index[bars_sinse], PPR1, bar_index, PPR1, color=f_set_color(LineColorX), style=line.style_dashed, extend=extend.right)
+PPS1Line = line.new(bar_index[bars_sinse], PPS1, bar_index, PPS1, color=f_set_color(LineColorX), style=line.style_dashed, extend=extend.right)
+R1R2Line = line.new(bar_index[bars_sinse], R1R2, bar_index, R1R2, color=f_set_color(LineColorX), style=line.style_dashed, extend=extend.right)
+S1S2Line = line.new(bar_index[bars_sinse], S1S2, bar_index, S1S2, color=f_set_color(LineColorX), style=line.style_dashed, extend=extend.right)
+R2R3Line = line.new(bar_index[bars_sinse], R2R3, bar_index, R2R3, color=f_set_color(LineColorX), style=line.style_dashed, extend=extend.right)
+S2S3Line = line.new(bar_index[bars_sinse], S2S3, bar_index, S2S3, color=f_set_color(LineColorX), style=line.style_dashed, extend=extend.right)
+PPR11Line = line.new(bar_index[bars_sinse], PPR11, bar_index, PPR11, color=f_set_color(LineColorXX), style=line.style_dotted, extend=extend.right)
+PPS11Line = line.new(bar_index[bars_sinse], PPS11, bar_index, PPS11, color=f_set_color(LineColorXX), style=line.style_dotted, extend=extend.right)
+R1R21Line = line.new(bar_index[bars_sinse], R1R21, bar_index, R1R21, color=f_set_color(LineColorXX), style=line.style_dotted, extend=extend.right)
+S1S21Line = line.new(bar_index[bars_sinse], S1S21, bar_index, S1S21, color=f_set_color(LineColorXX), style=line.style_dotted, extend=extend.right)
+R2R31Line = line.new(bar_index[bars_sinse], R2R31, bar_index, R2R31, color=f_set_color(LineColorXX), style=line.style_dotted, extend=extend.right)
+S2S31Line = line.new(bar_index[bars_sinse], S2S31, bar_index, S2S31, color=f_set_color(LineColorXX), style=line.style_dotted, extend=extend.right)
+PPR12Line = line.new(bar_index[bars_sinse], PPR12, bar_index, PPR12, color=f_set_color(LineColorXX), style=line.style_dotted, extend=extend.right)
+PPS12Line = line.new(bar_index[bars_sinse], PPS12, bar_index, PPS12, color=f_set_color(LineColorXX), style=line.style_dotted, extend=extend.right)
+R1R22Line = line.new(bar_index[bars_sinse], R1R22, bar_index, R1R22, color=f_set_color(LineColorXX), style=line.style_dotted, extend=extend.right)
+S1S22Line = line.new(bar_index[bars_sinse], S1S22, bar_index, S1S22, color=f_set_color(LineColorXX), style=line.style_dotted, extend=extend.right)
+R2R32Line = line.new(bar_index[bars_sinse], R2R32, bar_index, R2R32, color=f_set_color(LineColorXX), style=line.style_dotted, extend=extend.right)
+S2S32Line = line.new(bar_index[bars_sinse], S2S32, bar_index, S2S32, color=f_set_color(LineColorXX), style=line.style_dotted, extend=extend.right)
+
+//DELETE PAST LINES
+if not is_newbar(PP_Res)
+    line.delete(PPLine[1])
+    line.delete(S1Line[1])
+    line.delete(S2Line[1])
+    line.delete(S3Line[1])
+    line.delete(R1Line[1])
+    line.delete(R2Line[1])
+    line.delete(R3Line[1])
+    line.delete(PPR1Line[1])
+    line.delete(PPS1Line[1])
+    line.delete(R1R2Line[1])
+    line.delete(S1S2Line[1])
+    line.delete(R2R3Line[1])
+    line.delete(S2S3Line[1])
+    line.delete(PPR11Line[1])
+    line.delete(PPS11Line[1])
+    line.delete(R1R21Line[1])
+    line.delete(S1S21Line[1])
+    line.delete(R2R31Line[1])
+    line.delete(S2S31Line[1])
+    line.delete(PPR12Line[1])
+    line.delete(PPS12Line[1])
+    line.delete(R1R22Line[1])
+    line.delete(S1S22Line[1])
+    line.delete(R2R32Line[1])
+    line.delete(S2S32Line[1])
+
+//ADD LINE EXTENTIONS
+if is_newbar(PP_Res)
+    line.set_extend(PPLine[1], extend.none)
+    line.set_extend(S1Line[1], extend.none)
+    line.set_extend(S2Line[1], extend.none)
+    line.set_extend(S3Line[1], extend.none)
+    line.set_extend(R1Line[1], extend.none)
+    line.set_extend(R2Line[1], extend.none)
+    line.set_extend(R3Line[1], extend.none)
+    line.set_extend(PPR1Line[1], extend.none)
+    line.set_extend(PPS1Line[1], extend.none)
+    line.set_extend(R1R2Line[1], extend.none)
+    line.set_extend(S1S2Line[1], extend.none)
+    line.set_extend(R2R3Line[1], extend.none)
+    line.set_extend(S2S3Line[1], extend.none)
+    line.set_extend(PPR11Line[1], extend.none)
+    line.set_extend(PPS11Line[1], extend.none)
+    line.set_extend(R1R21Line[1], extend.none)
+    line.set_extend(S1S21Line[1], extend.none)
+    line.set_extend(R2R31Line[1], extend.none)
+    line.set_extend(S2S31Line[1], extend.none)
+    line.set_extend(PPR12Line[1], extend.none)
+    line.set_extend(PPS12Line[1], extend.none)
+    line.set_extend(R1R22Line[1], extend.none)
+    line.set_extend(S1S22Line[1], extend.none)
+    line.set_extend(R2R32Line[1], extend.none)
+    line.set_extend(S2S32Line[1], extend.none)
+
+//LABELS
+if is_newbar(PP_Res)
+    label_pp = label.new(bar_index, PP, text=show_levels ? '           P' + ' ' + str.tostring(nround(PP)) : 'P', textcolor=f_set_color(TextColor), style=label.style_none)
+    label_s1 = label.new(bar_index, S1, text=show_levels ? '             S1' + ' ' + str.tostring(nround(S1)) : 'S1', textcolor=f_set_color(TextColor), style=label.style_none)
+    label_s2 = label.new(bar_index, S2, text=show_levels ? '             S2' + ' ' + str.tostring(nround(S2)) : 'S2', textcolor=f_set_color(TextColor), style=label.style_none)
+    label_s3 = label.new(bar_index, S3, text=show_levels ? '             S3' + ' ' + str.tostring(nround(S3)) : 'S3', textcolor=f_set_color(TextColor), style=label.style_none)
+    label_r1 = label.new(bar_index, R1, text=show_levels ? '             R1' + ' ' + str.tostring(nround(R1)) : 'R1', textcolor=f_set_color(TextColor), style=label.style_none)
+    label_r2 = label.new(bar_index, R2, text=show_levels ? '             R2' + ' ' + str.tostring(nround(R2)) : 'R2', textcolor=f_set_color(TextColor), style=label.style_none)
+    label_r3 = label.new(bar_index, R3, text=show_levels ? '             R3' + ' ' + str.tostring(nround(R3)) : 'R3', textcolor=f_set_color(TextColor), style=label.style_none)
+    label_ppr1 = label.new(bar_index, PPR1, text=show_levels ? '                   50%' + ' ' + str.tostring(nround(PPR1)) : '50%', textcolor=f_set_color(LineColorX), style=label.style_none)
+    label_pps1 = label.new(bar_index, PPS1, text=show_levels ? '                   50%' + ' ' + str.tostring(nround(PPS1)) : '50%', textcolor=f_set_color(LineColorX), style=label.style_none)
+    label_r1r2 = label.new(bar_index, R1R2, text=show_levels ? '                   50%' + ' ' + str.tostring(nround(R1R2)) : '50%', textcolor=f_set_color(LineColorX), style=label.style_none)
+    label_s1s2 = label.new(bar_index, S1S2, text=show_levels ? '                   50%' + ' ' + str.tostring(nround(S1S2)) : '50%', textcolor=f_set_color(LineColorX), style=label.style_none)
+    label_r2r3 = label.new(bar_index, R2R3, text=show_levels ? '                   50%' + ' ' + str.tostring(nround(R2R3)) : '50%', textcolor=f_set_color(LineColorX), style=label.style_none)
+    label_s2s3 = label.new(bar_index, S2S3, text=show_levels ? '                   50%' + ' ' + str.tostring(nround(S2S3)) : '50%', textcolor=f_set_color(LineColorX), style=label.style_none)
+    label_s2s3
+
+//ALERTS
+alertcondition(not is_newbar(PP_Res) and ta.cross(close, PP), 'Crossing P', 'Crossing P')
+alertcondition(not is_newbar(PP_Res) and ta.cross(close, S1), 'Crossing S1', 'Crossing S1')
+alertcondition(not is_newbar(PP_Res) and ta.cross(close, S2), 'Crossing S2', 'Crossing S2')
+alertcondition(not is_newbar(PP_Res) and ta.cross(close, S3), 'Crossing S3', 'Crossing S3')
+alertcondition(not is_newbar(PP_Res) and ta.cross(close, R1), 'Crossing R1', 'Crossing R1')
+alertcondition(not is_newbar(PP_Res) and ta.cross(close, R2), 'Crossing R2', 'Crossing R2')
+alertcondition(not is_newbar(PP_Res) and ta.cross(close, R3), 'Crossing R3', 'Crossing R3')

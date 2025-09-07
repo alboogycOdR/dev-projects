@@ -1,0 +1,54 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// ©Trade Confident
+
+// License Agreement: You are granted a personal license agreement to the following script for use on ONE TrdingView account. 
+// You may NOT resell or distribute this script in any way, this is strictly prohibited and is tracked on TradingView.
+// PLEASE READ: We will take legal action if this script is shared with another TradingView account or modified and reposted on TradingView IN ANY WAY.
+
+//@version=5
+indicator('S/R Levels', overlay=true)
+clrup = input.color(#ee2323,"",inline = "ree")
+clrdown = input.color(#20e482,"",inline = "ree")
+
+// Inputs
+len = input(12, title='Pivot Length')
+dist = input(0.5, title='Distance from price to labels')
+// Pivot Points
+ph = ta.pivothigh(len, len)
+pl = ta.pivotlow(len, len)
+// Continuous Pivot Points Values
+ph_fix = ta.valuewhen(ph, high[len], 0)
+pl_fix = ta.valuewhen(pl, low[len], 0)
+// ATR
+atr = ta.atr(21)
+// Pivot Labels
+ph_val = math.round_to_mintick(high[len])
+pl_val = math.round_to_mintick(low[len])
+
+line linph = na,linph := linph[1]
+line linpl = na,linpl := linpl[1]
+var arrLin = array.new_line(0)
+if ph
+    label.new(bar_index[len], high[len] + atr * dist, style=label.style_label_down, color=color.rgb(29, 42, 57), textcolor=color.rgb(255, 255, 255), size=size.normal, text=str.tostring(ph_val, format.mintick))
+    linph := line.new(bar_index[len],high[len],bar_index,high[len],width = 2, color = clrup)
+    array.insert(arrLin,0,linph)
+
+if pl
+    label.new(bar_index[len], low[len] - atr * dist, style=label.style_label_up, color=color.rgb(29, 42, 57), textcolor=color.rgb(255, 255, 255), size=size.normal, text=str.tostring(pl_val, format.mintick))
+    linpl := line.new(bar_index[len],low[len],bar_index,low[len],width = 2,color = clrdown)
+    array.insert(arrLin,0,linpl)
+
+// Pivot Lines Plots
+//plot(ph_fix, offset=-len, style=plot.style_circles, color=color.new(color.red, 0), linewidth=2, title='Resistance')
+//plot(pl_fix, offset=-len, style=plot.style_circles, color=color.new(color.green, 0), linewidth=2, title='Support')
+line.set_x2(linph,bar_index-len)    
+line.set_x2(linpl,bar_index-len)    
+
+if array.size(arrLin) > 0
+    for i = 0  to array.size(arrLin) -1 
+        p  = array.get(arrLin,i)
+        if line.get_y1(p) >= close  
+            line.set_color(p,clrup)
+        else
+            line.set_color(p,clrdown)
+        

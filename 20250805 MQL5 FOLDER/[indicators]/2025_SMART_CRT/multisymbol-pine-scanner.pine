@@ -1,0 +1,75 @@
+//@version=5
+indicator("Forex Majors 4H Rejection Scanner", "4H Rejection Scanner", overlay=true)
+
+// --- INPUTS ---
+// You can change these symbols in the indicator's settings.
+var string G1 = "Forex Majors"
+s1 = input.symbol("FX:EURUSD", "Symbol 1", group = G1)
+s2 = input.symbol("FX:GBPUSD", "Symbol 2", group = G1)
+s3 = input.symbol("FX:USDJPY", "Symbol 3", group = G1)
+s4 = input.symbol("FX:USDCAD", "Symbol 4", group = G1)
+s5 = input.symbol("FX:AUDUSD", "Symbol 5", group = G1)
+s6 = input.symbol("FX:NZDUSD", "Symbol 6", group = G1)
+s7 = input.symbol("FX:USDCHF", "Symbol 7", group = G1)
+
+// --- TABLE ---
+// Create a table that will only be drawn once on the chart.
+// We have 1 header row + 7 symbol rows.
+var table results_table = table.new(position.top_right, 1, 8, border_width = 1)
+
+// --- FUNCTION TO PROCESS EACH SYMBOL ---
+// This function takes a symbol (which is a 'simple string' from the input) and a table row number.
+processSymbol(symbol_ticker, row_index) =>
+    // --- DATA REQUEST ---
+    // Request the necessary values for the last two closed 4H candles.
+    // Candle 1 is the most recently closed candle (index [1]).
+    // Candle 2 is the one before that (index [2]).
+    float c1_high = request.security(symbol_ticker, "240", high[1], lookahead=barmerge.lookahead_on)
+    float c1_low = request.security(symbol_ticker, "240", low[1], lookahead=barmerge.lookahead_on)
+    float c1_close = request.security(symbol_ticker, "240", close[1], lookahead=barmerge.lookahead_on)
+    float c2_high = request.security(symbol_ticker, "240", high[2], lookahead=barmerge.lookahead_on)
+    float c2_low = request.security(symbol_ticker, "240", low[2], lookahead=barmerge.lookahead_on)
+
+    // --- REJECTION LOGIC ---
+    // Default status if no rejection is found.
+    string status_text = "No Bias"
+    color cell_color = color.new(color.blue, 80)
+
+    // Check for a High Rejection (Bearish Bias)
+    // This occurs if Candle 1's high went above Candle 2's high,
+    // but Candle 1 failed to close above Candle 2's high.
+    bool high_rejection = c1_high > c2_high and c1_close <= c2_high
+    if high_rejection
+        status_text := "Bearish Bias"
+        cell_color := color.new(color.red, 80)
+
+    // Check for a Low Rejection (Bullish Bias)
+    // This occurs if Candle 1's low went below Candle 2's low,
+    // but Candle 1 failed to close below Candle 2's low.
+    bool low_rejection = c1_low < c2_low and c1_close >= c2_low
+    if low_rejection
+        status_text := "Bullish Bias"
+        cell_color := color.new(color.green, 80)
+
+    // Combine symbol and status into one string for clarity
+    symbol_name = str.replace(symbol_ticker, "FX:", "")
+    display_text = symbol_name + ": " + status_text
+
+    // Add the combined text and bias to the table in a single cell
+    table.cell(results_table, 0, row_index, display_text, bgcolor=cell_color, text_color=color.white)
+
+
+// --- LOGIC ---
+// This ensures the script only runs its main logic on the very last bar.
+if barstate.islast
+    // Create the table header
+    table.cell(results_table, 0, 0, "4H Rejection Bias", bgcolor = color.new(color.gray, 50), text_color=color.white)
+
+    // Process each symbol individually by calling our function
+    processSymbol(s1, 1)
+    processSymbol(s2, 2)
+    processSymbol(s3, 3)
+    processSymbol(s4, 4)
+    processSymbol(s5, 5)
+    processSymbol(s6, 6)
+    processSymbol(s7, 7)

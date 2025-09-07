@@ -1,0 +1,23 @@
+//@version=5
+indicator("EzAlgo Bands", overlay=true)
+
+len = input.int(30, "Length")
+
+f_kc(src, len, mult) =>
+    float basis = ta.sma(src, len)
+    float span  = ta.atr(len)
+    [basis + span * mult, basis - span * mult]
+
+[upperKC1, lowerKC1] = f_kc(close, len, 3)
+[upperKC2, lowerKC2] = f_kc(close, len, 4)
+[upperKC3, lowerKC3] = f_kc(close, len, 5)
+[upperKC4, lowerKC4] = f_kc(close, len, 6)
+
+b1 = plot(upperKC1, "", color.rgb(233,30,99,70), editable=false)
+b2 = plot(upperKC2, "", color.rgb(233,30,99,70), editable=false)
+b3 = plot(upperKC3, "", color.rgb(233,30,99,70), editable=false)
+b4 = plot(upperKC4, "", color.rgb(233,30,99,70), editable=false)
+b5 = plot(lowerKC1, "", color.rgb(0,219,255,70), editable=false)
+b6 = plot(lowerKC2, "", color.rgb(0,219,255,70), editable=false)
+b7 = plot(lowerKC3, "", color.rgb(0,219,255,70), editable=false)
+b8 = plot(lowerKC4, "", color.rgb(0,219,255,70), editable=false)

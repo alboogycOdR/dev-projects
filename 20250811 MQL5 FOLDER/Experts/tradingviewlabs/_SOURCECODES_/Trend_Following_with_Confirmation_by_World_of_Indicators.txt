@@ -1,0 +1,111 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © World_of_Indicators
+
+//@version=4
+// ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒ //
+
+strategy(title = " Trend Following Indicator + 200 EMA ",
+         shorttitle = "[WOI]Trend Following with Confirmation",
+         overlay = true,
+         precision = 8,
+         calc_on_order_fills = true,
+         calc_on_every_tick = true,
+         backtest_fill_limits_assumption = 0,
+         default_qty_type = strategy.fixed,
+         default_qty_value = 2,
+         initial_capital = 10000,
+         pyramiding=1,
+         currency = currency.USD,
+         linktoseries = true)
+
+//
+// ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒ //
+
+backTestSectionFrom = input(title = "═══════════════ From ═══════════════", defval = true, type = input.bool)
+
+FromMonth         = input(defval = 1, title = "Month", minval = 1)
+FromDay           = input(defval = 1, title = "Day", minval = 1)
+FromYear          = input(defval = 2014, title = "Year", minval = 2000)
+
+backTestSectionTo = input(title = "════════════════ To ════════════════", defval = true, type = input.bool)
+ToMonth           = input(defval = 31, title = "Month", minval = 1)
+ToDay             = input(defval = 12, title = "Day", minval = 1)
+ToYear            = input(defval = 9999, title = "Year", minval = 2000)
+
+Config            = input(title = "══════════════ Config ══════════════", defval = true, type = input.bool)
+BBperiod          = input(defval = 50,     title = "BB Period",    type = input.integer, minval = 1)
+BBdeviations      = input(defval = 2.00,     title = "BB Deviations",    type = input.float, minval = 0.1, step=0.05)
+UseATRfilter      = input(defval = true, title = "ATR Filter",  type = input.bool)
+ATRperiod         = input(defval = 3,     title = "ATR Period",    type = input.integer, minval = 1)
+hl                = input(defval = false, title = "Hide Labels",  type = input.bool)
+//
+backTestPeriod() => (time > timestamp(FromYear, FromMonth, FromDay, 00, 00)) and (time < timestamp(ToYear, ToMonth, ToDay, 23, 59))
+//
+//
+// ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒ //
+
+BBUpper=sma (close,BBperiod)+stdev(close, BBperiod)*BBdeviations
+BBLower=sma (close,BBperiod)-stdev(close, BBperiod)*BBdeviations
+//
+TrendLine = 0.0
+iTrend = 0.0
+buy = 0.0
+sell = 0.0
+//
+BBSignal = close>BBUpper? 1 : close<BBLower? -1 : 0
+// 
+if BBSignal == 1 and UseATRfilter == 1
+    TrendLine:=low-atr(ATRperiod)
+    if TrendLine<TrendLine[1] 
+        TrendLine:=TrendLine[1]
+if BBSignal == -1 and UseATRfilter == 1
+    TrendLine:=high+atr(ATRperiod)
+    if TrendLine>TrendLine[1]
+        TrendLine:=TrendLine[1]
+if BBSignal == 0 and UseATRfilter == 1
+    TrendLine:=TrendLine[1]
+//
+if BBSignal == 1 and UseATRfilter == 0
+    TrendLine:=low
+    if TrendLine<TrendLine[1] 
+        TrendLine:=TrendLine[1]
+if BBSignal == -1 and UseATRfilter == 0
+    TrendLine:=high
+    if TrendLine>TrendLine[1]
+        TrendLine:=TrendLine[1]
+if BBSignal == 0 and UseATRfilter == 0
+    TrendLine:=TrendLine[1]
+//
+iTrend:=iTrend[1]
+if TrendLine>TrendLine[1] 
+    iTrend:=1
+if TrendLine<TrendLine[1] 
+    iTrend:=-1
+//
+buy:=iTrend[1]==-1 and iTrend==1 ? 1 : na
+sell:=iTrend[1]==1 and iTrend==-1? 1 : na
+//
+plot(TrendLine, color=iTrend > 0?#1b5e20:#f70500 ,style=plot.style_line,linewidth=2,transp=0,title="Trend Line") 
+plotshape(buy == 1 and hl == false? TrendLine-atr(8) :na, text='💣', style= shape.labelup, location=location.absolute, color=#09e112, textcolor=color.white, offset=0, transp=0,size=size.large)
+plotshape(sell == 1 and hl == false ?TrendLine+atr(8):na, text='🔨', style=shape.labeldown, location=location.absolute, color=#ee2902, textcolor=color.white, offset=0, transp=0,size=size.large)
+
+// Strategy Entry
+if (backTestPeriod())
+    strategy.entry("long", true, 1, when = buy == 1)
+    strategy.entry("short", false, 1, when = sell == 1) 
+
+
+    /////////////////////////////////////
+
+ema1 = input(200, minval=1, maxval=300, title="EMA UpTrend")
+shema = input(true, title="Show EMA Trend is Based On?")
+
+usedEma = ema(close, ema1)
+
+emaUpColor() => hlc3 >= usedEma
+emaDownColor() => hlc3  < usedEma
+
+col = hlc3  >= usedEma ? #09e112 : hlc3  < usedEma ? #f70500 : color.white
+
+barcolor(emaUpColor() ? #09e112: emaDownColor() ? #f70500 : na)
+plot(shema and usedEma ? usedEma : na, title="EMA", style=plot.style_line, linewidth=3, color=col)    

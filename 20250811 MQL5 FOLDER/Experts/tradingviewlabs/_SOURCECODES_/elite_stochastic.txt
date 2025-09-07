@@ -1,0 +1,12 @@
+//@version=5
+indicator("Elite Stochastic")
+smoothK = input.int(17, "Fast K", 1)
+smoothD = input.int(5, "Fast D", 1)
+lengthfRSI = input.int(21, "Fast Stochastic RSI Length", 1)
+lengthfStoch = input.int(50, "Fast Stochastic Length", 1)
+fsrc = input(close, title="Fast Stochastic RSI Source")
+rsi1f = ta.rsi(fsrc, lengthfRSI)
+fk = ta.hma(ta.stoch(rsi1f, rsi1f, rsi1f, lengthfStoch), smoothK)
+fd = ta.ema(fk, smoothD)
+plot(fk)
+plot(fd)

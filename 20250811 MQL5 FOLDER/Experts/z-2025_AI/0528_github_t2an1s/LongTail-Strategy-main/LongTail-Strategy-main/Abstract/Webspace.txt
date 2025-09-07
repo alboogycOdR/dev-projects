@@ -1,0 +1,2 @@
+
+copilot_chat_link = https://copilot.microsoft.com/chats/3rMq7HiAC6QZUyw1b5BK4

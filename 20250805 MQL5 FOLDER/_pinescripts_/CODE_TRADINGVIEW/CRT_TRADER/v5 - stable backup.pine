@@ -1,0 +1,87 @@
+//@version=5
+// Final Working Version with Corrected Logic and Fixed Extension.
+indicator("Dual-Mode CRT Levels (Corrected)v5", "CRT Levelsv5", true, max_lines_count=500)
+
+// ---- USER INPUTS ----
+string i_main_tf        = input.string("4 Hour", "Select CRT Timeframe", options=["4 Hour", "1 Hour"],     tooltip="Choose the base timeframe for the CRT levels (e.g., '4 Hour' will use the 4H candle's H/L).")
+string i_session_hour   = input.string("9 AM", "Select Candle Start Hour (NY Time)", options=["1 AM", "5 AM", "9 AM"],    tooltip="Selects the candle starting at this NY time to draw the High and Low from.")
+int    i_extend_candles = input.int(2, "Extend Lines For How Many Source Candles?", minval=1, maxval=10, tooltip="Lines will be drawn for this many candles OF THE SELECTED CRT TIMEFRAME (e.g., 2 x 4-hour candles).")
+
+// ---- GLOBAL VARIABLES ----
+// We only need to store the array of line IDs for managing drawings.
+var line[] lines_array = array.new_line()
+// Use 'varip' to declare persistent variables for level tracking
+varip float crt_high = na
+varip float crt_low = na
+
+// Variables for plotting - using var instead of varip for plot consistency
+var float session_high = na
+var float session_low = na
+
+// ---- DATA & TIME LOGIC ----
+// Convert user inputs into usable values for the script.
+int target_hour    = i_session_hour == "1 AM" ? 1 : i_session_hour == "5 AM" ? 5 : 9
+string source_tf   = i_main_tf == "4 Hour" ? "240" : "60"
+
+// Request data from the source timeframe on every bar.
+[src_t, src_h, src_l] = request.security(syminfo.tickerid, source_tf, [time, high, low], lookahead=barmerge.lookahead_off)
+
+// ---- LOGIC FOR NEW DAY & LEVEL CAPTURE ----
+// This is the core logic. A new day is defined by a change in the Day of the Month in NY time.
+bool is_new_day_start = ta.change(dayofmonth(time, "America/New_York")) != 0
+
+// On the first bar of a new NY day, delete all the lines and reset tracking variables
+if is_new_day_start
+    if array.size(lines_array) > 0
+        for i = 0 to array.size(lines_array) - 1
+            line.delete(array.get(lines_array, i))
+        array.clear(lines_array)
+    crt_high := na
+    crt_low := na
+    session_high := na
+    session_low := na
+else
+    session_high := session_high[1]
+    session_low := session_low[1]
+
+// Check if this is our target candle AND we haven't captured levels for today yet
+bool is_target_candle = hour(src_t, "America/New_York") == target_hour and na(crt_high)
+
+if is_target_candle
+    // Store the levels
+    crt_high := src_h
+    crt_low := src_l
+    session_high := src_h
+    session_low := src_l
+    
+    // ---- Draw the Lines ----
+    // Calculate extension based on source timeframe
+    float source_minutes = i_main_tf == "4 Hour" ? 240.0 : 60.0
+    float current_minutes = timeframe.in_minutes()
+    
+    // Calculate how many current timeframe bars to extend
+    int extension_bars = math.round((source_minutes * i_extend_candles) / current_minutes)
+    
+    // Calculate the x-coordinates for line start and end
+    int x1 = bar_index
+    int x2 = bar_index + extension_bars
+    
+    // Draw the new high line
+    line high_line = line.new(x1, src_h, x2, src_h, 
+     color=color.new(color.green, 0), style=line.style_solid, width=2)
+    
+    // Draw the new low line
+    line low_line = line.new(x1, src_l, x2, src_l,
+     color=color.new(color.red, 0), style=line.style_solid, width=2)
+
+    // Add the new lines to our array so they can be deleted on the next new day.
+    array.push(lines_array, high_line)
+    array.push(lines_array, low_line)
+
+// Add backup plotting mechanism similar to V2
+plot(session_high, "CRT High", color.new(color.green, 50), 1, plot.style_linebr)
+plot(session_low, "CRT Low", color.new(color.red, 50), 1, plot.style_linebr)
+
+// Debug plots to show when conditions are triggered
+plotchar(is_target_candle, "Target Candle Found", "•", location.top, color.yellow, 0, size=size.tiny)
+plotchar(is_new_day_start, "New Day Start", "×", location.top, color.white, 0, size=size.tiny)

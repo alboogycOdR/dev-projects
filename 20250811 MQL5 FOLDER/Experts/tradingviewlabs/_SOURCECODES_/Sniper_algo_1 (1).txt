@@ -1,0 +1,318 @@
+//@version=5
+indicator('Sniper Algo', overlay=true)
+
+
+// Trend band
+showBand = input.bool(true, title='', inline='band')
+bandColorPos = input.color(color.green, title='Band colors', inline='band')
+bandColorNeg = input.color(color.red, title='', inline='band')
+
+labelColorBuy = input(color.green, title='Buy label color')
+labelColorSell = input(color.red, title='Sell label color')
+
+
+
+emaLength1 = 8
+emaLength2 = 13
+emaLength3 = 21
+emaLength4 = 55
+
+
+// Defining the EMAs
+ema1 = ta.ema(close, emaLength1)
+ema2 = ta.ema(close, emaLength2)
+ema3 = ta.ema(close, emaLength3)
+ema4 = ta.ema(close, emaLength4)
+
+
+// plot(tema1, color=color.orange)
+maPlot1 = plot(ema3, color=color.new(color.green, 0), display=display.none, editable=false)
+maPlot2 = plot(ema4, color=color.new(color.red, 0), linewidth=3, display=display.none, editable=false)
+
+fill(maPlot1, maPlot2, color=color.new(ema3 > ema4 ? bandColorPos : bandColorNeg, 80), title='Trend band')
+
+//plot(ema, color=color.blue)
+
+// Array with MA values
+arrMa = array.new_float()
+array.push(arrMa, ema1)
+array.push(arrMa, ema2)
+array.push(arrMa, ema3)
+array.push(arrMa, ema4)
+
+
+// Pivot points
+pivotHigh = fixnan(ta.pivothigh(10, 3))
+pivotLow = fixnan(ta.pivotlow(10, 3))
+
+
+// Entry logic
+pos = 0
+tpTracker1 = 0
+tpTracker2 = 0
+tpTracker3 = 0
+tpTracker4 = 0
+tpTracker5 = 0
+
+// Entry conditions
+longCond = array.min(arrMa) == ema4
+shortCond = array.max(arrMa) == ema4
+
+// Entry signals
+entryLong = longCond and not longCond[1] and pos[1] != 1
+entryShort = shortCond and not shortCond[1] and pos[1] != -1
+
+// Entry values
+entryValueLong = ta.valuewhen(entryLong, close, 0)
+entryValueShort = ta.valuewhen(entryShort, close, 0)
+
+// Stop-loss calculations
+slValueOriginalLong = ta.valuewhen(entryLong, ta.valuewhen(close < array.min(arrMa), close, 0), 0)
+slValueLong = slValueOriginalLong
+slDistLong = ta.valuewhen(entryLong, entryValueLong - slValueLong, 0)
+
+if tpTracker1[1] == 1
+    slValueLong := entryValueLong
+    slValueLong
+
+slLong = low <= slValueLong and pos[1] == 1
+
+slValueOriginalShort = ta.valuewhen(entryShort, ta.valuewhen(close > array.max(arrMa), close, 0), 0)
+slValueShort = slValueOriginalShort
+slDistShort = ta.valuewhen(entryShort, slValueShort - entryValueShort, 0)
+
+if tpTracker1[1] == 1
+    slValueShort := entryValueShort
+    slValueShort
+
+slShort = high >= slValueShort and pos[1] == -1
+
+// Long take profit signals
+tpValueLong1 = entryValueLong + slDistLong * 1
+tpLong1 = high >= tpValueLong1 and pos[1] == 1 and tpTracker1[1] == 0
+tpValueLong2 = entryValueLong + slDistLong * 2
+tpLong2 = high >= tpValueLong2 and pos[1] == 1 and tpTracker2[1] == 0
+tpValueLong3 = entryValueLong + slDistLong * 3
+tpLong3 = high >= tpValueLong3 and pos[1] == 1 and tpTracker3[1] == 0
+tpValueLong4 = entryValueLong + slDistLong * 4
+tpLong4 = high >= tpValueLong4 and pos[1] == 1 and tpTracker4[1] == 0
+tpValueLong5 = entryValueLong + slDistLong * 5
+tpLong5 = high >= tpValueLong5 and pos[1] == 1 and tpTracker5[1] == 0
+
+// Short take profit signals
+tpValueShort1 = entryValueShort - slDistShort * 1
+tpShort1 = low <= tpValueShort1 and pos[1] == -1 and tpTracker1[1] == 0
+tpValueShort2 = entryValueShort - slDistShort * 2
+tpShort2 = low <= tpValueShort2 and pos[1] == -1 and tpTracker2[1] == 0
+tpValueShort3 = entryValueShort - slDistShort * 3
+tpShort3 = low <= tpValueShort3 and pos[1] == -1 and tpTracker3[1] == 0
+tpValueShort4 = entryValueShort - slDistShort * 4
+tpShort4 = low <= tpValueShort4 and pos[1] == -1 and tpTracker4[1] == 0
+tpValueShort5 = entryValueShort - slDistShort * 5
+tpShort5 = low <= tpValueShort5 and pos[1] == -1 and tpTracker5[1] == 0
+
+// Redefining the take profit trackers
+tpTracker1 := entryLong or entryShort or slLong or slShort ? 0 : tpLong1 or tpShort1 ? 1 : nz(tpTracker1[1])
+tpTracker2 := entryLong or entryShort or slLong or slShort ? 0 : tpLong2 or tpShort2 ? 1 : nz(tpTracker2[1])
+tpTracker3 := entryLong or entryShort or slLong or slShort ? 0 : tpLong3 or tpShort3 ? 1 : nz(tpTracker3[1])
+tpTracker4 := entryLong or entryShort or slLong or slShort ? 0 : tpLong4 or tpShort4 ? 1 : nz(tpTracker4[1])
+tpTracker5 := entryLong or entryShort or slLong or slShort ? 0 : tpLong5 or tpShort5 ? 1 : nz(tpTracker5[1])
+
+// Position redefining
+pos := entryLong ? 1 : entryShort ? -1 : tpLong5 or tpShort5 or slLong or slShort ? 0 : nz(pos[1])
+
+
+plotshape(entryLong, location=location.belowbar, style=shape.labelup, color=labelColorBuy, textcolor=color.new(color.white, 0), text='Buy')
+plotshape(entryShort, location=location.abovebar, style=shape.labeldown, color=labelColorSell, textcolor=color.new(color.white, 0), text='Sell')
+
+
+// Alerts
+alertcondition(entryLong, title='Buy signal')
+alertcondition(entryShort, title='Sell signal')
+alertcondition(tpLong1 or tpLong2 or tpLong3 or tpLong4 or tpLong5, title='Buy any take profit signal')
+alertcondition(tpShort1 or tpShort2 or tpShort3 or tpShort4 or tpShort5, title='Sell any take profit signal')
+alertcondition(slLong, title='Buy stop-loss')
+alertcondition(slShort, title='Sell stop-loss')
+
+
+
+
+// Labels
+label entryLabel = na
+label slLabel = na
+label tpLabel1 = na
+label tpLabel2 = na
+label tpLabel3 = na
+label tpLabel4 = na
+label tpLabel5 = na
+
+line entryLine = na
+line slLine = na
+line tpLine1 = na
+line tpLine2 = na
+line tpLine3 = na
+line tpLine4 = na
+line tpLine5 = na
+
+
+if pos == 1
+    entryLabel := label.new(bar_index + 10, entryValueLong, style=label.style_label_left, color=color.gray, textcolor=color.white, text='Entry: ' + str.tostring(math.round_to_mintick(entryValueLong)))
+
+    slLabel := label.new(bar_index + 10, slValueLong, style=label.style_label_left, color=color.red, textcolor=color.white, text='Stop-loss: ' + str.tostring(math.round_to_mintick(slValueLong)))
+
+    tpLabel1 := label.new(bar_index + 10, tpValueLong1, style=label.style_label_left, color=color.green, textcolor=color.white, text='TP 1: ' + str.tostring(math.round_to_mintick(tpValueLong1)))
+
+    tpLabel2 := label.new(bar_index + 10, tpValueLong2, style=label.style_label_left, color=color.green, textcolor=color.white, text='TP 2: ' + str.tostring(math.round_to_mintick(tpValueLong2)))
+
+    tpLabel3 := label.new(bar_index + 10, tpValueLong3, style=label.style_label_left, color=color.green, textcolor=color.white, text='TP 3: ' + str.tostring(math.round_to_mintick(tpValueLong3)))
+
+    tpLabel4 := label.new(bar_index + 10, tpValueLong4, style=label.style_label_left, color=color.green, textcolor=color.white, text='TP 4: ' + str.tostring(math.round_to_mintick(tpValueLong4)))
+
+    tpLabel5 := label.new(bar_index + 10, tpValueLong5, style=label.style_label_left, color=color.green, textcolor=color.white, text='TP 5: ' + str.tostring(math.round_to_mintick(tpValueLong5)))
+
+    entryLine := line.new(bar_index - 1, entryValueLong, bar_index + 10, entryValueLong, color=color.gray)
+
+    slLine := line.new(bar_index - 1, slValueLong, bar_index + 10, slValueLong, color=color.red)
+
+    tpLine1 := line.new(bar_index - 1, tpValueLong1, bar_index + 10, tpValueLong1, color=color.green)
+    tpLine2 := line.new(bar_index - 1, tpValueLong2, bar_index + 10, tpValueLong2, color=color.green)
+    tpLine3 := line.new(bar_index - 1, tpValueLong3, bar_index + 10, tpValueLong3, color=color.green)
+    tpLine4 := line.new(bar_index - 1, tpValueLong4, bar_index + 10, tpValueLong4, color=color.green)
+    tpLine5 := line.new(bar_index - 1, tpValueLong5, bar_index + 10, tpValueLong5, color=color.green)
+    tpLine5
+
+
+if pos == -1
+    entryLabel := label.new(bar_index + 10, entryValueShort, style=label.style_label_left, color=color.gray, textcolor=color.white, text='Entry: ' + str.tostring(math.round_to_mintick(entryValueShort)))
+
+    slLabel := label.new(bar_index + 10, slValueShort, style=label.style_label_left, color=color.red, textcolor=color.white, text='Stop-loss: ' + str.tostring(math.round_to_mintick(slValueShort)))
+
+    tpLabel1 := label.new(bar_index + 10, tpValueShort1, style=label.style_label_left, color=color.green, textcolor=color.white, text='TP 1: ' + str.tostring(math.round_to_mintick(tpValueShort1)))
+
+    tpLabel2 := label.new(bar_index + 10, tpValueShort2, style=label.style_label_left, color=color.green, textcolor=color.white, text='TP 2: ' + str.tostring(math.round_to_mintick(tpValueShort2)))
+
+    tpLabel3 := label.new(bar_index + 10, tpValueShort3, style=label.style_label_left, color=color.green, textcolor=color.white, text='TP 3: ' + str.tostring(math.round_to_mintick(tpValueShort3)))
+
+    tpLabel4 := label.new(bar_index + 10, tpValueShort4, style=label.style_label_left, color=color.green, textcolor=color.white, text='TP 4: ' + str.tostring(math.round_to_mintick(tpValueShort4)))
+
+    tpLabel5 := label.new(bar_index + 10, tpValueShort5, style=label.style_label_left, color=color.green, textcolor=color.white, text='TP 5: ' + str.tostring(math.round_to_mintick(tpValueShort5)))
+
+    entryLine := line.new(bar_index - 1, entryValueShort, bar_index + 10, entryValueShort, color=color.gray)
+
+    slLine := line.new(bar_index - 1, slValueShort, bar_index + 10, slValueShort, color=color.red)
+
+    tpLine1 := line.new(bar_index - 1, tpValueShort1, bar_index + 10, tpValueShort1, color=color.green)
+    tpLine2 := line.new(bar_index - 1, tpValueShort2, bar_index + 10, tpValueShort2, color=color.green)
+    tpLine3 := line.new(bar_index - 1, tpValueShort3, bar_index + 10, tpValueShort3, color=color.green)
+    tpLine4 := line.new(bar_index - 1, tpValueShort4, bar_index + 10, tpValueShort4, color=color.green)
+    tpLine5 := line.new(bar_index - 1, tpValueShort5, bar_index + 10, tpValueShort5, color=color.green)
+    tpLine5
+
+label.delete(entryLabel[1])
+label.delete(slLabel[1])
+label.delete(tpLabel1[1])
+label.delete(tpLabel2[1])
+label.delete(tpLabel3[1])
+label.delete(tpLabel4[1])
+label.delete(tpLabel5[1])
+
+line.delete(entryLine[1])
+line.delete(slLine[1])
+line.delete(tpLine1[1])
+line.delete(tpLine2[1])
+line.delete(tpLine3[1])
+line.delete(tpLine4[1])
+line.delete(tpLine5[1])
+
+
+
+showDashboard = input.bool(true, title='Enable dashboard', inline='dashboard')
+dashboardType = input.string('Simple dashboard', title='', options=['Simple dashboard', 'Advanced dashboard'], inline='dashboard')
+
+xDashBoard = input.int(80, 'dashboard distance', minval=20, maxval=1000, step=10)
+
+
+
+// Security function
+secSMA(_res) =>
+    request.security(syminfo.tickerid, showDashboard ? _res : timeframe.period, ta.sma(ohlc4, 200) < close, lookahead=barmerge.lookahead_on)
+
+
+
+//}
+
+
+advDash = dashboardType == 'Advanced dashboard'
+
+
+// Simple dashboard has the following timeframes in it
+    // 1. Current
+trendCurrent = ta.sma(close, 200) < close ? 'Bullish ??' : 'Bearish ??'
+
+    // 2. 15min
+trend15min = secSMA(showDashboard ? '15' : '15') ? 'Bullish ??' : 'Bearish ??'
+
+    // 3. 1hr
+trend1hr = secSMA(showDashboard ? '60' : '15') ? 'Bullish ??' : 'Bearish ??'
+
+    // 4. 4hr
+trend4hr = secSMA(showDashboard ? '240' : '15') ? 'Bullish ??' : 'Bearish ??'
+
+    // 5. 1D
+trend1d = secSMA(showDashboard ? '1D' : '15') ? 'Bullish ??' : 'Bearish ??'
+
+
+
+// Advanced dashboard trends
+    // 1. 1min
+trend1min = secSMA(advDash and showDashboard ? '1' : '15') ? 'Bullish ??' : 'Bearish ??'
+
+    // 2. 3min
+trend3min = secSMA(advDash and showDashboard ? '3' : '15') ? 'Bullish ??' : 'Bearish ??'
+
+    // 3. 5min
+trend5min = secSMA(advDash and showDashboard ? '5' : '15') ? 'Bullish ??' : 'Bearish ??'
+
+    // 4. 10min
+trend10min = secSMA(advDash and showDashboard ? '10' : '15') ? 'Bullish ??' : 'Bearish ??'
+
+    // 5. 30min
+trend30min = secSMA(advDash and showDashboard ? '30' : '15') ? 'Bullish ??' : 'Bearish ??'
+
+    // 6. 2hr
+trend12hr = secSMA(advDash and showDashboard ? '720' : '15') ? 'Bullish ??' : 'Bearish ??'
+
+    // 7. 12hr
+trend2hr = secSMA(advDash and showDashboard ? '120' : '15') ? 'Bullish ??' : 'Bearish ??'
+
+
+
+
+
+// Last signal
+lastSignalInt = 0
+lastSignalInt := entryLong ? 1 : entryShort ? -1 : nz(lastSignalInt[1])
+lastSignal = lastSignalInt == 1 ? 'Buy ??' : 'Sell ??'
+
+rsiTrend = ta.rsi(close, 14)
+
+// RSI condition
+rsiCond = rsiTrend < 30 ? 'Oversold (' + str.tostring(math.round(rsiTrend, 2)) + ') ??' : rsiTrend > 70 ? 'Overbought (' + str.tostring(math.round(rsiTrend, 2)) + ') ??' : 'Healthy (' + str.tostring(math.round(rsiTrend, 2)) + ') ?'
+
+
+// ATR function
+atrTrend = ta.atr(14)
+atrTrendCond = atrTrend > ta.ema(ta.sma(atrTrend, 100), 100) ? 'Trending ??' : 'Ranging ???'
+
+
+btime = int(ta.sma(time - time[1], 50))
+
+label dashboard = na
+
+if showDashboard
+    dashboard := label.new(x=time + btime * xDashBoard, y=(ta.highest(20) + ta.lowest(20)) / 2, text='???????????? ????????' + '\n\nCurrent position: ' + lastSignal + '\nCurrent trend: ' + trendCurrent + '\nPrice condition: ' + rsiCond + '\nVolume: ' + str.tostring(math.round(volume * close, 2)) + ' ' + syminfo.currency + '\nVolatility: ' + atrTrendCond + '\n\n---------------------------' + '\nTimeframe trends ??' + (advDash ? '\n\n1min: ' + trend1min : '') + (advDash ? '\n3min: ' + trend3min : '') + (advDash ? '\n5min: ' + trend5min : '') + (advDash ? '\n10min: ' + trend10min : '') + '\n15min: ' + trend15min + (advDash ? '\n30min: ' + trend30min : '') + '\n1hr: ' + trend1hr + (advDash ? '\n2hr: ' + trend2hr : '') + '\n4hr: ' + trend4hr + (advDash ? '\n12hr: ' + trend12hr : '') + '\nDaily: ' + trend1d, color=#1E1E1E, textcolor=#C0C0C0, style=label.style_label_left, xloc=xloc.bar_time, yloc=yloc.price, textalign=text.align_left)
+    dashboard
+
+label.delete(dashboard[1])
+
+

@@ -1,0 +1,79 @@
+//@version=5
+strategy(title="Indicatore Test Orario", overlay=true, precision = 4,
+     //max_bars_back=5000, // Serve Per Caricare Più Storico Per Il Trailing Stop
+     pyramiding=0,
+     initial_capital=15000,
+     commission_type=strategy.commission.percent,
+     commission_value=0.1,
+     slippage=3, // ATTENZIONE LO SLIPPAGE CON INGRESSI LIMIT NON VIENE SEGNATO SU TRADINGVIEW
+     default_qty_type=strategy.percent_of_equity,
+     //default_qty_type=strategy.fixed, "USARE PER LE MATERI PRIME !!!""
+     default_qty_value=50),
+     only_Long = input.bool(title='Solo long trade', defval=true, inline='1', group='Direzione'),
+     only_Short = input.bool(title='Solo short trade', defval=false, inline='1', group='Direzione')
+
+
+// input
+inEntryLongHour = input.int(title='EntryLongHour', defval=12, minval=0, maxval=300, step=1, group='Orari Ingresso/Uscite')
+inExitLongHour = input.int(title='ExitLongHour', defval=13, minval=0, maxval=300, step=1, group='Orari Ingresso/Uscite')
+inEntryLongMinutes = input.int(title='EntryLongMinutes', defval=0, minval=0, maxval=300, step=1, group='Orari Ingresso/Uscite')
+inExitLongMinutes = input.int(title='inExitLongMinutes', defval=0, minval=0, maxval=300, step=1, group='Orari Ingresso/Uscite')
+inEntryShortHour = input.int(title='EntryShortHour', defval=21, minval=0, maxval=300, step=1, group='Orari Ingresso/Uscite')
+inExitShortHour = input.int(title='ExitShortHour', defval=22, minval=0, maxval=300, step=1, group='Orari Ingresso/Uscite')
+inEntryShortMinutes = input.int(title='EntryShortMinutes', defval=0, minval=0, maxval=300, step=1, group='Orari Ingresso/Uscite')
+inExitShortMinutes = input.int(title='ExitShortMinutes', defval=0, minval=0, maxval=300, step=1, group='Orari Ingresso/Uscite')
+
+
+// Calcolo del range del backtest
+startDate = input.int(title="Start Date",
+     defval=1, minval=1, maxval=31, group="Periodo")
+startMonth = input.int(title="Start Month",
+     defval=02, minval=1, maxval=12, group="Periodo")
+startYear = input.int(title="Start Year",
+     defval=2010, minval=1800, maxval=2150, group="Periodo")
+
+endDate = input.int(title="End Date",
+     defval=01, minval=1, maxval=31, group="Periodo")
+endMonth = input.int(title="End Month",
+     defval=01, minval=1, maxval=12, group="Periodo")
+endYear = input.int(title="End Year",
+     defval=2121, minval=1800, maxval=2150, group="Periodo")
+
+
+inDateRange = (time >= timestamp(syminfo.timezone, startYear,
+         startMonth, startDate, 0, 0)) and
+     (time < timestamp(syminfo.timezone, endYear, endMonth, endDate, 0, 0))
+
+
+// Start Hour Range Trading Non Attivo /////////////////////
+//hourTrading = input(title='sessione valida di trading', defval='0600-2300:23456')
+//hourRangeTrading = time(timeframe.period, hourTrading)
+
+
+// Condizioni di entrata e di uscita long
+if (hour(time) == inEntryLongHour and only_Long and inDateRange) // Se ci sono altre condizioni di entrata inglobare tutto nelle () alrimenti  potrebbe non funzionare
+    strategy.entry("long", strategy.long)
+if (hour(time) == inExitLongHour)                               // Se ci sono altre condizioni di entrata inglobare tutto nelle () alrimenti  potrebbe non funzionare
+    strategy.close("long")
+
+
+//Condizioni di entrata e di uscita short
+if (hour(time) == inEntryShortHour and only_Short and inDateRange)
+    strategy.entry("short", strategy.short)
+if (hour(time) == inExitShortHour)    
+    strategy.close("short")
+
+
+
+//////////////////////////////////// Inizio Intervallo Con MInuti ///////////////////////////////////////////////////////
+
+// Prova effettuate anche con in minuti, per avere la mezzora bisogna mettere gli input a 0 in modo cha calcola la candela successiva
+//che sarà la mezzore successiva, altrimenti 30. Per timeframe 15 mninuti 0 oppure 15 negli input dei minuti
+
+// // Condizioni di entrata e di uscita long
+// if hour(time) == inEntryLongHour //and minute(time) == inEntryLongMinutes // Se ci sono altre condizioni di entrata inglobare tutto nelle () alrimenti  potrebbe non funzionare
+//     strategy.entry("long", strategy.long)
+// if hour(time) == inExitLongHour //and minute(time) == inExitLongMinutes                            // Se ci sono altre condizioni di entrata inglobare tutto nelle () alrimenti  potrebbe non funzionare
+//     strategy.close("long")
+
+//////////////////////////////////// Fine Intervallo Con MInuti ///////////////////////////////////////////////////////

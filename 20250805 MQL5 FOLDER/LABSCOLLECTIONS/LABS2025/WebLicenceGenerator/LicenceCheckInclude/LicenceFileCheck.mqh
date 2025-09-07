@@ -1,0 +1,176 @@
+/*
+   LicenceFileCheck.mqh
+   Copyright 2021, Orchard Forex
+   https://www.orchardforex.com
+*/
+
+#property copyright "Copyright 2013-2020, Orchard Forex"
+#property link "https://www.orchardforex.com"
+#property version "1.00"
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+class CLicenceFile
+  {
+
+protected:
+   string            mProductName;
+   string            mProductKey;
+   string            mData;
+
+   virtual bool      LoadData(string &data);
+   virtual string    LicencePath();
+
+public:
+                     CLicenceFile(string productName, string productKey);
+                    ~CLicenceFile() {}
+
+   bool              Check();
+   string            KeyGen(string data);   // Allow account to pass in
+   string            Hash(string data);
+   bool              FileGen(string data);
+
+   string            GetData() 
+   { 
+      Print(__FUNCTION__);
+      return (mData); 
+     }
+  };
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+CLicenceFile::CLicenceFile(string productName, string productKey)
+  {
+
+   mProductName = productName;
+   mProductKey  = productKey;
+  }
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+string CLicenceFile::LicencePath()
+  {
+  Print(__FUNCTION__);
+   return ("License\\" + mProductName + ".lic");
+  }
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+bool   CLicenceFile::Check()
+  {
+ 
+   Print(__FUNCTION__+" "+__LINE__);
+
+   mData       = "";
+   string data = "";
+   Print(__FUNCTION__+" "+__LINE__);
+   if(!LoadData(data))
+   {  
+      Print("!LOADDATA"); 
+      return false;
+   }
+
+   int pos = StringFind(data, "\n");
+   if(pos <= 0)
+     {
+      Print("Licence file is not valid");
+      return (false);
+     }
+
+   string signature = StringSubstr(data, 0, pos);
+   mData            = StringSubstr(data, pos + 1);
+
+   string key       = KeyGen(mData);
+   if(key != signature)
+     {
+      Print("Licence is invalid");
+      return (false);
+     }
+
+   return (true);
+  }
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+bool CLicenceFile::LoadData(string &data)
+  {
+   Print(__FUNCTION__);
+   string licencePath = LicencePath();
+
+// Open and read the file each time in case it has been modified between iterations
+   Print(__LINE__+" PATH TO FILE: "+licencePath);
+   int    handle      = FileOpen(licencePath, FILE_READ | FILE_BIN | FILE_ANSI);
+   if(handle == INVALID_HANDLE)
+     {
+      PrintFormat("Could not open licence file %s", licencePath);
+      return (false);
+     }
+
+   int len = (int)FileSize(handle);
+   data    = FileReadString(handle, len);
+   FileClose(handle);
+
+   return true;
+  }
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+string CLicenceFile::KeyGen(string data)
+  {
+
+   string keyString = data + mProductKey;
+   return Hash(keyString);
+  }
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+string CLicenceFile::Hash(string data)
+  {
+
+   uchar dataChar[];
+   StringToCharArray(data, dataChar, 0, StringLen(data));
+
+   uchar cryptChar[];
+   CryptEncode(CRYPT_HASH_SHA256, dataChar, dataChar, cryptChar);
+
+   string result = "";
+   int    count  = ArraySize(cryptChar);
+   for(int i = 0; i < count; i++)
+     {
+      result += StringFormat("%.2x", cryptChar[i]);
+     }
+   return result;
+  }
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+bool CLicenceFile::FileGen(string data)
+  {
+
+   string licencePath = LicencePath();
+
+   int    handle      = FileOpen(licencePath, FILE_WRITE | FILE_BIN | FILE_ANSI);
+   if(handle == INVALID_HANDLE)
+     {
+      PrintFormat("Could not create licence file %s", licencePath);
+      return (false);
+     }
+
+   string signature = KeyGen(data);
+   string contents  = signature + "\n" + data;
+   FileWriteString(handle, contents);
+   FileFlush(handle);
+   FileClose(handle);
+
+   Print("Licence file '" + licencePath + "' created");
+   return (true);
+  }
+//+------------------------------------------------------------------+

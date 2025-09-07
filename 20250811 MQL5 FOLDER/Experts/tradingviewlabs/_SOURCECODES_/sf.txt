@@ -1,0 +1,34 @@
+//@version=5
+strategy("RSI Algo", overlay=true)
+
+myPeriod = input(defval=14, type=input.integer, title="Period")
+myThresholdUp = input(defval=70, type=input.float, title="Upper Threshold")
+myThresholdDn = input(defval=30, type=input.float, title="Lower Threshold")
+myAlgoFlipToggle = input(defval=false, type=input.bool, title="Imverse Algorthim")
+myLineToggle = input(defval=true, type=input.bool, title="Show Lines")
+myLabelToggle = input(defval=true, type=input.bool, title="Show Labels")
+
+myRSI = ta.rsi(close, myPeriod)
+buy = myAlgoFlipToggle ? ta.falling(myRSI, 1) and ta.cross(myRSI, myThresholdDn) : ta.rising(myRSI, 1) and ta.cross(myRSI, myThresholdUp)
+sell = myAlgoFlipToggle ? ta.rising(myRSI, 1) and ta.cross(myRSI, myThresholdUp) : ta.falling(myRSI, 1) and ta.cross(myRSI, myThresholdDn)
+
+var float myPosition = na
+myPosition := buy ? 0 : sell ? 1 : myPosition[1]
+
+trendColor = buy ? color.red : sell ? color.green : na
+plot(myLineToggle ? buy and myPosition[1] == 1 ? low - 0.004 : sell and myPosition[1] == 0 ? high + 0.004 : na : na, color=trendColor, style=plot.style_line, linewidth=4, editable=false)
+plotshape(myLabelToggle ? buy and myPosition[1] == 1 ? low - 0.005 : na : na, style=shape.label_up, location=location.absolute, text="Buy", textcolor = color.white, color=color.black, size=size.tiny, editable=false)
+plotshape(myLabelToggle ? sell and myPosition[1] == 0 ? high + 0.005 : na : na, style=shape.label_down, location=location.absolute, text="Sell", textcolor = color.white, color=color.black, size=size.tiny, editable=false)
+
+strategy.entry("Buy", strategy.long, when=buy and myPosition[1] == 0)
+strategy.entry("Sell", strategy.short, when=sell and myPosition[1] == 1)
+pls help
+and below are the errors i am getting
+12:22:43    (Error at 4:34) Undeclared identifier 'input'
+12:22:43    (Error at 4:29) The 'input' function does not have an argument with the name 'type'
+12:22:43    (Error at 5:34) The 'input' function does not have an argument with the name 'type'
+12:22:43    (Error at 6:34) The 'input' function does not have an argument with the name 'type'
+12:22:43    (Error at 7:40) The 'input' function does not have an argument with the name 'type'
+12:22:43    (Error at 8:35) The 'input' function does not have an argument with the name 'type'
+12:22:43    (Error at 9:36) The 'input' function does not have an argument with the name 'type'
+12:22:43    (Error at 20:85) Undeclared identifier 'shape'

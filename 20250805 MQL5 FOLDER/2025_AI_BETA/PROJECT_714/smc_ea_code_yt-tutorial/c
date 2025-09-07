@@ -1,0 +1,59 @@
+// --- Input Parameters ---
+
+// Analysis Timeframe Settings
+input group             "Analysis Settings"
+input ENUM_TIMEFRAMES   InpAnalysisTimeframe = PERIOD_H1;  // Analysis Timeframe
+
+// SMC Pattern Detection Settings
+input group             "SMC Pattern Settings"
+input bool              InpFilterObVolume = false;         // Filter Order Blocks by volume
+input double            InpEqTolerancePips = 1.0;         // Equal High/Low tolerance (pips)
+
+// Moving Average Filter Settings
+input group             "MA Filter Settings"
+input ENUM_TIMEFRAMES   InpSmaTimeframe = PERIOD_H1;       // MA Timeframe
+input int               InpSmaPeriod = 89;                // MA Period
+
+// Trade Management Settings
+input group             "Trade Management"
+input double            InpRiskToReward = 2.0;             // Risk:Reward ratio
+input double            InpLots = 0.01;                   // Position size (lots)
+input double            InpBreakevenTriggerPoints = 10000; // Breakeven trigger (points)
+input double            InpBreakevenPoints = 2000;         // Breakeven offset (points)
+
+// Visual Settings - General
+input group             "Visual Settings - General"
+input bool              InpDrawLabels = true;              // Show all text labels
+input int               InpLabelFontSize = 7;              // Label font size
+
+// Visual Settings - Periodic Levels
+input group             "Visual Settings - Periodic Levels"
+input int               InpPeriodicLabel_X_Offset = 50;    // Label X offset from right
+input int               InpPeriodicLabel_Y_Offset = 5;     // Label Y offset from line
+input ENUM_ANCHOR_POINT InpPeriodicLabel_Anchor = ANCHOR_RIGHT_UPPER; // Label anchor point
+
+// Previous Day/Week High/Low Settings
+input bool              InpDrawPDH = true;                 // Show Previous Day High
+input color             InpColorPDH = clrDarkViolet;       // PDH color
+input bool              InpDrawPDL = true;                 // Show Previous Day Low
+input color             InpColorPDL = clrDarkViolet;       // PDL color
+input bool              InpDrawPWH = true;                 // Show Previous Week High
+input color             InpColorPWH = clrChocolate;        // PWH color
+input bool              InpDrawPWL = true;                 // Show Previous Week Low
+input color             InpColorPWL = clrChocolate;        // PWL color
+
+// FVG and Equal High/Low Settings
+input group             "Visual Settings - SMC Patterns"
+input bool              InpDrawFvgCE = true;               // Show FVG center line
+input color             InpColorFvgCE = clrGoldenrod;      // FVG center line color
+input bool              InpDrawEqHL = true;                // Show Equal High/Low markers
+input color             InpColorEQH = clrAqua;             // Equal High marker color
+input color             InpColorEQL = clrMagenta;          // Equal Low marker color
+
+// rBlock Color Settings
+input group             "Visual Settings - rBlocks"
+input color             Inp_Bullish_Green_rBlock_Color = clrGreen;     // Bullish Green rBlock
+input color             Inp_Bullish_Red_rBlock_Color = clrTeal;       // Bullish Red rBlock
+input color             Inp_Bearish_Green_rBlock_Color = clrFireBrick; // Bearish Green rBlock
+input color             Inp_Bearish_Red_rBlock_Color = clrRed;        // Bearish Red rBlock
+input int               Inp_rBlock_Width = 1;                          // rBlock line width

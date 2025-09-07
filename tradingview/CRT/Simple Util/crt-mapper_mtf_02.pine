@@ -10,7 +10,7 @@ indicator("3-Candle Time Pattern - Enhanced - v1.1", overlay=true, max_lines_cou
 
 // --- User Inputs ---
 startHourSAST = input.int(3, title="Range Candle Start Hour (SAST)", minval=0, maxval=23, tooltip="Enter the start hour for the first candle in SAST (UTC+2). The script will handle UTC conversion.")
-endAtHourSAST = input.int(11, title="End Hour (SAST)", minval=0, maxval=23, tooltip="Hour to end the CRT lines (SAST time)")
+endAtHourSAST = (startHourSAST + 8) % 24  // Auto-calculated: always 8 hours after start
 showDebug = input.bool(true, title="Show Debug Information", tooltip="Display debug information on the chart")
 historyDays = input.int(5, title="History Window (days)", minval=1, maxval=30, tooltip="Limit drawing to the last N days on lower timeframes")
 redrawLastBarOnly = input.bool(true, title="Draw historical only on last bar", tooltip="Greatly reduces CPU by rebuilding past objects only on the last bar")

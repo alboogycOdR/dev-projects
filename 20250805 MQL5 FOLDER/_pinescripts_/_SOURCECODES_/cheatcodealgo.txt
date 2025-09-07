@@ -1,0 +1,101 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © CheatCode1
+
+//@version=5
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © CheatCode1
+
+//@version=5
+indicator("Cheat Code's Redemption", 'CCR', false)
+//WELCOME TO THE REDEMTION OSCILLATOR, HERE YOU WILL FIND THE 
+
+////////Important Variable Declaration
+o = ta.obv
+lR = 1
+lL = 5
+Upper = 150
+Lower = 1
+r1 = ta.tsi(o, 1, 9)*100
+r2 = ta.rsi(close, 14)
+dalma = ta.alma(close, 130, .025, 4.5)
+e21 = ta.ema(close, 21)
+e55 = ta.ema(close, 55)
+
+//////////////////////////Histogram Executions
+
+fast_ma = e21
+slow_ma = e55
+CCR = fast_ma - slow_ma
+histlen = input.int(title="Histogram Smoothing",  minval = 1, maxval = 50, defval = 6, group = 'Histogram Settings')
+signal = ta.ema(CCR, histlen)
+hist = ta.tsi(CCR - signal, 1, 9)*10
+plot(hist, 'CCR histogram', hist>=0 ? (hist[1] < hist ? color.rgb(72, 218, 223) : color.rgb(72, 218, 223, 67)) : (hist[1] < hist ? color.rgb(250, 225, 2, 55) : color.rgb(250, 225, 2)), 2, plot.style_columns)
+
+//////////////////////////OBV Calulations
+
+raycol = e21 < dalma and dalma > close ? color.red: e21 > dalma and dalma < close ? color.green:color.white
+fitobv = ((o/(o*.5))/o)*3.14
+rate = o+30
+
+//////////////////////////CCR Oscillator Variables and Executions
+
+p1 = math.avg(r1, r2)
+e21p = ta.ema(p1, 21)
+e9p = ta.ema(p1, 9)
+e = e9p > e21p ? e9p : e21p
+ecol = e9p > e21p ? color.aqua : color.yellow
+plot(e, 'CCR Moving Average', ecol)
+plot(p1, 'CCR Oscillator', raycol, 3 )
+
+//////////////////////////Indicator overbought/Oversold levels
+
+hl1 = hline(-25, 'Bottom Hline', color.white, hline.style_dashed)
+hl22 = hline(85, 'Top Hline', color.rgb(255, 255, 255, 29), hline.style_dashed)
+hl3 = hline(75, 'fibs', color.rgb(0, 187, 212, 54), hline.style_dotted )
+hl4 = hline(-15, 'fibs2', color.rgb(255, 235, 59, 47), hline.style_dotted)
+fill(hl1, hl4, color = color.rgb(219, 77, 77, 80))
+fill(hl22, hl3, color = color.rgb(105, 194, 93, 84))
+
+//////////////////////////Regular & Hidden Divergence Calculations and Executions 
+
+pivotlow = na(ta.pivotlow(p1, lL, lR)) ? false : true
+Pivothigh = na(ta.pivothigh(p1, lL, lR)) ? false : true
+
+iR(rate) =>
+    bars = ta.barssince(rate)
+    Lower <= bars and bars <= Upper
+
+
+M12 = p1[lR] > ta.valuewhen(pivotlow, p1[lR], 1) and iR(pivotlow[1])
+
+
+LL = low[lR] < ta.valuewhen(pivotlow, low[lR], 1)
+
+bulld = LL and M12 and pivotlow
+plot( pivotlow ? p1[lR] : na, "Regular Bullish", bulld ? color.green : na,  3, plot.style_line, offset = -lR )
+
+LH = p1[lR] < ta.valuewhen(Pivothigh, p1[lR], 1) and iR(Pivothigh[1])
+
+
+HH = high[lR] > ta.valuewhen(Pivothigh, high[lR], 1)
+
+
+beard = HH and LH and Pivothigh
+plot( Pivothigh ? p1[lR] : na, "Regular Bearish", beard ?  color.red : na, 3,  offset= -lR)
+    
+    
+Ll = p1[lR] < ta.valuewhen(pivotlow, p1[lR], 1) and iR(pivotlow[1])
+
+
+Hl = low[lR] > ta.valuewhen(pivotlow, low[lR], 1)
+
+priceLH = high[lR] < ta.valuewhen(Pivothigh, high[lR], 1)
+hiddenB= Hl and Ll and pivotlow
+plot(pivotlow ? p1[lR] : na, 'Hidden bull', hiddenB ?  color.rgb(150, 221, 153) : na, 3, plot.style_line, offset = -lR)
+    
+Hh = p1[lR] > ta.valuewhen(Pivothigh, p1[lR], 1) and iR(Pivothigh[1])
+
+ 
+Lh = high[lR] < ta.valuewhen(Pivothigh, high[lR], 1)
+hiddenBe = Lh and Hh and Pivothigh
+plot(Pivothigh ? p1[lR] : na, 'Hidden Bear',  hiddenBe ? color.rgb(202, 107, 107) : na, 3, plot.style_line, offset = -lR)

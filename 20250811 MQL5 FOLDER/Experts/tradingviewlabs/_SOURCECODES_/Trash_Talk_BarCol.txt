@@ -1,0 +1,46 @@
+//@version=5
+indicator("Trash Talker Signals", overlay=true)
+character = input.string("rard", "Choose your character", ["rard", "javatar"])
+signals = input.string("Trash Talk", "Signals", ["Buy/Sell", "Trash Talk", "Fake Algo"])
+// Random Number
+random_number = int(math.random(1, 13, 0))
+// Rard
+text_rard = switch random_number
+    1  => "McDonald? is certain for people like you"
+    2  => "I? a chemical engineer you Fucktard"
+    3  => "What do you know about being an intellectual"
+    4  => "Your mom would be happy you?e talking to me"
+    5  => "I?l outtrade your mother and whole family"
+    6  => "My dog will eat your lil kitty. Same way I?l eat you"
+    7  => "Shut the fuck up Elon dick rider"
+    8  => "I?l make slippers out of your cat"
+    9  => "I? living rent free in your head now"
+    10 => "Call me daddy"
+    11 => "I?l still bend your mom over the washer"
+    => "Send nick $10 (Yes please, I'm broke -Nick42)"
+// Javatar
+text_javatar = switch random_number
+    1  => "I trade with your salaries kiddo"
+    2  => "You?e said too much, now I know you?e a moron. Sometimes it? best to shut up"
+    3  => "Proves you?e an ever bigger moron"
+    4  => "Jacking your life too titration"
+    5  => "Good money. But I still wipe my ass with your hourly wage"
+    6  => "you have less priority than my cat shit box"
+    7  => "the type of guy to wank off to stepmom porn go find peace brother!"
+    8  => "you?e worthless to me"
+    9  => "Your mother would cook me up some fire rice after I cum on her lips"
+    10 => "Y?ll probably got the vaccine too?不?不?不?不?不?不?不"
+    11 => "Well then you would shut the fuck up and understand what? going on"
+    => "You don? deserve my analysis"
+// Signals
+[supertrend, _] = ta.supertrend(10, 2)
+bull = ta.crossover (close, supertrend)
+bear = ta.crossunder(close, supertrend)
+text_bull = signals == "Buy/Sell" ? "Buy"  : signals == "Trash Talk" ? str.tostring(character == "rard" ? text_rard : text_javatar) : "Quantum computed Long"
+text_bear = signals == "Buy/Sell" ? "Sell" : signals == "Trash Talk" ? str.tostring(character == "rard" ? text_rard : text_javatar) : "DeepLearning generated Short"
+// Plots
+buy  = bull ? label.new(bar_index, 0, text_bull, xloc.bar_index, yloc.belowbar, color.green, label.style_label_up  , color.white) : na
+sell = bear ? label.new(bar_index, 0, text_bear, xloc.bar_index, yloc.abovebar, color.red  , label.style_label_down, color.white) : na
+
+barcolor = supertrend < close
+barcolor(barcolor ? color.green : color.red)

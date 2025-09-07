@@ -1,0 +1,91 @@
+//@version=5
+// study version 0.2
+
+indicator('D*!Y#@D&^!BD&^!@D@', shorttitle='DB&TY!B*@DN!*@Dy', overlay=true)
+showsr = input(true, title="Show SR")
+left = input(defval=50, title='Left Bars')
+right = input(defval=25, title='Right Bars')
+quick_right = input(defval=5, title='Quick Right')
+src = input.string(defval='Close', options=['Close', 'High/Low'], title='Source')
+
+
+mtfsupportandresistance = input.timeframe(title='Time Frame', defval='')
+
+
+
+pivothigh_1 = ta.pivothigh(close, left, right)
+pivothigh_2 = ta.pivothigh(high, left, right)
+pivot_high = src == 'Close' ? pivothigh_1 : pivothigh_2
+
+pivotlow_1 = ta.pivotlow(close, left, right)
+pivotlow_2 = ta.pivotlow(low, left, right)
+pivot_lows = src == 'Close' ? pivotlow_1 : pivotlow_2
+
+pivothigh_3 = ta.pivothigh(close, left, quick_right)
+pivothigh_4 = ta.pivothigh(high, left, quick_right)
+quick_pivot_high = src == 'Close' ? pivothigh_3 : pivothigh_4
+
+pivotlow_3 = ta.pivotlow(close, left, quick_right)
+pivotlow_4 = ta.pivotlow(low, left, quick_right)
+quick_pivot_lows = src == 'Close' ? pivotlow_3 : pivotlow_4
+
+valuewhen_1 = ta.valuewhen(quick_pivot_high, close[quick_right], 0)
+valuewhen_2 = ta.valuewhen(quick_pivot_high, high[quick_right], 0)
+level1 = src == 'Close' ? valuewhen_1 : valuewhen_2
+
+valuewhen_3 = ta.valuewhen(quick_pivot_lows, close[quick_right], 0)
+valuewhen_4 = ta.valuewhen(quick_pivot_lows, low[quick_right], 0)
+level2 = src == 'Close' ? valuewhen_3 : valuewhen_4
+
+valuewhen_5 = ta.valuewhen(pivot_high, close[right], 0)
+valuewhen_6 = ta.valuewhen(pivot_high, high[right], 0)
+level3 = src == 'Close' ? valuewhen_5 : valuewhen_6
+
+valuewhen_7 = ta.valuewhen(pivot_lows, close[right], 0)
+valuewhen_8 = ta.valuewhen(pivot_lows, low[right], 0)
+level4 = src == 'Close' ? valuewhen_7 : valuewhen_8
+
+valuewhen_9 = ta.valuewhen(pivot_high, close[right], 1)
+valuewhen_10 = ta.valuewhen(pivot_high, high[right], 1)
+level5 = src == 'Close' ? valuewhen_9 : valuewhen_10
+
+valuewhen_11 = ta.valuewhen(pivot_lows, close[right], 1)
+valuewhen_12 = ta.valuewhen(pivot_lows, low[right], 1)
+level6 = src == 'Close' ? valuewhen_11 : valuewhen_12
+
+valuewhen_13 = ta.valuewhen(pivot_high, close[right], 2)
+valuewhen_14 = ta.valuewhen(pivot_high, high[right], 2)
+level7 = src == 'Close' ? valuewhen_13 : valuewhen_14
+
+valuewhen_15 = ta.valuewhen(pivot_lows, close[right], 2)
+valuewhen_16 = ta.valuewhen(pivot_lows, low[right], 2)
+level8 = src == 'Close' ? valuewhen_15 : valuewhen_16
+
+//sandr = request.security(syminfo.tickerid, mtfsupportandresistance, showsr, gaps=barmerge.gaps_on)
+srlines1 = request.security(syminfo.tickerid, mtfsupportandresistance, showsr ? level1: na)
+srlines2 = request.security(syminfo.tickerid, mtfsupportandresistance, showsr ? level2: na)
+srlines3 = request.security(syminfo.tickerid, mtfsupportandresistance, showsr ? level3: na)
+srlines4 = request.security(syminfo.tickerid, mtfsupportandresistance, showsr ? level4: na)
+srlines5 = request.security(syminfo.tickerid, mtfsupportandresistance, showsr ? level5: na)
+srlines6 = request.security(syminfo.tickerid, mtfsupportandresistance, showsr ? level6: na)
+srlines7 = request.security(syminfo.tickerid, mtfsupportandresistance, showsr ? level7: na)
+srlines8 = request.security(syminfo.tickerid, mtfsupportandresistance, showsr ? level8: na)
+
+level1_col = close >= level1 ? color.green : color.red
+level2_col = close >= level2 ? color.green : color.red
+level3_col = close >= level3 ? color.green : color.red
+level4_col = close >= level4 ? color.green : color.red
+level5_col = close >= level5 ? color.green : color.red
+level6_col = close >= level6 ? color.green : color.red
+level7_col = close >= level7 ? color.green : color.red
+level8_col = close >= level8 ? color.green : color.red
+
+plot(srlines1, style=plot.style_line, color=level1_col, show_last=1, linewidth=1, trackprice=true)
+plot(srlines2, style=plot.style_line, color=level2_col, show_last=1, linewidth=1, trackprice=true)
+plot(srlines3, style=plot.style_line, color=level3_col, show_last=1, linewidth=1, trackprice=true)
+plot(srlines4, style=plot.style_line, color=level4_col, show_last=1, linewidth=1, trackprice=true)
+plot(srlines5, style=plot.style_line, color=level5_col, show_last=1, linewidth=1, trackprice=true)
+plot(srlines6, style=plot.style_line, color=level6_col, show_last=1, linewidth=1, trackprice=true)
+plot(srlines7, style=plot.style_line, color=level7_col, show_last=1, linewidth=1, trackprice=true)
+plot(srlines8, style=plot.style_line, color=level8_col, show_last=1, linewidth=1, trackprice=true)
+

@@ -1,0 +1,125 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © HomelessLemon
+// All credits to @Violent for creating the original code!
+// If you reuse this code please credit me and @Violent!
+//@version=4
+
+study("Lemon's Customizable MA Ribbon", shorttitle="Lemon's MAR", overlay=true)
+
+h1 = input(title = "──────────── Lemon's MAR Settings ────────────", type=input.bool, defval = true)
+source =   input(close, "  Source")
+ma =       input(title="  MA Type", options=["SMA", "EMA", "WMA", "RMA", "ALMA", "VWMA", "HMA"], defval="SMA")
+Theme =    input(title="  Theme", options=["Standard", "Classic", "Lemon", "Silver Surfer", "Watermelon", "Ethereal"], defval="Standard")
+length =   input(defval=1, minval=1, title="  Length", type=input.integer)
+start =    input(defval=5, minval=1, title="  Start", type=input.integer)
+maNumber = input(defval=32, minval=1, maxval=32, title="  How many MAs?", type=input.integer)
+colorFrom=input(defval=false, title="Color Smoothing?", type=input.bool)
+
+color1 = color.new(#26a69a, 25)
+color2 = color.new(#ef5350, 25)
+color3 = color.new(#43ff43, 25)
+color4 = color.new(#ff0d0d, 25)
+color5 = color.new(#ffff00, 25)
+color6 = color.new(#00ff00, 25)
+color7 = color.new(color.silver, 0)
+color8 = color.new(#353535, 0)
+color9 = color.new(#24e828, 25)
+color10 = color.new(#ff357e, 25)
+color11 = color.new(color.teal, 25)
+color12 = color.new(color.purple, 25)
+
+c1 = Theme == "Standard" ? color1 : Theme == "Classic" ? color3 : Theme == "Lemon" ? color5 : Theme == "Silver Surfer" ? color7 : Theme == "Watermelon" ? color9 : Theme == "Ethereal" ? color11 : na
+c2 = Theme == "Standard" ? color2 : Theme == "Classic" ? color4 : Theme == "Lemon" ? color6 : Theme == "Silver Surfer" ? color8 : Theme == "Watermelon" ? color10 : Theme == "Ethereal" ? color12 : na
+
+count = length * start
+
+getMa(c)=>
+    l = count + (length * c)
+    if(ma == "SMA")
+        sma(source, l)
+    else
+        if(ma == "EMA")
+            ema(source, l)
+        else
+            if(ma == "WMA")
+                wma(source, l)
+            else
+                if(ma == "RMA")
+                    rma(source, l)
+                else
+                    if(ma == "ALMA")
+                        alma(source, l, 0, 2)
+                    else
+                        if(ma == "VWMA")
+                            vwma(source, l)
+                        else
+                            if(ma == "HMA")
+                                hma(source, l)
+
+sma1 =  maNumber >= 1  ? getMa(0 ) : na
+sma2 =  maNumber >= 2  ? getMa(1 ) : na
+sma3 =  maNumber >= 3  ? getMa(2 ) : na
+sma4 =  maNumber >= 4  ? getMa(3 ) : na
+sma5 =  maNumber >= 5  ? getMa(4 ) : na
+sma6 =  maNumber >= 6  ? getMa(5 ) : na
+sma7 =  maNumber >= 7  ? getMa(6 ) : na
+sma8 =  maNumber >= 8  ? getMa(7 ) : na
+sma9 =  maNumber >= 9  ? getMa(8 ) : na
+sma10 = maNumber >= 10 ? getMa(9 ) : na
+sma11 = maNumber >= 11 ? getMa(10) : na
+sma12 = maNumber >= 12 ? getMa(11) : na
+sma13 = maNumber >= 13 ? getMa(12) : na
+sma14 = maNumber >= 14 ? getMa(13) : na
+sma15 = maNumber >= 15 ? getMa(14) : na
+sma16 = maNumber >= 16 ? getMa(15) : na
+sma17 = maNumber >= 17 ? getMa(16) : na
+sma18 = maNumber >= 18 ? getMa(17) : na
+sma19 = maNumber >= 19 ? getMa(18) : na
+sma20 = maNumber >= 20 ? getMa(19) : na
+sma21 = maNumber >= 21 ? getMa(20) : na
+sma22 = maNumber >= 22 ? getMa(21) : na
+sma23 = maNumber >= 23 ? getMa(22) : na
+sma24 = maNumber >= 24 ? getMa(23) : na
+sma25 = maNumber >= 25 ? getMa(24) : na
+sma26 = maNumber >= 26 ? getMa(25) : na
+sma27 = maNumber >= 27 ? getMa(26) : na
+sma28 = maNumber >= 28 ? getMa(27) : na
+sma29 = maNumber >= 29 ? getMa(28) : na
+sma30 = maNumber >= 30 ? getMa(29) : na
+sma31 = maNumber >= 31 ? getMa(30) : na
+sma32 = maNumber >= 32 ? getMa(31) : na
+
+plot(sma32,  color=(not colorFrom and sma32 <= source) or (colorFrom and sma32 <= sma31) ? c1 : c2, title="MA32", linewidth=1, style=plot.style_line, transp=0)
+plot(sma31,  color=(not colorFrom and sma31 <= source) or (colorFrom and sma31 <= sma30) ? c1 : c2, title="MA31", linewidth=1, style=plot.style_line, transp=0)
+plot(sma30,  color=(not colorFrom and sma30 <= source) or (colorFrom and sma30 <= sma29) ? c1 : c2, title="MA30", linewidth=1, style=plot.style_line, transp=0)
+plot(sma29,  color=(not colorFrom and sma29 <= source) or (colorFrom and sma29 <= sma28) ? c1 : c2, title="MA29", linewidth=1, style=plot.style_line, transp=0)
+plot(sma28,  color=(not colorFrom and sma28 <= source) or (colorFrom and sma28 <= sma27) ? c1 : c2, title="MA28", linewidth=1, style=plot.style_line, transp=0)
+plot(sma27,  color=(not colorFrom and sma27 <= source) or (colorFrom and sma27 <= sma26) ? c1 : c2, title="MA27", linewidth=1, style=plot.style_line, transp=0)
+plot(sma26,  color=(not colorFrom and sma26 <= source) or (colorFrom and sma26 <= sma25) ? c1 : c2, title="MA26", linewidth=1, style=plot.style_line, transp=0)
+plot(sma25,  color=(not colorFrom and sma25 <= source) or (colorFrom and sma25 <= sma24) ? c1 : c2, title="MA25", linewidth=1, style=plot.style_line, transp=0)
+plot(sma24,  color=(not colorFrom and sma24 <= source) or (colorFrom and sma24 <= sma23) ? c1 : c2, title="MA24", linewidth=1, style=plot.style_line, transp=0)
+plot(sma23,  color=(not colorFrom and sma23 <= source) or (colorFrom and sma23 <= sma22) ? c1 : c2, title="MA23", linewidth=1, style=plot.style_line, transp=0)
+plot(sma22,  color=(not colorFrom and sma22 <= source) or (colorFrom and sma22 <= sma21) ? c1 : c2, title="MA22", linewidth=1, style=plot.style_line, transp=0)
+plot(sma21,  color=(not colorFrom and sma21 <= source) or (colorFrom and sma21 <= sma20) ? c1 : c2, title="MA21", linewidth=1, style=plot.style_line, transp=0)
+plot(sma20,  color=(not colorFrom and sma20 <= source) or (colorFrom and sma20 <= sma19) ? c1 : c2, title="MA20", linewidth=1, style=plot.style_line, transp=0)
+plot(sma19,  color=(not colorFrom and sma19 <= source) or (colorFrom and sma19 <= sma18) ? c1 : c2, title="MA19", linewidth=1, style=plot.style_line, transp=0)
+plot(sma18,  color=(not colorFrom and sma18 <= source) or (colorFrom and sma18 <= sma17) ? c1 : c2, title="MA18", linewidth=1, style=plot.style_line, transp=0)
+plot(sma17,  color=(not colorFrom and sma17 <= source) or (colorFrom and sma17 <= sma16) ? c1 : c2, title="MA17", linewidth=1, style=plot.style_line, transp=0)
+plot(sma16,  color=(not colorFrom and sma16 <= source) or (colorFrom and sma16 <= sma15) ? c1 : c2, title="MA16", linewidth=1, style=plot.style_line, transp=0)
+plot(sma15,  color=(not colorFrom and sma15 <= source) or (colorFrom and sma15 <= sma14) ? c1 : c2, title="MA15", linewidth=1, style=plot.style_line, transp=0)
+plot(sma14,  color=(not colorFrom and sma14 <= source) or (colorFrom and sma14 <= sma13) ? c1 : c2, title="MA14", linewidth=1, style=plot.style_line, transp=0)
+plot(sma13,  color=(not colorFrom and sma13 <= source) or (colorFrom and sma13 <= sma12) ? c1 : c2, title="MA13", linewidth=1, style=plot.style_line, transp=0)
+plot(sma12,  color=(not colorFrom and sma12 <= source) or (colorFrom and sma12 <= sma11) ? c1 : c2, title="MA12", linewidth=1, style=plot.style_line, transp=0)
+plot(sma11,  color=(not colorFrom and sma11 <= source) or (colorFrom and sma11 <= sma10) ? c1 : c2, title="MA11", linewidth=1, style=plot.style_line, transp=0)
+plot(sma10,  color=(not colorFrom and sma10 <= source) or (colorFrom and sma10 <= sma9)  ? c1 : c2, title="MA10", linewidth=1, style=plot.style_line, transp=0)
+plot(sma9 ,  color=(not colorFrom and sma9  <= source) or (colorFrom and sma9  <= sma8)  ? c1 : c2, title="MA9" , linewidth=1, style=plot.style_line, transp=0)
+plot(sma8 ,  color=(not colorFrom and sma8  <= source) or (colorFrom and sma8  <= sma7)  ? c1 : c2, title="MA8" , linewidth=1, style=plot.style_line, transp=0)
+plot(sma7 ,  color=(not colorFrom and sma7  <= source) or (colorFrom and sma7  <= sma6)  ? c1 : c2, title="MA7" , linewidth=1, style=plot.style_line, transp=0)
+plot(sma6 ,  color=(not colorFrom and sma6  <= source) or (colorFrom and sma6  <= sma5)  ? c1 : c2, title="MA6" , linewidth=1, style=plot.style_line, transp=0)
+plot(sma5 ,  color=(not colorFrom and sma5  <= source) or (colorFrom and sma5  <= sma4)  ? c1 : c2, title="MA5" , linewidth=1, style=plot.style_line, transp=0)
+plot(sma4 ,  color=(not colorFrom and sma4  <= source) or (colorFrom and sma4  <= sma3)  ? c1 : c2, title="MA4" , linewidth=1, style=plot.style_line, transp=0)
+plot(sma3 ,  color=(not colorFrom and sma3  <= source) or (colorFrom and sma3  <= sma2)  ? c1 : c2, title="MA3" , linewidth=1, style=plot.style_line, transp=0)
+plot(sma2 ,  color=(not colorFrom and sma2  <= source) or (colorFrom and sma2  <= sma1)  ? c1 : c2, title="MA2" , linewidth=1, style=plot.style_line, transp=0)
+plot(sma1 ,  color=(not colorFrom and sma1  <= source) or (colorFrom and sma1  <= source)? c1 : c2, title="MA1" , linewidth=1, style=plot.style_line, transp=0)
+
+//

@@ -1,0 +1,62 @@
+EXPERT ADVISOR COMPILATION GUIDE
+=================================
+
+=== HOW TO COMPILE THE EAs ===
+
+METHOD 1 - Using MetaEditor:
+1. Open MetaTrader 5
+2. Press F4 to open MetaEditor
+3. Open the EA file (WorldClassEA.mq5, GridTradingEA.mq5, or NewsTradingEA.mq5)
+4. Press F7 or click "Compile" button
+5. Check the "Errors" tab for any compilation issues
+
+METHOD 2 - Using MetaEditor directly:
+1. Navigate to: Start Menu > MetaQuotes > MetaTrader 5 > MetaEditor 5
+2. Open the EA file
+3. Press F7 to compile
+4. The compiled .ex5 file will be created in the same directory
+
+=== COMPILATION REQUIREMENTS ===
+
+- MetaTrader 5 build 3815 or higher
+- All required include files must be present:
+  * Trade\Trade.mqh
+  * Trade\PositionInfo.mqh
+  * Trade\OrderInfo.mqh
+
+=== TROUBLESHOOTING COMPILATION ERRORS ===
+
+ERROR: "undeclared identifier"
+SOLUTION: Check if all variables are properly declared
+
+ERROR: "expression expected"
+SOLUTION: Check for missing semicolons or brackets
+
+ERROR: "function not defined"
+SOLUTION: Ensure all custom functions are implemented
+
+ERROR: "invalid handle"
+SOLUTION: Check indicator initialization in OnInit()
+
+=== AFTER SUCCESSFUL COMPILATION ===
+
+1. The .ex5 files will be created
+2. Restart MetaTrader 5
+3. The EAs will appear in Navigator > Expert Advisors
+4. Drag and drop onto charts to use
+
+=== TESTING RECOMMENDATIONS ===
+
+1. Always test on demo account first
+2. Use Strategy Tester for backtesting
+3. Start with conservative settings
+4. Monitor performance closely
+
+=== COMMON FIXES APPLIED ===
+
+✓ Fixed TRADE_RETCODE_DONE_PROFIT (doesn't exist in MQL5)
+✓ Fixed trade.ResultProfit() (incorrect method)
+✓ Improved statistics tracking function
+✓ All functions properly declared
+
+The EAs should now compile without errors! 

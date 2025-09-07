@@ -1,0 +1,115 @@
+//@version=5
+indicator('NSDT HAMA Candles', overlay=true)
+
+//The follow gradient code is taken from the Pinecoders Gradient Framework example.
+//https://www.tradingview.com/script/hqH4YIFa-Color-Gradient-Framework-PineCoders/
+//Pro Advance/Decline Gradient
+
+////////////////////
+//GRADIENT AREA
+////////////////////
+f_c_gradientAdvDecPro(_source, _center, _steps, _c_bearWeak, _c_bearStrong, _c_bullWeak, _c_bullStrong) =>
+    var float _qtyAdvDec = 0.
+    var float _maxSteps = math.max(1, _steps)
+    bool _xUp = ta.crossover(_source, _center)
+    bool _xDn = ta.crossunder(_source, _center)
+    float _chg = ta.change(_source)
+    bool _up = _chg > 0
+    bool _dn = _chg < 0
+    bool _srcBull = _source > _center
+    bool _srcBear = _source < _center
+    _qtyAdvDec := _srcBull ? _xUp ? 1 : _up ? math.min(_maxSteps, _qtyAdvDec + 1) : _dn ? math.max(1, _qtyAdvDec - 1) : _qtyAdvDec : _srcBear ? _xDn ? 1 : _dn ? math.min(_maxSteps, _qtyAdvDec + 1) : _up ? math.max(1, _qtyAdvDec - 1) : _qtyAdvDec : _qtyAdvDec
+    var color _return = na
+    _return := _srcBull ? color.from_gradient(_qtyAdvDec, 1, _maxSteps, _c_bullWeak, _c_bullStrong) : _srcBear ? color.from_gradient(_qtyAdvDec, 1, _maxSteps, _c_bearWeak, _c_bearStrong) : _return
+    _return
+
+//MA TYPES
+mat(source, length, type) =>
+    type == 'SMA' ? ta.sma(source, length) : type == 'EMA' ? ta.ema(source, length) : type == 'RMA' ? ta.rma(source, length) : type == 'WMA' ? ta.wma(source, length) : type == 'VWMA' ? ta.vwma(source, length) : type == 'HMA' ? ta.hma(source, length) : type == 'TMA' ? ta.sma(ta.sma(source, length), length) : na
+
+//INPUTS
+bull = input(color.rgb(0, 255, 0), title='Bull Color')
+bear = input(color.rgb(255, 0, 0), title='Bear Color')
+neutral = input(color.rgb(255, 255, 0, 0), title='Neutral Color')
+show_ma = true
+ma_type = 'WMA'
+ma_source = close
+ma_length = 55
+UseGradient = input(true, title='Use Gradient Colors')
+stepn = input(5, title='Max Gradient Steps')
+ma = mat(ma_source, ma_length, ma_type)
+col = f_c_gradientAdvDecPro(ma, ta.ema(ma, 3), stepn, neutral, bear, neutral, bull)
+////////////////////
+//END GRADIENT AREA
+////////////////////
+
+
+//MA INFO
+WickColor = input.color(color.rgb(80, 80, 80, 100), title='Wick Color', tooltip='Suggest Full Transparency.')
+OpenLength = input.int(25, minval=1, title='Length Open', inline='Open')
+OpenType = input.string(defval='EMA', title='Type', options=['EMA', 'SMA', 'WMA'], inline='Open')
+HighLength = 20
+HighType = 'EMA'
+LowLength = 20
+LowType = 'EMA'
+CloseLength = input.int(20, minval=1, title='Length Close', inline='Close')
+CloseType = input.string(defval='EMA', title='Type', options=['EMA', 'SMA', 'WMA'], inline='Close')
+LengthMA = input.int(55, minval=1, title='MA Line Length', inline='MA Info')
+MAType = input.string(defval='EMA', title='MA Line Type', options=['EMA', 'SMA', 'WMA'], inline='MA Info')
+MASource = input(hl2, title='MA Source')
+
+TypeOpen = OpenType
+SourceOpen = (open[1] + close[1]) / 2
+LengthOpen = OpenLength
+
+TypeHigh = HighType
+SourceHigh = math.max(high, close)
+LengthHigh = HighLength
+
+TypeLow = LowType
+SourceLow = math.min(low, close)
+LengthLow = LowLength
+
+TypeClose = CloseType
+SourceClose = (open + high + low + close) / 4
+LengthClose = CloseLength
+
+funcCalcMA1(type1, src1, len1) =>
+    return_1 = type1 == 'EMA' ? ta.ema(src1, len1) : type1 == 'SMA' ? ta.sma(src1, len1) : type1 == 'WMA' ? ta.wma(src1, len1) : na
+    return_1
+funcCalcOpen(TypeOpen, SourceOpen, LengthOpen) =>
+    return_2 = TypeOpen == 'EMA' ? ta.ema(SourceOpen, LengthOpen) : TypeOpen == 'SMA' ? ta.sma(SourceOpen, LengthOpen) : TypeOpen == 'WMA' ? ta.wma(SourceOpen, LengthOpen) : na
+    return_2
+funcCalcHigh(TypeHigh, SourceHigh, LengthHigh) =>
+    return_3 = TypeHigh == 'EMA' ? ta.ema(SourceHigh, LengthHigh) : TypeHigh == 'SMA' ? ta.sma(SourceHigh, LengthHigh) : TypeHigh == 'WMA' ? ta.wma(SourceHigh, LengthHigh) : na
+    return_3
+funcCalcLow(TypeLow, SourceLow, LengthLow) =>
+    return_4 = TypeLow == 'EMA' ? ta.ema(SourceLow, LengthLow) : TypeLow == 'SMA' ? ta.sma(SourceLow, LengthLow) : TypeLow == 'WMA' ? ta.wma(SourceLow, LengthLow) : na
+    return_4
+funcCalcClose(TypeClose, SourceClose, LengthClose) =>
+    return_5 = TypeClose == 'EMA' ? ta.ema(SourceClose, LengthClose) : TypeClose == 'SMA' ? ta.sma(SourceClose, LengthClose) : TypeClose == 'WMA' ? ta.wma(SourceClose, LengthClose) : na
+    return_5
+
+MA1 = funcCalcMA1(MAType, MASource, LengthMA)
+
+CandleOpen = funcCalcOpen(TypeOpen, SourceOpen, LengthOpen)
+CandleHigh = funcCalcHigh(TypeHigh, SourceHigh, LengthHigh)
+CandleLow = funcCalcLow(TypeLow, SourceLow, LengthLow)
+CandleClose = funcCalcClose(TypeClose, SourceClose, LengthClose)
+
+//PLOT CANDLES
+BodyColor = CandleOpen > CandleOpen[1] ? color.green : color.red
+barcolor(UseGradient ? col : BodyColor)
+plotcandle(CandleOpen, CandleHigh, CandleLow, CandleClose, color=UseGradient ? col : BodyColor, title='HAMA Candles', wickcolor=WickColor, bordercolor=na)
+plot(MA1, title='MA Line', color=UseGradient ? col : BodyColor, style=plot.style_line, linewidth=2)
+
+//ALERTS
+alertcondition(ta.rising(MA1, 2), title='MA Rising', message='MA Rising')
+alertcondition(ta.falling(MA1, 2), title='MA Falling', message='MA Falling')
+alertcondition(ta.crossover(high, MA1), title='High Crossing MA', message='High Crossing MA')
+alertcondition(ta.crossunder(low, MA1), title='Low Crossing MA', message='Low Crossing MA')
+
+//WATERMARK
+Watermark = table.new(position.bottom_left, 1, 4, border_width=3)
+table.cell(Watermark, 0, 0, text='North Star Day Trading - NSDT HAMA Candles', text_color=color.new(color.white, 95), text_size=size.huge)
+

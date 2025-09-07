@@ -1,0 +1,40 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © grandkolla
+//@version=5
+//
+// @author GrandA
+//
+// If you use this code in its original/modified form, do drop me a note. 
+//
+indicator(title='EzAlgo Oscillator MOD Remake By GrandA')
+n1 = input(10, 'Channel Length')
+n2 = input(21, 'Average Length')
+obLevel1 = input(60, 'Over Bought Level 1')
+obLevel2 = input(53, 'Over Bought Level 2')
+osLevel1 = input(-60, 'Over Sold Level 1')
+osLevel2 = input(-53, 'Over Sold Level 2')
+
+ap = hlc3
+esa = ta.ema(ap, n1)
+d = ta.ema(math.abs(ap - esa), n1)
+ci = (ap - esa) / (0.015 * d)
+tci = ta.ema(ci, n2)
+
+wt1 = tci
+wt2 = ta.sma(wt1, 4)
+
+plot(0, title='Zero line',color=color.new(color.yellow, 0))
+ob1  = plot(obLevel1, title = "Upper OB level 1", color=color.new(color.maroon, 90))
+os1 = plot(osLevel1, title = 'Lower OS level 1', color=color.new(color.aqua, 90))
+ob2 = plot(obLevel2, title = 'Upper OB level 2', color=color.new(color.maroon, 90))
+os2 = plot(osLevel2, title = 'Lower OS level 2',color=color.new(color.aqua, 90))
+ 
+p1 = plot(wt1, title = 'Histogram line', linewidth = 2,color=color.new(color.aqua, 0))
+p2 = plot(wt2, title = 'Histogram line', linewidth = 2, color=color.new(color.maroon, 0))
+plot(wt1 - wt2, color=wt2 - wt1 > 0 ? color.new(color.maroon, 50) : color.new(color.aqua, 50), title = 'Middle Histogram',style=plot.style_histogram)
+plot(ta.cross(wt1, wt2) ? wt2 : na, color=color.new(color.black, 0), style=plot.style_circles, linewidth=3)
+plot(ta.cross(wt1, wt2) ? wt2 : na, color=wt2 - wt1 > 0 ? color.maroon : color.aqua, title = 'Crossing',style=plot.style_circles, linewidth=4)
+
+fill(p1,p2,color = wt2 - wt1 > 0 ? color.new(color.red, 50) : color.new(color.aqua, 50), title = 'Histogram fill')
+fill(ob1,ob2, color = color.new(color.maroon, 80), title = 'Oversold Zone Fill')
+fill(os1,os2,color = color.new(color.aqua, 80), title = 'Overbought Zone Fill')

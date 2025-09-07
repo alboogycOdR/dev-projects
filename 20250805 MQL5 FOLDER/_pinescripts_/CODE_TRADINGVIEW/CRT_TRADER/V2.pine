@@ -1,0 +1,66 @@
+//@version=5
+// Created by an expert bot who listened carefully.
+indicator("Dual-Mode CRT Levels (NY Time)_v2", "CRT Levels", true)
+//@version=5
+
+
+// ---- USER INPUTS ----
+string i_main_tf      = input.string("4 Hour", "Select CRT Timeframe", options=["4 Hour", "1 Hour"], 
+  tooltip="Choose the base timeframe for the CRT levels. '4 Hour' will use the H4 candle. '1 Hour' will use the H1 candle.")
+string i_session_hour = input.string("9 AM", "Select Candle Start Hour (NY Time)", options=["1 AM", "5 AM", "9 AM"],
+  tooltip="Selects the candle starting at this NY time to draw the High and Low from.")
+  
+// ---- LOGIC AND STATE MANAGEMENT ----
+// Use 'varip' to declare persistent variables.
+varip float crt_high = na
+varip float crt_low = na
+
+// Convert string inputs into Pine Script compliant values.
+int target_hour = i_session_hour == "1 AM" ? 1 : i_session_hour == "5 AM" ? 5 : 9
+string source_tf = i_main_tf == "4 Hour" ? "240" : "60"
+
+// Correct New Day Detection Logic:
+// Get the day of the month for the current bar's timestamp, specifically for the New York timezone.
+int current_ny_day = dayofmonth(time, "America/New_York")
+// Check if this day value has changed since the previous bar. 'ta.change' will be non-zero on the first bar of a new NY day.
+bool is_new_ny_day = ta.change(current_ny_day) != 0
+
+// If a new day has started, reset our levels to start hunting for new ones.
+if is_new_ny_day
+    crt_high := na
+    crt_low := na
+
+// Request the data from the user-selected source timeframe ("60" for 1H, "240" for 4H).
+[src_t, src_h, src_l] = request.security(syminfo.tickerid, source_tf, [time, high, low], lookahead=barmerge.lookahead_off)
+
+// Determine the hour of the candle data we just fetched, making sure to specify the NY timezone.
+int src_hour_ny = hour(src_t, "America/New_York")
+
+// Condition to capture the level: It must be the target hour, and we must not have captured a level for today yet.
+bool is_target_candle_found = src_hour_ny == target_hour and na(crt_high)
+
+if is_target_candle_found
+    crt_high := src_h
+    crt_low  := src_l
+
+// ---- PLOTTING ----
+// Use a persistent variable 'session_high' and 'session_low' to carry the values forward for plotting.
+var float session_high = na
+var float session_low = na
+
+// If it's a new day, we reset the plot variables. Otherwise, we carry them forward from the previous bar.
+if is_new_ny_day
+    session_high := na
+    session_low := na
+else
+    session_high := session_high[1]
+    session_low := session_low[1]
+    
+// If we have just found the levels for the day, update the plot variables.
+if not na(crt_high)
+    session_high := crt_high
+    session_low := crt_low
+
+// Plot the session levels. Using 'plot' with `style_linebr` is clean and handles historical gaps correctly.
+plot(session_high, "CRT High", color.new(color.green, 0), 2, plot.style_linebr)
+plot(session_low, "CRT Low", color.new(color.red, 0), 2, plot.style_linebr)

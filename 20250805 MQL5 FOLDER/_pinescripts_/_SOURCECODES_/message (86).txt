@@ -1,0 +1,79 @@
+showDashboard     = input(true, "Show Dashboard", group="TREND DASHBOARD")
+locationDashboard = input.string("Middle Right", "Table Location", ["Top Right", "Middle Right", "Bottom Right", "Top Center", "Middle Center", "Bottom Center", "Top Left", "Middle Left", "Bottom Left"], group="TREND DASHBOARD")
+tableTextColor    = input(color.white, "Table Text Color", group="TREND DASHBOARD")
+tableBgColor      = input(#2A2A2A, "Table Background Color", group="TREND DASHBOARD")
+sizeDashboard     = input.string("Normal", "Table Size", ["Large", "Normal", "Small", "Tiny"], group="TREND DASHBOARD")
+
+// Functions
+f_chartTfInMinutes() =>
+    float _resInMinutes = timeframe.multiplier * (
+      timeframe.isseconds ? 1. / 60             :
+      timeframe.isminutes ? 1.                  :
+      timeframe.isdaily   ? 60. * 24            :
+      timeframe.isweekly  ? 60. * 24 * 7        :
+      timeframe.ismonthly ? 60. * 24 * 30.4375  : na)
+
+// Get components
+ema  = ta.ema(close, 144)
+emaBull = close > ema
+equal_tf(res) => str.tonumber(res) == f_chartTfInMinutes()
+higher_tf(res) => str.tonumber(res) > f_chartTfInMinutes()
+too_small_tf(res) => (timeframe.isweekly and res=="1") or (timeframe.ismonthly and str.tonumber(res) < 10)
+securityNoRep1(sym, res, src) =>
+    bool bull = na
+    bull := equal_tf(res) ? src : bull
+    bull := higher_tf(res) ? request.security(sym, res, src, barmerge.gaps_off, barmerge.lookahead_on) : bull
+    bull_array = request.security_lower_tf(syminfo.tickerid, higher_tf(res) ? str.tostring(f_chartTfInMinutes()) : too_small_tf(res) ? (timeframe.isweekly ? "3" : "10") : res, src)
+    if array.size(bull_array) > 1 and not equal_tf(res) and not higher_tf(res)
+        bull := array.pop(bull_array)
+    array.clear(bull_array)
+    bull
+TF1Bull   = securityNoRep1(syminfo.tickerid, "1"   , emaBull)
+TF3Bull   = securityNoRep1(syminfo.tickerid, "3"   , emaBull)
+TF5Bull   = securityNoRep1(syminfo.tickerid, "5"   , emaBull)
+TF15Bull  = securityNoRep1(syminfo.tickerid, "15"  , emaBull)
+TF30Bull  = securityNoRep1(syminfo.tickerid, "30"  , emaBull)
+TF60Bull  = securityNoRep1(syminfo.tickerid, "60"  , emaBull)
+TF120Bull = securityNoRep1(syminfo.tickerid, "120" , emaBull)
+TF240Bull = securityNoRep1(syminfo.tickerid, "240" , emaBull)
+TF480Bull = securityNoRep1(syminfo.tickerid, "480" , emaBull)
+TFDBull   = securityNoRep1(syminfo.tickerid, "1440", emaBull)
+
+
+var dashboard_loc  = locationDashboard == "Top Right" ? position.top_right : locationDashboard == "Middle Right" ? position.middle_right : locationDashboard == "Bottom Right" ? position.bottom_right : locationDashboard == "Top Center" ? position.top_center : locationDashboard == "Middle Center" ? position.middle_center : locationDashboard == "Bottom Center" ? position.bottom_center : locationDashboard == "Top Left" ? position.top_left : locationDashboard == "Middle Left" ? position.middle_left : position.bottom_left
+var dashboard_size = sizeDashboard == "Large" ? size.large : sizeDashboard == "Normal" ? size.normal : sizeDashboard == "Small" ? size.small : size.tiny
+var dashboard      = showDashboard ? table.new(dashboard_loc, 2, 15, tableBgColor, #000000, 2, tableBgColor, 1) : na
+dashboard_cell(column, row, txt, signal=false) => table.cell(dashboard, column, row, txt, 0, 0, signal ? #000000 : tableTextColor, text_size=dashboard_size)
+dashboard_cell_bg(column, row, col) => table.cell_set_bgcolor(dashboard, column, row, col)
+if barstate.islast and showDashboard
+    dashboard_cell(0, 0 , "EzAlgo")
+    dashboard_cell(0, 1 , "Current Position")
+    dashboard_cell(0, 2 , "Current Trend")
+    dashboard_cell(0, 3 , "Volume")
+    dashboard_cell(0, 4 , "Timeframe")
+    dashboard_cell(0, 5 , "1 min:")
+    dashboard_cell(0, 6 , "3 min:")
+    dashboard_cell(0, 7 , "5 min:")
+    dashboard_cell(0, 8 , "15 min:")
+    dashboard_cell(0, 9 , "30 min:")
+    dashboard_cell(0, 10, "1 H:")
+    dashboard_cell(0, 11, "2 H:")
+    dashboard_cell(0, 12, "4 H:")
+    dashboard_cell(0, 13, "8 H:")
+    dashboard_cell(0, 14, "Daily:")
+    dashboard_cell(1, 0 , "V.5")
+    dashboard_cell(1, 1 , trigger ? "Buy" : "Sell", true), dashboard_cell_bg(1, 1, trigger ? color.green : color.red)
+    dashboard_cell(1, 2 , emaBull ? "Bullish" : "Bearish", true), dashboard_cell_bg(1, 2, emaBull ? color.green : color.red)
+    dashboard_cell(1, 3 , str.tostring(math.round_to_mintick(volume)))
+    dashboard_cell(1, 4 , "Trends")
+    dashboard_cell(1, 5 , TF1Bull   ? "Bullish" : "Bearish", true), dashboard_cell_bg(1, 5 , TF1Bull   ? color.green : color.red)
+    dashboard_cell(1, 6 , TF3Bull   ? "Bullish" : "Bearish", true), dashboard_cell_bg(1, 6 , TF3Bull   ? color.green : color.red)
+    dashboard_cell(1, 7 , TF5Bull   ? "Bullish" : "Bearish", true), dashboard_cell_bg(1, 7 , TF5Bull   ? color.green : color.red)
+    dashboard_cell(1, 8 , TF15Bull  ? "Bullish" : "Bearish", true), dashboard_cell_bg(1, 8 , TF15Bull  ? color.green : color.red)
+    dashboard_cell(1, 9 , TF30Bull  ? "Bullish" : "Bearish", true), dashboard_cell_bg(1, 9 , TF30Bull  ? color.green : color.red)
+    dashboard_cell(1, 10, TF60Bull  ? "Bullish" : "Bearish", true), dashboard_cell_bg(1, 10, TF60Bull  ? color.green : color.red)
+    dashboard_cell(1, 11, TF120Bull ? "Bullish" : "Bearish", true), dashboard_cell_bg(1, 11, TF120Bull ? color.green : color.red)
+    dashboard_cell(1, 12, TF240Bull ? "Bullish" : "Bearish", true), dashboard_cell_bg(1, 12, TF240Bull ? color.green : color.red)
+    dashboard_cell(1, 13, TF480Bull ? "Bullish" : "Bearish", true), dashboard_cell_bg(1, 13, TF480Bull ? color.green : color.red)
+    dashboard_cell(1, 14, TFDBull   ? "Bullish" : "Bearish", true), dashboard_cell_bg(1, 14, TFDBull   ? color.green : color.red)
+

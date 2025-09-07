@@ -1,0 +1,46 @@
+---globals
+
+ 
+input bool SoundON=true; //Ðàçðåøåíèå àëåðòà
+input uint NumberofAlerts=2;//Êîëè÷åñòâî àëåðòîâ
+input bool EMailON=false; //Ðàçðåøåíèå ïî÷òîâîé îòïðàâêè ñèãíàëà
+input bool PushON=false; //Ðàçðåøåíèå îòïðàâêè ñèãíàëà íà ìîáèëüíûé
+
+
+---globals
+
+
+static uint counter=0;
+
+
+
+if(BuySignal && counter<=NumberofAlerts)
+     {
+
+---
+---
+
+
+MqlDateTime tm;
+      TimeToStruct(TimeCurrent(),tm);
+      string text=TimeToString(TimeCurrent(),TIME_DATE)+" "+string(tm.hour)+":"+string(tm.min);
+
+counter++;
+
+string sPeriod=GetStringTimeframe(ChartPeriod());
+
+      if(SoundON) Alert("BUY signal \n Ask=",Ask,"\n Bid=",Bid,"\n currtime=",text,"\n Symbol=",Symbol()," Period=",sPeriod);
+      if(EMailON) SendMail(SignalSirname+": BUY signal alert","BUY signal at Ask="+sAsk+", Bid="+sBid+", Date="+text+" Symbol="+Symbol()+" Period="+sPeriod);
+      if(PushON) SendNotification(SignalSirname+": BUY signal at Ask="+sAsk+", Bid="+sBid+", Date="+text+" Symbol="+Symbol()+" Period="+sPeriod);
+
+--
+--
+--
+
+
+string GetStringTimeframe(ENUM_TIMEFRAMES timeframe)
+  {
+//----
+   return(StringSubstr(EnumToString(timeframe),7,-1));
+//----
+  }

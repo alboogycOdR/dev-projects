@@ -1,0 +1,44 @@
+# Compiled MQL5 files
+*.ex5
+*.ex4
+
+# MQL5 logs and reports
+*.log
+
+# MQL5 precompiled headers
+*.mqh.gch
+
+# Tester files
+**/Tester/*
+**/TestResults/*
+**/Files/*
+
+# MQL5 backups
+*.mq5.bak
+*.mqh.bak
+
+# Files created by MetaEditor
+*.deploy
+*.dat
+*.dat.*
+
+# Windows thumbnail cache files
+Thumbs.db
+ehthumbs.db
+ehthumbs_vista.db
+
+# macOS system files
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# IDE specific files
+.vscode/*
+.idea/*
+*.swp
+*.swo
+
+# Custom MT5 files that might contain sensitive data
+*.set
+**/config/*

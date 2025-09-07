@@ -1,0 +1,35 @@
+ExpertStatus=Unlimited
+ModeAllowed=All
+UseTimeLimit=false
+StartHour=8
+StopHour=15
+UseOnlineIndicator=true
+ServerAddress=139.99.144.236
+UseFibonacci=true
+AutoCalculateDailyRange=true
+MMType=1
+UseClose=false
+UseAdd=true
+LotExponent=1.667
+slip=3.0
+Lots=0.01
+LotsDigits=2.0
+TakeProfit=70
+PipStep=160
+MaxTrades=20
+UseEquityStop=false
+TotalEquityRisk=20.0
+UseTrailingStop=false
+UseTimeOut=false
+MaxTradeOpenHours=48.0
+OptionsNewsFilter====USE News Filter=YES/NO===
+UseNewsFilter=true
+StartNewsFilter=0
+EndNewsFilter=24
+MinsUntilNews=30
+MinsAfterNews=30
+News1=3=High; 2=Medium; 1=Low
+NewsImpact=3
+CloseProfitableTrades=false
+CloseAllTrades=false
+ShowAlerts=false

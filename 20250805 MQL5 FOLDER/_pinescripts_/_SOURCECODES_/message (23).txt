@@ -1,0 +1,127 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © loxx
+
+//@version=5
+indicator("T3 Volatility Quality Index (VQI) w/ DSL & Pips Filtering [Loxx]",
+     shorttitle="T3VQIDSLPF [Loxx]", 
+     overlay = false, 
+     timeframe="", 
+     timeframe_gaps = true)
+     
+import loxx/loxxmas/1
+
+greencolor = #2DD204
+redcolor = #D2042D 
+
+darkGreenColor =  #1B7E02 
+darkRedColor = #93021F
+
+_iT3(src, per, hot, clean)=>
+    a = hot
+    _c1 = -a * a * a
+    _c2 = 3 * a * a + 3 * a * a * a
+    _c3 = -6 * a * a - 3 * a - 3 * a * a * a
+    _c4 = 1 + 3 * a + a * a * a + 3 * a * a
+    
+    alpha = 0.
+    
+    if (clean == "T3 New")
+        alpha := 2.0 / (2.0 + (per - 1.0) / 2.0)
+    else 
+        alpha := 2.0 / (1.0 + per)
+
+    _t30 = src, _t31 = src
+    _t32 = src, _t33 = src
+    _t34 = src, _t35 = src
+    
+    _t30 := nz(_t30[1]) + alpha * (src -  nz(_t30[1]))
+    _t31 := nz(_t31[1]) + alpha * (_t30 - nz(_t31[1]))
+    _t32 := nz(_t32[1]) + alpha * (_t31 - nz(_t32[1]))
+    _t33 := nz(_t33[1]) + alpha * (_t32 - nz(_t33[1]))
+    _t34 := nz(_t34[1]) + alpha * (_t33 - nz(_t34[1]))
+    _t35 := nz(_t35[1]) + alpha * (_t34 - nz(_t35[1]))
+    out =
+         _c1 * _t35 + _c2 * _t34 +
+         _c3 * _t33 +  _c4 * _t32
+    out
+
+_declen()=>
+    mtckstr = str.tostring(syminfo.mintick)
+    da = str.split(mtckstr, ".")
+    temp = array.size(da) 
+    dlen = 0.
+    if syminfo.mintick < 1
+        dstr = array.get(da, 1) 
+        dlen := str.length(dstr)
+    dlen
+
+variant(type, src, len) =>
+    sig = 0.0
+    trig = 0.0
+    special = false
+    if type == "Exponential Moving Average - EMA"
+        [t, s, b] = loxxmas.ema(src, len)
+        sig := s
+        trig := t
+        special := b
+    else if type == "Fast Exponential Moving Average - FEMA"
+        [t, s, b] = loxxmas.fema(src, len)
+        sig := s
+        trig := t
+        special := b
+    trig
+    
+PriceSmoothing = input.int(5, "Source Smoothing Period", group= "Basic Settings")
+t3hot = input.float(.5, "T3 Hot", group= "Basic Settings")   
+t3swt = input.string("T3 New", "T3 Type", options = ["T3 New", "T3 Original"], group = "Basic Settings")
+
+FilterInPips = input.float(1.9, "Filter in Pips", group= "Basic Settings") 
+
+sigmatype = input.string("Exponential Moving Average - EMA", "Signal/DSL Smoothing", options = ["Exponential Moving Average - EMA", "Fast Exponential Moving Average - FEMA"], group = "Signal/DSL Settings")
+Ma1Period = input.int(9, "DSL Period", group= "Signal/DSL Settings")        
+
+colorbars = input.bool(true, "Color bars?", group = "UI Options")
+showSigs = input.bool(true, "Show signals?", group = "UI Options")
+
+pipMultiplier = math.pow(10, _declen() % 2)
+
+cHigh = _iT3(high, PriceSmoothing, t3hot, t3swt)
+cLow = _iT3(low, PriceSmoothing, t3hot, t3swt)
+cOpen = _iT3(open, PriceSmoothing, t3hot, t3swt)
+cClose = _iT3(close, PriceSmoothing, t3hot, t3swt)
+pClose =  _iT3(nz(close[1]), PriceSmoothing, t3hot, t3swt)
+
+val = 0., valc = 0.
+truerng = math.max(cHigh, pClose) - math.min(cLow, pClose)
+rng = cHigh - cLow
+vqi = (rng != 0 and truerng != 0) ? ((cClose - pClose) / truerng + (cClose - cOpen) / rng) * 0.5 : val[1] 
+
+val := nz(val[1]) + math.abs(vqi) * (cClose - pClose + cClose - cOpen) * 0.5 
+if (FilterInPips > 0)
+    if (math.abs(val - val[1]) < FilterInPips * pipMultiplier * syminfo.mintick) 
+        val := nz(val[1]) 
+        
+sig = nz(val[1])
+
+temp = variant(sigmatype, val, Ma1Period) 
+levelu = 0., leveld = 0., mid = 0.
+levelu := (val > sig) ? temp : nz(levelu[1])
+leveld := (val < sig) ? temp : nz(leveld[1])
+
+colorout = val > levelu ? greencolor : val < leveld ? redcolor : color.gray
+
+plot(val, "VQI", color = colorout, linewidth = 3)
+
+plot(levelu, "Level Up", color = darkGreenColor)
+plot(leveld, "Level Down", color = darkRedColor)
+
+goLong = ta.crossover(val, levelu)
+goShort = ta.crossunder(val, leveld)
+
+plotshape(showSigs and goLong, title = "Long", color = color.yellow, textcolor = color.yellow, text = "L", style = shape.triangleup, location = location.bottom, size = size.auto)
+plotshape(showSigs and goShort, title = "Short", color = color.fuchsia, textcolor = color.fuchsia, text = "S", style = shape.triangledown, location = location.top, size = size.auto)
+
+alertcondition(goLong, title = "High Volatility", message = "T3 Volatility Quality Index (VQI) w/ DSL & Pips Filtering [Loxx]: Uptrend\nSymbol: {{ticker}}\nPrice: {{close}}")
+alertcondition(goShort, title = "Low Volatility", message = "T3 Volatility Quality Index (VQI) w/ DSL & Pips Filtering [Loxx]: Downtrend\nSymbol: {{ticker}}\nPrice: {{close}}")
+
+barcolor(colorbars ? colorout : na)

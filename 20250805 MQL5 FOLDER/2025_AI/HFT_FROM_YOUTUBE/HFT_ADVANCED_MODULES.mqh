@@ -1,0 +1,1067 @@
+//+------------------------------------------------------------------+
+//|                                           HFT_ADVANCED_MODULES.mqh |
+//|                                  Copyright 2025, MetaQuotes Ltd. |
+//|                                             https://www.mql5.com |
+//+------------------------------------------------------------------+
+#property copyright "Copyright 2025, MetaQuotes Ltd."
+#property link      "https://www.mql5.com"
+
+//+------------------------------------------------------------------+
+//| ENUMS AND FORWARD DECLARATIONS                                   |
+//+------------------------------------------------------------------+
+
+// Market Regime enum (must be defined before use)
+enum MARKET_REGIME {
+    REGIME_TRENDING,
+    REGIME_RANGING,
+    REGIME_VOLATILE,
+    REGIME_QUIET,
+    REGIME_UNDEFINED
+};
+
+//+------------------------------------------------------------------+
+//| SECTION I: ADVANCED ENTRY STRATEGIES                             |
+//+------------------------------------------------------------------+
+input group "BASELINE ENTRY SETTINGS";
+input bool InpEnableBaselineEntry = true; // Enable Baseline Entry Strategy?
+
+//--- Micro-Breakout Entry Module Inputs
+input group "MICRO-BREAKOUT ENTRY SETTINGS";
+input bool InpEnableMicroBreakoutEntry = false;           // Enable Micro-Breakout Entry Module
+input int InpMB_RangeBars = 4;                           // Lookback bars for micro-range (3-5 for M1)
+input double InpMB_MinVolatilityATR = 0.0001;            // Minimum ATR value (price units)
+input double InpMB_MaxVolatilityATR = 0.0050;            // Maximum ATR value (0 = no limit)
+input double InpMB_OrderDistanceFactor = 0.2;            // Factor of range height for order distance
+input bool InpMB_UseMomentumConfirm = true;              // Enable momentum confirmation
+input int InpMB_MomentumPeriod = 14;                     // RSI period for momentum
+
+//--- Order Flow & Price Action Entry Module Inputs
+input group "ORDER FLOW ENTRY SETTINGS";
+input bool InpEnableOrderFlowEntry = false;              // Enable Order Flow Entry Module
+input int InpOF_DeltaTicksLookback = 8;                  // Ticks lookback for delta calculation
+input double InpOF_MinDeltaThreshold = 100.0;            // Minimum delta threshold
+input int InpOF_PriceActionBars = 2;                     // Bars for price action confirmation
+
+//--- Fade the Spike Entry Module Inputs
+input group "FADE SPIKE ENTRY SETTINGS";
+input bool InpEnableFadeSpikeEntry = false;              // Enable Fade Spike Entry Module
+input int InpFS_BBPeriod = 15;                           // Bollinger Bands period
+input double InpFS_BBDeviations = 2.8;                   // BB deviations for spike detection
+input int InpFS_StallCandleLookback = 1;                 // Bars to look for stall/rejection
+input double InpFS_SL_SpikeOffsetPips = 3.0;             // Pips beyond spike for SL
+input double InpFS_TP_TargetPips = 8.0;                  // Fixed pips for TP
+
+//+------------------------------------------------------------------+
+//| SECTION II: ADVANCED EXIT STRATEGIES & TRADE MANAGEMENT          |
+//+------------------------------------------------------------------+
+
+//--- Adaptive Exit Manager Module Inputs
+input group "ADAPTIVE EXIT SETTINGS";
+input bool InpEnableAdaptiveExit = false;                // Enable Adaptive Exit Module
+input double InpAE_InitialSLFactor = 0.5;                // Factor of CalculatedStopLoss for initial SL
+input double InpAE_ProfitTarget1_FactorSL = 1.0;         // 1st profit target as factor of SL
+input double InpAE_PartialClose1_Percent = 0.5;          // Percentage to close at 1st target
+input double InpAE_SL_LockIn1_FactorSL = 0.25;           // Factor of SL to lock in after partial
+input int InpAE_AdaptiveTrail_VolatilityPeriod = 10;     // ATR period for adaptive trail
+input double InpAE_AdaptiveTrail_SensitivityFactor = 1.5; // Multiplier for volatility trail
+
+//--- Opportunity Cost Exit Module Inputs
+input group "OPPORTUNITY COST EXIT SETTINGS";
+input bool InpEnableOpportunityCostExit = false;         // Enable Opportunity Cost Exit
+input int InpOCE_MinHoldingTimeSecs = 900;               // Min holding time before evaluation (15 mins)
+input double InpOCE_MinProfitFactorR = 0.3;              // Min profit factor of initial risk
+input bool InpOCE_CheckRegimeChange = true;              // Check for regime change
+input bool InpOCE_CheckVolatilityDrop = true;            // Check for volatility drop
+input double InpOCE_VolatilityDropFactor = 0.5;          // Volatility drop threshold
+
+//--- Emergency Spike Handler Module Inputs
+input group "EMERGENCY SPIKE HANDLER SETTINGS";
+input bool InpEnableEmergencyHandler = false;            // Enable Emergency Handler
+input double InpEH_SpreadSpikeFactor = 3.0;              // Spread spike factor threshold
+input double InpEH_RangeSpikeFactor = 3.0;               // Range spike factor threshold
+input int InpEH_RangeSpikeTicks = 5;                     // Ticks for range calculation
+input double InpEH_PanicSL_Pips = 3.0;                   // Emergency tight SL in pips
+input int InpEH_PauseNewEntriesSecs = 120;               // Pause duration after spike
+
+//+------------------------------------------------------------------+
+//| SECTION III: DYNAMIC PARAMETER ADJUSTMENTS & REGIME REFINEMENTS |
+//+------------------------------------------------------------------+
+
+//--- Regime-Specific Parameter Sets
+input group "REGIME PARAMETER SETS";
+input double InpREG_Delta_TRENDING = 1.5;                // Delta for Trending regime
+input double InpREG_Stop_TRENDING = 25.0;                // Stop for Trending regime
+input double InpREG_MaxTrailing_TRENDING = 6.0;          // MaxTrailing for Trending regime
+input int InpREG_MinOrderInterval_TRENDING = 3;          // Order interval for Trending regime
+
+input double InpREG_Delta_RANGING = 0.8;                 // Delta for Ranging regime
+input double InpREG_Stop_RANGING = 35.0;                 // Stop for Ranging regime
+input double InpREG_MaxTrailing_RANGING = 10.0;          // MaxTrailing for Ranging regime
+input int InpREG_MinOrderInterval_RANGING = 6;           // Order interval for Ranging regime
+
+input double InpREG_Delta_VOLATILE = 2.0;                // Delta for Volatile regime
+input double InpREG_Stop_VOLATILE = 40.0;                // Stop for Volatile regime
+input double InpREG_MaxTrailing_VOLATILE = 8.0;          // MaxTrailing for Volatile regime
+input int InpREG_MinOrderInterval_VOLATILE = 8;          // Order interval for Volatile regime
+
+input double InpREG_Delta_QUIET = 0.5;                   // Delta for Quiet regime
+input double InpREG_Stop_QUIET = 20.0;                   // Stop for Quiet regime
+input double InpREG_MaxTrailing_QUIET = 12.0;            // MaxTrailing for Quiet regime
+input int InpREG_MinOrderInterval_QUIET = 10;            // Order interval for Quiet regime
+
+//--- Adaptive Order Interval Module Inputs
+input group "ADAPTIVE ORDER INTERVAL SETTINGS";
+input bool InpEnableAdaptiveInterval = false;            // Enable Adaptive Interval
+input int InpAOI_IntervalIncreasePostLossSecs = 45;      // Additional seconds after loss
+input double InpAOI_IntervalDecreasePostWinFactor = 0.8; // Factor to reduce interval after win
+input int InpAOI_WinStreakForDecrease = 2;               // Consecutive wins for decrease
+input double InpAOI_LowVolIntervalMultiplier = 1.5;      // Multiplier for low volatility
+input double InpAOI_LowVolThresholdFactor = 0.5;         // Low volatility threshold
+
+//--- Lot Size Self-Diagnostics Module Inputs
+input group "LOT SIZE DIAGNOSTICS SETTINGS";
+input bool InpEnableLotSizeDiagnostics = true;           // Enable Lot Size Diagnostics
+input int InpLSD_LossStreakForRiskReduction = 3;         // Loss streak for risk reduction
+input double InpLSD_RiskPercentReductionFactor = 0.5;    // Risk reduction factor
+input double InpLSD_MinLossPerLotThreshold = 0.01;       // Min loss per lot threshold (USD)
+input double InpLSD_MaxLotSizeCapFactorAccount = 0.05;   // Max lot cap factor of account
+
+//+------------------------------------------------------------------+
+//| DATA STRUCTURES AND STATE TRACKING                               |
+//+------------------------------------------------------------------+
+
+// Regime-specific parameter structure
+struct RegimeParams {
+    double delta;
+    double stop_multiplier;
+    double max_trailing_multiplier;
+    int min_order_interval;
+    double risk_percent_modifier;
+};
+
+// Position state tracking for advanced exits
+struct PositionState {
+    ulong ticket;
+    bool initialSL_Set;
+    bool breakeven_Achieved;
+    bool partialClose1_Done;
+    double originalCalculatedStopLossAtEntry;
+    MARKET_REGIME regimeAtEntry;
+    double volatilityAtEntry;
+    double initialRiskPointsAtEntry;
+    datetime entryTime;
+};
+
+// Global state variables
+bool emergencyPauseActive = false;
+datetime emergencyPauseEndTime = 0;
+int consecutiveWins_EA = 0;
+int consecutiveLosses_EA = 0;
+datetime lastTradeCloseTime_EA = 0;
+bool riskReductionActive_LSD = false;
+double originalRiskPercent_LSD = 0;
+
+// Market regime tracking
+MARKET_REGIME currentMarketRegime = REGIME_UNDEFINED;
+
+// Regime parameter sets
+RegimeParams AllRegimeSettings[5]; // Sized to match MARKET_REGIME enum (0-4)
+
+// Position state tracking - use dynamic array
+PositionState positionStates[];
+
+// Working variables for regime-adjusted parameters
+double workingDelta_EA = 0;
+double workingStop_EA = 0;
+double workingMaxTrailing_EA = 0;
+int MinOrderInterval_EA = 4;
+
+//+------------------------------------------------------------------+
+//| SECTION I IMPLEMENTATION: ADVANCED ENTRY STRATEGIES              |
+//+------------------------------------------------------------------+
+
+//+------------------------------------------------------------------+
+//| Micro-Breakout Entry Module                                      |
+//+------------------------------------------------------------------+
+bool CheckMicroBreakoutSignal(ENUM_ORDER_TYPE &orderType, double &entryPrice, double &stopLossPrice) {
+    if (!InpEnableMicroBreakoutEntry) return false;
+    
+    // Volatility check using globally cached ATR via CalculateVolatility
+    double currentMB_ATR = CalculateVolatility(workingMB_MomentumPeriod); // Relies on g_atrMicroBreakout
+    if (currentMB_ATR == 0) { // If ATR is zero (e.g. not calculated yet or error)
+         //PrintFormat("CheckMicroBreakoutSignal: ATR for period %d is zero. Skipping.", workingMB_MomentumPeriod);
+        return false; // Cannot proceed without valid ATR
+    }
+
+    if (currentMB_ATR < InpMB_MinVolatilityATR || 
+        (InpMB_MaxVolatilityATR > 0 && currentMB_ATR > InpMB_MaxVolatilityATR)) {
+         //PrintFormat("CheckMicroBreakoutSignal: ATR %.5f out of bounds [%.5f, %.5f]", currentMB_ATR, InpMB_MinVolatilityATR, InpMB_MaxVolatilityATR);
+        return false;
+    }
+    
+    // Get recent price data for micro-range
+    MqlRates rates[];
+    ArraySetAsSeries(rates, true);
+    if (CopyRates(_Symbol, Period(), 0, InpMB_RangeBars + 1, rates) <= InpMB_RangeBars) {
+         //PrintFormat("CheckMicroBreakoutSignal: Not enough bars for micro-range (%d requested).", InpMB_RangeBars);
+        return false;
+    }
+    
+    // Calculate micro-range (using bars 1 to InpMB_RangeBars, 0 is current forming bar)
+    double microHigh = rates[1].high;
+    double microLow = rates[1].low;
+    
+    for (int i = 2; i <= InpMB_RangeBars; i++) {
+        microHigh = MathMax(microHigh, rates[i].high);
+        microLow = MathMin(microLow, rates[i].low);
+    }
+    
+    double microRangeHeight = microHigh - microLow;
+    if (microRangeHeight <= MinStopDistance) {
+         //PrintFormat("CheckMicroBreakoutSignal: Micro range height %.5f too small.", microRangeHeight);
+        return false;
+    }
+    
+    double orderOffset = InpMB_OrderDistanceFactor * microRangeHeight;
+    orderOffset = MathMax(orderOffset, _Point); // Ensure offset is at least 1 point
+
+    double currentAsk = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+    double currentBid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+    
+    // Check for breakout conditions (breakout of the high/low of the *previous completed* bar, rates[0] is current)
+    bool buySignalCondition = (rates[0].high > microHigh && rates[0].close > microHigh); // Current bar broke and closed above microHigh
+    bool sellSignalCondition = (rates[0].low < microLow && rates[0].close < microLow); // Current bar broke and closed below microLow
+    
+    if (!buySignalCondition && !sellSignalCondition) return false;
+    
+    // Momentum confirmation if enabled (RSI)
+    if (InpMB_UseMomentumConfirm) {
+        int rsiHandle = iRSI(_Symbol, Period(), workingMB_MomentumPeriod, PRICE_CLOSE);
+        if (rsiHandle == INVALID_HANDLE) return false;
+        
+        double rsiValues[1];
+        if (CopyBuffer(rsiHandle, 0, 0, 1, rsiValues) <= 0) return false;
+        
+        if (buySignalCondition && rsiValues[0] <= 55) return false;
+        if (sellSignalCondition && rsiValues[0] >= 45) return false;
+    }
+    
+    // Set order parameters
+    if (buySignalCondition) {
+        orderType = ORDER_TYPE_BUY_STOP;
+        entryPrice = NormalizeDouble(currentAsk + orderOffset, _Digits); // Place above current Ask
+        stopLossPrice = NormalizeDouble(entryPrice - MathMax(microRangeHeight, CalculatedStopLoss * 0.75), _Digits); // SL below range or related to main SL
+        // Ensure SL is reasonable and respects MinStopDistance from entry
+        stopLossPrice = MathMin(stopLossPrice, entryPrice - MinStopDistance);
+
+        if (entryPrice <= currentAsk + MinStopDistance || stopLossPrice <= 0 || (entryPrice - stopLossPrice) < MinStopDistance) return false;
+    } else if (sellSignalCondition) {
+        orderType = ORDER_TYPE_SELL_STOP;
+        entryPrice = NormalizeDouble(currentBid - orderOffset, _Digits); // Place below current Bid
+        stopLossPrice = NormalizeDouble(entryPrice + MathMax(microRangeHeight, CalculatedStopLoss * 0.75), _Digits); // SL above range or related to main SL
+        // Ensure SL is reasonable and respects MinStopDistance from entry
+        stopLossPrice = MathMax(stopLossPrice, entryPrice + MinStopDistance);
+
+        if (entryPrice >= currentBid - MinStopDistance || stopLossPrice <= 0 || (stopLossPrice - entryPrice) < MinStopDistance) return false;
+    } else {
+        return false; // Should not happen if buySignal or sellSignal was true
+    }
+    
+     //PrintFormat("CheckMicroBreakoutSignal: Signal %s, Entry=%.5f, SL=%.5f", EnumToString(orderType), entryPrice, stopLossPrice);
+    return true;
+}
+
+//+------------------------------------------------------------------+
+//| Order Flow & Price Action Entry Module                           |
+//+------------------------------------------------------------------+
+bool CheckOrderFlowSignal(ENUM_ORDER_TYPE &orderType, double &entryPrice, double &stopLossPrice, 
+                         double currentAsk, double currentBid) {
+    if (!InpEnableOrderFlowEntry) return false;
+    
+    // Calculate order flow delta using tick data
+    MqlTick ticks[];
+    // Requesting all available ticks for the last InpOF_DeltaTicksLookback seconds (approx)
+    // If InpOF_DeltaTicksLookback is small (e.g. < 5), direct tick count might be better.
+    // For now, using COPY_TICKS_INFO, then COPY_TICKS_ALL to get recent tick history effectively.
+    ulong from_msc = TimeCurrent() * 1000 - (ulong)InpOF_DeltaTicksLookback * 1000;
+    int ticksCopied = CopyTicks(_Symbol, ticks, COPY_TICKS_ALL, from_msc, InpOF_DeltaTicksLookback * 10); // Get more to ensure coverage
+
+    if (ticksCopied < 2) { // Need at least 2 ticks to compare
+        // PrintFormat("CheckOrderFlowSignal: Not enough ticks copied (%d) for delta calc.", ticksCopied);
+        return false;
+    }
+    
+    double cumulativeDelta = 0;
+    // Iterate backwards from most recent tick to capture the last InpOF_DeltaTicksLookback actual ticks or up to array size
+    int startIdx = MathMax(0, ticksCopied - InpOF_DeltaTicksLookback); 
+    for (int i = startIdx + 1; i < ticksCopied; i++) { // Ensure we are comparing ticks[i] with ticks[i-1]
+        if(i==0) continue; // Should not happen with startIdx+1 but as safeguard
+
+        double priceChange = ticks[i].last - ticks[i-1].last;
+        double volume = (double)ticks[i].volume_real; // Use volume_real for more accuracy if available
+        if(volume == 0) volume = (double)ticks[i].volume; // Fallback to simple volume
+
+        if (priceChange > 0 || (ticks[i].flags & TICK_FLAG_BUY) != 0) {
+            cumulativeDelta += volume;
+        } else if (priceChange < 0 || (ticks[i].flags & TICK_FLAG_SELL) != 0) {
+            cumulativeDelta -= volume;
+        } else { // Price didn't change, use bid/ask direction if available
+            if (ticks[i].last == ticks[i].ask) cumulativeDelta += volume; // Tick at Ask
+            else if (ticks[i].last == ticks[i].bid) cumulativeDelta -= volume; // Tick at Bid
+        }
+    }
+    
+    // Check delta threshold
+    if (MathAbs(cumulativeDelta) < InpOF_MinDeltaThreshold) {
+        // PrintFormat("CheckOrderFlowSignal: Cumulative delta %.2f below threshold %.2f", cumulativeDelta, InpOF_MinDeltaThreshold);
+        return false;
+    }
+    
+    // Price action confirmation
+    MqlRates rates[];
+    ArraySetAsSeries(rates, true);
+    if (CopyRates(_Symbol, Period(), 0, InpOF_PriceActionBars + 1, rates) <= InpOF_PriceActionBars) {
+        // PrintFormat("CheckOrderFlowSignal: Not enough bars for PA confirmation (%d).", InpOF_PriceActionBars);
+        return false;
+    }
+    
+    bool bullishPA = false, bearishPA = false;
+    if (InpOF_PriceActionBars >= 1) {
+        // Example PA: Engulfing or strong close
+        if (rates[0].close > rates[1].high && rates[0].open < rates[1].close) bullishPA = true; // Bullish engulfing-like
+        else if (rates[0].close > rates[0].open && (rates[0].close-rates[0].open) > (rates[0].high-rates[0].low)*0.6) bullishPA = true; // Strong bullish close
+
+        if (rates[0].close < rates[1].low && rates[0].open > rates[1].close) bearishPA = true; // Bearish engulfing-like
+        else if (rates[0].close < rates[0].open && (rates[0].open-rates[0].close) > (rates[0].high-rates[0].low)*0.6) bearishPA = true; // Strong bearish close
+    }
+    
+    // Set order parameters based on delta and price action
+    // Use main EA's AdjustedOrderDistance and CalculatedStopLoss for consistency
+    double orderDistance = AdjustedOrderDistance * 0.8; // Slightly tighter for OF signals
+    orderDistance = MathMax(orderDistance, MinStopDistance);
+    double stopLossDistance = CalculatedStopLoss * 0.8; // Slightly tighter SL
+    stopLossDistance = MathMax(stopLossDistance, MinStopDistance);
+
+    if (cumulativeDelta > InpOF_MinDeltaThreshold && bullishPA) {
+        orderType = ORDER_TYPE_BUY_STOP;
+        entryPrice = NormalizeDouble(currentAsk + orderDistance, _Digits);
+        stopLossPrice = NormalizeDouble(entryPrice - stopLossDistance, _Digits);
+        if (entryPrice <= currentAsk + MinStopDistance || stopLossPrice <=0 || (entryPrice-stopLossPrice) < MinStopDistance) return false;
+        // PrintFormat("CheckOrderFlowSignal: BUY Signal. Delta=%.2f. Entry=%.5f, SL=%.5f", cumulativeDelta, entryPrice, stopLossPrice);
+        return true;
+    } else if (cumulativeDelta < -InpOF_MinDeltaThreshold && bearishPA) {
+        orderType = ORDER_TYPE_SELL_STOP;
+        entryPrice = NormalizeDouble(currentBid - orderDistance, _Digits);
+        stopLossPrice = NormalizeDouble(entryPrice + stopLossDistance, _Digits);
+        if (entryPrice >= currentBid - MinStopDistance || stopLossPrice <=0 || (stopLossPrice-entryPrice) < MinStopDistance) return false;
+        // PrintFormat("CheckOrderFlowSignal: SELL Signal. Delta=%.2f. Entry=%.5f, SL=%.5f", cumulativeDelta, entryPrice, stopLossPrice);
+        return true;
+    }
+    
+    return false;
+}
+
+//+------------------------------------------------------------------+
+//| Fade the Spike Entry Module                                      |
+//+------------------------------------------------------------------+
+bool CheckFadeSpikeSignal(ENUM_ORDER_TYPE &orderType, double &entryPrice, double &stopLossPrice, 
+                         double &takeProfitPrice) {
+    if (!InpEnableFadeSpikeEntry) return false;
+    
+    // Get Bollinger Bands - handle is method-local and released if created
+    static int bbHandle_FadeSpike = INVALID_HANDLE;
+    static int lastBBPeriod = -1;
+    static double lastBBDev = -1.0;
+
+    if (bbHandle_FadeSpike == INVALID_HANDLE || InpFS_BBPeriod != lastBBPeriod || InpFS_BBDeviations != lastBBDev) {
+        if (bbHandle_FadeSpike != INVALID_HANDLE) IndicatorRelease(bbHandle_FadeSpike);
+        bbHandle_FadeSpike = iBands(_Symbol, Period(), InpFS_BBPeriod, 0, InpFS_BBDeviations, PRICE_CLOSE);
+        lastBBPeriod = InpFS_BBPeriod;
+        lastBBDev = InpFS_BBDeviations;
+    }
+
+    if (bbHandle_FadeSpike == INVALID_HANDLE) {
+        // PrintFormat("CheckFadeSpikeSignal: Failed to create BB handle.");
+        return false;
+    }
+    
+    double upperBand[], lowerBand[], middleBand[]; // Changed to dynamic arrays
+    ArrayResize(upperBand, 3);  // Resize arrays to needed size
+    ArrayResize(lowerBand, 3);
+    ArrayResize(middleBand, 3);
+    ArraySetAsSeries(upperBand, true);
+    ArraySetAsSeries(lowerBand, true);
+    ArraySetAsSeries(middleBand, true);
+    
+    if (CopyBuffer(bbHandle_FadeSpike, 1, 0, 3, upperBand) < 3 || 
+        CopyBuffer(bbHandle_FadeSpike, 2, 0, 3, lowerBand) < 3 ||
+        CopyBuffer(bbHandle_FadeSpike, 0, 0, 3, middleBand) < 3 ) { // Also get middle band for context
+        // PrintFormat("CheckFadeSpikeSignal: Failed to copy BB buffers.");
+        return false;
+    }
+    
+    // Get recent price data (bar 0 is current, 1 is previous, etc.)
+    MqlRates rates[];
+    ArraySetAsSeries(rates, true);
+    // Need at least InpFS_StallCandleLookback + 1 previous bars, plus current bar (index 0)
+    int barsToCopy = InpFS_StallCandleLookback + 2; 
+    if (CopyRates(_Symbol, Period(), 0, barsToCopy, rates) < barsToCopy) {
+        // PrintFormat("CheckFadeSpikeSignal: Not enough bars for rates (%d).", barsToCopy);
+        return false;
+    }
+    
+    double currentAsk = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+    double currentBid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+    double point = _Point;
+    
+    // --- Check for Bullish Spike & Reversal (Fade with SELL) ---
+    // Spike: Previous bar (rates[1]) high touched or exceeded upper BB
+    bool bullishSpikeCondition = rates[1].high >= upperBand[1];
+    
+    // Stall/Rejection: Current bar (rates[0]) shows weakness after spike
+    // e.g., forms a bearish candle, or closes below midpoint of previous spike candle, or inside BB
+    bool stallAfterBullishSpike = false;
+    if (bullishSpikeCondition) {
+        if (rates[0].close < rates[0].open && rates[0].close < middleBand[0]) stallAfterBullishSpike = true; // Bearish candle closing below middle BB
+        else if (rates[0].close < rates[1].low) stallAfterBullishSpike = true; // Strong reversal, closes below previous low
+        // else if ((rates[1].high - rates[0].close) > (rates[0].high - rates[0].low) * 0.6 && rates[0].close < rates[1].high) stallAfterBullishSpike = true; // Significant pullback from spike high
+    }
+    
+    if (stallAfterBullishSpike) {
+        double spikePeakPrice = rates[1].high; // Peak of the spike bar
+        orderType = ORDER_TYPE_SELL_STOP;
+        // Entry below the low of the current forming bar (stall bar)
+        entryPrice = NormalizeDouble(rates[0].low - point * 2, _Digits); 
+        stopLossPrice = NormalizeDouble(spikePeakPrice + InpFS_SL_SpikeOffsetPips * point, _Digits);
+        takeProfitPrice = NormalizeDouble(entryPrice - InpFS_TP_TargetPips * point, _Digits);
+        
+        // Validate entry and SL/TP levels
+        if (entryPrice < currentBid - MinStopDistance && 
+            stopLossPrice > entryPrice + MinStopDistance && 
+            takeProfitPrice > 0 && takeProfitPrice < entryPrice - MinStopDistance) {
+            // PrintFormat("CheckFadeSpikeSignal: FADE BULLISH SPIKE. Entry=%.5f, SL=%.5f, TP=%.5f", entryPrice, stopLossPrice, takeProfitPrice);
+            return true;
+        }
+    }
+    
+    // --- Check for Bearish Spike & Reversal (Fade with BUY) ---
+    // Spike: Previous bar (rates[1]) low touched or fell below lower BB
+    bool bearishSpikeCondition = rates[1].low <= lowerBand[1];
+    
+    // Stall/Rejection: Current bar (rates[0]) shows strength after spike
+    bool stallAfterBearishSpike = false;
+    if (bearishSpikeCondition) {
+        if (rates[0].close > rates[0].open && rates[0].close > middleBand[0]) stallAfterBearishSpike = true; // Bullish candle closing above middle BB
+        else if (rates[0].close > rates[1].high) stallAfterBearishSpike = true; // Strong reversal, closes above previous high
+        // else if ((rates[0].close - rates[1].low) > (rates[0].high - rates[0].low) * 0.6 && rates[0].close > rates[1].low) stallAfterBearishSpike = true; // Significant pullback from spike low
+    }
+
+    if (stallAfterBearishSpike) {
+        double spikeValleyPrice = rates[1].low; // Valley of the spike bar
+        orderType = ORDER_TYPE_BUY_STOP;
+        // Entry above the high of the current forming bar (stall bar)
+        entryPrice = NormalizeDouble(rates[0].high + point * 2, _Digits); 
+        stopLossPrice = NormalizeDouble(spikeValleyPrice - InpFS_SL_SpikeOffsetPips * point, _Digits);
+        takeProfitPrice = NormalizeDouble(entryPrice + InpFS_TP_TargetPips * point, _Digits);
+        
+        // Validate entry and SL/TP levels
+        if (entryPrice > currentAsk + MinStopDistance && 
+            stopLossPrice > 0 && stopLossPrice < entryPrice - MinStopDistance && 
+            takeProfitPrice > entryPrice + MinStopDistance) {
+            // PrintFormat("CheckFadeSpikeSignal: FADE BEARISH SPIKE. Entry=%.5f, SL=%.5f, TP=%.5f", entryPrice, stopLossPrice, takeProfitPrice);
+            return true;
+        }
+    }
+    
+    return false;
+}
+
+//+------------------------------------------------------------------+
+//| SECTION II IMPLEMENTATION: ADVANCED EXIT STRATEGIES              |
+//+------------------------------------------------------------------+
+
+//+------------------------------------------------------------------+
+//| Position State Management                                         |
+//+------------------------------------------------------------------+
+int FindPositionStateIndex(ulong ticket) {
+    for (int i = 0; i < ArraySize(positionStates); i++) {
+        if (positionStates[i].ticket == ticket) return i;
+    }
+    return -1;
+}
+
+void AddPositionState(ulong ticket, double originalSL, MARKET_REGIME regime, double volatility, double riskPoints) {
+    int size = ArraySize(positionStates);
+    ArrayResize(positionStates, size + 1);
+    
+    positionStates[size].ticket = ticket;
+    positionStates[size].initialSL_Set = false;
+    positionStates[size].breakeven_Achieved = false;
+    positionStates[size].partialClose1_Done = false;
+    positionStates[size].originalCalculatedStopLossAtEntry = originalSL;
+    positionStates[size].regimeAtEntry = regime;
+    positionStates[size].volatilityAtEntry = volatility;
+    positionStates[size].initialRiskPointsAtEntry = riskPoints;
+    positionStates[size].entryTime = TimeCurrent();
+}
+
+void RemovePositionState(ulong ticket) {
+    int index = FindPositionStateIndex(ticket);
+    if (index >= 0) {
+        int size = ArraySize(positionStates);
+        for (int i = index; i < size - 1; i++) {
+            positionStates[i] = positionStates[i + 1];
+        }
+        ArrayResize(positionStates, size - 1);
+    }
+}
+
+//+------------------------------------------------------------------+
+//| Adaptive Exit Manager Module                                     |
+//+------------------------------------------------------------------+
+void ProcessAdaptiveExits(ulong ticket, ENUM_POSITION_TYPE posType, double openPrice, 
+                         double currentAsk, double currentBid, double currentSL, double currentTP,
+                         double &newSL, double &newTP, bool &modifyOrderFlag) {
+    if (!InpEnableAdaptiveExit) return;
+    
+    int stateIndex = FindPositionStateIndex(ticket);
+    if (stateIndex < 0) return;
+    
+    PositionState tempState = positionStates[stateIndex]; // Make a copy to work with
+    newSL = currentSL;
+    newTP = currentTP;
+    double point = _Point;
+    
+    // Stage 1: Initial Protection (Apply only if initial SL was not disabled by main EA setting)
+    if (!tempState.initialSL_Set && InpAE_InitialSLFactor > 0 && !workingDisableInitialStopLoss) {
+        double dynamicInitialSLPoints = tempState.originalCalculatedStopLossAtEntry * InpAE_InitialSLFactor;
+        dynamicInitialSLPoints = MathMax(dynamicInitialSLPoints, MinStopDistance); // Ensure it respects min distance
+        
+        double proposedSL;
+        if (posType == POSITION_TYPE_BUY) {
+            proposedSL = NormalizeDouble(openPrice - dynamicInitialSLPoints, _Digits);
+        } else { // POSITION_TYPE_SELL
+            proposedSL = NormalizeDouble(openPrice + dynamicInitialSLPoints, _Digits);
+        }
+        
+        // Modify only if the new SL is tighter (better for buy, worse for sell numerically) or if SL is 0
+        bool makeChange = false;
+        if (posType == POSITION_TYPE_BUY && (currentSL == 0 || proposedSL > currentSL)) makeChange = true;
+        if (posType == POSITION_TYPE_SELL && (currentSL == 0 || proposedSL < currentSL)) makeChange = true;
+
+        if (makeChange && proposedSL > 0) {
+            newSL = proposedSL;
+            modifyOrderFlag = true;
+            tempState.initialSL_Set = true;
+            // PrintFormat("AdaptiveExit Stage 1: Ticket #%I64u InitialSL set to %.5f", ticket, newSL);
+        }
+    }
+    
+    // Stage 2: Breakeven (Handled by main EA's ManageExitStrategy based on InpUseBreakeven)
+    // Here we just update our state if breakeven was achieved based on main EA's logic.
+    // This requires main EA to somehow signal this or for us to infer it.
+    // For now, let's assume if SL > openPrice (for buy) or SL < openPrice (for sell), BE is active.
+    if (!tempState.breakeven_Achieved) {
+        if ((posType == POSITION_TYPE_BUY && currentSL > openPrice) || 
+            (posType == POSITION_TYPE_SELL && currentSL < openPrice && currentSL != 0)) {
+            tempState.breakeven_Achieved = true;
+            // PrintFormat("AdaptiveExit: Breakeven detected as active for #%I64u at SL %.5f", ticket, currentSL);
+        }
+    }
+
+    // Stage 3: Profit Secure Partial Close (Requires Breakeven to be active first)
+    if (!tempState.partialClose1_Done && tempState.breakeven_Achieved && InpAE_PartialClose1_Percent > 0) {
+        double profitTargetPoints = tempState.initialRiskPointsAtEntry * InpAE_ProfitTarget1_FactorSL;
+        double currentProfitPoints = 0;
+        if (posType == POSITION_TYPE_BUY) currentProfitPoints = (currentBid - openPrice);
+        else currentProfitPoints = (openPrice - currentAsk);
+        
+        if (currentProfitPoints >= profitTargetPoints) {
+            ClosePartialPosition(ticket, InpAE_PartialClose1_Percent); // Main EA function
+            tempState.partialClose1_Done = true;
+            // PrintFormat("AdaptiveExit Stage 3: Ticket #%I64u Partial close %.2f%% done.", ticket, InpAE_PartialClose1_Percent * 100);
+
+            // Lock in some profit after partial close
+            double lockInDistancePoints = tempState.initialRiskPointsAtEntry * InpAE_SL_LockIn1_FactorSL;
+            lockInDistancePoints = MathMax(lockInDistancePoints, point); // At least 1 point profit lock
+            double proposedSL;
+            if (posType == POSITION_TYPE_BUY) {
+                proposedSL = NormalizeDouble(openPrice + lockInDistancePoints, _Digits);
+                if (proposedSL > newSL) newSL = proposedSL; // Only if it improves SL
+            } else { // POSITION_TYPE_SELL
+                proposedSL = NormalizeDouble(openPrice - lockInDistancePoints, _Digits);
+                if (proposedSL < newSL || newSL == 0) newSL = proposedSL; // Only if it improves SL or SL is 0
+            }
+            if (newSL != currentSL && newSL > 0) modifyOrderFlag = true;
+            // PrintFormat("AdaptiveExit Stage 3: Ticket #%I64u SL locked to %.5f", ticket, newSL);
+        }
+    }
+    
+    // Stage 4: Adaptive Volatility Trail (Active if BE achieved and (partial close done OR no partial close planned))
+    if (tempState.breakeven_Achieved && (tempState.partialClose1_Done || InpAE_PartialClose1_Percent <= 0)) {
+        double adaptiveATR = CalculateVolatility(workingAE_AdaptiveTrail_VolatilityPeriod); // Uses g_atrAdaptiveTrail
+        if (adaptiveATR <= 0) adaptiveATR = CalculatedStopLoss * 0.5; // Fallback if ATR is bad
+        
+        double adaptiveTrailDistance = adaptiveATR * InpAE_AdaptiveTrail_SensitivityFactor;
+        adaptiveTrailDistance = MathMax(adaptiveTrailDistance, MinStopDistance); // Ensure min distance
+        
+        double proposedTrailingSL = 0;
+        if (posType == POSITION_TYPE_BUY) {
+            proposedTrailingSL = NormalizeDouble(currentBid - adaptiveTrailDistance, _Digits);
+            // Trail only if SL can be improved and is beyond breakeven (or open price if no BE+ yet)
+            if (proposedTrailingSL > newSL && proposedTrailingSL > openPrice) {
+                newSL = proposedTrailingSL;
+                modifyOrderFlag = true;
+            }
+        } else { // POSITION_TYPE_SELL
+            proposedTrailingSL = NormalizeDouble(currentAsk + adaptiveTrailDistance, _Digits);
+            // Trail only if SL can be improved and is beyond breakeven (or open price if no BE+ yet)
+            if ((newSL == 0 || proposedTrailingSL < newSL) && proposedTrailingSL < openPrice && proposedTrailingSL > 0) {
+                newSL = proposedTrailingSL;
+                modifyOrderFlag = true;
+            }
+        }
+        // if(modifyOrderFlag && newSL != currentSL) PrintFormat("AdaptiveExit Stage 4: Ticket #%I64u Trailing SL to %.5f (ATR: %.5f, Dist: %.5f)", ticket, newSL, adaptiveATR, adaptiveTrailDistance);
+    }
+
+    // Update the state in the main array if it changed
+    if (tempState.initialSL_Set != positionStates[stateIndex].initialSL_Set || 
+        tempState.breakeven_Achieved != positionStates[stateIndex].breakeven_Achieved || 
+        tempState.partialClose1_Done != positionStates[stateIndex].partialClose1_Done) {
+        positionStates[stateIndex] = tempState;
+    }
+}
+
+//+------------------------------------------------------------------+
+//| Opportunity Cost Exit Module                                     |
+//+------------------------------------------------------------------+
+bool ShouldExitForOpportunityCost(ulong ticket, ENUM_POSITION_TYPE posType, double openPrice, 
+                                 double currentAsk, double currentBid) {
+    if (!InpEnableOpportunityCostExit) return false;
+    
+    int stateIndex = FindPositionStateIndex(ticket);
+    if (stateIndex < 0) return false;
+    
+    PositionState tempState = positionStates[stateIndex];
+    
+    long holdingTime = TimeCurrent() - tempState.entryTime;
+    if (holdingTime < InpOCE_MinHoldingTimeSecs && InpOCE_MinHoldingTimeSecs > 0) { // Ensure MinHoldingTime is positive
+        // PrintFormat("OpportunityCostExit: Ticket #%I64u holding time %d < %d. No check.", ticket, holdingTime, InpOCE_MinHoldingTimeSecs);
+        return false;
+    }
+    
+    double currentProfitPoints = 0;
+    double point = _Point;
+    if (posType == POSITION_TYPE_BUY) currentProfitPoints = (currentBid - openPrice) / point;
+    else currentProfitPoints = (openPrice - currentAsk) / point;
+
+    double initialRiskPriceUnits = tempState.initialRiskPointsAtEntry; // This is already in price units
+    if (initialRiskPriceUnits <= 0) initialRiskPriceUnits = CalculatedStopLoss; // Fallback to current main SL if initial risk wasn't stored properly
+    if (initialRiskPriceUnits <= 0) return false; // Cannot evaluate if no risk basis
+
+    double initialRiskInPoints = initialRiskPriceUnits / point;
+    
+    if (currentProfitPoints >= initialRiskInPoints * InpOCE_MinProfitFactorR) {
+        // PrintFormat("OpportunityCostExit: Ticket #%I64u Profit %.1fp > MinProfitFactor %.1f * Risk %.1fp. No exit.", 
+        // ticket, currentProfitPoints, InpOCE_MinProfitFactorR, initialRiskInPoints);
+        return false; // Trade is sufficiently profitable
+    }
+    
+    bool regimeChangedSignificantly = false;
+    if (InpOCE_CheckRegimeChange && currentMarketRegime != tempState.regimeAtEntry) {
+        // Define significant unfavorable changes
+        if ((tempState.regimeAtEntry == REGIME_TRENDING && (currentMarketRegime == REGIME_QUIET || currentMarketRegime == REGIME_RANGING)) ||
+            (tempState.regimeAtEntry == REGIME_VOLATILE && (currentMarketRegime == REGIME_QUIET || currentMarketRegime == REGIME_RANGING))) {
+            regimeChangedSignificantly = true;
+            // PrintFormat("OpportunityCostExit: Ticket #%I64u Regime changed from %s to %s (unfavorable).", ticket, EnumToString(tempState.regimeAtEntry), EnumToString(currentMarketRegime));
+        }
+    }
+    
+    bool volatilityDroppedSignificantly = false;
+    if (InpOCE_CheckVolatilityDrop) {
+        // Use g_atrMain (via CalculateVolatility(workingVolatilityPeriod)) for current general volatility
+        double currentGeneralVolatility = CalculateVolatility(workingVolatilityPeriod); 
+        if (tempState.volatilityAtEntry > 0 && currentGeneralVolatility > 0 && 
+            currentGeneralVolatility < tempState.volatilityAtEntry * InpOCE_VolatilityDropFactor) {
+            volatilityDroppedSignificantly = true;
+            // PrintFormat("OpportunityCostExit: Ticket #%I64u Volatility dropped from %.5f to %.5f (Factor: %.2f).", 
+            // ticket, tempState.volatilityAtEntry, currentGeneralVolatility, InpOCE_VolatilityDropFactor);
+        }
+    }
+    
+    if(regimeChangedSignificantly || volatilityDroppedSignificantly){
+        // PrintFormat("OpportunityCostExit: Exiting ticket #%I64u due to OppCost (RegimeChg: %s, VolDrop: %s)", 
+        //             ticket, regimeChangedSignificantly?"Y":"N", volatilityDroppedSignificantly?"Y":"N");
+        return true;
+    }
+    return false;
+}
+
+//+------------------------------------------------------------------+
+//| Emergency Spike Handler Module                                   |
+//+------------------------------------------------------------------+
+void CheckEmergencyConditions() {
+    if (!InpEnableEmergencyHandler) return;
+    
+    datetime currentTime = TimeCurrent();
+    
+    // Check if pause period has ended
+    if (emergencyPauseActive && currentTime >= emergencyPauseEndTime) {
+        emergencyPauseActive = false;
+        Print("EMERGENCY PAUSE ENDED - Normal trading resumed");
+    }
+    
+    if (emergencyPauseActive) return; // If still paused, do nothing further
+    
+    // Use cached Ask/Bid from main EA (g_cachedAsk, g_cachedBid)
+    double currentSpread = g_cachedAsk - g_cachedBid;
+    if (g_cachedAsk <= 0 || g_cachedBid <=0 ) currentSpread = SymbolInfoDouble(_Symbol, SYMBOL_ASK) - SymbolInfoDouble(_Symbol, SYMBOL_BID); // Fallback if cache not ready
+
+    // Get long-term average spread from main EA's spreadHistory or global AverageSpread
+    double longTermAvgSpread = AverageSpread; // Default to main EA's historical AverageSpread
+    if(CheckPointer(spreadHistory) == POINTER_DYNAMIC && spreadHistory.GetAverage() > 0) {
+       longTermAvgSpread = spreadHistory.GetAverage();
+    }
+    if(longTermAvgSpread <= _Point) longTermAvgSpread = _Point * 5; // Min sensible avg spread if history is bad
+
+    bool spreadSpike = (currentSpread > longTermAvgSpread * InpEH_SpreadSpikeFactor && InpEH_SpreadSpikeFactor > 0);
+    
+    // Range spike check using current M1 bar's range vs. g_atrMain
+    MqlRates rates[];  // Changed to dynamic array
+    ArrayResize(rates, InpEH_RangeSpikeTicks);  // Resize array to needed size
+    ArraySetAsSeries(rates, true);
+    bool rangeSpike = false;
+    if (CopyRates(_Symbol, Period(), 0, InpEH_RangeSpikeTicks, rates) >= InpEH_RangeSpikeTicks) {
+        double maxHigh = rates[0].high;
+        double minLow = rates[0].low;
+        for(int i=1; i < InpEH_RangeSpikeTicks; i++){
+            maxHigh = MathMax(maxHigh, rates[i].high);
+            minLow = MathMin(minLow, rates[i].low);
+        }
+        double recentRange = maxHigh - minLow;
+        
+        // Use g_atrMain for average range comparison (it's a price unit value)
+        double avgRangeIndicator = CalculateVolatility(workingVolatilityPeriod); 
+        if (avgRangeIndicator <= _Point) avgRangeIndicator = longTermAvgSpread * 2; // Fallback if ATR is too small
+        
+        if (InpEH_RangeSpikeFactor > 0 && recentRange > avgRangeIndicator * InpEH_RangeSpikeFactor) {
+            rangeSpike = true;
+        }
+    }
+    
+    // Action on spike detection
+    if (spreadSpike || rangeSpike) {
+        PrintFormat("EMERGENCY SPIKE DETECTED! Spread: %.5f (Avg: %.5f, Factor: %.1f, Spike: %s), RangeSpike: %s", 
+                    currentSpread, longTermAvgSpread, InpEH_SpreadSpikeFactor, spreadSpike?"Y":"N", rangeSpike?"Y":"N");
+        
+        emergencyPauseActive = true;
+        emergencyPauseEndTime = currentTime + InpEH_PauseNewEntriesSecs;
+        
+        // Apply panic SL to all open positions of this EA instance
+        for (int i = PositionsTotal() - 1; i >= 0; i--) {
+            if (posinfo.SelectByIndex(i) && posinfo.Symbol() == _Symbol && posinfo.Magic() == workingMagic) {
+                ulong ticket = posinfo.Ticket();
+                ENUM_POSITION_TYPE posType = posinfo.PositionType();
+                double openPrice = posinfo.PriceOpen(); // Needed for panic SL reference
+                double currentSL = posinfo.StopLoss();
+                double currentTP = posinfo.TakeProfit(); // Preserve TP
+                
+                double panicSLPrice = 0;
+                double panicDistancePoints = InpEH_PanicSL_Pips * _Point;
+
+                if (posType == POSITION_TYPE_BUY) {
+                    // Place SL relative to current Bid to aggressively cut loss, or from openPrice if that's worse
+                    panicSLPrice = NormalizeDouble(MathMin(g_cachedBid - panicDistancePoints, openPrice - panicDistancePoints), _Digits);
+                } else { // POSITION_TYPE_SELL
+                    // Place SL relative to current Ask, or from openPrice if that's worse
+                    panicSLPrice = NormalizeDouble(MathMax(g_cachedAsk + panicDistancePoints, openPrice + panicDistancePoints), _Digits);
+                }
+                panicSLPrice = MathMax(0, panicSLPrice); // Ensure SL is not negative
+
+                // Modify only if new panic SL is tighter or current SL is zero
+                bool modifyPanicSL = false;
+                if (posType == POSITION_TYPE_BUY && (currentSL == 0 || panicSLPrice > currentSL)) modifyPanicSL = true;
+                if (posType == POSITION_TYPE_SELL && (currentSL == 0 || panicSLPrice < currentSL)) modifyPanicSL = true;
+                
+                if (modifyPanicSL && panicSLPrice > 0) {
+                    if(trade.PositionModify(ticket, panicSLPrice, currentTP)){
+                        PrintFormat("EmergencyHandler: Applied panic SL %.5f to BUY ticket #%I64u", panicSLPrice, ticket);
+                    } else {
+                        PrintFormat("EmergencyHandler: FAILED to apply panic SL %.5f to BUY ticket #%I64u. Error: %d", panicSLPrice, ticket, trade.ResultRetcode());
+                    }
+                } else if (modifyPanicSL && panicSLPrice > 0 && posType == POSITION_TYPE_SELL){
+                     if(trade.PositionModify(ticket, panicSLPrice, currentTP)){
+                        PrintFormat("EmergencyHandler: Applied panic SL %.5f to SELL ticket #%I64u", panicSLPrice, ticket);
+                    } else {
+                        PrintFormat("EmergencyHandler: FAILED to apply panic SL %.5f to SELL ticket #%I64u. Error: %d", panicSLPrice, ticket, trade.ResultRetcode());
+                    }
+                }
+            }
+        }
+    }
+}
+
+//+------------------------------------------------------------------+
+//| SECTION III IMPLEMENTATION: DYNAMIC PARAMETER ADJUSTMENTS       |
+//+------------------------------------------------------------------+
+
+//+------------------------------------------------------------------+
+//| Initialize Regime Parameter Sets                                 |
+//+------------------------------------------------------------------+
+void InitializeRegimeParameterSets() {
+    // TRENDING regime
+    AllRegimeSettings[REGIME_TRENDING].delta = InpREG_Delta_TRENDING;
+    AllRegimeSettings[REGIME_TRENDING].stop_multiplier = InpREG_Stop_TRENDING;
+    AllRegimeSettings[REGIME_TRENDING].max_trailing_multiplier = InpREG_MaxTrailing_TRENDING;
+    AllRegimeSettings[REGIME_TRENDING].min_order_interval = InpREG_MinOrderInterval_TRENDING;
+    AllRegimeSettings[REGIME_TRENDING].risk_percent_modifier = 1.0;
+    
+    // RANGING regime
+    AllRegimeSettings[REGIME_RANGING].delta = InpREG_Delta_RANGING;
+    AllRegimeSettings[REGIME_RANGING].stop_multiplier = InpREG_Stop_RANGING;
+    AllRegimeSettings[REGIME_RANGING].max_trailing_multiplier = InpREG_MaxTrailing_RANGING;
+    AllRegimeSettings[REGIME_RANGING].min_order_interval = InpREG_MinOrderInterval_RANGING;
+    AllRegimeSettings[REGIME_RANGING].risk_percent_modifier = 1.0;
+    
+    // VOLATILE regime
+    AllRegimeSettings[REGIME_VOLATILE].delta = InpREG_Delta_VOLATILE;
+    AllRegimeSettings[REGIME_VOLATILE].stop_multiplier = InpREG_Stop_VOLATILE;
+    AllRegimeSettings[REGIME_VOLATILE].max_trailing_multiplier = InpREG_MaxTrailing_VOLATILE;
+    AllRegimeSettings[REGIME_VOLATILE].min_order_interval = InpREG_MinOrderInterval_VOLATILE;
+    AllRegimeSettings[REGIME_VOLATILE].risk_percent_modifier = 0.8; // Reduce risk in volatile conditions
+    
+    // QUIET regime
+    AllRegimeSettings[REGIME_QUIET].delta = InpREG_Delta_QUIET;
+    AllRegimeSettings[REGIME_QUIET].stop_multiplier = InpREG_Stop_QUIET;
+    AllRegimeSettings[REGIME_QUIET].max_trailing_multiplier = InpREG_MaxTrailing_QUIET;
+    AllRegimeSettings[REGIME_QUIET].min_order_interval = InpREG_MinOrderInterval_QUIET;
+    AllRegimeSettings[REGIME_QUIET].risk_percent_modifier = 1.2; // Slightly increase risk in quiet conditions
+}
+
+//+------------------------------------------------------------------+
+//| Apply Regime-Specific Parameters                                 |
+//+------------------------------------------------------------------+
+void ApplyRegimeSpecificParameters(MARKET_REGIME regime) {
+    if (regime == REGIME_UNDEFINED) return;
+    
+    RegimeParams currentRegimeSettings = AllRegimeSettings[regime];
+    
+    workingDelta_EA = currentRegimeSettings.delta;
+    workingStop_EA = currentRegimeSettings.stop_multiplier;
+    workingMaxTrailing_EA = currentRegimeSettings.max_trailing_multiplier;
+    MinOrderInterval_EA = currentRegimeSettings.min_order_interval;
+    
+    // Apply risk modifier with proper base risk calculation
+    if (InpEnableLotSizeDiagnostics) {
+        double baseRisk = RiskPercent; // Start with the EA's input RiskPercent
+        if (riskReductionActive_LSD) {
+            baseRisk = originalRiskPercent_LSD; // If LSD reduction is active, start from the stored original
+        }
+        
+        // Apply regime modifier to base risk
+        workingRiskPercent = baseRisk * currentRegimeSettings.risk_percent_modifier;
+        
+        // Re-apply LSD reduction if active
+        if (riskReductionActive_LSD) {
+            workingRiskPercent *= InpLSD_RiskPercentReductionFactor;
+        }
+        
+        // Sanity cap on final risk percent
+        workingRiskPercent = MathMax(0.1, MathMin(workingRiskPercent, 5.0));
+    }
+}
+
+//+------------------------------------------------------------------+
+//| Adaptive Order Interval Module                                   |
+//+------------------------------------------------------------------+
+void UpdateAdaptiveOrderInterval() {
+    if (!InpEnableAdaptiveInterval) return;
+    
+    static int baseMinOrderInterval = MinOrderInterval_EA;
+    int currentAdaptiveMinOrderInterval = baseMinOrderInterval;
+    
+    // Post-loss adjustment
+    if (consecutiveLosses_EA > 0) {
+        currentAdaptiveMinOrderInterval += InpAOI_IntervalIncreasePostLossSecs;
+    }
+    
+    // Post-win adjustment
+    if (consecutiveWins_EA >= InpAOI_WinStreakForDecrease) {
+        currentAdaptiveMinOrderInterval = (int)(currentAdaptiveMinOrderInterval * InpAOI_IntervalDecreasePostWinFactor);
+    }
+    
+    // Low volatility adjustment
+    if (CheckPointer(volatilityHistory) == POINTER_DYNAMIC) {
+        double currentVolatility = CalculateVolatility(VolatilityPeriod);
+        double averageVolatility = volatilityHistory.GetAverage();
+        
+        if (averageVolatility > 0 && currentVolatility < averageVolatility * InpAOI_LowVolThresholdFactor) {
+            currentAdaptiveMinOrderInterval = (int)(currentAdaptiveMinOrderInterval * InpAOI_LowVolIntervalMultiplier);
+        }
+    }
+    
+    // Ensure minimum sensible interval
+    MinOrderInterval_EA = MathMax(currentAdaptiveMinOrderInterval, 1);
+}
+
+//+------------------------------------------------------------------+
+//| Lot Size Self-Diagnostics Module                                 |
+//+------------------------------------------------------------------+
+double ApplyLotSizeDiagnostics(double calculatedLotSize, double stopLossPoints) {
+    if (!InpEnableLotSizeDiagnostics) return calculatedLotSize;
+    
+    // Check for extremely small loss per lot
+    double tickSize = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
+    double tickValue = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
+    
+    if (tickSize > 0 && tickValue > 0) {
+        double lossPerLot = (stopLossPoints / tickSize) * tickValue;
+        
+        if (lossPerLot < InpLSD_MinLossPerLotThreshold) {
+            PrintFormat("LotSizeDiagnostic WARNING: lossPerLot extremely small (%.6f USD). SL=%.5f, TickSize=%.5f, TickValue=%.5f", 
+                       lossPerLot, stopLossPoints, tickSize, tickValue);
+        }
+    }
+    
+    // Apply absolute lot size cap based on account balance
+    double accountBalance = AccountInfoDouble(ACCOUNT_BALANCE);
+    double currentPrice = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+    
+    if (accountBalance > 0 && currentPrice > 0) {
+        // Simple lot size cap based on account balance percentage
+        double maxAllowedLotByAccount = (accountBalance * InpLSD_MaxLotSizeCapFactorAccount) / 1000.0; // Rough approximation
+        
+        if (maxAllowedLotByAccount > 0) {
+            calculatedLotSize = MathMin(calculatedLotSize, maxAllowedLotByAccount);
+        }
+    }
+    
+    return calculatedLotSize;
+}
+
+//+------------------------------------------------------------------+
+//| Handle Trade Result for Adaptive Systems                         |
+//+------------------------------------------------------------------+
+void HandleTradeResultForAdaptiveSystems(bool isProfit) {
+    if (isProfit) {
+        consecutiveWins_EA++;
+        consecutiveLosses_EA = 0;
+        
+        // Restore risk if reduction was active
+        if (riskReductionActive_LSD) {
+            workingRiskPercent = originalRiskPercent_LSD;
+            riskReductionActive_LSD = false;
+            Print("LotSizeDiagnostic: Win broke loss streak. Restoring original RiskPercent to ", originalRiskPercent_LSD);
+        }
+    } else {
+        consecutiveLosses_EA++;
+        consecutiveWins_EA = 0;
+        
+        // Apply risk reduction if threshold reached
+        if (InpEnableLotSizeDiagnostics && 
+            consecutiveLosses_EA >= InpLSD_LossStreakForRiskReduction && 
+            !riskReductionActive_LSD) {
+            
+            originalRiskPercent_LSD = workingRiskPercent;
+            workingRiskPercent *= InpLSD_RiskPercentReductionFactor;
+            riskReductionActive_LSD = true;
+            
+            PrintFormat("LotSizeDiagnostic: %d consecutive losses. Reducing RiskPercent from %.2f to %.2f", 
+                       consecutiveLosses_EA, originalRiskPercent_LSD, workingRiskPercent);
+        }
+    }
+    
+    lastTradeCloseTime_EA = TimeCurrent();
+}
+
+//+------------------------------------------------------------------+
+//| Main Integration Functions                                        |
+//+------------------------------------------------------------------+
+
+//+------------------------------------------------------------------+
+//| Check All Advanced Entry Signals                                 |
+//+------------------------------------------------------------------+
+bool CheckAdvancedEntrySignals(ENUM_ORDER_TYPE &orderType, double &entryPrice, double &stopLossPrice, double &takeProfitPrice) {
+    // Priority order: Micro-breakout, Order Flow, Fade Spike
+    
+    // Check Micro-Breakout Entry
+    if (CheckMicroBreakoutSignal(orderType, entryPrice, stopLossPrice)) {
+        takeProfitPrice = 0; // Let trailing stop handle exits
+        return true;
+    }
+    
+    // Check Order Flow Entry
+    double currentAsk = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+    double currentBid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+    
+    if (CheckOrderFlowSignal(orderType, entryPrice, stopLossPrice, currentAsk, currentBid)) {
+        takeProfitPrice = 0; // Let trailing stop handle exits
+        return true;
+    }
+    
+    // Check Fade Spike Entry
+    if (CheckFadeSpikeSignal(orderType, entryPrice, stopLossPrice, takeProfitPrice)) {
+        return true; // This strategy uses fixed TP
+    }
+    
+    return false;
+}
+
+//+------------------------------------------------------------------+
+//| Enhanced Exit Strategy Manager                                   |
+//+------------------------------------------------------------------+
+void EnhancedManageExitStrategy(ulong ticket, double entryPrice, ENUM_POSITION_TYPE posType) {
+    double currentAsk = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+    double currentBid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+    
+    if (!posinfo.SelectByTicket(ticket)) return;
+    
+    double currentSL = posinfo.StopLoss();
+    double currentTP = posinfo.TakeProfit();
+    double newSL = currentSL;
+    double newTP = currentTP;
+    bool modifyOrderFlag = false;
+    
+    // Check for opportunity cost exit first
+    if (ShouldExitForOpportunityCost(ticket, posType, entryPrice, currentAsk, currentBid)) {
+        ClosePosition(ticket);
+        RemovePositionState(ticket);
+        return;
+    }
+    
+    // Process adaptive exits
+    ProcessAdaptiveExits(ticket, posType, entryPrice, currentAsk, currentBid, 
+                        currentSL, currentTP, newSL, newTP, modifyOrderFlag);
+    
+    // Apply modifications if needed
+    if (modifyOrderFlag && (newSL != currentSL || newTP != currentTP)) {
+        if (!trade.PositionModify(ticket, newSL, newTP)) {
+            if (CheckPointer(errorHandler) == POINTER_DYNAMIC) {
+                errorHandler.LogError(trade.ResultRetcode(), 
+                    "EnhancedManageExitStrategy: PositionModify failed for #" + (string)ticket);
+            }
+        }
+    }
+}
+
+//+------------------------------------------------------------------+
+//| Update All Dynamic Parameters                                    |
+//+------------------------------------------------------------------+
+void UpdateAllDynamicParameters() {
+    // Apply regime-specific parameters to set EA-specific multipliers
+    ApplyRegimeSpecificParameters(currentMarketRegime); // Sets workingDelta_EA, workingStop_EA, workingMaxTrailing_EA, etc.
+    
+    // Update adaptive order interval
+    UpdateAdaptiveOrderInterval(); // Sets MinOrderInterval_EA
+    
+    // The actual calculation of AdjustedOrderDistance, CalculatedStopLoss, TrailingStopActive
+    // using these _EA multipliers and the instantaneous spread will now happen in OnTick (via a helper function).
+    // Thus, the following lines are removed:
+    /*
+    if (AverageSpread > 0) { 
+        AdjustedOrderDistance = MathMax(AverageSpread * workingDelta_EA, MinStopDistance);
+        CalculatedStopLoss = MathMax(AverageSpread * workingStop_EA, MinStopDistance);
+        TrailingStopActive = AverageSpread * workingMaxTrailing_EA;
+    }
+    */
+} 

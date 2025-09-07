@@ -1,0 +1,1379 @@
+//+------------------------------------------------------------------+
+//|                                                      ProjectName |
+//|                                      Copyright 2020, CompanyName |
+//|                                       http://www.companyname.net |
+//+------------------------------------------------------------------+
+#property strict
+
+//-------------------------------------------------------------------------------
+#define PIPE_BASE_NAME     "\\\\.\\pipe\\mt4-"     // MUST tally with client code
+#define ERROR_MORE_DATA 234
+
+
+
+#include <Trade\Trade.mqh>
+#include <Trade\SymbolInfo.mqh>
+#include <MT4Bridge/MT4MarketInfo.mqh>
+#include <MT4Bridge/MT4Account.mqh>
+#include <MT4Bridge/MT4Orders.mqh>
+#include <mt4objects_1.mqh>
+#define HistoryTotal OrdersHistoryTotal
+#include <errordescription.mqh>
+/*
+
+
+https://www.mql5.com/en/articles/115
+https://www.mql5.com/en/articles/503
+help
+
+
+*/
+
+
+CTrade      ExtTrade;
+CSymbolInfo ExtSymbolInfo;
+/*
+PLEASE PROGRAMMER WITH ARBITRAGE EA KNOWLEDGE REQUIRED;
+
+
+I want a programmer to fix.
+
+I want to fix the setting PULLBACKS.
+
+1. Time in seconds to check PullBacks
+= this time in seconds ea will ignore any new incoming signal
+to check pullback .
+
+2. Fix pullback ,i attach pix how pullback should work.
+
+i will provide all eas,
+
+
+*please i need a trial first before we proceed,other programmers couldnt do this and it led to Arbitration.please i dont want this.
+
+
+
+*/
+
+//#import "kernel32.dll"
+//int CallNamedPipeW(string pipeName, uchar& outBuffer[], int outBufferSz, uchar& inBuffer[], int inBufferSz, int& bytesRead[], int timeOut);
+//#import
+#import "kernel32.dll"
+int CallNamedPipeW(string pipeName,
+         uchar &outBuffer[],
+         int outBufferSz,
+         uchar &inBuffer[],
+         int inBufferSz,
+         int &bytesRead[],
+         int timeOut);               
+#import
+
+//+------------------------------------------------------------------+
+//| Expert initialization function                                   |
+//+------------------------------------------------------------------+
+input double MaxDD          = 20000;
+input string PipeName       = "SA_600";
+input string ServerPairName = "";
+input double BidCorrection  = 0;
+input double AskCorrection  = 0;
+input int    ActionPips     = 0;
+input int    ConfirmMS     = 20;
+input int    SleepMS       = 20;
+input int    Slippage      = 1;
+bool Pending_Stop=true;
+int Delete_Hour=0;
+int Delet_Min=02;
+int Delet_Sec=2;
+
+datetime s0Time=0;
+double   MinLots=0.1;
+double   LotStep=0.1;
+double   MyPoint=0.0001;
+
+string   MasterPair="";
+double   MaxBalance=0;
+double   TotalPips=0;
+int      TotalTrades=0;
+double   EntrySlippage=0;
+int      EntryMS=0;
+int      OpenErrors=0;
+
+int      LastTicket=0;
+double   MasterBid=0;
+double   MasterAsk=0;
+
+string   LastQ="";
+int Spopt, Bpopt;
+bool orderToDelete = false;
+datetime orderPlacedTime = 0;
+//+------------------------------------------------------------------+
+//| Expert initialization function                                   |
+//+------------------------------------------------------------------+
+enum LOT_TYPE
+  {
+   FIXED,       //fixed lots
+   PERCENT      //percentage
+  };
+
+enum Conditions
+  {
+   Condition_1,   //Condition 1
+   Condition_2,   //Condition 2
+   Condition_3,   //Condition 3
+   Condition_4    //Condition 4
+  };
+//+------------------------------------------------------------------+
+//| Order Information                                                |
+//+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+long OrderType(ulong pTicket)
+  {
+   bool select = OrderSelect(pTicket);
+   if(select == true)
+      return(OrderGetInteger(ORDER_TYPE));
+   else
+      return(WRONG_VALUE);
+  }
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+bool       IsTradeContextBusy()
+  {
+   if(!TerminalInfoInteger(TERMINAL_CONNECTED))
+      return true;
+
+   return false;
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+long OrderExpirationTime(ulong pTicket)
+  {
+   bool select = OrderSelect(pTicket);
+   if(select == true)
+      return(OrderGetInteger(ORDER_TIME_EXPIRATION));
+   else
+      return(WRONG_VALUE);
+  }
+
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+long OrderExpirationType(ulong pTicket)
+  {
+   bool select = OrderSelect(pTicket);
+   if(select == true)
+      return(OrderGetInteger(ORDER_TYPE_TIME));
+   else
+      return(WRONG_VALUE);
+  }
+
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+long OrderMagicNumber(ulong pTicket)
+  {
+   bool select = OrderSelect(pTicket);
+   if(select == true)
+      return(OrderGetInteger(ORDER_MAGIC));
+   else
+      return(WRONG_VALUE);
+  }
+
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+double OrderVolume(ulong pTicket)
+  {
+   bool select = OrderSelect(pTicket);
+   if(select == true)
+      return(OrderGetDouble(ORDER_VOLUME_CURRENT));
+   else
+      return(WRONG_VALUE);
+  }
+
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+double OrderOpenPrice(ulong pTicket)
+  {
+   bool select = OrderSelect(pTicket);
+   if(select == true)
+      return(OrderGetDouble(ORDER_PRICE_OPEN));
+   else
+      return(WRONG_VALUE);
+  }
+
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+double OrderStopLimit(ulong pTicket)
+  {
+   bool select = OrderSelect(pTicket);
+   if(select == true)
+      return(OrderGetDouble(ORDER_PRICE_STOPLIMIT));
+   else
+      return(WRONG_VALUE);
+  }
+
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+double OrderStopLoss(ulong pTicket)
+  {
+   bool select = OrderSelect(pTicket);
+   if(select == true)
+      return(OrderGetDouble(ORDER_SL));
+   else
+      return(WRONG_VALUE);
+  }
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+int TimeDayOfWeek(datetime date)
+  {
+   MqlDateTime tm;
+   TimeToStruct(date,tm);
+   return(tm.day_of_week);
+  }
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+double OrderTakeProfit(ulong pTicket)
+  {
+   bool select = OrderSelect(pTicket);
+   if(select == true)
+      return(OrderGetDouble(ORDER_TP));
+   else
+      return(WRONG_VALUE);
+  }
+
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+string OrderComment(ulong pTicket)
+  {
+   bool select = OrderSelect(pTicket);
+   if(select == true)
+      return(OrderGetString(ORDER_COMMENT));
+   else
+      return(NULL);
+  }
+
+input  string     group1 = "============================";//============================
+bool              Virtual_Pending_Stop    = true;        // Virtual Pending Stop
+input bool       Indicator_Arrow_Repaint = false;       // Use Indicator Arrow Repaint
+input int        Number_Of_Repaint       = 0;           // Number Of Repaint
+input bool       Delay_Signal            = false;       // wait/delay signal till next candle?
+input Conditions Trading_Pattern         = Condition_1; // Condition
+input bool       Virtual_Stop_Loss       = true;       // Virtual Stop Loss
+input int        Time_To_Wait            = 0;           // Time to wait to open another trade  :
+input double     Time_to_Delete_Orders   = 0.02;         // Time to delete Order minutes,use 0.1 for seconds  :
+double     Filter                  = 0;          // Filter:
+//================
+input int        PullBack                = 0; // Pull Back:
+input int        PullBackTimeSecs    = 20; // Pull Back Time (seconds)
+input int        PullBackExtent    = 10; //  Pull Back Deviation (points)
+static bool       PullbackStarted =false; //Enabled when buy or sell signal started
+static datetime   PullbackStartTime;
+static double     PullbackStartPrice=0.0;
+//variables for storing delayed sinals
+datetime          DelayedSignalTime = 0; //Time when signal occured
+int               DelayedSignalType;     //Signal type (buy or sell)
+//---
+input int        PullBackInNextCandle    = 0; // Pull Back pips in next candle:
+//================
+input double     LotsSize                = 0.1;         // Lot Size:
+input  string     group2  = "============================";//============================
+input LOT_TYPE lot_type      = FIXED; //Lot Type:
+input double   lot           = 0.01;  //Lots:
+input double   LotsPer1000   = 0.0;
+input double   MaxLots       = 15.0;
+double   MaxSpread     = 1.2;   //Max Spread:
+
+input  string     group3 = "============================";//============================
+input int    SignalGap     = 0;        //Signal Gap:
+input int    ShowBars      = 500;      //Show Bars:
+double SLoss            = 3.0;     //Stop Loss
+input int    MyMagicNumber = 0;
+input string Comment_      ="LOL";
+input int    delay_seconds = 0;
+
+input  string     group4 = "============================";//============================
+input int    trail_start = 3; //Trailing Start
+input int    trail_step  = 1; //Trailing Step
+input double Limit       = 10; //
+input double Distance    = 0;
+
+//Account lock and EA Ezpiry Date
+//==================================================
+int Account = 0;//Enter account to lock number here
+datetime Expiry=D'03.07.2054';
+//==================================================
+double Risk   = LotsPer1000*20/100; //????
+double CommPP; //Commission per point (??? determines true value of point change in account currency)
+double spread[30]; //some array (seems to store last 30 spreads :-))
+
+//--- Order Object values
+double   HL_BS_Value = 0; //buyStop value
+double   HL_SS_Value = 0; //sellStop value
+datetime HL_time;         //Order Time
+string   HL_BS="V_BS";    //buyStop object Name
+string   HL_SS="V_SS";    //SellStop object Name
+
+//--- Repaint strategy variables
+double   current_Repaint      = 0;     //number of signal repaints
+double   current_signal_value = 0;     //current value(price) of signal
+bool     Last_Signal_buy      = false; //whether the signal is buy (true: buy | false: sell)
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+string TerminalCompany()
+  {
+   return TerminalInfoString(TERMINAL_COMPANY);
+  }
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+string TerminalName()
+  {
+   return TerminalInfoString(TERMINAL_NAME);
+  }
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+string TerminalPath()
+  {
+   return TerminalInfoString(TERMINAL_PATH);
+  }
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+bool IsExpertEnabled()
+  {
+   return (bool)AccountInfoInteger(ACCOUNT_TRADE_EXPERT);
+  }
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+bool IsConnected()
+  {
+   return (bool)TerminalInfoInteger(TERMINAL_CONNECTED);
+  }
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+bool IsOptimization()
+  {
+   return (bool)MQL5InfoInteger(MQL5_OPTIMIZATION);
+  }
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+int Minute()
+  {
+   MqlDateTime tm;
+   TimeCurrent(tm);
+   return(tm.min);
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+int Day()
+  {
+   MqlDateTime tm;
+   TimeCurrent(tm);
+   return(tm.day);
+  }
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+int Year()
+  {
+   MqlDateTime tm;
+   TimeCurrent(tm);
+   return(tm.year);
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+bool IsTesting()
+  {
+   return (bool)MQL5InfoInteger(MQL5_TESTING);
+  }
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+bool IsVisualMode()
+  {
+   return (bool)MQL5InfoInteger(MQL5_VISUAL_MODE);
+  }
+
+
+//+------------------------------------------------------------------+
+//| Expert initialization function                                   |
+//+------------------------------------------------------------------+
+int OnInit()
+  {
+//---Check Account number and Expiry date and remove EA if unstatisfied
+//if(TimeCurrent()>Expiry)
+//  {
+//   Alert(WindowExpertName()+" Trial Expired");
+//   // return INIT_FAILED;
+//  }
+   if(Account>0&&AccountNumber()!=Account)
+     {
+      Alert((string)AccountNumber()+" is not Linked to the EA");
+      return INIT_FAILED;
+     }
+
+   Comment("Initialization ...");
+   if(StringLen(ServerPairName)>=1)
+      MasterPair=ServerPairName;
+   else
+      MasterPair=Symbol();
+
+   s0Time=0;
+
+   ArrayInitialize(spread,0);
+//   SetChartProperties(); //chart chart visual settings
+
+   SLoss*=10.0;                                         //StopLoss in pips(points x10)
+   MaxSpread*=10;                                    //MaxSpread in pips(points x10)
+   Filter = NormalizeDouble(Point() * Filter, Digits()); //Filter in points
+
+   SpreadObject();               //create spread Text on the chart
+   CreateOrEditRectAndTL();      //create Rectangle and trendline on the chart
+// CalculateAndPlaceFibonacci(); //create and place 3 fibonaccis
+// DisplayInfo();                //Display account and chart info on the chart
+//---
+   return(INIT_SUCCEEDED);
+  }
+
+
+
+
+
+#include "arbhelper.mqh"
+
+
+//+------------------------------------------------------------------+
+//| Expert tick function                                             |
+//+------------------------------------------------------------------+
+void OnTick()
+  {
+   startarb();
+
+//--- calculate profit per point and commision size on history trades (only need to run once)
+   static bool AlreadyChckedCC = false;
+   if(!AlreadyChckedCC)
+      AlreadyChckedCC = CalculatePPAndComission();
+
+//--- trades and orders
+   if(trail_start > 0)
+      TrailingStop(); //trailstop running trades
+
+   CheckTimeAndDeleteOrders(1); //Check if its time to delete orders, if so delete the order objects
+
+   HL_BS_Value = ObjectGetDouble(0,HL_BS, OBJPROP_PRICE); //buy stop value
+   HL_SS_Value = ObjectGetDouble(0,HL_SS, OBJPROP_PRICE); //sell stop value
+
+   if(Virtual_Pending_Stop && Distance>0)
+      Update_SS_And_BS_Objects(); //Update Sell and Buy stop Objects
+
+   checkAndPlaceSL(MyMagicNumber); //put stoploss on orders without stop loss
+   delay();                        //put EA to sleep and delete previous orders
+
+   if(Virtual_Pending_Stop && UpdateOrders() == 0)
+     {
+      Sell_Stop(HL_SS_Value);
+      Buy_Stop(HL_BS_Value);
+     }
+//====
+   CreateOrEditRectAndTL();
+//====
+   SpreadObject();
+// CalculateAndPlaceFibonacci();
+//====
+//  DisplayInfo();
+  }
+
+//+------------------------------------------------------------------+
+//|                         PLACE BUY STOP                           |
+//+------------------------------------------------------------------+
+void Buy_Stop(double bs)
+  {
+   double  Ask=SymbolInfoDouble(Symbol(), SYMBOL_ASK);
+   double  Bid=SymbolInfoDouble(Symbol(), SYMBOL_BID);
+   double stops=SymbolInfoInteger(Symbol(),SYMBOL_TRADE_STOPS_LEVEL) * Point();
+//Print("_____________________________");
+//Print(__FUNCTION__);
+   long    Ticket;
+   double OrderDistance   = NormalizeDouble(Limit * Point(), Digits()); //how far against the current price to place order
+   double orderPrice      = NormalizeDouble(Ask+OrderDistance,Digits());
+   double StopLoss        = NormalizeDouble(Ask - (SLoss+ MarketInfo(Symbol(),MODE_SPREAD)) * Point(), Digits());
+   double orderPrice_Sell = NormalizeDouble(Bid-OrderDistance,Digits());
+   double StopLoss_Sell   = NormalizeDouble(Bid + (SLoss+ MarketInfo(Symbol(),MODE_SPREAD)) * Point(), Digits());
+
+   if(Trading_Pattern==Condition_1){
+      if(bs>0 && (Ask==bs || Ask>bs))        {
+         Ticket = OrderSend(Symbol(),OP_BUY,lot,Ask,3,StopLoss,0,Comment_,MyMagicNumber,0,Lime);
+         ObjectDelete(0,HL_BS);
+         if(Ticket<=0)
+            Print("BUYSTOP Send Error Code: ",GetLastError()," OP: ",orderPrice_Sell," SL: ",StopLoss_Sell," Bid: ",Bid," Ask: ",Ask);
+        }
+     }
+   else
+      if(Trading_Pattern==Condition_2 || Trading_Pattern==Condition_4)
+        {
+         if(bs>0 && (Bid==bs || Bid>bs))
+           {
+            Ticket = OrderSend(Symbol(),OP_SELL,lot,Bid,3,StopLoss_Sell,0,Comment_,MyMagicNumber,0,Lime);
+            ObjectDelete(0,HL_BS);
+            if(Ticket<=0)
+               Print("SELLLIMIT Send Error Code: ",GetLastError()," OP: ",orderPrice," SL: ",StopLoss_Sell," Bid: ",Bid," Ask: ",Ask);
+           }
+        }
+   if(Trading_Pattern==Condition_3)
+     {
+      if(bs>0 && (Ask==bs || Ask>bs))
+        {
+         Ticket = OrderSend(Symbol(),OP_BUY,lot,Ask,3,StopLoss,0,Comment_,MyMagicNumber,0,Lime);
+         ObjectDelete(0,HL_BS);
+         if(Ticket<=0)
+            Print("BUYSTOP Send Error Code: ",GetLastError()," OP: ",orderPrice," SL: ",StopLoss_Sell," Bid: ",Bid," Ask: ",Ask);
+        }
+     }
+  }
+//+------------------------------------------------------------------+
+//|                        PLACE SELL STOP                           |
+//+------------------------------------------------------------------+
+void Sell_Stop(double ss)
+  {
+   double  Ask=SymbolInfoDouble(Symbol(), SYMBOL_ASK);
+   double  Bid=SymbolInfoDouble(Symbol(), SYMBOL_BID);
+   double stops=SymbolInfoInteger(Symbol(),SYMBOL_TRADE_STOPS_LEVEL) * Point();
+
+//Print("_____________________________");
+//Print(__FUNCTION__);
+   long    Ticket;
+   double OrderDistance  = NormalizeDouble(Limit * Point(), Digits()); //how far against the current price to place order
+   double orderPrice     = NormalizeDouble(Bid-OrderDistance,Digits());
+   double StopLoss       = NormalizeDouble(Bid + (SLoss+ MarketInfo(Symbol(),MODE_SPREAD)) * Point(), Digits());
+   double orderPrice_Buy = NormalizeDouble(Ask+OrderDistance,Digits());
+   double StopLoss_Buy   = NormalizeDouble(Ask - (SLoss+ MarketInfo(Symbol(),MODE_SPREAD)) * Point(), Digits());
+
+   if(Trading_Pattern==Condition_1)
+     {
+      if(ss>0 && (Bid==ss || Bid<ss))
+        {
+         Ticket = OrderSend(Symbol(),OP_SELL,lot,Bid,3,StopLoss,0,Comment_,MyMagicNumber,0,Lime);
+
+         ObjectDelete(0,HL_SS);
+
+         if(Ticket<=0)
+            Print("SELLSTOP Send Error Code: ",GetLastError()," OP: ",orderPrice," SL: ",StopLoss," Bid: ",Bid," Ask: ",Ask);
+        }
+     }
+   else
+      if(Trading_Pattern==Condition_2 || Trading_Pattern==Condition_4)
+        {
+         if(ss>0 && (Ask==ss || Ask<ss))
+           {
+            Ticket = OrderSend(Symbol(),OP_BUY,lot,Ask,3,StopLoss_Buy,0,Comment_,MyMagicNumber,0,Lime);
+
+            ObjectDelete(0,HL_SS);
+
+            if(Ticket<=0)
+               Print("BUYLIMIT Send Error Code: ",GetLastError()," OP: ",orderPrice_Buy," SL: ",StopLoss_Buy," Bid: ",Bid," Ask: ",Ask);
+           }
+        }
+   if(Trading_Pattern==Condition_3)
+     {
+      if(ss>0 && (Bid==ss || Bid<ss))
+        {
+         Ticket=OrderSend(Symbol(),OP_SELL,lot,Bid,3,StopLoss,0,Comment_,MyMagicNumber,0,Lime);
+
+         ObjectDelete(0,HL_SS);
+         if(Ticket<=0)
+            Print("SELLSTOP Send Error Code: ",GetLastError()," OP: ",orderPrice," SL: ",StopLoss," Bid: ",Bid," Ask: ",Ask);
+        }
+     }
+  }
+
+//+------------------------------------------------------------------+
+//|          Put EA to sleep and delete previous orders              |
+//+------------------------------------------------------------------+
+void delay()
+  {
+   datetime _opened_last_time = TimeCurrent() ;
+   for(int i=0; i<OrdersHistoryTotal(); i++)
+     {
+      if(OrderSelect(i,SELECT_BY_POS,MODE_HISTORY)==false)
+         continue;
+      if(OrderCloseTime() < _opened_last_time)
+         continue;
+
+      DeleteAllOrders();
+      Print(" going to sleep now");
+      Sleep(Time_To_Wait*1000);
+      Print("Wake up!");
+     }
+  }
+
+//+------------------------------------------------------------------+
+//|    Update/move Sell stop and Buy stop objects to new values      |
+//+------------------------------------------------------------------+
+void Update_SS_And_BS_Objects()
+  {
+   double  Ask=SymbolInfoDouble(Symbol(), SYMBOL_ASK);
+   double  Bid=SymbolInfoDouble(Symbol(), SYMBOL_BID);
+   double stops=SymbolInfoInteger(Symbol(),SYMBOL_TRADE_STOPS_LEVEL) * Point();
+
+   double bs = ObjectGetDouble(0,HL_BS, OBJPROP_PRICE);           //Old buyStop Value
+   double OrderDistance = NormalizeDouble(Distance * Point(), Digits()); //how far against the current price to place order
+   double NewValue = NormalizeDouble(Ask+OrderDistance,Digits());   //New buystop Value
+   double OldValue=NormalizeDouble(bs,Digits());                    //Normalized Old Value
+   if(NewValue<OldValue)
+     {
+      ObjectDelete(0,HL_BS);
+
+      ObjectCreate(0,HL_BS,OBJ_HLINE,0,TimeCurrent(),NewValue);
+      ObjectSetInteger(0, HL_BS, OBJPROP_STYLE, STYLE_SOLID);
+      ObjectSetInteger(0, HL_BS, OBJPROP_COLOR, Lime);
+      ObjectSetInteger(0, HL_BS, OBJPROP_BACK, true);
+      ObjectSetInteger(0, HL_BS, OBJPROP_WIDTH, 2);
+     }
+
+   double ss = ObjectGetDouble(0,HL_SS, OBJPROP_PRICE);  //Old sellStop Value
+   OldValue=NormalizeDouble(ss,Digits());                  //Normalized old Vlaue
+   NewValue = NormalizeDouble(Bid-OrderDistance,Digits()); //New Value
+   if(ss>0 && NewValue>OldValue)
+     {
+      ObjectDelete(0,HL_SS);
+
+      ObjectCreate(0,HL_SS,OBJ_HLINE,0,TimeCurrent(),NewValue);
+      ObjectSetInteger(0, HL_SS, OBJPROP_STYLE, STYLE_SOLID);
+      ObjectSetInteger(0, HL_SS, OBJPROP_COLOR, Crimson);
+      ObjectSetInteger(0, HL_SS, OBJPROP_BACK, true);
+      ObjectSetInteger(0, HL_SS, OBJPROP_WIDTH, 2);
+     }
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+void CheckTimeAndDeleteOrders(datetime time)
+  {
+   if(((double)(TimeCurrent() - HL_time)/60) >= Time_to_Delete_Orders && (HL_BS_Value>0 || HL_SS_Value>0))
+     {
+      ObjectDelete(0, HL_SS);
+      ObjectDelete(0, HL_BS);
+      DelayedSignalTime = 0;
+      Sleep(2000);//(int)(time - TimeCurrent()) * 1000);
+     }
+  }
+//+------------------------------------------------------------------+
+//|         store the signal or retrieve the stored signal           |
+//+------------------------------------------------------------------+
+int StoreAndPlaceDelayedOrders(int order)
+  {
+   double  Ask=SymbolInfoDouble(Symbol(), SYMBOL_ASK);
+   double  Bid=SymbolInfoDouble(Symbol(), SYMBOL_BID);
+   double stops=SymbolInfoInteger(Symbol(),SYMBOL_TRADE_STOPS_LEVEL) * Point();
+
+
+   datetime Time[];
+   int copied=CopyTime(_Symbol,PERIOD_CURRENT,0,3,Time);
+   double Close[];
+   int copiedC=CopyClose(_Symbol,PERIOD_CURRENT,0,3,Close);
+   double High[];
+   int copiedH=CopyHigh(_Symbol,PERIOD_CURRENT,0,3,High);
+   double Low[];
+   int copiedL=CopyLow(_Symbol,PERIOD_CURRENT,0,3,Low);
+   double Open[];
+   int copiedO=CopyOpen(_Symbol,PERIOD_CURRENT,0,3,Open);
+
+//if there are no signals already delayed store the signal so we can open it again in the future
+   if(DelayedSignalTime == 0 && order >= 0)     {
+      //store the current signal
+      DelayedSignalType = order;
+      DelayedSignalTime = iTime(NULL,0,0);
+
+      //print message notifying user about the delay
+      if(DelayedSignalType == 0)
+        {
+         Print("A buy order @Time: ",iTime(NULL,1,0)," has been delayed till next candle");
+         Comment("A buy order @Time: ",iTime(NULL,1,0)," has been delayed till next candle");
+        }
+      else        {
+         Print("A sell order @Time: ",iTime(NULL,1,0)," has been delayed till next candle");
+         Comment("A sell order @Time: ",iTime(NULL,1,0)," has been delayed till next candle");
+        }
+
+      return -1; //return -1 because order has been delayed to prevent order from being placed
+     }
+
+//make sure that the delayed signal is rady to be placed on a different bar, then place it
+   if(DelayedSignalTime != iTime(NULL,0,0) && DelayedSignalTime !=0)
+     {
+      /*
+        PULLBACK logic such that,when a pullback occurs in number of pips and market price returned back
+        on same candle were pullback counting began, and a new candle was form,let TRADING signal be
+        cancelled .this is when WAIT/DELAY TILL NEXT CANDLE =TRUE
+      */
+
+
+      if(!Indicator_Arrow_Repaint && ((DelayedSignalType == 1 && High[0] >= High[1]) || (DelayedSignalType == 0 && Low[0] <= Low[1])))
+        {
+         //delete all objects and reset variables that determine the delayed signal and virtual pending stops
+         ObjectDelete(0, HL_SS);
+         ObjectDelete(0, HL_BS);
+         DelayedSignalTime = 0;
+
+         Print("Delayed Order Cancelled Since market price returned back on same candle were pullback counting began");
+         Comment("Delayed Order Cancelled Since market price returned back on same candle were pullback counting began");
+
+         return -1; //return no signal
+        }
+
+      /*
+        another pullback condition to work after WAIT/DELAY TILL NEXT CANDLE =TRUE,
+        the new candle pullback setting should work with either ARROW REPAINT OR PULLBACK.
+        when WAIT/DELAY TILL NEXT CANDLE =TRUE,Add new setting , NUMBER OF PIPS PULLBACK IN NEXT CANDLE.
+        this setting in pips will allow ea to calculate number of pips pullback in new candle before allowing
+        pending stop be opened.New condition is, untill a pullback in number of pips defined in next candle
+        before ea opens virtual pending stop.but when this is set to =0,its deactivated
+      */
+      if(PullBackInNextCandle > 0 && ((DelayedSignalType == 1 &&  Open[0]-Low[0] < PullBackInNextCandle*10*Point()) || (DelayedSignalType == 0 && High[0]-Open[0] < PullBackInNextCandle*10*Point())))
+         return -1;                                                          //return no signal since pull back hasnt been satisfied
+      //---------------------------
+      if(PullBackInNextCandle > 0 && DelayedSignalTime < iTime(NULL,0,1))   //cancel the order since pull back wasnt satisfied and a new second bar was formed so signal is no longer valid
+        {
+         //delete all objects and reset variables that determine the delayed signal and virtual pending stops
+         ObjectDelete(0, HL_SS);
+         ObjectDelete(0, HL_BS);
+         DelayedSignalTime = 0;
+
+         Print("Delayed Order Cancelled Since Pullback in was not enough on the next candle till it closed");
+         Comment("Delayed Order Cancelled Since Pullback in was not enough on the next candle till it closed");
+
+         return -1; //return no signal
+        }
+
+      //if we reach this point place back the delayed signal since all the delay pull back conditions were met
+      DelayedSignalTime = 0; // reset time so that we do not place the order again
+
+      //notify user about the order, that it will be resumed
+      if(order == 0)        {
+         Print("A delayed buy order from Time: ",DelayedSignalTime," will now be placed");
+         Comment("A delayed buy order from Time: ",DelayedSignalTime," will now be placed");
+        }
+      else        {
+         Print("A delayed sell order from Time: ",DelayedSignalTime," will now be placed");
+         Comment("A delayed sell order from Time: ",DelayedSignalTime," will now be placed");
+        }
+      return DelayedSignalType; //retrieve the placed order so that it can be placed
+     }
+
+   return -1; //return -1 because order has been delayed already or there was no signal
+  }
+//+------------------------------------------------------------------+
+//|          Determine signal with arrow repaint stratey              |
+//|  we get the signals from the indicator, then determine how many  |
+//|  times theindicator repaints the same signal and it repaints a   |
+//|           certain times we place a buy or sell order             |
+//+------------------------------------------------------------------+
+int ArrowRepaintStratey(double sellValue, double buyValue)
+  {
+//if there are no signals from the indicator we make sure that we reset the repaint values
+   if(buyValue == 0 && sellValue == 0)
+     {
+      current_Repaint = 0;
+      current_signal_value = 0;
+     }
+
+   else //if there a sinals from indicator
+     {
+      //we reset repaint values if last signal was buy and current signal is sell and vice versa for last sell and current by
+      //this makes sure we only count repaints for the current sinal only
+      if((buyValue > 0 && !Last_Signal_buy) || (sellValue > 0 && Last_Signal_buy))
+        {
+         current_Repaint = 0;
+         current_signal_value = 0;
+        }
+
+      if(buyValue > 0) //current signal is buy
+        {
+         Last_Signal_buy = true; //we mke sure that we indicate the signal is a buy for the next call
+
+         //set the current signal value to indicator buy value we dont count the first signal occurence as repaint
+         if(current_signal_value == 0)
+            current_signal_value = buyValue;
+
+         //if current signal value is different then there was a repaint and we adjust values accordingly
+         if(current_signal_value != buyValue)
+           {
+            current_Repaint++;
+            current_signal_value = buyValue;
+           }
+
+         Comment("Buy Repaint: ",current_Repaint);
+         Print("Buy Repaint: ",current_Repaint);
+
+         //repaint requirements are met so we reset values and return a buy back so that e can place order
+         if(current_Repaint >= Number_Of_Repaint)
+           {
+            current_Repaint = 0;
+            current_signal_value = 0;
+            return OP_BUY;
+           }
+        }
+
+      if(sellValue > 0) //current signal is sell
+        {
+         Last_Signal_buy = false; //we mke sure that we indicate the signal is a sell for the next call
+
+         //set the current signal value to indicator buy value we dont count the first signal occurence as repaint
+         if(current_signal_value == 0)
+            current_signal_value = sellValue;
+
+         //if current signal value is different then there was a repaint and we adjust values accordingly
+         if(current_signal_value != sellValue)
+           {
+            current_Repaint++;
+            current_signal_value = sellValue;
+           }
+
+
+         Comment("Sell Repaint: ",current_Repaint);
+         Print("Sell Repaint: ",current_Repaint);
+
+         //repaint requirements are met so we reset values and return a buy back so that e can place order
+         if(current_Repaint >= Number_Of_Repaint)
+           {
+            current_Repaint = 0;
+            current_signal_value = 0;
+            return OP_SELL;
+           }
+        }
+     }
+
+   return -1; //if e get to this point then there as never a signal or repaint taret hasnt been met yet
+  }
+//+------------------------------------------------------------------+
+//| Place Orders at market price or virtual(Hidden) using conditions |
+//+------------------------------------------------------------------+
+void PlaceOrder(int orderType)
+  {
+   double  Ask=SymbolInfoDouble(Symbol(), SYMBOL_ASK);
+   double  Bid=SymbolInfoDouble(Symbol(), SYMBOL_BID);
+   double stops=SymbolInfoInteger(Symbol(),SYMBOL_TRADE_STOPS_LEVEL) * Point();
+
+
+   datetime Time[];
+   int copied=CopyTime(_Symbol,PERIOD_CURRENT,0,3,Time);
+   double Close[];
+   int copiedC=CopyClose(_Symbol,PERIOD_CURRENT,0,3,Close);
+   double High[];
+   int copiedH=CopyHigh(_Symbol,PERIOD_CURRENT,0,3,High);
+   double Low[];
+   int copiedL=CopyLow(_Symbol,PERIOD_CURRENT,0,3,Low);
+   double Open[];
+   int copiedO=CopyOpen(_Symbol,PERIOD_CURRENT,0,3,Open);
+
+ 
+   string orderTypeName;
+   switch(orderType)
+     {
+      case 0:
+         orderTypeName = "OP_BUY";
+         break;
+      case 1:
+         orderTypeName = "OP_SELL";
+         break;
+      case 2:
+         orderTypeName = "OP_BUYLIMIT";
+         break;
+      case 3:
+         orderTypeName = "OP_SELLLIMIT";
+         break;
+      case 4:
+         orderTypeName = "OP_BUYSTOP";
+         break;
+      case 5:
+         orderTypeName = "OP_SELLSTOP";
+         break;
+      default:
+         orderTypeName = "Unknown Order Type";
+         break;
+     }
+//Print("Order Type: ", orderTypeName);
+//Print("Trading_Pattern: ", EnumToString(Trading_Pattern));
+
+
+//deterime order volume
+   double OrderSize = lot;
+   if(lot_type == PERCENT)
+      OrderSize = lot / 100 * AccountBalance() / 1000;
+
+   double OrderDistance = NormalizeDouble(Limit * Point(), Digits()); //how far against the current price to place order
+
+
+   if(orderType == OP_BUY)
+     {
+      long    Ticket     = 0;                                            //Ticket Number
+      double OrderPrice = NormalizeDouble(Ask + OrderDistance, Digits()); //Order Price
+
+      double StopLoss = 0;
+
+      if(Virtual_Stop_Loss==false)
+         StopLoss = NormalizeDouble(OrderPrice - (SLoss+ MarketInfo(Symbol(),MODE_SPREAD)) * Point(), Digits());
+
+      if(MarketInfo(Symbol(),MODE_SPREAD)<MaxSpread && Virtual_Pending_Stop==false)
+        {
+         //Print("PlaceOrder//OP_BUYSTOP ");
+         Ticket = OrderSend(Symbol(),OP_BUYSTOP,OrderSize,OrderPrice,3,StopLoss,0,Comment_,MyMagicNumber,0,Lime);
+        }
+      else
+         if(MarketInfo(Symbol(),MODE_SPREAD)<MaxSpread && Virtual_Pending_Stop==true && (Trading_Pattern==Condition_1 || Trading_Pattern==Condition_2) && HL_BS_Value==0)
+           {
+            Alert("[OPBUY] Create HL BS : ",TimeCurrent());
+            ObjectCreate(0,HL_BS,OBJ_HLINE,0,TimeCurrent(),OrderPrice);
+            ObjectSetInteger(0, HL_BS, OBJPROP_STYLE, STYLE_SOLID);
+            ObjectSetInteger(0, HL_BS, OBJPROP_COLOR, Lime);
+            ObjectSetInteger(0, HL_BS, OBJPROP_BACK, true);
+            ObjectSetInteger(0, HL_BS, OBJPROP_WIDTH, 2);
+
+            HL_time = TimeCurrent();
+           }
+         else
+            if(MarketInfo(Symbol(),MODE_SPREAD)<MaxSpread && Virtual_Pending_Stop==true && (Trading_Pattern==Condition_3 || Trading_Pattern == Condition_4)  && HL_SS_Value==0)
+              {
+               Alert("[OPBUY] Create HL SS : ",TimeCurrent());
+               OrderPrice = NormalizeDouble(Bid - OrderDistance, Digits());
+               ObjectCreate(0,HL_SS,OBJ_HLINE,0,TimeCurrent(),OrderPrice);
+               ObjectSetInteger(0, HL_SS, OBJPROP_STYLE, STYLE_SOLID);
+               ObjectSetInteger(0, HL_SS, OBJPROP_COLOR, Crimson);
+               ObjectSetInteger(0, HL_SS, OBJPROP_BACK, true);
+               ObjectSetInteger(0, HL_SS, OBJPROP_WIDTH, 2);
+
+               HL_time = TimeCurrent();
+              }
+
+      //print an error message if order didnt go through
+      if(Virtual_Pending_Stop==false && Ticket<=0)
+         Print("BUYSTOP Send Error Code: ",GetLastError()," OP: ",OrderPrice," SL: ",StopLoss," Bid: ",Bid," Ask: ",Ask);
+     }
+
+//alister - change; add {else if}
+   else
+      if(orderType == OP_SELL)  //NOT op_buy =>op_sell
+        {
+         long    Ticket     = 0;
+         double OrderPrice = NormalizeDouble(Bid - OrderDistance, Digits());
+
+         double StopLoss=0;
+         if(Virtual_Stop_Loss==false)
+            StopLoss = NormalizeDouble(OrderPrice + (SLoss+ MarketInfo(Symbol(),MODE_SPREAD)) * Point(), Digits());
+
+
+         if(MarketInfo(Symbol(),MODE_SPREAD)<MaxSpread && Virtual_Pending_Stop==false)
+           {
+            Print("PlaceOrder//SELLSTOP ");
+            Ticket = OrderSend(Symbol(),OP_SELLSTOP,OrderSize,OrderPrice,3,StopLoss,0,Comment_,MyMagicNumber,0,Orange);
+           }
+
+         else
+            if(MarketInfo(Symbol(),MODE_SPREAD)<MaxSpread && Virtual_Pending_Stop==true
+               && (Trading_Pattern==Condition_1 || Trading_Pattern==Condition_2)
+               && HL_SS_Value==0)
+              {
+               Alert("[OPSELL] Create HL SS : ",TimeCurrent());
+               ObjectCreate(0,HL_SS,OBJ_HLINE,0,TimeCurrent(),OrderPrice);
+               ObjectSetInteger(0, HL_SS, OBJPROP_STYLE, STYLE_SOLID);
+               ObjectSetInteger(0, HL_SS, OBJPROP_COLOR, Crimson);
+               ObjectSetInteger(0, HL_SS, OBJPROP_BACK, true);
+               ObjectSetInteger(0, HL_SS, OBJPROP_WIDTH, 2);
+
+               HL_time = TimeCurrent();
+              }
+            else
+               if(MarketInfo(Symbol(),MODE_SPREAD)<MaxSpread && Virtual_Pending_Stop==true
+                  && (Trading_Pattern==Condition_3 || Trading_Pattern == Condition_4)
+                  && HL_BS_Value==0)
+                 {
+                  Alert("[OPSELL] Create HL BS : ",TimeCurrent());
+                  OrderPrice = NormalizeDouble(Ask + OrderDistance, Digits());
+                  ObjectCreate(0,HL_BS,OBJ_HLINE,0,TimeCurrent(),OrderPrice);
+                  ObjectSetInteger(0, HL_BS, OBJPROP_STYLE, STYLE_SOLID);
+                  ObjectSetInteger(0, HL_BS, OBJPROP_COLOR, Lime);
+                  ObjectSetInteger(0, HL_BS, OBJPROP_BACK, true);
+                  ObjectSetInteger(0, HL_BS, OBJPROP_WIDTH, 2);
+
+                  HL_time = TimeCurrent();
+                 }
+         if(Virtual_Pending_Stop==false && Ticket<=0)
+            Print("BUYSELL Send Error Code: ",GetLastError()," OP: ",OrderPrice," SL: ",StopLoss," Bid: ",Bid," Ask: ",Ask);
+        }
+  }
+//+------------------------------------------------------------------+
+//|     Determine the signal using filter and Pullback settings      |
+//+------------------------------------------------------------------+
+int FilterSSCSignals(double sellValue, double buyValue)
+  {
+
+   datetime Time[];
+   int copied=CopyTime(_Symbol,PERIOD_CURRENT,0,3,Time);
+   double Close[];
+   int copiedC=CopyClose(_Symbol,PERIOD_CURRENT,0,3,Close);
+   double High[];
+   int copiedH=CopyHigh(_Symbol,PERIOD_CURRENT,0,3,High);
+   double Low[];
+   int copiedL=CopyLow(_Symbol,PERIOD_CURRENT,0,3,Low);
+   double Open[];
+   int copiedO=CopyOpen(_Symbol,PERIOD_CURRENT,0,3,Open);
+
+
+   double barSize      = iHigh(NULL,0,0) - iLow(NULL,0,0);
+   double filterPoints = NormalizeDouble(Point() * Filter, Digits());
+
+   static int      Delay2 = 0;
+   static datetime delay_ = 0;
+
+   bool Sell = false;
+   bool Buy  = false;
+
+   if(High[0]==sellValue && (High[0]- Close[0])>=(PullBack*Point()))
+     {
+      Sell = true;
+      if(delay_==0)
+         delay_ = TimeCurrent();
+     }
+
+   if(Low[0]==buyValue && (Close[0]- Low[0])>=(PullBack*Point()))
+     {
+      Buy = true;
+      if(delay_==0)
+         delay_ = TimeCurrent();
+     }
+
+   if(Sell==false && Buy==false)
+     {
+      Delay2 = 0;
+      delay_ = 0;
+     }
+   else
+      Delay2 = (int)(TimeCurrent() - delay_);
+
+   if(barSize > Filter || Filter==0)
+     {
+      if(Buy==true && Delay2>=delay_seconds)
+         return OP_BUY;
+      else
+         if(Sell==true && Delay2>=delay_seconds)
+            return OP_SELL;
+     }
+
+   return -1;
+  }
+
+//+------------------------------------------------------------------+
+int startarb()
+  {
+   double  Ask=SymbolInfoDouble(Symbol(), SYMBOL_ASK);
+   double  Bid=SymbolInfoDouble(Symbol(), SYMBOL_BID);
+   double stops=SymbolInfoInteger(Symbol(),SYMBOL_TRADE_STOPS_LEVEL) * Point();
+
+
+
+//Print("_____________________________");
+//Print(__FUNCTION__);
+
+//Print(__FUNCTION__);
+   double CurrentPips=0;
+   string sInfo="";
+//DeleteOrderAfterTime(Delete_Hour, Delet_Min, Delet_Sec);
+
+   if(Digits()<=3)
+      MyPoint=0.01;
+   MinLots=MarketInfo(Symbol(),MODE_MINLOT);
+   LotStep=MarketInfo(Symbol(),MODE_LOTSTEP);
+
+   if(s0Time<=0)
+     {
+      MaxBalance=AccountBalance();
+      s0Time=TimeLocal();
+      TotalPips=0;
+      EntrySlippage=0;
+      TotalTrades=0;
+      EntryMS=0;
+      LastTicket=0;
+      OpenErrors=0;
+     }
+
+// while(!IsStopped())
+//  {
+//RefreshRates(); todo
+
+   double dBid=Bid;
+   double dAsk=Ask;
+   int OldTicket=LastTicket;
+   LastTicket=0;
+   for(int j=OrdersTotal()-1; j>=0; j--)
+      if(OrderSelect(j, SELECT_BY_POS, MODE_TRADES))
+         //--------
+         if(LastTicket==0 && OldTicket>0)
+            if(OrderSelect(OldTicket, SELECT_BY_TICKET, MODE_HISTORY))
+              {
+               if(OrderType()==OP_BUY)
+                  TotalPips=TotalPips+(OrderClosePrice()-OrderOpenPrice())/MyPoint;
+               else
+                  TotalPips=TotalPips+(OrderOpenPrice()-OrderClosePrice())/MyPoint;
+              }
+
+   MaxBalance=MathMax(MaxBalance,AccountBalance());
+// if(AccountBalance()<=0)
+//    break;
+   sInfo="";
+   CheckMaster();
+//====================================================================
+   if(MaxDD<=100*(MaxBalance-AccountBalance())/MaxBalance)
+      sInfo=sInfo+"\nMaximum Drawdawn Reached !!!";
+   else
+      if(MasterBid>=Point() && MasterAsk>=Point())
+        {
+         sInfo=sInfo+"\nBuy/Sell Levels: "+DoubleToString((MasterBid-dAsk)/MyPoint-ActionPips,1)+" / "+DoubleToString((dBid-MasterAsk)/MyPoint-ActionPips,1)+" pips";
+        }
+      else
+         if(StringLen(LastQ)>0)
+           {
+            sInfo=sInfo+"\nServer: "+LastQ;
+           }
+         else
+           {
+            sInfo=sInfo+"\nServer not working !!!";
+           }
+
+   if(LastTicket>0)
+      sInfo=sInfo+", Position: "+DoubleToString(CurrentPips,1)+" pips";
+   else
+      if(MasterBid>=Point() && MasterAsk>=Point() && MaxDD>100*(MaxBalance-AccountBalance())/MaxBalance)
+        {
+         int Oper=-1;
+
+         if((MasterBid-dAsk)/MyPoint>=ActionPips)
+           {
+            //Print("(MasterBid-dAsk)/MyPoint>=ActionPips  |   buys @"+TimeCurrent());
+            if(!Pending_Stop)
+               Oper=OP_BUY;
+            if(Pending_Stop)
+               Oper=OP_BUYSTOP;
+           }
+         else
+            if((dBid-MasterAsk)/MyPoint>=ActionPips)
+              {
+               //Print("(dBid-MasterAsk)/MyPoint>=ActionPips  |   sells @"+TimeCurrent());
+
+               if(!Pending_Stop)
+                  Oper=OP_SELL;
+               if(Pending_Stop)
+                  Oper=OP_SELLSTOP;
+              }
+
+         if(Oper!=-1 && ConfirmMS>0)
+           {
+            Sleep(ConfirmMS);
+            //RefreshRates();
+            dBid=Bid;
+            dAsk=Ask;
+
+            //=====
+
+            CheckMaster();
+
+            //=====
+
+            if((Oper==OP_BUY || Oper==OP_BUYSTOP) && (MasterBid-dAsk)/MyPoint<ActionPips)
+               Oper=-1;
+            if((Oper==OP_SELL || Oper==OP_SELLSTOP) && (dBid-MasterAsk)/MyPoint<ActionPips)
+               Oper=-1;
+           }
+         if(Oper!=-1 && IsTradeContextBusy()==false)
+           {
+            //   int ExecutionTime=GetTickCount();
+            int Num_Orders = UpdateOrders(); //modify existing orders then get total orders placed in the current chart by EA
+
+            if(Num_Orders == 0 && HL_BS_Value <= 0 && HL_BS_Value <= 0)
+              {
+               Print("CONDITIONS READY TO PLACE ORDER @"+(string)TimeCurrent());
+               //Print("Oper "+Oper);
+
+               //OP_BUY0
+               //OP_SELL1
+               //OP_BUYLIMIT2
+               //OP_SELLLIMIT3
+               //Buy stop 4
+               //OP_SELLSTOP 5
+
+
+
+               if(Oper==OP_BUY || Oper==OP_BUYSTOP)
+                 {
+                  PlaceOrder(OP_BUY);
+
+                  orderPlacedTime = TimeCurrent();
+                  orderToDelete = true;
+                 }
+
+               else
+                 {
+                  PlaceOrder(OP_SELL);
+                  orderPlacedTime = TimeCurrent();
+                  orderToDelete = true;
+                 }
+
+              }
+            //             ExecutionTime=GetTickCount()-ExecutionTime;
+
+           }
+        }
+
+   Comment("\nMagic# "+DoubleToString(MyMagicNumber,0)+", Risk "+DoubleToString(Risk,2)+ ", Max DD: " + DoubleToString(MaxDD,1)+"%, Current Drawdawn: "+DoubleToString(100*(MaxBalance-AccountBalance())/MaxBalance,1)+" %"+
+           "\nMin Lot "+DoubleToString(MinLots,2)+", Max Lot "+DoubleToString(MaxLots,2)+", Lot Step "+DoubleToString(LotStep,2)+", Stop Level "+DoubleToString(MarketInfo(Symbol(),MODE_STOPLEVEL)*Point()/MyPoint,1)+" pips"+
+           "\n"+sInfo+
+           "\nStart Time: "+TimeToString(s0Time,TIME_DATE|TIME_SECONDS)+
+           "\nLocal Time: "+TimeToString(TimeLocal(),TIME_DATE|TIME_SECONDS)+
+           "\nTotal Pips: "+DoubleToString(TotalPips,1)+
+           "\nTotal Trades: "+DoubleToString(TotalTrades,0)+
+           "\nEntry Errors: "+DoubleToString(OpenErrors,0)+
+           "\nHL BS Price: "+DoubleToString(HL_BS_Value,Digits())+
+           "\nHL SS Price: "+DoubleToString(HL_SS_Value,Digits())+
+           "\nOpen Slippage: "+DoubleToString(EntrySlippage,1)+" pips"+
+           "\nAverage Speed: "+DoubleToString(EntryMS/MathMax(TotalTrades,1),0)+" ms"+
+           "\nAverage Slippage: "+DoubleToString(EntrySlippage/MathMax(TotalTrades,1),1)+" pips"
+          );
+
+   Sleep(MathMax(SleepMS,10));
+//    if(IsTesting())
+//      break;
+//  }
+   return(0);
+  }
+  
+ // Helper function to convert string to wide char array (ushort)
+void StringToWideCharArray(const string &src, ushort &dest[])
+{
+    int length = StringLen(src);
+    ArrayResize(dest, length + 1);  // Resize the destination array to fit the string + null-terminator
+
+    for(int i = 0; i < length; i++)
+    {
+        dest[i] = (ushort)src[i];  // Convert each character to a wide character
+    }
+
+    dest[length] = 0;  // Null-terminate the wide character array
+}
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+void CheckMaster()
+  {
+//Print(__FUNCTION__);
+   MasterBid=0;
+   MasterAsk=0;
+   LastQ="";
+   if(IsTesting())
+     {
+      MasterBid=NormalizeDouble(MarketInfo(MasterPair,MODE_BID)/2
+                                +MarketInfo(MasterPair,MODE_ASK)/2
+                                -MyPoint+2*MyPoint*(MathRand()-32767/2)/(32767/6),Digits());
+      MasterAsk=MasterBid+2*MyPoint;
+     }
+   else
+     {
+      string MyPipeName = PIPE_BASE_NAME+PipeName;
+      string extMessage = MasterPair;
+      Print("extMessage  :"+extMessage);
+
+      uchar  aextMessage[2048];
+      uchar  inBuffer[2048];
+      int    bytesRead[1];
+      
+      
+      StringToCharArray(extMessage,aextMessage);
+      bool fSuccess = CallNamedPipeW(MyPipeName,
+                                     aextMessage,
+                                     StringLen(extMessage)+1,
+                                     inBuffer,
+                                     ArraySize(inBuffer),
+                                     bytesRead,0) != 0;
+      
+                                  
+      //=============================================
+      int lastError = GetLastError();
+
+      Print("lastError == ERROR_MORE_DATA"+(lastError == ERROR_MORE_DATA));
+      Print("lastError: "+lastError);
+
+      Print("fSuccess  :"+fSuccess);
+
+
+      if(fSuccess/* || lastError == ERROR_MORE_DATA*/)
+        {
+         string inString = "";
+         for(int i=0; i<bytesRead[0]; i++)
+         //for(int i=0; i<bytesRead; i++)
+            inString = inString + CharToString(inBuffer[i]);
+         int ai=StringFind(inString, "|", 0);
+         if(ai>0)
+           {
+            MasterBid=StringToDouble(StringSubstr(inString, 0, ai));
+            MasterAsk=StringToDouble(StringSubstr(inString, ai+1));
+           }
+         LastQ=inString;
+        }
+     }
+   if(MasterBid>0.0001)
+      MasterBid=MasterBid+BidCorrection;
+   if(MasterAsk>0.0001)
+      MasterAsk=MasterAsk+AskCorrection;
+
+   Print("MasterBid  :"+MasterBid);
+   Print("MasterAsk  :"+MasterAsk);
+
+  }
+
+
+
+
+
+
+
+
+
+//+------------------------------------------------------------------+

@@ -1,0 +1,142 @@
+//@version=5
+indicator("Institutional CRT Engine v3.1 - Final Dual Mode", "CRT Engine", overlay=true, max_lines_count=500, max_labels_count=500, dynamic_requests=true)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//
+//                       Institutional CRT Engine v3.1
+//
+//  This version provides a full implementation of the dual-mode logic for both
+//  1-Hour and 4-Hour CRT models, correcting a critical issue with multi-timeframe
+//  analysis that caused elements not to render in H4 mode.
+//
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// --- USER INPUTS ---
+g_model = "Model Selection"
+i_timeframe_mode = input.string("1-Hour CRT", "CRT Timeframe", ["1-Hour CRT", "4-Hour CRT"], group = g_model)
+i_model_choice_1h = input.string("9 AM NY", "1-Hour CRT Sessions", ["1 AM Asia", "5 AM London", "9 AM NY"], group = g_model)
+i_model_choice_4h = input.string("8 AM NY (H4)", "4-Hour CRT Sessions", ["12 AM NY (H4)", "4 AM London (H4)", "8 AM NY (H4)"], group = g_model)
+
+g_display = "Display & Alert Settings"
+i_show_boxes = input.bool(true, "Show CRT Range Box", group = g_display)
+i_show_labels = input.bool(true, "Show Buy/Sell Signals", group = g_display)
+
+
+// --- INTERNAL STATE & TIME LOGIC ---
+var string CRT_TIMEFRAME = i_timeframe_mode == "1-Hour CRT" ? "60" : "240"
+var string MSS_TIMEFRAME = i_timeframe_mode == "1-Hour CRT" ? "15" : "60"
+
+// Target hour logic
+var int TARGET_HOUR = na
+if i_timeframe_mode == "1-Hour CRT"
+    TARGET_HOUR := i_model_choice_1h == "1 AM Asia" ? 0 : i_model_choice_1h == "5 AM London" ? 4 : 8
+else
+    TARGET_HOUR := i_model_choice_4h == "12 AM NY (H4)" ? 0 : i_model_choice_4h == "4 AM London (H4)" ? 4 : 8
+
+var string state = "WAITING_FOR_RANGE"
+var float crt_high = na, var float crt_low = na
+var float mss_level = na
+var float fvg_high = na, var float fvg_low = na
+var string direction = ""
+
+is_new_day = ta.change(dayofmonth(time, "America/New_York"))
+if is_new_day
+    state := "WAITING_FOR_RANGE"
+
+// --- MULTI-TIMEFRAME DATA (All at top level) ---
+// CRT timeframe data
+[crt_time, crt_h, crt_l] = request.security(syminfo.tickerid, CRT_TIMEFRAME, [time, high, low], lookahead=barmerge.lookahead_on)
+is_target_hour = hour(crt_time, "America/New_York") == TARGET_HOUR
+is_new_crt_candle = ta.change(crt_time)
+
+// MSS timeframe data
+[mss_h, mss_l, mss_c] = request.security(syminfo.tickerid, MSS_TIMEFRAME, [high, low, close])
+mss_high_prev = request.security(syminfo.tickerid, MSS_TIMEFRAME, high[1])
+mss_low_prev = request.security(syminfo.tickerid, MSS_TIMEFRAME, low[1])
+mss_high_prev2 = request.security(syminfo.tickerid, MSS_TIMEFRAME, high[2])
+mss_low_prev2 = request.security(syminfo.tickerid, MSS_TIMEFRAME, low[2])
+
+// --- CORE FUNCTIONS ---
+
+// Gets the timed range (H1 or H4)
+f_getTimedRange() =>
+    is_target = is_target_hour
+    is_new = is_new_crt_candle
+    [is_target and is_new, crt_h, crt_l]
+
+// Correctly finds swing points on the appropriate MSS timeframe
+f_findLastSwing(bool findHigh) =>
+    float result = na
+    // Simple swing detection: check if current value is higher/lower than previous
+    if findHigh and mss_high_prev > mss_high_prev2
+        result := mss_high_prev
+    else if not findHigh and mss_low_prev < mss_low_prev2
+        result := mss_low_prev
+    result
+
+// Looks for an FVG on the MSS timeframe
+f_findEntryFVG(bool isBullish) =>
+    float fvg_h = na, float fvg_l = na
+    if isBullish and mss_l > mss_high_prev2
+        fvg_h := mss_high_prev2, fvg_l := mss_l
+    else if not isBullish and mss_h < mss_low_prev2
+        fvg_h := mss_h, fvg_l := mss_low_prev2
+    [fvg_h, fvg_l]
+
+
+// --- MAIN LOGIC EXECUTION ---
+
+// Step 1: Find the timed CRT range for the day
+[is_new_candle, h, l] = f_getTimedRange()
+if is_new_candle and state == "WAITING_FOR_RANGE"
+    crt_high := h, crt_low := l
+    state := "WAITING_FOR_SWEEP"
+
+if state != "WAITING_FOR_RANGE"
+    
+    // Step 2: Detect a sweep of the CRT range
+    is_bull_sweep = state == "WAITING_FOR_SWEEP" and mss_l < crt_low
+    is_bear_sweep = state == "WAITING_FOR_SWEEP" and mss_h > crt_high
+
+    if is_bull_sweep
+        direction := "BULLISH", state := "WAITING_FOR_MSS"
+    if is_bear_sweep
+        direction := "BEARISH", state := "WAITING_FOR_MSS"
+        
+    // Step 3: Wait for a confirmed Market Structure Shift on the correct timeframe
+    if state == "WAITING_FOR_MSS"
+        if direction == "BULLISH"
+            mss_level := f_findLastSwing(true)
+            if not na(mss_level) and mss_c > mss_level
+                state := "WAITING_FOR_ENTRY"
+        if direction == "BEARISH"
+            mss_level := f_findLastSwing(false)
+            if not na(mss_level) and mss_c < mss_level
+                state := "WAITING_FOR_ENTRY"
+
+    // Step 4: Wait for a pullback to the FVG for an entry signal
+    bool buySignal = false, sellSignal = false
+    if state == "WAITING_FOR_ENTRY"
+        [fvg_h_new, fvg_l_new] = f_findEntryFVG(direction == "BULLISH")
+        if not na(fvg_h_new)
+            fvg_high := fvg_h_new, fvg_low := fvg_l_new
+            if direction == "BULLISH" and mss_c <= fvg_high
+                buySignal := true
+            if direction == "BEARISH" and mss_c >= fvg_low
+                sellSignal := true
+        
+        if buySignal or sellSignal
+            state := "TRIGGERED"
+
+
+    // --- VISUALIZATION & ALERTS ---
+    if crt_high > 0 and i_show_boxes
+        box.new(bar_index[10], crt_high, bar_index + 10, crt_low, border_color=color.new(color.gray, 70), bgcolor=color.new(color.gray, 95))
+        
+    if buySignal and i_show_labels
+        label.new(bar_index, low, "▲\n" + i_timeframe_mode, style=label.style_label_up, color=color.new(color.green, 20), textcolor=color.white)
+        alert("CRT Signal (" + i_timeframe_mode + "): Bullish Setup Confirmed", alert.freq_once_per_bar_close)
+
+    if sellSignal and i_show_labels
+        label.new(bar_index, high, "▼\n" + i_timeframe_mode, style=label.style_label_down, color=color.new(color.red, 20), textcolor=color.white)
+        alert("CRT Signal (" + i_timeframe_mode + "): Bearish Setup Confirmed", alert.freq_once_per_bar_close)

@@ -1,0 +1,287 @@
+﻿//@version=5
+// © Made By Cio
+
+
+strategy("Made By Cio BigBoss ", overlay=true, precision=0, explicit_plot_zorder=true, max_labels_count=500, max_lines_count=500, max_boxes_count=500)
+
+// Get user input
+
+sensitivity = input.float(3.4, "Sensitivity (0.01 - 5)", 0.01, 5, step=0.01)
+
+emaCloud = input.bool(false, "Boss Cloud")
+
+suppRes = input.bool(false, "Support & Resistance")
+
+breaks = input.bool(false, "Breaks")
+
+usePsar = input.bool(false, "PSAR")
+
+emaEnergy = input.bool(true, "Boss Energy")
+
+autoTL = input.bool(true, "Auto Boss Trend Lines")
+
+length = input(title='Boss Range', defval=2)
+
+mult = input.float(title='Boss Multiplier', step=0.1, defval=1.35)
+
+showLabels = input(title='Show Pump/Dump Labels ?', defval=true)
+
+useClose = input(title='Dont Get Wicked Out?', defval=true)
+
+highlightState = input(title='Highlight State ?', defval=true)
+
+/////Boss Calculations////
+//supertdend(_src, factor, atrLen)=>
+atr = mult * ta.atr(length)
+//atr= ta.atr(atrLen)
+//upperBand =_src + factor * atr
+//prevUpperBand = nz(upperBand[1])
+//upperBand := upperBand < prevUpperBand or close[1] > prevUpperband ? //upperBand : prevUpperBand
+longStop = (useClose ? ta.highest(close, length) : ta.highest(length)) - atr
+longStopPrev = nz(longStop[1], longStop)
+longStop := close[1] > longStopPrev ? math.max(longStop, longStopPrev) : longStop
+//lowerBand = _src - factor * atr
+//prevLowerBand = nz(lowerBand[1])
+//lowerBand := lowerBand > prevLowerBand or close[1] < prevLowerBand ? //lowerBand : prevLowerBand
+shortStop = (useClose ? ta.lowest(close, length) : ta.lowest(length)) + atr
+shortStopPrev = nz(shortStop[1], shortStop)
+shortStop := close[1] < shortStopPrev ? math.min(shortStop, shortStopPrev) : shortStop
+//int direction = na
+//float supertrend = na
+//prevSuperTrend[1]
+//if na(atr[1])
+//direction := 1
+var int dir = 1
+dir := close > shortStopPrev ? 1 : close < longStopPrev ? -1 : dir
+
+var color longColor = color.blue
+var color shortColor = color.purple
+//else if prevSuperTrend == prev UpperBand
+//direction := 1
+//else if prevSuperTrend == prevUpperBand
+// direction := close > upperBand ? -1 : 1
+//else
+//direction := close < lowerBand ? 1 : -1
+//superTrend := direction == -1 ? lowerBand : upperBand
+//[superTrend, direction]
+longStopPlot = plot(dir == 1 ? longStop : na, title='Long Stop', style=plot.style_linebr, linewidth=2, color=color.new(longColor, 0))
+buySignal = dir == 1 and dir[1] == -1
+plotshape(buySignal ? longStop : na, title='Long Stop Start', location=location.absolute, style=shape.triangleup, size=size.tiny, color=color.new(longColor, 0))
+plotshape(buySignal and showLabels ? longStop : na, title='Buy Label', text='PUMP', location=location.absolute, style=shape.labelup, size=size.tiny, color=color.new(longColor, 0), textcolor=color.new(#cf2dfc, 0))
+shortStopPlot = plot(dir == 1 ? na : shortStop, title='Short Stop', style=plot.style_linebr, linewidth=2, color=color.new(shortColor, 0))
+sellSignal = dir == -1 and dir[1] == 1
+plotshape(sellSignal ? shortStop : na, title='Short Stop Start', location=location.absolute, style=shape.triangledown, size=size.tiny, color=color.new(shortColor, 0))
+plotshape(sellSignal and showLabels ? shortStop : na, title='Sell Label', text='DUMP', location=location.absolute, style=shape.labeldown, size=size.tiny, color=color.new(shortColor, 0), textcolor=color.new(color.aqua, 0))
+
+midPricePlot = plot(ohlc4, title='', style=plot.style_circles, linewidth=0, display=display.none, editable=false)
+
+longFillColor = highlightState ? dir == 1 ? longColor : na : na
+shortFillColor = highlightState ? dir == -1 ? shortColor : na : na
+fill(midPricePlot, longStopPlot, title='Long State Filling', color=longFillColor, transp=80)
+fill(midPricePlot, shortStopPlot, title='Short State Filling', color=shortFillColor, transp=80)
+
+changeCond = dir != dir[1]
+alertcondition(changeCond, title='Alert: Boss Direction Change', message='Chandelier Exit has changed direction!')
+alertcondition(buySignal, title='Alert: Boss Buy', message='Buy Dat Shit Mufucker!')
+alertcondition(sellSignal, title='Alert: Boss Sell', message='Sell Dat Shit!')
+
+//Get auto trend lines//
+lr_slope(_src, _len) =>
+    x = 0.0, y = 0.0, x2 = 0.0, xy = 0.0
+    for i = 0 to _len - 1
+        val = _src[i]
+        per = i + 1
+        x += per
+        y += val
+        x2 += per * per
+        xy += val * per
+    _slp = (_len * xy - x * y) / (_len * x2 - x * x)
+    _avg = y / _len
+    _int = _avg - _slp * x / _len + _slp
+    [_slp, _avg, _int]
+lr_dev(_src, _len, _slp, _avg, _int) =>
+    upDev = 0.0, dnDev = 0.0
+    val = _int
+    for j = 0 to _len - 1
+        price = high[j] - val
+        if price > upDev
+            upDev := price
+        price := val - low[j]
+        if price > dnDev
+            dnDev := price
+        price := _src[j]
+        val += _slp
+    [upDev, dnDev]
+// Get MA Components
+
+ocAvg = math.avg(open, close)
+
+ema1 = ta.ema(high, 5)
+
+ema2 = ta.ema(high, 8)
+
+ema3 = ta.ema(high, 18)
+
+ema4 = ta.ema(high, 21)
+
+sma1 = ta.sma(close, 5)
+
+sma2 = ta.sma(close, 8)
+
+sma3 = ta.sma(close, 11)
+
+sma4 = ta.sma(close, 14)
+
+sma5 = ta.sma(close, 17)
+
+sma6 = ta.sma(close, 20)
+
+sma7 = ta.sma(close, 22)
+
+sma8 = ta.sma(close, 25)
+
+sma9 = ta.sma(close, 28)
+
+sma10 = ta.sma(close, 31)
+
+sma11 = ta.sma(close, 34)
+
+sma12 = ta.sma(close, 37)
+
+sma13 = ta.sma(close, 40)
+
+sma14 = ta.sma(close, 43)
+
+sma15 = ta.sma(close, 46)
+
+sma16 = ta.sma(close, 49)
+
+psar = ta.sar(0.022, 0.022, 0.22)
+
+//[supertrend, direction] = supertrend(close, sensitivity, 11)
+
+barsL = 10
+
+barsR = 10
+
+pivotHigh = fixnan(ta.pivothigh(barsL, barsR)[1])
+
+pivotLow = fixnan(ta.pivotlow(barsL, barsR)[1])
+
+// Colors
+
+green = #0290f6, green2 = #0290f6
+
+red = #cf2dfc, red2 = #cf2dfc
+
+//emaCloudColor = emaCloud ? (close > supertrend ? #0290f6 : #cf2dfc) : na
+
+emaEnergyColor(ma) => emaEnergy ? (close >= ma ? green : red) : na
+
+// Plots
+
+p1 = plot(ema1, "", na, editable=false)
+
+//p2 = plot(ema2, "", emaCloudColor , editable=false)
+
+//p3 = plot(ema3, "", emaCloudColor, editable=false)
+
+p4 = plot(ema4, "", na, editable=false)
+
+//fill(p1, p2, emaCloud ? (ema3 > ema2 ? color.new(#cf2dfc, 80) : color.new(#0290f6, 80)) : na)
+
+//fill(p4, p3, emaCloud ? (ema2 < ema3 ? color.new(#cf2dfc, 80) : color.new(#0290f6, 80)) : na)
+
+//fill(p2, p3, emaCloud ? color.new(emaCloudColor, 35) : na)
+
+plot(sma1, "", emaEnergyColor(sma1), editable=false)
+
+plot(sma2, "", emaEnergyColor(sma2), editable=false)
+
+plot(sma3, "", emaEnergyColor(sma3), editable=false)
+
+plot(sma4, "", emaEnergyColor(sma4), editable=false)
+
+plot(sma5, "", emaEnergyColor(sma5), editable=false)
+
+plot(sma6, "", emaEnergyColor(sma6), editable=false)
+
+plot(sma7, "", emaEnergyColor(sma7), editable=false)
+
+plot(sma8, "", emaEnergyColor(sma8), editable=false)
+
+plot(sma9, "", emaEnergyColor(sma9), editable=false)
+
+plot(sma10, "", emaEnergyColor(sma10), editable=false)
+
+plot(sma11, "", emaEnergyColor(sma11), editable=false)
+
+plot(sma12, "", emaEnergyColor(sma12), editable=false)
+
+plot(sma13, "", emaEnergyColor(sma13), editable=false)
+
+plot(sma14, "", emaEnergyColor(sma14), editable=false)
+
+plot(sma15, "", emaEnergyColor(sma15), editable=false)
+
+plot(sma16, "", emaEnergyColor(sma16), editable=false)
+source = close, period = 144
+[s, a, i] = lr_slope(source, period)
+[upDev, dnDev] = lr_dev(source, period, s, a, i)
+
+//barcolor(close > supertrend ? #0290f6 : red2)
+
+p5 = plot(ocAvg, "", na, editable=false)
+
+p6 = plot(psar, "PSAR", usePsar ? (psar < ocAvg ? green : red) : na, 1, plot.style_circles, editable=false)
+
+fill(p5, p6, usePsar ? (psar < ocAvg ? color.new(green, 90) : color.new(red, 90)) : na, editable=false)
+
+y1 = low - (ta.atr(30) * 2)
+
+y2 = high + (ta.atr(30) * 2)
+
+x1 = bar_index - period + 1, _y1 = i + s * (period - 1), 
+
+x2 = bar_index, _y2 = i 
+
+upperTL = autoTL ? line.new(x1, _y1 + upDev, x2, _y2 + upDev, xloc.bar_index, extend.right, red) : na 
+line.delete(upperTL[1]) 
+middleTL = autoTL ? line.new(x1, _y1, x2, _y2, xloc.bar_index, extend.right, color.white) : na 
+line.delete(middleTL[1]) 
+lowerTL = autoTL ? line.new(x1, _y1 - dnDev, x2, _y2 - dnDev, xloc.bar_index, extend.right, green) : na 
+line.delete(lowerTL[1])
+
+//bull = ta.crossover(close, supertrend) and close >= sma9
+
+//bear = ta.crossunder(close, supertrend) and close <= sma9
+
+//buy = bull ? label.new(bar_index, y1, "BUY", xloc.bar_index, yloc.price, #0290f6, label.style_label_up, color.white, size.normal) : na
+
+//sell = bear ? label.new(bar_index, y2, "SELL", xloc.bar_index, yloc.price, red2, label.style_label_down, color.white, size.normal) : na
+
+plot(pivotHigh, "Resistance", not suppRes or ta.change(pivotHigh) ? na : red, 2, offset=-(barsR + 1), editable=false)
+
+plot(pivotLow, "Support", not suppRes or ta.change(pivotLow) ? na : green, 2, offset=-(barsR + 1), editable=false)
+
+plotshape(breaks and ta.crossover(close, pivotHigh), "Break", shape.triangleup, location.belowbar, green, 0, "$", color.green, false, size.tiny)
+
+plotshape(breaks and ta.crossunder(close, pivotLow), "Break", shape.triangledown, location.abovebar, red, 0, "$", color.red, false, size.tiny)
+
+// Alerts
+
+//alertcondition(bull or bear or ta.crossover(close, pivotHigh) or ta.crossunder(close, pivotLow), "Alert Any", "Boss" Signals  Triggered on {{ticker}} @ {{close}}")
+
+//alertcondition(bull, "Alert Buy", "Boss" Signals Buy {{ticker}} @ {{close}}")
+
+//alertcondition(bear, "Alert Sell", "Boss" Signals Sell {{ticker}} @ {{close}}")
+
+//alertcondition(ta.crossover(close, pivotHigh), "Broke Resistance", "Boss " Signals  Resistance on {{ticker}} @ {{close}}")
+
+//alertcondition(ta.crossunder(close, pivotLow), "Broke Support", "Boss " Signals  Support on {{ticker}} @ {{close}}")
+
+//if bull
+//    strategy.entry("enter long", strategy.long, 1) 
+
+//if bear
+//    strategy.entry("enter short", strategy.short, 1)

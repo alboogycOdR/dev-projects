@@ -1,0 +1,100 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// ©Trade Confident
+
+// License Agreement: You are granted a personal license agreement to the following script for use on ONE TrdingView account. 
+// You may NOT resell or distribute this script in any way, this is strictly prohibited and is tracked on TradingView.
+// PLEASE READ: We will take legal action if this script is shared with another TradingView account or modified and reposted on TradingView IN ANY WAY.
+
+//@version=5
+indicator("Trend Dashboard")
+
+off = 1
+
+// RSI
+rsi_len = 14
+rsi = ta.rsi(close, rsi_len)
+
+// Stoch
+periodK = 14
+periodD = 3
+smoothK = 3
+k = ta.sma(ta.stoch(close, high, low, periodK), smoothK)
+d = ta.sma(k, periodD)
+
+// MACD
+fast_length = 12
+slow_length = 25
+macd_src = close
+signal_length = 9
+sma_source = false //input(title="Simple MA(Oscillator)", type=input.bool, defval=false)
+sma_signal = false //input(title="Simple MA(Signal Line)", type=input.bool, defval=false)
+
+fast_ma = sma_source ? ta.sma(macd_src, fast_length) : ta.ema(macd_src, fast_length)
+slow_ma = sma_source ? ta.sma(macd_src, slow_length) : ta.ema(macd_src, slow_length)
+macd = fast_ma - slow_ma
+signal = sma_signal ? ta.sma(macd, signal_length) : ta.ema(macd, signal_length)
+hist = macd - signal
+
+// MA
+ma1 = ta.sma(close, 50)
+ma2 = ta.sma(close, 100)
+ma3 = ta.sma(close, 200)
+
+
+// UP Variables
+rsi1 = rsi>50
+stoch1 = k>d
+macd1 = macd>signal
+ma1_1 = close>ma1
+ma2_1 = close>ma2
+ma3_1 = close>ma3
+
+
+// Plots
+title_size_input = size.normal
+
+
+transparent = color.new(color.white, 100)
+name1 = label.new(bar_index-(5*20*off), 1, "RSI"         , color=transparent, textcolor=color.black, style=label.style_label_down, yloc=yloc.price, size=title_size_input)
+name2 = label.new(bar_index-(5*16*off), 1, "Stoch"       , color=transparent, textcolor=color.black, style=label.style_label_down, yloc=yloc.price, size=title_size_input)
+name3 = label.new(bar_index-(5*12*off), 1, "MACD"        , color=transparent, textcolor=color.black, style=label.style_label_down, yloc=yloc.price, size=title_size_input)
+name4 = label.new(bar_index-(5*8*off), 1, "50MA"        , color=transparent, textcolor=color.black, style=label.style_label_down, yloc=yloc.price, size=title_size_input)
+name5 = label.new(bar_index-(5*4*off), 1, "100MA"       , color=transparent, textcolor=color.black, style=label.style_label_down, yloc=yloc.price, size=title_size_input)
+name6 = label.new(bar_index-(5*0*off), 1, "200MA"       , color=transparent, textcolor=color.black, style=label.style_label_down, yloc=yloc.price, size=title_size_input)
+
+label.delete(name1[1])
+label.delete(name2[1])
+label.delete(name3[1])
+label.delete(name4[1])
+label.delete(name5[1])
+label.delete(name6[1])
+
+
+// RSI
+plotshape(rsi1?1:na,  color=color.new(color.lime,0), style=shape.triangleup , location=location.absolute, offset=-(5*20*off), size=size.small, show_last=1)
+plotshape(rsi1?na:1,  color=color.new(color.red,0), style=shape.triangledown , location=location.absolute, offset=-(5*20*off), size=size.small, show_last=1)
+
+
+// STOCH
+plotshape(stoch1?1:na,  color=color.new(color.lime,0), style=shape.triangleup , location=location.absolute, offset=-(5*16*off), size=size.small, show_last=1)
+plotshape(stoch1?na:1,  color=color.new(color.red,0), style=shape.triangledown , location=location.absolute, offset=-(5*16*off), size=size.small, show_last=1)
+
+
+// MACD
+plotshape(macd1?1:na,  color=color.new(color.lime,0), style=shape.triangleup , location=location.absolute, offset=-(5*12*off), size=size.small, show_last=1)
+plotshape(macd1?na:1,  color=color.new(color.red,0), style=shape.triangledown , location=location.absolute, offset=-(5*12*off), size=size.small, show_last=1)
+
+
+// MA1
+plotshape(ma1_1?1:na,  color=color.new(color.lime,0), style=shape.triangleup , location=location.absolute, offset=-(5*8*off), size=size.small, show_last=1)
+plotshape(ma1_1?na:1,  color=color.new(color.red,0), style=shape.triangledown , location=location.absolute, offset=-(5*8*off), size=size.small, show_last=1)
+
+
+// MA2
+plotshape(ma2_1?1:na,  color=color.new(color.lime,0), style=shape.triangleup , location=location.absolute, offset=-(5*4*off), size=size.small, show_last=1)
+plotshape(ma2_1?na:1,  color=color.new(color.red,0), style=shape.triangledown , location=location.absolute, offset=-(5*4*off), size=size.small, show_last=1)
+
+
+// MA3
+plotshape(ma3_1?1:na,  color=color.new(color.lime,0), style=shape.triangleup , location=location.absolute, offset=-(5*0*off), size=size.small, show_last=1)
+plotshape(ma3_1?na:1,  color=color.new(color.red,0), style=shape.triangledown , location=location.absolute, offset=-(5*0*off), size=size.small, show_last=1)

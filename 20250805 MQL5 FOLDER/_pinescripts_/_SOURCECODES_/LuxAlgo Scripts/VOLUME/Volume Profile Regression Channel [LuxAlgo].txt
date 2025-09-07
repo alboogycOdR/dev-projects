@@ -1,0 +1,185 @@
+// This work is licensed under a Attribution-NonCommercial-ShareAlike 4.0 International (CC BY-NC-SA 4.0) https://creativecommons.org/licenses/by-nc-sa/4.0/
+// © LuxAlgo
+
+//@version=5
+indicator("Volume Profile Regression Channel [LuxAlgo]", "LuxAlgo - Volume Profile Regression Channel", overlay = true, max_lines_count = 500)
+//------------------------------------------------------------------------------
+//Settings
+//-----------------------------------------------------------------------------{
+sections = input.int(100                  , minval = 2)
+width    = input.float(25, 'Width %'      , minval = 0, maxval = 100) / 100
+vaPer    = input.float(50, 'Volume Area %', minval = 0, maxval = 100) / 100
+
+//Style
+bull = input(color.teal, 'Bullish'                         , group = 'Style')
+bear = input(color.red, 'Bearish'                          , group = 'Style')
+
+showLoc = input(true, 'Show Loc'            , inline = 'loc' , group = 'Style')
+locCss  = input(#ffeb3b, ''               , inline = 'loc' , group = 'Style')
+
+showDloc = input(true, 'Show Developing Loc', inline = 'dloc', group = 'Style')
+dlocCss  = input(#2157f3, ''              , inline = 'dloc', group = 'Style')
+
+vaTransp    = input.int(50, 'VA Transparency'        , minval = 0, maxval = 100, group = 'Style')
+outVaTransp = input.int(80, 'Outside VA Transparency', minval = 0, maxval = 100, group = 'Style')
+
+//Coordinates
+userX1 = input.time(0, confirm = true, inline = '1', group = 'Coordinates')
+userX2 = input.time(0, confirm = true, inline = '2', group = 'Coordinates')
+
+//-----------------------------------------------------------------------------}
+//Main
+//-----------------------------------------------------------------------------{
+var x1 = 0
+var x2 = 0
+var float mean  = na
+var float wmean = na
+var den = 0
+
+//Initial LOC line
+var loc_ext = line.new(na,na,na,na
+  , style = line.style_dashed
+  , color = locCss
+  , extend = extend.right)
+
+//Initial profile bins array
+var lines = array.new<line>(0)
+
+if barstate.isfirst
+    for i = 0 to sections-1 //Populate array
+        lines.push(line.new(na,na,na,na)) 
+
+//-----------------------------------------------------------------------------}
+//Get anchor coordinates and calculate trailing weighted/sum
+//-----------------------------------------------------------------------------{
+n = bar_index
+
+if time == userX1
+    x1    := n
+    den   := 1
+    mean  := close
+    wmean := close
+else
+    den   += 1
+    mean  += close
+    wmean += close * den
+
+//-----------------------------------------------------------------------------}
+//Set regression profile
+//-----------------------------------------------------------------------------{
+var vol = array.new<float>(sections, 0)
+
+
+//Set volume profile
+if time == userX2
+    x2 := n
+    dist = 0.
+
+    //Get linreg coordinates & slope
+    mean := mean / den
+    wmean := wmean / (den * (den+1) / 2) 
+    lreg_y1 = 4 * mean - 3 * wmean
+    lreg_y2 = 3 * wmean - 2 * mean
+
+    slope = (lreg_y2 - lreg_y1)/(x2 - x1)
+
+    css = slope > 0 ? bull : bear //Get color based on slope sign
+
+    //Get channel width
+    max = 0., max_dist = 0.
+    min = 0., min_dist = 0.
+    
+    for i = 0 to (x2 - x1)
+        y2 = lreg_y2 + slope * -i
+
+        max := math.max(high[i] - y2, max, 0)
+        min := math.min(low[i] - y2, min, 0)
+
+    lreg_y1 += min 
+    lreg_y2 += min 
+    dist := math.abs(max + -min)
+
+    //Display profile bins/loc/developing loc
+    dloc = 0.
+    float prev_dloc = na
+
+    max_vol = 0.
+    //Loop over the user set interval
+    for i = 0 to (x2 - x1)
+        h = high[(x2 - x1) - i]
+        l = low[(x2 - x1) - i]
+        v = volume[(x2 - x1) - i]
+        y2 = lreg_y1 + slope * i
+
+        d    = 0.
+        lvl  = y2
+        prev = y2
+
+        //Loop over the channel areas
+        for j = 0 to sections-1
+            lvl += dist / sections
+            d   += dist / sections
+            
+            //If within area accumulate volume
+            if h > math.min(lvl, prev) and l < math.max(lvl, prev)
+                vol.set(j, vol.get(j) + v)
+
+            //Get developing loc
+            get_vol = vol.get(j)
+            max_vol := math.max(get_vol, max_vol)
+            dloc := get_vol == max_vol ? lvl : dloc
+            prev := lvl
+
+            //Get bin length
+            idx = int(get_vol / max_vol * width * (x2 - x1))
+
+            //Set bins
+            get_l = lines.get(j)            
+            get_l.set_xy1(x1, lreg_y1 + d)
+            get_l.set_xy2(x1 + idx, lreg_y1 + slope * idx + d)
+
+            //Highlight and set loc extension
+            if vol.get(j) == max_vol and showLoc
+                get_l.set_color(color.yellow)
+                loc_ext.set_xy1(x1 + idx, lreg_y1 + slope * idx + d)
+                loc_ext.set_xy2(x1 + idx + 1, lreg_y1 + slope * (idx + 1) + d)
+            else
+                get_l.set_color(color.new(css, outVaTransp))
+        
+        //Set developing point
+        if showDloc
+            line.new(x1 + i - 1, prev_dloc, x1 + i, dloc)
+        
+        prev_dloc := dloc
+
+    va_idx = 0
+    vol_sum = vol.sum()
+    loc_idx = vol.indexof(max_vol)
+
+    //Set value area
+    for i = 0 to sections-1
+        va_idx += 1
+        gotop = loc_idx + va_idx <= sections-1
+        gobtm  = loc_idx - va_idx >= 0
+        
+        //Loop above LOC
+        if gotop
+            max_vol += vol.get(loc_idx + va_idx)
+            lines.get(loc_idx + va_idx).set_color(color.new(css, vaTransp))
+        
+        //Loop below LOC
+        if gobtm
+            max_vol += vol.get(loc_idx - va_idx)
+            lines.get(loc_idx - va_idx).set_color(color.new(css, vaTransp))
+        
+        if max_vol / vol_sum > vaPer
+            break
+
+    //Set Lines
+    l1 = line.new(userX1, lreg_y1, userX2, lreg_y2, xloc.bar_time, color = css)
+    l2 = line.new(userX1, lreg_y1 + dist, userX2, lreg_y2 + dist, xloc.bar_time, color = color(na))
+    
+    //Set fill
+    linefill.new(l1, l2, color.new(color.gray, 90))
+
+//-----------------------------------------------------------------------------}

@@ -1,0 +1,60 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © henryparkin
+
+//@version=5
+strategy("Fractals", margin_long=100, margin_short=100, overlay = true, calc_on_every_tick = true)
+
+// Williams Fractals
+n = input.int(title='Periods', defval=2, minval=2)
+
+
+upFractal = high[n - 1] < high[n] and high[n + 1] < high[n] and high[n - 2] < high[n] and high[n + 2] < high[n]
+dnFractal = low[n - 1] > low[n] and low[n + 1] > low[n] and low[n - 2] > low[n] and low[n + 2] > low[n]
+plotshape(upFractal, "SH", shape.arrowup, location.abovebar, offset=-2, color=color.new(color.green, 0)) 
+plotshape(dnFractal, "SL", shape.arrowdown, location.belowbar, offset=-2, color=color.new(color.red, 0)) 
+
+ufh = ta.valuewhen(upFractal, ta.highest(3), 0)
+dfl = ta.valuewhen(dnFractal, ta.lowest(3), 0)
+
+sh_broke = ta.crossover(high, ufh)
+sl_broke = ta.crossunder(low, dfl), 
+plotshape(sl_broke, "Break Down!", shape.arrowdown, location.belowbar, text="Break!", offset=0, color=color.new(color.black, 0))
+plotshape(sh_broke, "Break Up!", shape.arrowup, location.abovebar, text="Break!", offset=0, color=color.new(color.black, 0))
+
+plot(upFractal ? ufh: na, "High Broken", style=plot.style_stepline, offset=-2, color=color.new(color.green, 0))
+plot(dfl, "Low Broken",style=plot.style_stepline, offset=-2, color=color.new(color.red, 0))
+
+
+alertcondition(sh_broke, "SH Broken", "SH Broken")
+alertcondition(sl_broke, "SL Broken", "SL Broken")
+
+//
+longCondition = sh_broke 
+if (longCondition) 
+    log.info("longCondition Met")
+    strategy.entry("My Long Entry Id", strategy.long)
+if not (longCondition)
+    strategy.cancel("My Long Entry Id")
+
+// Short condition
+
+shortCondition = sl_broke 
+if (shortCondition)
+    log.info("Short Condition")
+    strategy.entry("My Short Entry Id", strategy.short)
+if not (shortCondition)
+    strategy.cancel("My Short Entry Id")
+//
+// SL code
+
+Slshort1 = ta.crossover(high, ufh[1]) //previous candle from entry not from price
+SLlong1 = ta.crossunder(low, dfl[1])
+
+
+// I want the Stop Loss to be placed on the previous opposite fractal to the fractal of which the trade was taken on. 
+if SLlong1
+    strategy.exit("SL L", from_entry = "My Long Entry Id", alert_message = "Stop Loss Long", stop= dfl [1])
+
+
+if Slshort1
+    strategy.exit("SL S", from_entry= "My Short Entry Id", stop= ufh[1])

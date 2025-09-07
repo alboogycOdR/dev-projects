@@ -1,0 +1,993 @@
+//MODIFICADO POR Cio
+//Idea original de @Cio
+//Based on the original ideas and open source.
+//Agradecimiento especial  8Zamania, sugerencia para ajustes de ATR en temporalidad de 1D  y Diseño. 2023
+//User SuperTrend: KivancOzbilgic
+
+//@version=5
+indicator("Supertrend Algo", overlay = true
+  , max_labels_count = 500
+  , max_lines_count = 500
+  , max_boxes_count = 500
+  , max_bars_back = 500
+  , precision=4
+  , linktoseries=true
+  , max_bars_back=1000
+  , max_lines_count=500)
+
+
+
+// Módulo  - HERRAMIENTAS Y UTILERIAS 
+//-----------------------------------------
+//*********************************************************
+//*                     Módulo                            *
+//*                    HERRAMIENTAS                       *
+//*********************************************************
+// Cálculos
+//--------
+// Grupo : Opciones del Módulo 
+group1 = "Módulo - HERRAMIENTAS"
+// Separación visual
+plot(na)
+// group=group1
+
+
+mostrarADMINVST = input.bool(false, "Mostrar Ema ADMINVST 10", inline = "EMA ADMINVST 10", group=group1,tooltip="Predeterminada en la guia Investing Bull ,10 tipo Step")
+colorEmaADMINVST = input.color(color.lime, "Color Ema ADMINVST 10", inline = "EMA ADMINVST 10", group=group1)
+emaADMINVST = ta.ema(close, 10)
+plot(mostrarADMINVST ? emaADMINVST : na, color = colorEmaADMINVST, linewidth = 2, style = plot.style_stepline)
+
+
+mostrarADMINVST2 = input.bool(false, "Mostrar Sma Tipo 1", inline = "SEMA Tipo 1", group=group1)
+colorEmaADMINVST2 = input.color(color.aqua, "Color Sma Tipo 1", inline ="SEMA Tipo 1", group=group1)
+lenADMINVST2 = input(title='length', defval=200, inline = "SEMA Tipo 1", group=group1 ,tooltip="Predeterminada 200 para Filtrado de tendencia")
+emaADMINVST2 = ta.sma(close, lenADMINVST2)
+plot(mostrarADMINVST2 ? emaADMINVST2 : na, color = colorEmaADMINVST2, linewidth = 2)
+
+
+mostrarADMINVST3 = input.bool(false, "Mostrar Sma Tipo 2", inline = "SEMA Tipo 2", group=group1)
+colorEmaADMINVST3 = input.color(color.yellow, "Color Sma Tipo 2", inline ="SEMA Tipo 2", group=group1)
+lenADMINVST3 = input(title='length', defval=50, inline = "SEMA Tipo 2", inline ="SEMA Tipo 2", group=group1,tooltip="Predeterminada 50 para Filtrado de tendencia")
+emaADMINVST3 = ta.sma(close, lenADMINVST3)
+plot(mostrarADMINVST3 ? emaADMINVST3 : na, color = colorEmaADMINVST3, linewidth = 2)
+
+
+mostrarZLSMA = input.bool(false, "Mostrar ZLSMA", inline = "ZLSMA CoM_gUnNeR",tooltip="Utilizada para Short / Long canales +- 5%")
+length = 32
+offsetZLSMA = 0
+srcZLSMA = close
+lsma = ta.linreg(srcZLSMA, length, offsetZLSMA)
+lsma2 = ta.linreg(lsma, length, offsetZLSMA)
+eq = lsma - lsma2
+zlsma = lsma + eq
+plot(mostrarZLSMA ? zlsma : na, color=color.new(color.gray, 0), linewidth=3)
+plot(mostrarZLSMA and ta.cross(zlsma, emaADMINVST) ? zlsma : na,color = color.lime, style = plot.style_cross, linewidth = 4)
+mostrarlength_hullmas = input.bool(false, "Mostrar Hullma`s y Cruces", inline = "Hullma`s 50/100",tooltip="Utilizada para Short / Long canales +- 5%")
+//MEDIAS HULL 50
+hullma = ta.hma(close, 50)
+//MEDIAS HULL 150
+hullma2 = ta.hma(close, 100)
+
+plot(mostrarlength_hullmas ? hullma : na, color=color.rgb(33, 149, 243, 60), linewidth = 2)
+plot(mostrarlength_hullmas ? hullma2 : na, color=color.rgb(243, 198, 0, 60),linewidth = 2)
+plot(mostrarlength_hullmas and ta.cross(hullma, hullma2) ? hullma : na,color = color.rgb(239, 176, 17), style = plot.style_cross, linewidth = 4)
+
+
+//EMAs 34/87
+
+mostrarEMAs34_87 = input.bool(false, "Mostrar EMAs y Cruces 34/87 ", inline = "EMAs34/87",tooltip="Sugerida filtrado de tendencia temp cortas Narvaezs cruces long y short")
+mostrarEMAs34_200 = input.bool(false, "Mostrar EMAs y Cruces 34/200 ", inline = "EMAs34/200",tooltip="Sugerida filtrado de tendencia temp largas Narvaezs cruces long y short")
+
+ema34cross = ta.ema(close, 34)
+ema87cross = ta.sma(close, 87)
+ema200cross = ta.sma(close, 200)
+
+plot(mostrarEMAs34_87 ? ema34cross : na, color = color.rgb(248, 221, 138, 60), linewidth = 2)
+plot(mostrarEMAs34_87 ? ema87cross : na, color = color.rgb(5, 242, 206, 60),linewidth = 2)
+plot(mostrarEMAs34_87 and ta.cross(ema34cross, ema87cross) ? ema34cross : na,color = color.lime, style = plot.style_cross, linewidth = 4)
+
+
+plot(mostrarEMAs34_200 ? ema34cross : na, color = color.rgb(242, 182, 3, 60), linewidth = 2)
+plot(mostrarEMAs34_200 ? ema200cross : na, color = color.rgb(5, 87, 74, 60),linewidth = 2)
+plot(mostrarEMAs34_200 and ta.cross(ema34cross, ema200cross) ? ema34cross : na,color = color.lime, style = plot.style_cross, linewidth = 4)
+
+
+
+
+//EMAs 13/30
+
+mostrarEMAs13_30 = input.bool(false, "Mostrar EMAs y Cruces 13/30", inline = "EMAs13/30",tooltip="Sugerida cambio de tendencia CoMgUnNeR cruces long y short")
+ema13cross = ta.ema(close, 13)
+ema30cross = ta.sma(close, 30)
+plot(mostrarEMAs13_30 ? ema13cross : na, color = color.rgb(255, 82, 82, 60), linewidth = 2)
+plot(mostrarEMAs13_30 ? ema30cross : na, color = color.rgb(76, 175, 79, 60),linewidth = 2)
+plot(mostrarEMAs13_30 and ta.cross(ema13cross, ema30cross) ? ema13cross : na,color = color.rgb(239, 176, 17), style = plot.style_cross, linewidth = 4)
+
+
+
+//EMAs10/120
+mostrarEMAs10_120 = input.bool(false, "Mostrar EMAs y Cruces 10/120", inline = "EMAs10/120" ,tooltip="Sugerida como cambio de tendencia por bitcoiners.la")
+mostrarEMAs4_120 = input.bool(false, "Mostrar EMAs y Cruces 4/120", inline = "EMAs4/120" ,tooltip="Sugerida entrada long/short bitcoiners.la")
+
+ema120cross = ta.ema(close, 120)
+ema10cross = ta.ema(close, 10)
+ema4cross = ta.ema(close, 4)
+//CRUCES
+goldencrossLong120 = ta.crossover(ema10cross,ema120cross)
+goldencrossShort120 = ta.crossunder(ema10cross,ema120cross)
+
+plot(mostrarEMAs10_120 ? ema10cross : na, color = color.rgb(255, 82, 82, 60), linewidth = 2)
+plot(mostrarEMAs10_120 ? ema120cross : na, color = color.rgb(76, 175, 79, 60),linewidth = 2)
+plot(mostrarEMAs10_120 and ta.cross(ema10cross, ema120cross) ? ema10cross : na,color = color.rgb(225, 236, 2), style = plot.style_cross, linewidth = 4)
+
+
+plot(mostrarEMAs4_120 ? ema4cross : na, color = color.rgb(255, 82, 82, 60), linewidth = 2)
+plot(mostrarEMAs4_120 ? ema120cross : na, color = color.rgb(76, 175, 79, 60),linewidth = 2)
+plot(mostrarEMAs4_120 and ta.cross(ema4cross, ema120cross) ? ema4cross : na,color = color.rgb(225, 236, 2), style = plot.style_cross, linewidth = 4)
+
+//EMAs50/200
+mostrarEMAs50_200 = input.bool(false, "Mostrar EMAs y Cruces 50/200", inline = "EMAs50/200",tooltip="Sugerida cambio de tendencia SWING CoMgUnNeR cruces long y short")
+emaSource50cross = ta.ema(close, 50)
+smaSource200cross = ta.sma(close, 200)
+
+
+plot(mostrarEMAs50_200 ? emaSource50cross : na, color = color.rgb(249, 91, 0, 60), linewidth = 2)
+plot(mostrarEMAs50_200 ? smaSource200cross : na, color = color.rgb(236, 248, 2, 60),linewidth = 2)
+plot(mostrarEMAs50_200 and ta.cross(emaSource50cross, smaSource200cross) ? emaSource50cross : na, color = color.white, style = plot.style_cross, linewidth = 4)
+
+//EMAS CLASICAS
+
+
+mostrarEMAsClassic = input.bool(false, "Mostrar EMAs y Cruces 20/50/100/200", inline = "EMAs Clasicas")
+emaClassic20 = ta.ema(close, 20)
+emaClassic50 = ta.ema(close, 50)
+emaClassic100 = ta.ema(close, 100)
+emaClassic200 = ta.ema(close, 200)
+
+
+plot(mostrarEMAsClassic ? emaClassic20 : na, color = color.rgb(255, 82, 82, 60), linewidth = 2)
+plot(mostrarEMAsClassic ? emaClassic50 : na, color = color.rgb(255, 153, 0, 60),linewidth = 2)
+plot(mostrarEMAsClassic ? emaClassic100 : na, color = color.rgb(0, 187, 212, 60),linewidth = 2)
+plot(mostrarEMAsClassic ? emaClassic200 : na, color = color.rgb(33, 149, 243, 60),linewidth = 2)
+
+
+plot(mostrarEMAsClassic and ta.cross(emaClassic20, emaClassic50) ? ema13cross : na,color = color.rgb(246, 246, 246), style = plot.style_cross, linewidth = 4)
+plot(mostrarEMAsClassic and ta.cross(emaClassic20, emaClassic100) ? ema13cross : na,color = color.rgb(249, 190, 190), style = plot.style_cross, linewidth = 4)
+plot(mostrarEMAsClassic and ta.cross(emaClassic20, emaClassic200) ? ema13cross : na,color = color.rgb(249, 190, 190), style = plot.style_cross, linewidth = 4)
+
+
+
+
+// Módulo  - SUPERTREND
+//-----------------------------------------
+//*********************************************************
+//*                     Módulo                            *
+//*                    SUPERTREND                         *
+//*********************************************************
+// Cálculos
+
+
+// Grupo 2: Opciones del Módulo 
+group2 = "Módulo - SUPERTREND"
+// Separación visual
+plot(na)
+//, group=group2
+
+//, tooltip='The number of left and right bars checked when searching for a swing point. Higher value = less swing points plotted and lower value = more swing points plotted.' ,
+
+mostrarST = input.bool(false, "Mostrar SUPER-TREND", inline = "SUPER TREND" , group=group2, tooltip="Habilita/Deshabilita  supertrend")
+showBuySell = input(title='Show Buy/Sell Labels?', defval=true, group=group2, tooltip="Habilita etiquetas compra/venta supertrend") 
+
+//DEFAULT 10 ATR Y 5 ATR M.  100 y 5 /8Zamania 1, 2
+Periods = input(title='ATR Period', defval=10, group=group2, tooltip="Default: 10 /Narvaez: 100 /8Zamania: 1 TEMP 1D")
+src = input(close, title='Source', group=group2)
+Multiplier = input.float(title='ATR Multiplier', step=0.1, defval=3.0, group=group2, tooltip="Default: 3 / Narvaez: 5 / 8Zamania: 2 TEMP 1D")
+changeATR = input(title='Change ATR Calculation Method ?', defval=true, group=group2)
+showsignals = input(title='Show Buy/Sell Signals ?', defval=true, group=group2)
+highlighting = input(title='Highlighter On/Off ?', defval=true, group=group2)
+atr2 = ta.sma(ta.tr, Periods)
+atr = changeATR ? ta.atr(Periods) : atr2
+up = src - Multiplier * atr
+up1 = nz(up[1], up)
+up := close[1] > up1 ? math.max(up, up1) : up
+dn = src + Multiplier * atr
+dn1 = nz(dn[1], dn)
+dn := close[1] < dn1 ? math.min(dn, dn1) : dn
+trend = 1
+trend := nz(trend[1], trend)
+trend := trend == -1 and close > dn1 ? 1 : trend == 1 and close < up1 ? -1 : trend
+
+upPlot = plot(mostrarST and trend == 1 ? up : na, title='Up Trend', style=plot.style_linebr, linewidth=2, color=color.new(color.green, 0))
+buySignal = trend == 1 and trend[1] == -1
+plotshape(buySignal ? up : na, title='UpTrend Begins', location=location.absolute, style=shape.circle, size=size.tiny, color=color.new(#07680a, 0))
+plotshape(buySignal and showBuySell ? up : na, title='Buy', text='Buy', location=location.absolute, style=shape.labelup, size=size.tiny, color=color.new(#097417, 43), textcolor=color.new(color.white, 0))
+dnPlot = plot(mostrarST and trend == -1 ? dn : na, title='Down Trend', style=plot.style_linebr, linewidth=2, color=color.new(color.red, 0))
+
+sellSignal = trend == -1 and trend[1] == 1
+plotshape(sellSignal ? dn : na, title='DownTrend Begins', location=location.absolute, style=shape.circle, size=size.tiny, color=color.new(#920808, 0))
+plotshape(sellSignal and showBuySell ? dn : na, title='Sell', text='Sell', location=location.absolute, style=shape.labeldown, size=size.tiny, color=color.new(#970e0e, 35), textcolor=color.new(color.white, 0))
+mPlot = plot(ohlc4, title='', style=plot.style_circles, linewidth=0)
+longFillColor = highlighting ? trend == 1 ? color.green : color.white : color.white
+shortFillColor = highlighting ? trend == -1 ? color.red : color.white : color.white
+
+fill(mPlot, upPlot, title='UpTrend Highligter', color=mostrarST ? longFillColor : na, transp=90)
+fill(mPlot, dnPlot, title='DownTrend Highligter', color=mostrarST ? shortFillColor : na, transp=90)
+
+changeCond = trend != trend[1]
+
+
+// Módulo  - SMARTCONCEPT
+//-----------------------------------------
+//*********************************************************
+//*                     Módulo                            *
+//*                  SMARTCONCEPT                         *
+//*********************************************************
+// Cálculos
+
+// Grupo : Opciones del Módulo 
+group3 = "Módulo - SMARTCONCEPT"
+// Separación visual
+plot(na)
+//, group=group3
+
+
+// Constants
+color CLEAR = color.rgb(0,0,0,100)
+
+// Inputs
+swingSize = input.int(20, 'Longitud del Swing', tooltip='The number of left and right bars checked when searching for a swing point. Higher value = less swing points plotted and lower value = more swing points plotted.' , group=group3 )
+bosConfType = input.string('Cierre de Vela', 'BOS Confirmation', ['Cierre de Vela', 'Wicks'], tooltip='Choose whether candle close/wick above previous swing point counts as a BOS.')
+choch = input.bool(true, 'Mostrar CHoCH', tooltip='Renames the first counter trend BOS to CHoCH' )
+showSwing = input.bool(true, 'Mostrar Puntos de Swing', tooltip='Show or hide HH, LH, HL, LL')
+
+showHalf = input.bool(true, 'Mostrar Nivel de Retroceso 0.5', group='0.5 Retracement Level', tooltip='Show a possible 0.5 retracement level between the swing highs and lows of an expansion move.')
+halfColor = input.color(color.rgb(41, 39, 176), 'Color', group='0.5 Retracement Level')
+halfStyle = input.string('Solid', 'Line Style', ['Solid', 'Dashed', 'Dotted'], group='0.5 Retracement Level')
+halfWidth = input.int(1, 'Width', minval=1, group='0.5 Retracement Level')
+
+bosColor = input.color(color.rgb(112, 114, 119), 'Color', group='BOS Settings')
+bosStyle = input.string('Dashed', 'Line Style', ['Solid', 'Dashed', 'Dotted'], group='BOS Settings')
+bosWidth = input.int(1, 'Width', minval=1, group='BOS Settings')
+
+// Functions
+lineStyle(x) =>
+    switch x
+        'Solid' => line.style_solid
+        'Dashed' => line.style_dashed
+        'Dotted' => line.style_dotted
+
+
+// Calculations
+
+//Finding high and low pivots
+pivHi = ta.pivothigh(high, swingSize, swingSize)
+pivLo = ta.pivotlow(low, swingSize, swingSize)
+
+
+//Tracking the previous swing levels to determine hh lh hl ll
+var float prevHigh = na
+var float prevLow = na
+var int prevHighIndex = na
+var int prevLowIndex = na
+
+//Tracking whether previous levels have been breached
+var bool highActive = false
+var bool lowActive = false
+
+bool hh = false
+bool lh = false
+bool hl = false
+bool ll = false
+
+//Variable to track the previous swing type, used later on to draw 0.5 Retracement Levels (HH = 2, LH = 1, HL = -1, LL = -2)
+var int prevSwing = 0
+
+if not na(pivHi)
+    if pivHi >= prevHigh
+        hh := true
+        prevSwing := 2
+    else
+        lh := true
+        prevSwing := 1
+    prevHigh := pivHi
+    highActive := true
+    prevHighIndex := bar_index - swingSize
+
+if not na(pivLo)
+    if pivLo >= prevLow
+        hl := true
+        prevSwing := -1
+    else
+        ll := true
+        prevSwing := -2
+    prevLow := pivLo
+    lowActive := true
+    prevLowIndex := bar_index - swingSize
+
+//Generating the breakout signals
+bool highBroken = false
+bool lowBroken = false
+
+//Tracking prev breakout
+var int prevBreakoutDir = 0
+
+float highSrc = bosConfType == 'Candle Close' ? close : high
+float lowSrc = bosConfType == 'Candle Close' ? close : low
+
+if highSrc > prevHigh and highActive
+    highBroken := true
+    highActive := false
+if lowSrc < prevLow and lowActive
+    lowBroken := true
+    lowActive := false
+
+
+// Visual Output
+
+//Swing level labels
+if hh and showSwing
+    label.new(bar_index - swingSize, pivHi, 'HH', color=CLEAR, style=label.style_label_down, textcolor=chart.fg_color)
+    //Detecting if it is a hh after a hl
+    if prevSwing[1] == -1 and showHalf
+        line.new(prevLowIndex, (prevLow + pivHi) / 2, bar_index - swingSize, (prevLow + pivHi) / 2, color=halfColor, style=lineStyle(halfStyle), width=halfWidth)
+if lh and showSwing
+    label.new(bar_index - swingSize, pivHi, 'LH', color=CLEAR, style=label.style_label_down, textcolor=chart.fg_color)
+if hl and showSwing
+    label.new(bar_index - swingSize, pivLo, 'HL', color=CLEAR, style=label.style_label_up, textcolor=chart.fg_color)
+if ll and showSwing
+    label.new(bar_index - swingSize, pivLo, 'LL', color=CLEAR, style=label.style_label_up, textcolor=chart.fg_color)
+    //Detecting if it is a ll after a lh
+    if prevSwing[1] == 1 and showHalf
+        line.new(prevHighIndex, (prevHigh + pivLo) / 2, bar_index - swingSize, (prevHigh + pivLo) / 2, color=halfColor, style=lineStyle(halfStyle), width=halfWidth)
+
+//Generating the BOS Lines
+if highBroken
+    line.new(prevHighIndex, prevHigh, bar_index, prevHigh, color=bosColor, style=lineStyle(bosStyle), width=bosWidth)
+    label.new(math.floor(bar_index - (bar_index - prevHighIndex) / 2), prevHigh, prevBreakoutDir == -1 and choch ? 'CHoCH' : 'BOS', color=CLEAR, textcolor=bosColor, size=size.tiny)
+    prevBreakoutDir := 1
+if lowBroken
+    line.new(prevLowIndex, prevLow, bar_index, prevLow, color=bosColor, style=lineStyle(bosStyle), width=bosWidth)
+    label.new(math.floor(bar_index - (bar_index - prevLowIndex) / 2), prevLow, prevBreakoutDir == 1 and choch ? 'CHoCH' : 'BOS', color=CLEAR, textcolor=bosColor, style=label.style_label_up, size=size.tiny)
+    prevBreakoutDir := -1
+
+
+// Módulo  - PERFIL DE VOLUMEN
+//-----------------------------------------
+//*********************************************************
+//*                     Módulo                            *
+//*                  PERFIL DE VOLUMEN                    *
+//*********************************************************
+// Cálculos
+
+// Grupo 3: Opciones del Módulo 
+group4 = "Módulo - PERFIL DE VOLUMEN"
+// Separación visual
+plot(na)
+//, group=group4
+
+//////////////////////////////////////////////////////////////////////////////////////////////////
+//// INPUTS
+///////////////////////////////////////////////////////////////////////////////////////////////////
+vp_lookback = input.int(defval=200, title='Volume Lookback Depth [10-1000]', minval=10, maxval=1000 , group=group4)
+
+vp_max_bars = input.int(defval=500, title='Number of Bars [10-500]', minval=10, maxval=500)
+
+vp_bar_mult = input.int(defval=50, title='Bar Length Multiplier [10-100]', minval=10, maxval=100)
+
+vp_bar_offset = input.int(defval=30, title='Bar Horizontal Offset [0-100]', minval=0, maxval=100)
+
+vp_bar_width = input.int(defval=2, title='Bar Width [1-20]', minval=1, maxval=20)
+
+// As suggested by @NXT2017 to @kv4coins
+vp_delta_type = input.string(defval='Both // Ambos', title='VP Delta Type // Variable Delta del Perfil de Volumen', options=['Both // Ambos', 'Bullish // Toros', 'Bearish // Osos'])
+
+vp_poc_show = input(defval=false, title='VP Extend POC Line // Extender Línea del Punto de Control del Perfil de Volumen')
+
+vp_bar_color = input(defval=color.new(color.aqua, 75), title='VP Bar Color // Color de la Barra del Perfil de Volumen')
+
+vp_poc_color = input(defval=color.new(color.aqua, 0), title='VP POC Color // Color del Punto de control del Perfil de Volumen')
+
+
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+//// VARIABLES
+///////////////////////////////////////////////////////////////////////////////////////////////////
+float vp_Vmax = 0.0
+int vp_VmaxId = 0
+int vp_N_BARS = vp_max_bars
+
+var int vp_first = time
+
+vp_a_P = array.new_float(vp_N_BARS + 1, 0.0)
+vp_a_V = array.new_float(vp_N_BARS, 0.0)
+vp_a_D = array.new_float(vp_N_BARS, 0.0)
+vp_a_W = array.new_int(vp_N_BARS, 0)
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+//// CALCULATIONS
+///////////////////////////////////////////////////////////////////////////////////////////////////
+float vp_HH = ta.highest(high, vp_lookback)
+float vp_LL = ta.lowest(low, vp_lookback)
+
+if barstate.islast
+    float vp_HL = (vp_HH - vp_LL) / vp_N_BARS
+    for j = 1 to vp_N_BARS + 1 by 1
+        array.set(vp_a_P, j - 1, vp_LL + vp_HL * j)
+    for i = 0 to vp_lookback - 1 by 1
+        int Dc = 0
+        array.fill(vp_a_D, 0.0)
+        for j = 0 to vp_N_BARS - 1 by 1
+            float Pj = array.get(vp_a_P, j)
+            if low[i] < Pj and high[i] > Pj and (vp_delta_type == 'Bullish' ? close[i] >= open[i] : vp_delta_type == 'Bearish' ? close[i] <= open[i] : true)
+                float Dj = array.get(vp_a_D, j)
+                float dDj = Dj + nz(volume[i])
+                array.set(vp_a_D, j, dDj)
+                Dc += 1
+                Dc
+        for j = 0 to vp_N_BARS - 1 by 1
+            float Vj = array.get(vp_a_V, j)
+            float Dj = array.get(vp_a_D, j)
+            float dVj = Vj + (Dc > 0 ? Dj / Dc : 0.0)
+            array.set(vp_a_V, j, dVj)
+    vp_Vmax := array.max(vp_a_V)
+    vp_VmaxId := array.indexof(vp_a_V, vp_Vmax)
+    for j = 0 to vp_N_BARS - 1 by 1
+        float Vj = array.get(vp_a_V, j)
+        int Aj = math.round(vp_bar_mult * Vj / vp_Vmax)
+        array.set(vp_a_W, j, Aj)
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+//// PLOTING
+///////////////////////////////////////////////////////////////////////////////////////////////////
+if barstate.isfirst
+    vp_first := time
+    vp_first
+vp_change = ta.change(time)
+vp_x_loc = timenow + math.round(vp_change * vp_bar_offset)
+
+f_setup_bar(n) =>
+    x1 = vp_VmaxId == n and vp_poc_show ? math.max(time[vp_lookback], vp_first) : timenow + math.round(vp_change * (vp_bar_offset - array.get(vp_a_W, n)))
+    ys = array.get(vp_a_P, n)
+    line.new(x1=x1, y1=ys, x2=vp_x_loc, y2=ys, xloc=xloc.bar_time, extend=extend.none, color=vp_VmaxId == n ? vp_poc_color : vp_bar_color, style=line.style_solid, width=vp_bar_width)
+
+if barstate.islast
+    for i = 0 to vp_N_BARS - 1 by 1
+        f_setup_bar(i)
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+//// END
+///////////////////////////////////////////////////////////////////////////////////////////////////
+// Módulo  - Activar Kills y puntos Pivote
+//-----------------------------------------
+
+// Módulo  - Open Range Breakout BOT  by CoM_gUnNeR \ idea FOREX, Coded by Rajandran R (Founder - Marketcalls/Co-Founder - Algomojo) 
+//-----------------------------------------
+//*********************************************************
+//*                     Módulo                            *
+//*         Open Range Breakout BOT                       *
+//*********************************************************
+// Cálculos
+//--------
+
+// Grupo 1: Opciones del Módulo ORB
+groupORB = "OR Breakout Operacion 1Min - 5Min - 15Min - 30 min"
+// Separación visual
+plot(na)
+// , group=groupORB
+
+mostrarCanalesORB = input.bool(false, "Show Channels Open Range Breakout ", group=groupORB)
+mostrarEtiquetasORB = input.bool(false, "Show Labels Open Range Breakout ", group=groupORB)
+mostrarEtiquetasORBSF = input.bool(false, "Show Labels Open Range Breakout W.Filter ", group=groupORB)
+tf = input.timeframe(title='TIEMPO x ', defval='180' , group=groupORB)  // qué período de tiempo desea mover 60M 120M 4hrs 1 semana
+linew = input.int(title='Ancho de línea', defval=1, minval=1, maxval=5, group=groupORB)
+
+
+//FILTRO DE TENDENCIA pen Range Breakout
+smabrekout200 = ta.sma(close, 200)
+
+
+// valor alto y valor bajo de gráficos de marco de tiempo de 60 minutos o 180m
+hi_ORB = request.security(syminfo.tickerid, tf, high)
+lo_ORB = request.security(syminfo.tickerid, tf, low)
+
+orbh_ORB =  hi_ORB
+orbl_ORB =  lo_ORB
+
+
+Buy_ORB = ta.crossover(high, orbh_ORB)
+Short_ORB = ta.crossunder(low, orbl_ORB)
+
+//CONTRARIA
+Buycontinue_ORB = ta.barssince(Buy_ORB) < ta.barssince(Short_ORB)
+Shortcontinue_ORB = ta.barssince(Short_ORB) < ta.barssince(Buy_ORB)
+
+var isLong_ORB = false
+var isShort_ORB = false
+
+
+Buy_ORB := not isLong_ORB and Buy_ORB
+Short_ORB := not isShort_ORB and Short_ORB
+
+if Buy_ORB
+    isLong_ORB := true
+    isShort_ORB := false
+    isShort_ORB
+
+if Short_ORB
+    isLong_ORB := false
+    isShort_ORB := true
+    isShort_ORB
+
+
+//CONDICIONES  LONG SHORT
+
+//CON FILTRO TREND
+
+LongMas_ORB = Buy_ORB and close > smabrekout200 and open > smabrekout200
+ShortMas_ORB = Short_ORB and close < smabrekout200 and open < smabrekout200
+
+//SIN FILTRO TREND
+
+LongMas_ORB_DIR = Buy_ORB
+ShortMas_ORB_DIR = Short_ORB
+
+//MEJORA ESTETICA REALIZADA POR 8Zamania
+
+plotshape(mostrarEtiquetasORBSF ? LongMas_ORB : na, style=shape.labelup, location=location.belowbar, color=color.rgb(26, 156, 30, 38), title='Buy', text='?? LONG', textcolor=color.new(color.white, 0))
+plotshape(mostrarEtiquetasORBSF ? ShortMas_ORB: na, style=shape.labeldown, location=location.abovebar, color=color.new(#ac1c1c, 40), title='Sell', text='?? SHORT', textcolor=color.new(color.white, 0))
+
+plotshape(mostrarEtiquetasORB ? LongMas_ORB_DIR : na, style=shape.labelup, location=location.belowbar, color=color.new(#16961b, 40), title='Buy', text='?? LONG ', textcolor=color.new(color.white, 0))
+plotshape(mostrarEtiquetasORB ? ShortMas_ORB_DIR: na, style=shape.labeldown, location=location.abovebar, color=color.new(#941616, 28), title='Sell', text='?? SHORT ', textcolor=color.new(color.white, 0))
+
+plot(mostrarCanalesORB ? orbh_ORB :na, color=color.new(color.red, 70), style=plot.style_circles, linewidth=linew)
+plot(mostrarCanalesORB ? orbl_ORB :na, color=color.new(color.lime, 70), style=plot.style_circles, linewidth=linew)
+
+////////////
+//*********************************************************
+//*                     Módulo                            *
+//*                   Zonas de Kill                       *
+//*********************************************************
+
+// Cálculos
+//---------
+
+
+
+// Grupo : Opciones del Módulo 
+groupKill = "Módulo - Zonas de Kill"
+// Separación visual
+plot(na)
+// , group=groupKill
+
+showKills = input.bool(title='Mostrar zonas de kill', defval=true, group='Puntos Pivote' , group=groupKill)
+prd = input.int(title='Puntos Pivote', defval=2, minval=1, maxval=50, group='Puntos Pivote', inline='PRD')
+factorAtr = input.float(title='ATR: Factor ', defval=3, minval=1, step=0.1, group='Puntos Pivote', inline='ATR')
+periodoAtr = input.int(title='Periodo', defval=10, minval=1, group='Puntos Pivote', inline='ATR')
+
+
+float ph = na
+float pl = na
+ph := ta.pivothigh(prd, prd)
+pl := ta.pivotlow(prd, prd)
+
+float center = na
+center := center[1]
+float lastpp = ph ? ph : pl ? pl : na
+if lastpp
+    if na(center)
+        center := lastpp
+        center
+    else
+        center := (center * 2 + lastpp) / 3
+        center
+
+Up = center - factorAtr * ta.atr(periodoAtr)
+Dn = center + factorAtr * ta.atr(periodoAtr)
+
+float TUp = na
+float TDown = na
+Trend = 0
+TUp := close[1] > TUp[1] ? math.max(Up, TUp[1]) : Up
+TDown := close[1] < TDown[1] ? math.min(Dn, TDown[1]) : Dn
+Trend := close > TDown[1] ? 1 : close < TUp[1] ? -1 : nz(Trend[1], 1)
+Trailingsl = Trend == 1 ? TUp : TDown
+linecolor = Trend == 1 and nz(Trend[1]) == 1 ? color.lime : Trend == -1 and nz(Trend[1]) == -1 ? color.red : na
+bsignal = Trend == 1 and Trend[1] == -1
+ssignal = Trend == -1 and Trend[1] == 1
+
+float resistance = na
+float support = na
+support := pl ? pl : support[1]
+resistance := ph ? ph : resistance[1]
+
+
+// Módulo  - CAJA DE INFORMACIÓN 
+//-----------------------------------------
+//*********************************************************
+//*                     Módulo                            *
+//*                  INFORMACIÓN                          *
+//*********************************************************
+// Cálculos
+//////////////////////////////////////////////////////////////////////////////////////////////////
+//// INPUTS
+///////////////////////////////////////////////////////////////////////////////////////////////////
+
+// Grupo : Opciones del Módulo INFOBOX
+groupinfbox = "INFOBOX - KAKUPAKAT"
+// Separación visual
+plot(na)
+// , group=groupinfbox
+// 
+i_offsetLabel = input.int(defval=40, title='Label Horizontal Offset', minval=0, maxval=205, group=groupinfbox)
+
+offset = i_offsetLabel * (time - time[1])
+splitter = '__________________'
+nl = '\n'
+title = 'Kakupakat Trading' + nl + ' INFO. BOX' 
+
+string dynamicText = title + nl
+var label id = na
+label.delete(id)
+id := label.new(x=time + offset, y=close, xloc=xloc.bar_time, text=dynamicText)
+
+// LABEL VARIABLES
+i_showDOMINANCE = input(false, 'Show DOMINANCE // Mostrar DOMINANCE', group=groupinfbox)
+i_showMACD = input(true, 'Show MACD // Mostrar MACD', group=groupinfbox)
+i_showRSI = input(true, 'Show RSI // Mostrar RSI', group=groupinfbox)
+i_showRSIcross = input(true, 'Show Cross RSI // Mostrar Cruce RSI ', group=groupinfbox)
+i_showEstochastic = input(true, 'Show STOCH // Mostrar STOCH', group=groupinfbox)
+i_showADX = input(true, 'Show ADX // Mostrar ADX', group=groupinfbox)
+i_showSQUEEZE = input(true, 'Show SQUEEZE // Mostrar SQUEEZE', group=groupinfbox)
+i_showKILSS = input(false, 'Show KILLS // Mostrar KILLS', group=groupinfbox)
+i_showORB= input(true, 'Breakout Alert', group=groupinfbox)
+
+// ROUNDS
+f_round(_val, _decimals) =>
+    if _decimals == -1
+        _val
+    else
+        _p = math.pow(10, _decimals)
+        math.round(math.abs(_val) * _p) / _p * math.sign(_val)
+
+f_strHelp(_prefix, _var, _round) =>
+    _res = str.tostring(f_round(_var, _round))
+    _prefix + ' ' + _res + nl
+
+
+
+// DOMINANCESection
+DOMINANCETitle = splitter + nl + nl + 'Crypto Dominance??' + nl
+BTCDClose = request.security('BTC.D', 'M', close)
+BTCD = f_strHelp('BTC ? % ›', BTCDClose, 1)
+ETHDClose = request.security('ETH.D', 'M', close)
+ETHD = f_strHelp('ETH ? % ›', ETHDClose, 1)
+DOMINANCESection = i_showDOMINANCE ? DOMINANCETitle + nl + BTCD + ETHD : na
+
+// MACDSection
+MACDTitle = splitter + nl
+[macd, macdsignal, macdhist] = ta.macd(close, fastlen=12, slowlen=26, siglen=9)
+trend3 = macdhist > 0 ? '[ Bullish ?? Alcista ]' : '[ Bearish ?? Bajista ]'
+MACDSection = i_showMACD ? MACDTitle + nl +  'MACD Trend ?? :' + nl + nl + trend3 + nl : na
+
+// RSISection
+RSITitle = splitter + nl
+rsibase = ta.rsi(close, 14)
+Trend1 = rsibase > 80 ? nl + '?? ?? ??' + '[ RSI OVERBUY??' + nl + 'RSI SOBRECOMPRA]' : na 
+Trend2 = rsibase < 20 ? nl + '?? ?? ??' + '[ RSI OVERSELL??' + nl + 'RSI SOBREVENTA]' : na 
+RSISection = i_showRSI ? RSITitle  + nl + f_strHelp('RSI:', rsibase, 1) + Trend1 + Trend2 + nl : na  + nl  
+
+// EstochasticSection
+
+EstochasticTitle = splitter + nl
+periodK = 14
+periodD = 3
+smoothK = 3
+k = ta.sma(ta.stoch(close, high, low, periodK), smoothK)
+d = ta.sma(k, periodD)
+Trend1stoch = k > 80 ? nl + nl + '???????? ' + nl  + nl +  '[ STOCH OVERBUY ??' + nl + 'STOCH SOBRECOMPRA]' + nl : na + nl 
+Trend2stoch = k < 20 ? nl + nl + '???????? ' + nl  + nl +  '[ STOCH OVERSELL ??' + nl + 'STOCH SOBREVENTA]' + nl : na + nl 
+EstochasticSection = i_showEstochastic ? nl + EstochasticTitle + nl +  f_strHelp('STOCH K:', k, 1) + f_strHelp('STOCH D:', d, 1) + nl + Trend1stoch + Trend2stoch + nl : na + nl 
+
+Trend1stochcrossUp = ta.crossover(k, d) ? '????' + nl + '[Up +]' : na  + nl
+Trend2stochcrossDown = ta.crossunder(k, d) ? '????' + nl + '[Down -]' : na + nl
+EstochasticSection2 = i_showEstochastic ? EstochasticTitle + nl +'STOCH CROSS K/D:' + Trend1stochcrossUp + Trend2stochcrossDown + nl : na + nl
+
+
+
+//CREDITOS
+
+TelegramTitle = splitter + nl
+url = "https://t.me/kakupakat_trading_oficial"  
+string linkText = "https://t.me/kakupakat_trading_oficial"
+displayText = "<a href='" + url + "'>" + linkText + "</a>"
+TelegramSection = TelegramTitle + nl + 'TELEGRAM' + nl + url + nl
+
+
+//INICIA ADX
+
+
+
+// Inputs ADX
+DMIlength = 14
+ATR = ta.atr(14)
+
+// +DM and -DM
+upMove = high - high[1]
+dnMove = low[1] - low
+plusDM = upMove > dnMove and upMove > 0 ? upMove : 0
+minusDM = dnMove > upMove and dnMove > 0 ? dnMove : 0
+
+// SMMA Wilder; SMMA(x,y) = RMA(x,y) or SMMA(x,y) = EMA(x, (2 * y - 1))
+MAcalc(x, y) =>
+    ma = ta.rma(x, y)
+    ma
+
+// +DI,-DI and ADX
+plusDI = 100 * (MAcalc(plusDM, DMIlength) / ATR)
+minusDI = 100 * (MAcalc(minusDM, DMIlength) / ATR)
+absDX = 100 * math.abs((plusDI - minusDI) / (plusDI + minusDI))
+
+// Agregar una variable para almacenar el valor anterior del ADX
+var float prevADX = na
+var float prevADX2 = na
+var float prevADX3 = na
+var float prevADX4 = na
+
+// Calcular el ADX como se hace en el código original
+ADX = MAcalc(absDX, DMIlength)
+ADXTitle = splitter + nl
+Trend1ADX = ADX > 25 ? '??'  + '[ STRONG TREND' + nl + 'TENDENCIA FUERTE ]' : na  + nl 
+Trend2ADX = ADX < 20 ? '??'  + '[ WEAK TREND' + nl + ' TENDENCIA DEBIL ]' : na + nl
+ADXSection = i_showADX ? ADXTitle  + f_strHelp('ADX  Val:', ADX, 1) + Trend1ADX + Trend2ADX + nl : na
+ADXTitle2 = splitter + nl
+dirADX = plusDI > minusDI ? '[ Bullish ?? Alcista ]' : '[ Bearish ?? Bajista ]'
+ADXSection2 = i_showADX ? ADXTitle2 + 'ADX DIR:' + nl + dirADX + nl : na
+cruceLongADX = ta.crossover(plusDI, minusDI) ? '????' + nl  + '[  CROSS + ' + ' ADX + ]' : na
+cruceShortADX = ta.crossunder(plusDI, minusDI) ? '????' + nl  + '[ CROSS - ' + ' ADX - ]' : na
+ADXSection3 = i_showADX ? ADXTitle2 + 'ADX CROSS:' + cruceLongADX + cruceShortADX + nl : na
+
+
+//TERMINA ADX
+//INICIA ALERTA DE BREKOUT
+ORBTitle2 = splitter + nl
+ORBAlertUp = LongMas_ORB_DIR ? '??' + nl  + '[ Up]' : na
+ORBAlertDn = ShortMas_ORB_DIR ? '??' + nl  + '[Down]' : na
+ORBSection = i_showORB ? ORBTitle2 + 'ALERT BREAKOUT:' + ORBAlertUp + ORBAlertDn + nl : na
+
+
+
+//FIN ALERTA DE BREKOUT
+
+
+
+//SQUEEZE MOMENTUM COMGUNNER
+lengthSqueeze = 20
+multSqueeze = 2
+lengthKCSqueeze = 20
+multKCSqueeze = 1.5
+strengthSqueeze = 0.0018
+useTrueRangeSqueeze = input.bool(true, title="Use TrueRange (KC)")
+
+// Calculate BB
+sourceSqueeze = close
+basisSqueeze = ta.sma(sourceSqueeze, lengthSqueeze)
+devSqueeze = multKCSqueeze * ta.stdev(sourceSqueeze, lengthSqueeze)
+upperBBSqueeze = basisSqueeze + devSqueeze
+lowerBBSqueeze = basisSqueeze - devSqueeze
+
+// Calculate KC
+maSqueeze = ta.sma(sourceSqueeze, lengthKCSqueeze)
+rangeValSqueeze = useTrueRangeSqueeze ? ta.tr : (high - low)
+rangemaSqueeze = ta.sma(rangeValSqueeze, lengthKCSqueeze)
+upperKCSqueeze = maSqueeze + rangemaSqueeze * multKCSqueeze
+lowerKCSqueeze = maSqueeze - rangemaSqueeze * multKCSqueeze
+
+sqzOnSqueeze  = (lowerBBSqueeze > lowerKCSqueeze) and (upperBBSqueeze < upperKCSqueeze)
+sqzOffSqueeze = (lowerBBSqueeze < lowerKCSqueeze) and (upperBBSqueeze > upperKCSqueeze)
+noSqzSqueeze  = (sqzOnSqueeze == false) and (sqzOffSqueeze == false)
+highestSqueeze = ta.highest(high, lengthKCSqueeze)
+lowestSqueeze = ta.lowest(low, lengthKCSqueeze)
+lastsmaSqueeze = ta.sma(close,lengthKCSqueeze)
+valin = ta.linreg(sourceSqueeze  -  ta.sma((highestSqueeze + lowestSqueeze) / 2, lengthKCSqueeze), lengthKCSqueeze,0)
+
+
+// MACDSection
+SqueezeTitle = splitter + nl
+SqueezeEndLong = valin < (strengthSqueeze*-1) and valin > nz(valin[1]) ? '????' + nl + '[DIR END ???????????? ' + nl + ' FIN DIR  ????????????  ]' : na  
+SqueezeEndShort = valin > strengthSqueeze and valin < nz(valin[1])  ? '????' + nl + '[ DIR END  ????????????' + nl + ' FIN DIR  ???????????? ]' : na 
+SqueezeSection = i_showSQUEEZE ? SqueezeTitle + nl + 'DIR CHANGE SQUEEZE:' + SqueezeEndLong + SqueezeEndShort   + nl: na
+
+SqueezeCrossUp = ta.crossover(valin, 0)  ?  '??' +'[ 0  UP  ]' : na  
+SqueezeCrossDn = ta.crossunder(valin,0)  ?  '??' + '[ 0  DOWN ]' : na 
+SqueezeSection2 = i_showSQUEEZE ? SqueezeTitle  + nl + 'CROSS CERO SQUEEZE:' + nl + SqueezeCrossUp + SqueezeCrossDn  + nl : na
+
+//SQUEEZE MOMENTUM COMGUNNER FIN
+
+//RSI GOLDEN CROSS COMGUNNER INICIO
+
+// Grupo : Opciones del Módulo GOLDEN CROSS 
+groupinfboxRsi = "INFOBOX GOLDEN CROSS mRSI"
+// Separación visual
+plot(na)
+// , group=groupinfboxRsi
+// 
+
+ma(source, length, type) =>
+    switch type
+        "SMA" => ta.sma(source, length)
+        "Bollinger Bands" => ta.sma(source, length)
+        "EMA" => ta.ema(source, length)
+        "SMMA (RMA)" => ta.rma(source, length)
+        "WMA" => ta.wma(source, length)
+        "VWMA" => ta.vwma(source, length)
+
+rsiLengthInput = 14
+rsiSourceInput = input.source(close)
+
+maTypeInput = input.string("SMA", title="mrSI", group="MA Settings", group=groupinfboxRsi)
+maLengthInput = 14
+bbMultInput = 2.0
+
+uprsi = ta.rma(math.max(ta.change(rsiSourceInput), 0), rsiLengthInput)
+downrsi = ta.rma(-math.min(ta.change(rsiSourceInput), 0), rsiLengthInput)
+rsi = downrsi == 0 ? 100 : uprsi == 0 ? 0 : 100 - (100 / (1 + uprsi / downrsi))
+rsiMA = ma(rsi, maLengthInput, maTypeInput)
+isBB = maTypeInput == "Bollinger Bands"
+
+// Agregar una variable para almacenar el valor anterior del RSI
+var float prevRSI = na
+var float prevRSI2 = na
+var float prevRSI3 = na
+var float prevRSI4 = na
+// Agregar una variable para almacenar el valor anterior del rsiMA
+var float prevrsiMA = na
+var float prevrsiMA2 = na
+var float prevrsiMA3 = na
+var float prevrsiMA4 = na
+
+// Almacenar el valor anterior de RSI
+prevRSI := nz(prevRSI[1], rsi[1])
+prevRSI2 := nz(prevRSI[2], rsi[2])
+prevRSI3 := nz(prevRSI[3], rsi[3])
+prevRSI4 := nz(prevRSI[4], rsi[4])
+
+// Almacenar el valor anterior de rsiMA
+prevrsiMA := nz(prevrsiMA[1], rsiMA[1])
+prevrsiMA2 := nz(prevrsiMA[2], rsiMA[2])
+prevrsiMA3 := nz(prevrsiMA[3], rsiMA[3])
+prevrsiMA4 := nz(prevrsiMA[4], rsiMA[4])
+
+RSIcrossTitle = splitter + nl
+goldenrsiUp = ta.crossover(rsi,rsiMA) and rsiMA < prevrsiMA and rsiMA < prevrsiMA2  ? '????' + nl + '[ Up + ' + nl + 'ARRIBA + ]' : na  + nl
+goldenrsiDn = ta.crossunder(rsi,rsiMA)  and rsiMA > prevrsiMA and rsiMA > prevrsiMA2 ? '????' + nl + '[ Down - ' + nl + 'ABAJO  - ]' : na + nl
+RSIcrossSection = i_showRSIcross ? RSIcrossTitle +'mRSI GOLD CROSS:' + goldenrsiUp + goldenrsiDn : na + nl
+mRSItrend = rsi > rsiMA ? '[ Bullish ?? Alcista ]' : '[ Bearish ?? Bajista ]'
+RSIcrossSectionTrend = i_showRSIcross ? RSIcrossTitle + nl +  'mRSI Trend:' + nl + nl + mRSItrend + nl : na
+
+//RSI GOLDEN CROSS COMGUNNER INICIO FIN
+
+
+//KILLS INICIO
+
+//KILLS FIN
+KILLScrossTitle = splitter + nl
+KILLSUp = (bsignal and  Trailingsl)  ?  '??' + nl + '[ Longs ' + nl + ' Longs ]' : na  
+KILLSDn = (ssignal and  Trailingsl)  ?  '??' + nl + '[ Shorts ' + nl + ' Shorts ]' : na 
+KILLSSection = i_showKILSS ? KILLScrossTitle + nl + 'KILL Zone: ??' + KILLSUp + KILLSDn + nl : na
+
+//ESTILO Y ALERTAS CAJA INFO
+
+// STYLE
+label.set_textalign(id, text.align_left)
+label.set_color(id, color=color.rgb(0, 0, 50, 50))
+label.set_textcolor(id, textcolor=color.new(color.orange, 0))
+label.set_style(id, label.style_label_left)
+
+// DynamicText
+dynamicText := dynamicText  + DOMINANCESection +  KILLSSection + MACDSection + ORBSection + + ADXSection2 + ADXSection  +  ADXSection3 + SqueezeSection + SqueezeSection2 + RSISection + RSIcrossSection + RSIcrossSectionTrend + EstochasticSection + EstochasticSection2 + TelegramSection
+label.set_text(id, text=dynamicText)
+
+
+if Trend1 == nl + '???? ???? ??' + nl + nl + '[ RSI OVERBUY! ??' + nl + '¡¡RSI SOBRECOMPRA!]' + nl 
+    label.set_textcolor(id, textcolor=color.white)
+    label.set_color(id, color.teal)
+
+if Trend2 == nl + '???? ???? ??' + nl + nl + '[ RSI OVERSELL! ??' + nl + '¡¡RSI SOBREVENTA!]' + nl 
+    label.set_textcolor(id, textcolor=color.white)
+    label.set_color(id, color.maroon)
+
+if Trend1stoch == nl + '???? ???? ??' + nl + nl + '[ STOCH OVERBUY! ??' + nl + '¡¡STOCH SOBRECOMPRA!]' + nl 
+    label.set_textcolor(id, textcolor=color.white)
+    label.set_color(id, color.teal)
+
+if Trend2stoch == nl + '???? ???? ??' + nl + nl + '[ STOCH OVERSELL! ??' + nl + '¡¡STOCH SOBREVENTA!]' + nl 
+    label.set_textcolor(id, textcolor=color.white)
+    label.set_color(id, color.maroon)
+
+
+if Trend1ADX == nl + '???? ???? ??' + nl + nl + '[  STRONG ADX! ??' + nl + 'ADX FUERTE!]' + nl 
+    label.set_textcolor(id, textcolor=color.white)
+    label.set_color(id, color.teal)
+
+if Trend2ADX == nl + '???? ???? ??' + nl + nl + '[ WEAK ADX! ??' + nl + 'ADX DEBIL!]' + nl 
+    label.set_textcolor(id, textcolor=color.white)
+    label.set_color(id, color.maroon)
+
+
+if cruceLongADX == nl + '???????? ???? ??' + nl + nl + '[  CROSS ADX! ??' + nl + 'CRUCE ADX!]' + nl 
+    label.set_textcolor(id, textcolor=color.white)
+    label.set_color(id, color.teal)
+
+if cruceShortADX == nl + '???????? ???? ?? ' + nl + nl + '[ CROSS ADX! ??' + nl + 'CRUCE ADX!]' + nl 
+    label.set_textcolor(id, textcolor=color.white)
+    label.set_color(id, color.maroon)
+
+if SqueezeEndLong == nl + '???????? ???? ??' + nl + nl + '[  End Trend Squeeze! ??????' + nl + 'Fin Tendencia Squeeze!]' + nl 
+    label.set_textcolor(id, textcolor=color.white)
+    label.set_color(id, color.teal)
+
+if SqueezeEndShort == nl + '???????? ???? ?? ' + nl + nl + '[ End Trend Squeeze! ??????' + nl + 'Fin Tendencia Squeeze!]' + nl 
+    label.set_textcolor(id, textcolor=color.white)
+    label.set_color(id, color.maroon)
+
+if goldenrsiUp == nl + '???????? ???? ??' + nl + nl + '[  mRSI GOLD CROSS + ??' + nl 
+    label.set_textcolor(id, textcolor=color.white)
+    label.set_color(id, color.teal)
+
+if goldenrsiDn == nl + '???????? ???? ?? ' + nl + nl + '[ mRSI GOLD CROSS - ??' + nl 
+    label.set_textcolor(id, textcolor=color.white)
+    label.set_color(id, color.maroon)
+
+
+
+//----------//
+// END
+
+
+
+// Módulo  - ALERTAS  
+//-----------------------------------------
+//*********************************************************
+//*                     Módulo                           *
+//*                     ALERTAS                           *
+//*********************************************************
+// Cálculos idea original de CoMgUnNeR
+//--------
+
+
+//TODAS JUNTAS
+
+// Grupo : Opciones del Módulo INFOBOX
+groupALERT = "ALERTAS - KAKUPAKAT"
+// Separación visual
+plot(na)
+// , group=groupALERT
+// Obteniendo datos de otras temporalidades
+temporalidad1 = input.string("60", "Temporalidad 1", options=["60", "240"], group=groupALERT)
+temporalidad2 = input.string("240", "Temporalidad 2", options=["60", "240"], group=groupALERT)
+temporalidad3 = input.string("1D", "Temporalidad 3", options=["60", "240", "1D"], group=groupALERT)
+
+LongMaster1H = request.security(syminfo.tickerid, temporalidad1, buySignal)
+LongMaster4H = request.security(syminfo.tickerid, temporalidad2, buySignal)
+LongMaster24H = request.security(syminfo.tickerid, temporalidad3, buySignal)
+ShortMaster1H = request.security(syminfo.tickerid, temporalidad1, sellSignal)
+ShortMaster4H = request.security(syminfo.tickerid, temporalidad2, sellSignal)
+ShortMaster24H = request.security(syminfo.tickerid, temporalidad3, sellSignal)
+changeCond1H = request.security(syminfo.tickerid, temporalidad1, sellSignal)
+changeCond4H = request.security(syminfo.tickerid, temporalidad2, sellSignal)
+changeCond24H = request.security(syminfo.tickerid, temporalidad3, sellSignal)
+
+// Condiciones para la alerta
+condicionLong = LongMaster1H  or LongMaster24H
+condicionLong2 = LongMaster4H  or LongMaster24H
+condicionShort = ShortMaster1H or ShortMaster4H
+condicionShort2 = ShortMaster4H or ShortMaster24H
+condicionCambioDir = changeCond1H or changeCond4H
+condicionCambioDir2 = changeCond4H or changeCond24H
+
+
+// Creando las alertas
+alertcondition(buySignal and sellSignal  or condicionLong or condicionShort, title="Alerta: 1H y 4H BUY/SELL", message="Señal detectada en {{ticker}} en temporalidades {{interval}}, 1H y 4H")
+alertcondition(buySignal and sellSignal  or condicionLong2 or condicionShort2, title="Alerta: 1D y 4H BUY/SELL", message="Señal detectada en {{ticker}} en temporalidades {{interval}}, 1D y 4H")
+alertcondition(buySignal  or condicionCambioDir, title="DIR CHG: 1H y 4H", message="Señal detectada en {{ticker}} en temporalidades {{interval}}, 1H y 4H")
+alertcondition(buySignal  or condicionCambioDir2, title="DIR CHG: 4H y 1D", message="Señal detectada en {{ticker}} en temporalidades {{interval}}, 1H y 4H")

@@ -1,0 +1,1676 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+//@ moneymovesalgo
+//@version=5
+indicator('🤖 ARYAN TOOLKIT', shorttitle='ARYAN TOOLKIT 🤖', overlay=true, max_bars_back=5000,max_lines_count=500,max_labels_count=500)
+
+
+//***********************************Algo Label*****************************
+//-*************************************************************************
+var testTable = table.new(position = position.bottom_right, columns = 1, rows = 1, bgcolor = color.new(#008080,50), border_width = 2,border_color=color.new(#FF0000,50),frame_color=color.white)
+if barstate.islast
+    table.cell(table_id = testTable, column = 0, row = 0, text = "Money Moves Algo" ,text_color=color.new(#FFFFFF,0),text_size =size.small)
+//---------------------------------------------------------------------
+//--------------------------------------------------------------------
+
+// SignalModeSensitivity = input.string(title='Sensitivity', defval='High', options=['High','Low'],group='⚙️ENTRY OPPORTUNITY SETTINGS⚙️',tooltip="Adjust trending mode sensitivity")
+SignalMode = input.string(title='Signal Mode', defval='Disable', options=['Trending Market','Extremities Trade','(Filtered) Trending Market','Reversals','Disable'],group='⚙️ENTRY OPPORTUNITY SETTINGS⚙️',tooltip="Select between pullback/reversals based calculations and trend following methodology")
+// AnalysisHTF = input.timeframe("",title="Analysis Timeframe",group="⚙️ENTRY OPPORTUNITY SETTINGS⚙️",tooltip="Select the timeframe you would like to base your analysis on")
+TrendMap = input.string(title='Heatmap Mode', defval='Trending Market Colored', options=['Trending Market Monochrome','Trending Market Colored','Disable'],group='⚙️ENTRY OPPORTUNITY SETTINGS⚙️',tooltip="Use to adjust the bar coloring to indicate market sentiment")
+TrendCatcherSwitch=input(false,title="Trend Catcher",group='⚙️ENTRY OPPORTUNITY SETTINGS⚙️',tooltip = "ATR based trend but uses a custom trend identification logic")
+// TrailingStopLoss    = input(false,"Trailing Stop Loss ", group='🏃STOP LOSS SETTINGS🏃',tooltip = "Displays an custom ATR multiplier of 2x which can be used to estimate stops and trading range breaks")
+PullbackReentry = input(false,title="Continuations",group='⚙️ENTRY OPPORTUNITY SETTINGS⚙️',tooltip = "Areas in an already established trend best for re-entry")
+
+//***************************Entry and Exit Settings*******************************
+//*********************************************************************************
+
+//-----------------------------------------------------------------------------}
+//Exponential Envelopes
+//-----------------------------------------------------------------------------{
+len32 = float(50)
+
+sig_len32 = 9
+
+var alpha = 2/(len32+1) 
+
+var up1 = 0.,var up2 = 0.
+var dn1 = 0.,var dn2 = 0.
+
+C69= close
+O69 = open
+
+up1 := nz(math.max(C69, O69, up1[1] - (up1[1] - C69) * alpha), C69)
+up2 := nz(math.max(C69 * C69, O69 * O69, up2[1] - (up2[1] - C69 * C69) * alpha), C69 * C69)
+
+dn1 := nz(math.min(C69, O69, dn1[1] + (C69 - dn1[1]) * alpha), C69)
+dn2 := nz(math.min(C69 * C69, O69 * O69, dn2[1] + (C69 * C69 - dn2[1]) * alpha), C69 * C69)
+
+//Components
+bull = math.sqrt(dn2 - dn1 * dn1)
+bear = math.sqrt(up2 - up1 * up1)
+
+signal = ta.ema(math.max(bull, bear), sig_len32)
+
+
+ThirdBuySignal = ta.crossover(bull,signal) and  bear <=0 and close > close[1]
+ThirdSellSignal = ta.crossover(bear,signal) and  bull <=0 and close < close[1]
+
+ThirdBuySignalcolor = bull >= signal and  bear <=0
+ThirdSellSignalcolor = bear >= signal and  bull <=0
+
+//Trend Change
+buyBIAS = ta.crossover(bull,bear) 
+sellBIAS = ta.crossover(bear,bull)
+
+
+
+
+
+
+//Bias Candle Color 
+
+bullishcandleColor = bull>=bear and not ThirdBuySignalcolor
+bearishcandleColor = bull<=bear and not ThirdSellSignalcolor
+
+
+//bullish and bearish bias
+barcolor(TrendMap =="Trending Market Monochrome" and bearishcandleColor ? color.new(#b2b5be,0)  : na,editable=false)
+barcolor(TrendMap =="Trending Market Monochrome" and bullishcandleColor ? color.new(#5d606b,0) : na,editable=false)
+
+//zero bullish and bearish component  
+barcolor(TrendMap =="Trending Market Monochrome" and ThirdBuySignalcolor ?  color.new(#b2b5be,0) : na,editable=false)
+barcolor(TrendMap =="Trending Market Monochrome" and ThirdSellSignalcolor ? color.new(#5d606b,0) : na,editable=false)
+
+
+//TREND MAP COLORED 
+barcolor(TrendMap =="Trending Market Colored" and bearishcandleColor ? color.new(#FF0000,0) : na,editable=false)
+barcolor(TrendMap =="Trending Market Colored" and bullishcandleColor ? color.new(#00FF00,0) : na,editable=false)
+
+// //zero bullish and bearish component  
+barcolor(TrendMap =="Trending Market Colored" and ThirdBuySignalcolor  ? color.teal : na,editable=false)
+barcolor(TrendMap =="Trending Market Colored" and ThirdSellSignalcolor ? color.orange : na,editable=false)
+
+
+
+//*********************Trend Catcher ***************************************  
+ //***************************************************************************
+
+
+
+amplitudeCatch = 2
+channelDeviation = 2
+
+var int trendCatch = 0
+var int nextTrendCatch = 0
+var float maxLowPrice = nz(low[1], low)
+var float minHighPriceCatch = nz(high[1], high)
+
+var float upCatch = 0.0
+var float downCatch = 0.0
+float atrHighCatch = 0.0
+float atrLowCatch = 0.0
+float arrowUpCatch = na
+float arrowDownCatch = na
+
+atr2Catch = ta.atr(100) / 2
+devCatch = channelDeviation * atr2Catch
+
+highPriceCatch = high[math.abs(ta.highestbars(amplitudeCatch))]
+lowPriceCatch = low[math.abs(ta.lowestbars(amplitudeCatch))]
+highmaCatch = ta.sma(high, amplitudeCatch)
+lowmaCatch = ta.sma(low, amplitudeCatch)
+
+if nextTrendCatch == 1
+    maxLowPrice := math.max(lowPriceCatch, maxLowPrice)
+
+    if highmaCatch < maxLowPrice and close < nz(low[1], low)
+        trendCatch := 1
+        nextTrendCatch := 0
+        minHighPriceCatch := highPriceCatch
+        minHighPriceCatch
+else
+    minHighPriceCatch := math.min(highPriceCatch, minHighPriceCatch)
+
+    if lowmaCatch > minHighPriceCatch and close > nz(high[1], high)
+        trendCatch := 0
+        nextTrendCatch := 1
+        maxLowPrice := lowPriceCatch
+        maxLowPrice
+
+if trendCatch == 0
+    if not na(trendCatch[1]) and trendCatch[1] != 0
+        upCatch := na(downCatch[1]) ? downCatch : downCatch[1]
+        arrowUpCatch := upCatch - atr2Catch
+        arrowUpCatch
+    else
+        upCatch := na(upCatch[1]) ? maxLowPrice : math.max(maxLowPrice, upCatch[1])
+        upCatch
+    atrHighCatch := upCatch + devCatch
+    atrLowCatch := upCatch - devCatch
+    atrLowCatch
+else
+    if not na(trendCatch[1]) and trendCatch[1] != 1
+        downCatch := na(upCatch[1]) ? upCatch : upCatch[1]
+        arrowDownCatch := downCatch + atr2Catch
+        arrowDownCatch
+    else
+        downCatch := na(downCatch[1]) ? minHighPriceCatch : math.min(minHighPriceCatch, downCatch[1])
+        downCatch
+    atrHighCatch := downCatch + devCatch
+    atrLowCatch := downCatch - devCatch
+    atrLowCatch
+
+htCatch = trendCatch == 0 ? upCatch : downCatch
+
+var color buyColorCatch = color.blue
+var color sellColor = color.orange
+
+var color buyColorTSL = color.new(color.blue,0)
+var color sellColorTSL = color.new(color.orange,0)
+
+//************************ HTF CONDITIONS ******************************************
+// HTFbuyBIAS = trendCatch == 0
+// HTFsellBIAS = trendCatch != 0
+// HTFConfirmationBuys = request.security(syminfo.tickerid,AnalysisHTF,HTFbuyBIAS[barstate.isrealtime ?1:0])
+// HTFConfirmationSells = request.security(syminfo.tickerid,AnalysisHTF,HTFsellBIAS[barstate.isrealtime ?1:0])
+//*****************************************************************************
+
+htColor = trendCatch == 0 ? buyColorCatch : sellColor
+htPlotCattch = plot(TrendCatcherSwitch ? htCatch:na, title='Trend Catcher', linewidth=2, color=htColor,editable=false)
+
+// atrHighPlot = plot(TrailingStopLoss ? atrHighCatch : na, title="ATR High", style=plot.style_circles, color=sellColorTSL,editable=false)
+// atrLowPlot = plot(TrailingStopLoss ? atrLowCatch : na, title="ATR Low", style=plot.style_circles, color=buyColorTSL,editable=false)
+
+
+htPlotCattchCatch = not na(arrowUpCatch) and trendCatch == 0 and trendCatch[1] == 1 //and HTFConfirmationBuys
+sellSignalCatch = not na(arrowDownCatch) and trendCatch == 1 and trendCatch[1] == 0 //and  HTFConfirmationSells
+
+// TrendCatcherEntry = input(false,"Trend Catcher Entry ", group='⚙️ENTRY OPPORTUNITY SETTINGS⚙️',tooltip="Plot entry shape for trend catcher") 
+
+plotshape(SignalMode == 'Trending Market' and htPlotCattchCatch  ? atrLowCatch : na,text="1️⃣:BUY",textcolor=color.white, title='Arrow upCatch', style=shape.labelup, location=location.absolute, size=size.tiny,color=color.new(#008000,50),editable=false)
+plotshape(SignalMode == 'Trending Market' and sellSignalCatch  ? atrHighCatch : na,text="1️⃣:SELL",textcolor=color.white, title='Arrow downCatch', style=shape.labeldown, location=location.absolute, size=size.tiny, color=color.new(#FF0000,50),editable=false)
+
+
+//-----------------------------------------------------------------------------}
+//Trend Change Settings
+///-----------------------------------------------------------------------------{
+TrendCalculationSwitch = input(false,"Price Extremities", group='⚙️ENTRY OPPORTUNITY SETTINGS⚙️',tooltip="Display the extremities used in the calculatons of the overall trend") 
+
+
+ExtremitiesPeriod = 100
+ExtremitiesSource = close
+//----
+aa = 0.
+bb = 0.
+aa := math.max(ExtremitiesSource, nz(aa[1])) - nz(aa[1] - bb[1]) / ExtremitiesPeriod
+bb := math.min(ExtremitiesSource, nz(bb[1])) + nz(aa[1] - bb[1]) / ExtremitiesPeriod
+avgr = math.avg(aa, bb)
+
+
+//----
+crossup = bb[1] < close[1] and bb > close
+crossdn = aa[1] < close[1] and aa > close
+bullish = ta.barssince(crossdn) <= ta.barssince(crossup)
+
+
+plot(TrendCalculationSwitch ? aa:na," Extremities Upper",color=color.new(#008000,0),linewidth=1,style=plot.style_line,editable=false)
+plot(TrendCalculationSwitch ? bb:na," Extremities Lower",color=color.new(#FF0000,0),linewidth=1,style=plot.style_line,editable=false)
+plot(TrendCalculationSwitch ? avgr:na,"Extremities Average",color=color.new(#FF9800,0),linewidth=1,editable=false)
+
+//-----
+c = bullish ? color.new(#00E676,80) : color.new(#FF0000,80)
+// p1=plot(avgr,"Extremities Average",color=c,linewidth=4,editable=false,offset=10,display=display.none)
+p1Offset=plot(avgr,"Extremities Average",color=c,linewidth=4,editable=false,display=display.none)
+
+ExtremitiesSell = not bullish and bullish[1] ? avgr : na
+ExtremitiesBuy = bullish and not bullish[1] ? avgr : na
+
+
+plotshape(SignalMode == 'Extremities Trade' and ExtremitiesSell , location=location.abovebar, style=shape.labeldown, size=size.normal, text="BEARISH", textcolor=color.white,color=color.new(#FF0000,0),editable=false)
+plotshape(SignalMode == 'Extremities Trade' and ExtremitiesBuy , location=location.belowbar, style=shape.labelup, size=size.normal, text="BULLISH", textcolor=color.white,color=color.new(#008000,0),editable=false)
+
+
+
+
+
+
+
+
+
+//************************Ranging Signals *******************
+//************************************************************
+
+
+buy_col = color.new(#0ac20a,0)
+sell_col = color.new(#fd1605,0)
+text_col = color.new(#FFFFFF,0)
+
+
+// -------- Bearish trend (blue) color selection --------
+getBuyColor(count) =>
+    if count == 1
+        color.new(#11e7f2,0)
+    else
+        if count == 2
+            color.new(#11d9f2,0)
+        else
+            if count == 3
+                color.new(#11cbf2,0)
+            else
+                if count == 4
+                    color.new(#11aff2,0)
+                else
+                    if count == 5
+                        color.new(#1193f2,0)
+                    else
+                        if count == 6
+                            color.new(#1176f2,0)
+                        else
+                            if count == 7
+                                color.new(#105df4,0)
+                            else
+                                if count == 8
+                                    color.new(#1051f5,0)
+                                else
+                                    if count == 9
+                                        color.new(#0f44f5,0)
+                                    else
+                                        if count == 10
+                                            color.new(#0c3de0,0)
+                                        else
+                                            if count == 11
+                                                color.new(#0935ca,0)
+                                            else
+                                                if count == 12
+                                                    color.new(#062eb4,0)
+                                                else
+                                                    if count == 13
+                                                        color.new(#02269e,0)
+
+// -------- Bullish trend (blue) color selection --------
+getSellColor(count) =>
+    if count == 1
+        color.new(#eef211,0)
+    else
+        if count == 2
+            color.new(#efdc11,0)
+        else
+            if count == 3
+                color.new(#f0c511,0)
+            else
+                if count == 4
+                    color.new(#f1af11,0)
+                else
+                    if count == 5
+                        color.new(#f29811,0)
+                    else
+                        if count == 6
+                            color.new(#f28811,0)
+                        else
+                            if count == 7
+                                color.new(#f27811,0)
+                            else
+                                if count == 8
+                                    color.new(#f26811,0)
+                                else
+                                    if count == 9
+                                        color.new(#f25811,0)
+                                    else
+                                        if count == 10
+                                            color.new(#ea420d,0)
+                                        else
+                                            if count == 11
+                                                color.new(#e12c09,0)
+                                            else
+                                                if count == 12
+                                                    color.new(#d81605,0)
+                                                else
+                                                    if count == 13
+                                                        color.new(#cf0000,0)
+
+// -------- Calculate bearish trend sequence --------
+buySetup = 0
+buySetup := close < close[4] ? buySetup[1] == 13 ? 1 : buySetup[1] + 1 : 0
+
+
+// -------- Calculate bullish trend sequence --------
+sellSetup = 0
+sellSetup := close > close[4] ? sellSetup[1] == 13 ? 1 : sellSetup[1] + 1 : 0
+
+
+// -------- Paint bars --------
+barColour = buySetup >= 1 ? getBuyColor(buySetup) : sellSetup >= 1 ? getSellColor(sellSetup) : na
+barcolor(TrendMap == 'Trend Gradiant' ? barColour : na, title='Bar colors (heatmap)',editable=false)
+
+// -------- PLot labels --------
+
+
+//Stochastic Oscollator  ________________________________________
+lengthSTOCH = 14
+sourceStoc = close
+presmoothStoc = 10
+premethodStoch = 'SMA'
+postsmoothStoch = 10
+postmethodStoch = 'SMA'
+//----
+ma(xStoch, kStoch, orderStoch) =>
+    if orderStoch == 'SMA'
+        ta.sma(xStoch, kStoch)
+    else if orderStoch == 'TMA'
+        ta.sma(ta.sma(xStoch, kStoch), kStoch)
+    else if orderStoch == 'LSMA'
+        ta.linreg(xStoch, kStoch, 0)
+    else
+        xStoch
+//----
+srcStoch = ma(sourceStoc, presmoothStoc, premethodStoch)
+var weightStoch = array.new_float(0)
+pricesStoch = array.new_float(0)
+//----
+StochStoc = 0.
+for iStoch = 0 to lengthSTOCH - 1 by 1
+    array.push(pricesStoch, srcStoch[iStoch])
+for iStoch = 4 to lengthSTOCH by 1
+    sliceStoch = array.slice(pricesStoch, 0, iStoch)
+    StochStoc += (srcStoch - array.min(sliceStoch)) / (array.max(sliceStoch) - array.min(sliceStoch))
+    StochStoc
+normStoch = StochStoc / (lengthSTOCH - 3) * 100
+staStoch = ma(normStoch, postsmoothStoch, postmethodStoch)
+
+//Stochastic Oscollator  ________________________________________
+
+
+buySetupInCloud1 = buySetup==7  and (staStoch <=20) 
+sellSetupInCloud1 = sellSetup==7 and (staStoch >=80) 
+
+
+buySetupInCloudE = buySetup==13 and (staStoch <=20) 
+sellSetupInCloudE = sellSetup==13 and (staStoch >=80) 
+
+
+
+plotshape(SignalMode == 'Reversals' and buySetupInCloud1, title='TD buy sequence 7', location=location.belowbar, style=shape.flag, size=size.tiny, color=buy_col, text="Dilution", textcolor=text_col,editable=false)
+plotshape(SignalMode == 'Reversals' and sellSetupInCloud1, title='TD sell sequence 7', location=location.abovebar, style=shape.flag, size=size.tiny, color=sell_col, text="Dilution", textcolor=text_col,editable=false)
+
+
+plotshape(SignalMode == 'Reversals' and buySetupInCloudE, title='Bearish Exhaustion', location=location.belowbar, style=shape.flag, size=size.tiny, color=buy_col, text="Exhaustion", textcolor=text_col,editable=false) 
+plotshape(SignalMode == 'Reversals' and sellSetupInCloudE, title='Bullish Exhaustion', location=location.abovebar, style=shape.flag, size=size.tiny, color=sell_col, text="Exhaustion", textcolor=text_col,editable=false)  
+
+
+
+//********************************Adaptive Filter *********************************
+///*************************************************************************************
+
+
+TrendFilter = input(false,title="Adaptive Filter",group='⚙️ENTRY OPPORTUNITY SETTINGS⚙️',tooltip = "Inspired by the QQE's volatility filter, this filter applies the process directly to price rather than to a smoothed RSI. Designed to be extremly reactive to price")
+
+// Source
+
+srcFilt = close
+
+
+perFilt = 100
+
+// Range Multiplier
+
+multFilt = 1
+
+// Smooth Average Range
+
+smoothrngFilt(xFilt, tFilt, mFilt) =>
+    wperFillt = tFilt * 2 - 1
+    avrngFilt = ta.ema(math.abs(xFilt - xFilt[1]), tFilt)
+    smoothrngFilt = ta.ema(avrngFilt, wperFillt) * mFilt
+    smoothrngFilt
+smrngFilt = smoothrngFilt(srcFilt, perFilt, multFilt)
+
+// Range Filter
+
+rngfilt(xFilt, r) =>
+    rngfilt = xFilt
+    rngfilt := xFilt > nz(rngfilt[1]) ? xFilt - r < nz(rngfilt[1]) ? nz(rngfilt[1]) : xFilt - r : xFilt + r > nz(rngfilt[1]) ? nz(rngfilt[1]) : xFilt + r
+    rngfilt
+filtFILT = rngfilt(srcFilt, smrngFilt)
+
+// Filter Direction
+
+upwardFilt = 0.0
+upwardFilt := filtFILT > filtFILT[1] ? nz(upwardFilt[1]) + 1 : filtFILT < filtFILT[1] ? 0 : nz(upwardFilt[1])
+downwardFilt = 0.0
+downwardFilt := filtFILT < filtFILT[1] ? nz(downwardFilt[1]) + 1 : filtFILT > filtFILT[1] ? 0 : nz(downwardFilt[1])
+
+// Target Bands
+
+hbandFilt = filtFILT + smrngFilt
+lbandFilt = filtFILT - smrngFilt
+
+// Colors
+
+filtcolorFilt = upwardFilt > 0 ? color.lime : downwardFilt > 0 ? color.red : color.orange
+
+filtplotFilt = plot( TrendFilter ? filtFILT :na, color=filtcolorFilt, linewidth=2, style=plot.style_line, title='Adaptive Filter',editable=false)
+
+// Target
+longCondFilt = bool(na)
+shortCondFilt = bool(na)
+longCondFilt := srcFilt > filtFILT and srcFilt > srcFilt[1] and upwardFilt > 0 or srcFilt > filtFILT and srcFilt < srcFilt[1] and upwardFilt > 0
+shortCondFilt := srcFilt < filtFILT and srcFilt < srcFilt[1] and downwardFilt > 0 or srcFilt < filtFILT and srcFilt > srcFilt[1] and downwardFilt > 0
+
+CondIniFiilt = 0
+CondIniFiilt := longCondFilt ? 1 : shortCondFilt ? -1 : CondIniFiilt[1]
+
+
+
+
+//**********************************Trending Market Filter *********************************
+
+convSQUEEZE   = 50
+
+lengthSQUEEZE = 20
+
+srcSQUEEZE = close
+
+//-----------------------------------------------------------------------------}
+//Squeeze index
+//-----------------------------------------------------------------------------{
+var max0QUEEZE = 0.
+var min0QUEEZE = 0.
+
+max0QUEEZE := nz(math.max(srcSQUEEZE, max0QUEEZE - (max0QUEEZE - srcSQUEEZE) / convSQUEEZE), srcSQUEEZE)
+min0QUEEZE := nz(math.min(srcSQUEEZE, min0QUEEZE + (srcSQUEEZE - min0QUEEZE) / convSQUEEZE), srcSQUEEZE)
+diff0QUEEZE = math.log(max0QUEEZE - min0QUEEZE)
+
+psiSQUEEZE = -50 * ta.correlation(diff0QUEEZE, bar_index, lengthSQUEEZE) + 50
+
+htPlotCattchCatchFilter = not na(arrowUpCatch) and trendCatch == 0 and trendCatch[1] == 1   and psiSQUEEZE <80 
+sellSignalCatchFilter = not na(arrowDownCatch) and trendCatch == 1 and trendCatch[1] == 0  and psiSQUEEZE <80 
+
+plotshape(SignalMode == '(Filtered) Trending Market' and htPlotCattchCatchFilter  ? atrLowCatch : na,text="1️⃣:BUY",textcolor=color.white, title='Arrow upCatch', style=shape.labelup, location=location.absolute, size=size.tiny,color=color.new(#008000,50),editable=false)
+plotshape(SignalMode == '(Filtered) Trending Market' and sellSignalCatchFilter  ? atrHighCatch : na,text="1️⃣:SELL",textcolor=color.white, title='Arrow downCatch', style=shape.labeldown, location=location.absolute, size=size.tiny, color=color.new(#FF0000,50),editable=false)
+
+
+
+
+
+
+
+
+
+//******************************** Bollinger Bands ********************
+bollingerbandsensitivity = input.string(title='Bollinger Band Sensitivity', defval="Low", options=['Low',"High"],group='🏃STOP LOSS SETTINGS🏃')
+
+
+bb_use_ema = false
+bb_length = bollingerbandsensitivity =="Low" ? 20 :10
+bb_source = close
+bb_mult = 2.0
+bb_mult_inc = 0.5
+
+ema_1 = ta.ema(bb_source, bb_length)
+sma_1 = ta.sma(bb_source, bb_length)
+bb_basis = bb_use_ema ? ema_1 : sma_1
+
+// Deviation
+// * I'm sure there's a way I could write some of this cleaner, but meh.
+dev = ta.stdev(bb_source, bb_length)
+bb_dev_inner = bb_mult * dev
+bb_dev_mid = (bb_mult + bb_mult_inc) * dev
+bb_dev_outer = (bb_mult + bb_mult_inc * 2) * dev
+
+// Upper bands
+inner_high = bb_basis + bb_dev_inner
+mid_high = bb_basis + bb_dev_mid
+outer_high = bb_basis + bb_dev_outer
+// Lower Bands
+inner_low = bb_basis - bb_dev_inner
+mid_low = bb_basis - bb_dev_mid
+outer_low = bb_basis - bb_dev_outer
+
+// Breakout Deviation
+
+
+bollingerbandswitch = input(false, title="(Trending)Bollinger Bands", group='🏃STOP LOSS SETTINGS🏃',tooltip = "A bollinger bands of 20 or 10 will only appear if in the direction of the trending signals, Great oppertunity for entries" )
+
+// plot and fill upper bands
+ubi = plot(trendCatch != 0 and bollingerbandswitch ? inner_high:na, title='Upper Band Inner', color=color.new(#00bcd4, 90),display=display.none,editable = false)
+ubm = plot(trendCatch != 0 and bollingerbandswitch ? mid_high:na, title='Upper Band Middle', color=color.new(#00bcd4, 85),display=display.none,editable = false)
+ubo = plot(trendCatch != 0 and bollingerbandswitch ? outer_high:na, title='Upper Band Outer', color=color.new(color.red, 80),display=display.none,editable = false)
+fill(ubi, ubm, title='Upper Bands Inner Fill', color=color.new(#43c43e, 90))
+fill(ubm, ubo, title='Upper Bands Outer Fill', color=color.new(#43c43e, 80))
+
+// plot and fill lower bands
+lbi = plot(trendCatch == 0 and bollingerbandswitch ? inner_low:na, title='Lower Band Inner', color=color.new(color.green, 90),display=display.none,editable = false)
+lbm = plot(trendCatch == 0 and bollingerbandswitch? mid_low:na, title='Lower Band Middle', color=color.new(color.green, 85),display=display.none,editable = false)
+lbo = plot(trendCatch == 0 and bollingerbandswitch ? outer_low:na, title='Lower Band Outer', color=color.new(color.green, 80),display=display.none,editable = false)
+fill(lbi, lbm, title='Lower Bands Inner Fill', color=color.new(#e04343, 90))
+fill(lbm, lbo, title='Lower Bands Outer Fill', color=color.new(#e04343, 80))
+
+
+
+//********************************** STOP LOSS**************************************
+//**********************************************************************************
+
+upperBandSource = high
+lowerBandSource = low
+length = 14
+CurrentSL = input(false,title="Realtime SL/TP",group='🏃STOP LOSS SETTINGS🏃',tooltip = "Adjust both using the SL multiplier")
+VolatilityBandSwitch = input(false,"ATR Volatility Bands", group='🏃STOP LOSS SETTINGS🏃')
+StopLossSwitch=input(false,title="Signal TP/SL ", group='🏃STOP LOSS SETTINGS🏃')
+multiplier = input.string("3",group='🏃STOP LOSS SETTINGS🏃',options=["Disable","1","2","3"],title="SL Volatility Multiplier")
+multipliertp = input.string("Disable",group='🏃STOP LOSS SETTINGS🏃',options=["Disable","1","2","3","4","5","6","7","8","9","10","20"],title="TP Volatility Multiplier")
+smoothing = 'RMA'
+
+ma_function(source, length) =>
+    if smoothing == 'RMA'
+        ta.rma(source, length)
+    else
+        if smoothing == 'SMA'
+            ta.sma(source, length)
+        else
+            if smoothing == 'EMA'
+                ta.ema(source, length)
+            else
+                ta.wma(source, length)
+
+result = ma_function(ta.tr(true), length)
+upper = upperBandSource + result * str.tonumber(multiplier)
+lower = lowerBandSource - result *  str.tonumber(multiplier)
+
+uppertp = upperBandSource + result * str.tonumber(multipliertp)
+lowertp = lowerBandSource - result *  str.tonumber(multipliertp)
+
+var StopLoss = label.new(bar_index, high, style=label.style_label_left)
+var EntryPrice = label.new(bar_index, close, style=label.style_label_left)
+var takeprofit = label.new(bar_index, high, style=label.style_label_left)
+var StopLoss1 = label.new(bar_index, high, style=label.style_label_left)
+var StopLoss2 = label.new(bar_index, high, style=label.style_label_left)
+
+
+
+
+if StopLossSwitch and SignalMode == '(Filtered) Trending Market' and htPlotCattchCatchFilter 
+   
+
+    
+ 
+    label.set_x(StopLoss,0)
+    label.set_y(StopLoss, lower)
+    label.set_xloc(StopLoss, time, xloc.bar_time)
+    label.set_color(StopLoss, color(color.new(#fd1605,0)))
+    label.set_textcolor(StopLoss, color.white)
+    label.set_size(StopLoss, size=size.normal)
+    label.set_text(StopLoss, str.tostring(lower,'#.#####')+" -SL" )
+   
+
+    label.set_x(EntryPrice, 0)
+    label.set_y(EntryPrice, close)
+    label.set_xloc(EntryPrice, time, xloc.bar_time)
+    label.set_color(EntryPrice, color.blue)
+    label.set_textcolor(EntryPrice, color.white)
+    label.set_size(EntryPrice, size=size.normal)
+    label.set_text(EntryPrice, str.tostring(close,'#.#####')+" -ENTRY " )
+    
+    
+    label.set_x(takeprofit,0)
+    label.set_y(takeprofit, uppertp)
+    label.set_xloc(takeprofit, time, xloc.bar_time)
+    label.set_color(takeprofit, color(color.new(#4CAF50,0)))
+    label.set_textcolor(takeprofit, color.white)
+    label.set_size(takeprofit, size=size.normal)
+    label.set_text(takeprofit, str.tostring(uppertp,'#.#####')+" -TP" )
+    
+    
+    
+else if StopLossSwitch and SignalMode == '(Filtered) Trending Market' and sellSignalCatchFilter   
+
+    label.set_x(StopLoss, 0)
+    label.set_y(StopLoss, upper)
+    label.set_xloc(StopLoss, time, xloc.bar_time)
+    label.set_color(StopLoss, color(color.new(#fd1605,0)))
+    label.set_textcolor(StopLoss, color.white)
+    label.set_size(StopLoss, size=size.normal)
+    label.set_text(StopLoss, str.tostring(upper,'#.#####')+" -SL" )
+    
+    
+    label.set_x(EntryPrice, 0)
+    label.set_y(EntryPrice, close)
+    label.set_xloc(EntryPrice, time, xloc.bar_time)
+    label.set_color(EntryPrice, color.blue)
+    label.set_textcolor(EntryPrice, color.white)
+    label.set_size(EntryPrice, size=size.normal)
+    label.set_text(EntryPrice, str.tostring(close,'#.#####')+" -ENTRY " )
+    
+    
+    label.set_x(takeprofit,0)
+    label.set_y(takeprofit, lowertp)
+    label.set_xloc(takeprofit, time, xloc.bar_time)
+    label.set_color(takeprofit, color(color.new(#4CAF50,0)))
+    label.set_textcolor(takeprofit, color.white)
+    label.set_size(takeprofit, size=size.normal)
+    label.set_text(takeprofit, str.tostring(lowertp,'#.#####')+" -TP" )
+
+
+
+    
+if SignalMode == 'Extremities Trade' and StopLossSwitch and  ExtremitiesBuy
+
+    label.set_x(StopLoss,0)
+    label.set_y(StopLoss, lower)
+    label.set_xloc(StopLoss, time, xloc.bar_time)
+    label.set_color(StopLoss, color(color.new(#fd1605,0)))
+    label.set_textcolor(StopLoss, color.white)
+    label.set_size(StopLoss, size=size.normal)
+    label.set_text(StopLoss, str.tostring(lower,'#.#####')+" -SL" )
+
+  
+    
+
+    label.set_x(EntryPrice, 0)
+    label.set_y(EntryPrice, close)
+    label.set_xloc(EntryPrice, time, xloc.bar_time)
+    label.set_color(EntryPrice, color.blue)
+    label.set_textcolor(EntryPrice, color.white)
+    label.set_size(EntryPrice, size=size.normal)
+    label.set_text(EntryPrice, str.tostring(close,'#.#####')+" -ENTRY " )
+    
+    
+    label.set_x(takeprofit,0)
+    label.set_y(takeprofit, uppertp)
+    label.set_xloc(takeprofit, time, xloc.bar_time)
+    label.set_color(takeprofit, color(color.new(#4CAF50,0)))
+    label.set_textcolor(takeprofit, color.white)
+    label.set_size(takeprofit, size=size.normal)
+    label.set_text(takeprofit, str.tostring(uppertp,'#.#####')+" -TP" )
+    
+else if SignalMode == 'Extremities Trade' and StopLossSwitch and  ExtremitiesSell
+
+    label.set_x(StopLoss, 0)
+    label.set_y(StopLoss, upper)
+    label.set_xloc(StopLoss, time, xloc.bar_time)
+    label.set_color(StopLoss, color(color.new(#fd1605,0)))
+    label.set_textcolor(StopLoss, color.white)
+    label.set_size(StopLoss, size=size.normal)
+    label.set_text(StopLoss, str.tostring(upper,'#.#####')+" -SL" )
+    
+    
+    label.set_x(EntryPrice, 0)
+    label.set_y(EntryPrice, close)
+    label.set_xloc(EntryPrice, time, xloc.bar_time)
+    label.set_color(EntryPrice, color.blue)
+    label.set_textcolor(EntryPrice, color.white)
+    label.set_size(EntryPrice, size=size.normal)
+    label.set_text(EntryPrice, str.tostring(close,'#.#####')+" -ENTRY " )
+    
+    
+    label.set_x(takeprofit,0)
+    label.set_y(takeprofit, lowertp)
+    label.set_xloc(takeprofit, time, xloc.bar_time)
+    label.set_color(takeprofit, color(color.new(#4CAF50,0)))
+    label.set_textcolor(takeprofit, color.white)
+    label.set_size(takeprofit, size=size.normal)
+    label.set_text(takeprofit, str.tostring(lowertp,'#.#####')+" -TP" )
+    
+
+if SignalMode == 'Reversals' and StopLossSwitch  and  (buySetupInCloud1 or buySetupInCloudE)
+
+    label.set_x(StopLoss,0)
+    label.set_y(StopLoss, lower)
+    label.set_xloc(StopLoss, time, xloc.bar_time)
+    label.set_color(StopLoss, color(color.new(#fd1605,0)))
+    label.set_textcolor(StopLoss, color.white)
+    label.set_size(StopLoss, size=size.normal)
+    label.set_text(StopLoss, str.tostring(lower,'#.#####')+" -SL" )
+
+  
+    
+
+    label.set_x(EntryPrice, 0)
+    label.set_y(EntryPrice, close)
+    label.set_xloc(EntryPrice, time, xloc.bar_time)
+    label.set_color(EntryPrice, color.blue)
+    label.set_textcolor(EntryPrice, color.white)
+    label.set_size(EntryPrice, size=size.normal)
+    label.set_text(EntryPrice, str.tostring(close,'#.#####')+" -ENTRY " )
+    
+    
+    label.set_x(takeprofit,0)
+    label.set_y(takeprofit, uppertp)
+    label.set_xloc(takeprofit, time, xloc.bar_time)
+    label.set_color(takeprofit, color(color.new(#4CAF50,0)))
+    label.set_textcolor(takeprofit, color.white)
+    label.set_size(takeprofit, size=size.normal)
+    label.set_text(takeprofit, str.tostring(uppertp,'#.#####')+" -TP" )
+    
+else if SignalMode == 'Reversals' and StopLossSwitch  and  (sellSetupInCloud1 or sellSetupInCloudE)
+
+    label.set_x(StopLoss, 0)
+    label.set_y(StopLoss, upper)
+    label.set_xloc(StopLoss, time, xloc.bar_time)
+    label.set_color(StopLoss, color(color.new(#fd1605,0)))
+    label.set_textcolor(StopLoss, color.white)
+    label.set_size(StopLoss, size=size.normal)
+    label.set_text(StopLoss, str.tostring(upper,'#.#####')+" -SL" )
+    
+    
+    label.set_x(EntryPrice, 0)
+    label.set_y(EntryPrice, close)
+    label.set_xloc(EntryPrice, time, xloc.bar_time)
+    label.set_color(EntryPrice, color.blue)
+    label.set_textcolor(EntryPrice, color.white)
+    label.set_size(EntryPrice, size=size.normal)
+    label.set_text(EntryPrice, str.tostring(close,'#.#####')+" -ENTRY " )
+    
+    
+    label.set_x(takeprofit,0)
+    label.set_y(takeprofit, lowertp)
+    label.set_xloc(takeprofit, time, xloc.bar_time)
+    label.set_color(takeprofit, color(color.new(#4CAF50,0)))
+    label.set_textcolor(takeprofit, color.white)
+    label.set_size(takeprofit, size=size.normal)
+    label.set_text(takeprofit, str.tostring(lowertp,'#.#####')+" -TP" )
+
+
+
+
+if StopLossSwitch and SignalMode == 'Trending Market' and htPlotCattchCatch  
+   
+
+    
+ 
+    label.set_x(StopLoss,0)
+    label.set_y(StopLoss, lower)
+    label.set_xloc(StopLoss, time, xloc.bar_time)
+    label.set_color(StopLoss, color(color.new(#fd1605,0)))
+    label.set_textcolor(StopLoss, color.white)
+    label.set_size(StopLoss, size=size.normal)
+    label.set_text(StopLoss, str.tostring(lower,'#.#####')+" -SL" )
+   
+
+    label.set_x(EntryPrice, 0)
+    label.set_y(EntryPrice, close)
+    label.set_xloc(EntryPrice, time, xloc.bar_time)
+    label.set_color(EntryPrice, color.blue)
+    label.set_textcolor(EntryPrice, color.white)
+    label.set_size(EntryPrice, size=size.normal)
+    label.set_text(EntryPrice, str.tostring(close,'#.#####')+" -ENTRY " )
+    
+    
+    label.set_x(takeprofit,0)
+    label.set_y(takeprofit, uppertp)
+    label.set_xloc(takeprofit, time, xloc.bar_time)
+    label.set_color(takeprofit, color(color.new(#4CAF50,0)))
+    label.set_textcolor(takeprofit, color.white)
+    label.set_size(takeprofit, size=size.normal)
+    label.set_text(takeprofit, str.tostring(uppertp,'#.#####')+" -TP" )
+    
+    
+    
+else if StopLossSwitch and SignalMode == 'Trending Market' and sellSignalCatch  
+
+    label.set_x(StopLoss, 0)
+    label.set_y(StopLoss, upper)
+    label.set_xloc(StopLoss, time, xloc.bar_time)
+    label.set_color(StopLoss, color(color.new(#fd1605,0)))
+    label.set_textcolor(StopLoss, color.white)
+    label.set_size(StopLoss, size=size.normal)
+    label.set_text(StopLoss, str.tostring(upper,'#.#####')+" -SL" )
+    
+    
+    label.set_x(EntryPrice, 0)
+    label.set_y(EntryPrice, close)
+    label.set_xloc(EntryPrice, time, xloc.bar_time)
+    label.set_color(EntryPrice, color.blue)
+    label.set_textcolor(EntryPrice, color.white)
+    label.set_size(EntryPrice, size=size.normal)
+    label.set_text(EntryPrice, str.tostring(close,'#.#####')+" -ENTRY " )
+    
+    
+    label.set_x(takeprofit,0)
+    label.set_y(takeprofit, lowertp)
+    label.set_xloc(takeprofit, time, xloc.bar_time)
+    label.set_color(takeprofit, color(color.new(#4CAF50,0)))
+    label.set_textcolor(takeprofit, color.white)
+    label.set_size(takeprofit, size=size.normal)
+    label.set_text(takeprofit, str.tostring(lowertp,'#.#####')+" -TP" )
+
+if CurrentSL
+    label.set_x(StopLoss1,0)
+    label.set_y(StopLoss1, lower)
+    label.set_xloc(StopLoss1, time, xloc.bar_time)
+    label.set_color(StopLoss1, color(color.new(#fd1605,0)))
+    label.set_textcolor(StopLoss1, color.white)
+    label.set_size(StopLoss1, size=size.normal)
+    label.set_text(StopLoss1, str.tostring(lower,'#.#####')+" -TP/SL" )
+
+    label.set_x(StopLoss, 0)
+    label.set_y(StopLoss, upper)
+    label.set_xloc(StopLoss, time, xloc.bar_time)
+    label.set_color(StopLoss, color(color.new(#fd1605,0)))
+    label.set_textcolor(StopLoss, color.white)
+    label.set_size(StopLoss, size=size.normal)
+    label.set_text(StopLoss, str.tostring(upper,'#.#####')+" -TP/SL" )
+
+    
+plot(VolatilityBandSwitch ? upper :na, color=color.new(color.red, 0), linewidth=1, style=plot.style_linebr, title='Historical ATR Upper',editable=false)
+plot(VolatilityBandSwitch ? lower :na, color=color.new(color.red, 0), linewidth=1, style=plot.style_linebr, title='Historical ATR Lower',editable=false)
+
+
+lowerBandOne = lowerBandSource - result * 3
+lowerBandTwo = lowerBandSource - result * 1
+
+upperBandOne = upperBandSource + result * 3
+upperBandTwo = upperBandSource + result * 1
+
+upperMidPointOne = upperBandSource + result * 0.75
+upperMidPointTwo = upperBandSource + result * 2
+
+lowerMidPointOne = lowerBandSource - result * 0.75
+lowerMidPointTwo = lowerBandSource - result * 2
+
+
+L1 = plot(VolatilityBandSwitch ? lowerBandOne :na,style=plot.style_line,display=display.none,editable=false)
+L2 = plot(VolatilityBandSwitch ? lowerBandTwo:na,style=plot.style_line,display=display.none,editable=false)
+
+U1 = plot(VolatilityBandSwitch ? upperBandOne:na,style=plot.style_line,display=display.none,editable=false)
+U2 = plot(VolatilityBandSwitch ? upperBandTwo:na,style=plot.style_line,display=display.none,editable=false)
+
+Mp1 = plot(VolatilityBandSwitch ? upperMidPointOne:na,style=plot.style_line,display=display.none,editable=false)
+Mp2 = plot(VolatilityBandSwitch ?upperMidPointTwo:na,style=plot.style_line,display=display.none,editable=false)
+
+Mp3 = plot(VolatilityBandSwitch ? lowerMidPointOne:na,style=plot.style_line,display=display.none,editable=false)
+Mp4 = plot(VolatilityBandSwitch ? lowerMidPointTwo:na,style=plot.style_line,display=display.none,editable=false)
+
+
+///UpperBands
+fill(U1,U2,color=color.new(#00E676, 80),editable=false) // bright color
+fill(Mp1,Mp2,color=color.new(#4CAF50, 90),editable=false) // dark color
+//LowerBands
+fill(L1,L2,color=color.new(#00E676, 80),editable=false) // bright color
+fill(Mp3,Mp4,color=color.new(#4CAF50, 90),editable=false) //dark color
+   
+
+
+
+//******************************Support and resistance *********************************
+//**************************************************************************************
+//INPUTS
+gr1 = 'Market Structure Settings'
+srcH = high
+leftLenH = 20
+rightLenH = 20
+colorH = color.new(color.green, 0)
+
+srcL = low
+leftLenL =20
+rightLenL = 20
+colorL = color.new(color.red, 0)
+
+//Color for background of Labels 
+colorHH = color.new(color.green, 100)
+colorLL = color.new(color.red, 100)
+
+MarketstructureWithTPSwitch = input.string(title="Market Structure",defval="Disable",options = ["Draw Structure","Just Labels","Disable"],group=gr1)
+
+ShowPrice = false
+maxLvlLen = 0
+ShowChannel = false
+
+// Get High and Low Pivot Points
+ph = ta.pivothigh(srcH, leftLenH, rightLenH)
+pl = ta.pivotlow(srcL, leftLenL, rightLenL)
+
+// Higher Highs, Lower Highs, Higher Lows, Lower Lows 
+valuewhen_1 = ta.valuewhen(ph, srcH[rightLenH], 1)
+valuewhen_2 = ta.valuewhen(ph, srcH[rightLenH], 0)
+higherhigh = na(ph) ? na : valuewhen_1 < valuewhen_2 ? ph : na
+valuewhen_3 = ta.valuewhen(ph, srcH[rightLenH], 1)
+valuewhen_4 = ta.valuewhen(ph, srcH[rightLenH], 0)
+lowerhigh = na(ph) ? na : valuewhen_3 > valuewhen_4 ? ph : na
+valuewhen_5 = ta.valuewhen(pl, srcL[rightLenL], 1)
+valuewhen_6 = ta.valuewhen(pl, srcL[rightLenL], 0)
+higherlow = na(pl) ? na : valuewhen_5 < valuewhen_6 ? pl : na
+valuewhen_7 = ta.valuewhen(pl, srcL[rightLenL], 1)
+valuewhen_8 = ta.valuewhen(pl, srcL[rightLenL], 0)
+lowerlow = na(pl) ? na : valuewhen_7 > valuewhen_8 ? pl : na
+
+
+drawLabel(_offset, _pivot, _style, _yloc, _color, _text) =>
+    if not na(_pivot)
+        label.new(bar_index[_offset], _pivot, text=_text + str.tostring(_pivot, format.mintick) + ']', style=_style, yloc=_yloc, color=_color, textcolor=_color)
+
+drawLabel(rightLenH, ShowPrice ? higherhigh : na, label.style_none, yloc.abovebar, colorH, '[')
+drawLabel(rightLenH, ShowPrice ? higherlow : na, label.style_none, yloc.belowbar, colorL, '[')
+drawLabel(rightLenH, ShowPrice ? lowerhigh : na, label.style_none, yloc.abovebar, colorH, '[')
+drawLabel(rightLenH, ShowPrice ? lowerlow : na, label.style_none, yloc.belowbar, colorL, '[')
+
+plotshape(MarketstructureWithTPSwitch=="Just Labels" ? higherhigh : na, title='HH',text="HH", style=shape.circle, location=location.abovebar, color=colorHH, textcolor=colorH, offset=-rightLenH,editable=false) //text='HH',
+plotshape(MarketstructureWithTPSwitch=="Just Labels" ? higherlow : na, title='HL',text="HL", style=shape.circle, location=location.belowbar, color=colorLL, textcolor=colorL, offset=-rightLenH,editable=false) //text='HL',
+plotshape(MarketstructureWithTPSwitch=="Just Labels" ? lowerhigh : na, title='LH', text="LH", style=shape.circle, location=location.abovebar, color=colorHH, textcolor=colorH, offset=-rightLenL,editable=false) //text='LH',
+plotshape(MarketstructureWithTPSwitch=="Just Labels" ? lowerlow : na, title='LL',text="LL", style=shape.circle, location=location.belowbar, color=colorLL, textcolor=colorL, offset=-rightLenL,editable=false) //text='LL',
+
+
+//Count How many candles for current Pivot Level, If new reset.
+countH = 0
+countL = 0
+countH := na(ph) ? nz(countH[1]) + 1 : 0
+countL := na(pl) ? nz(countL[1]) + 1 : 0
+
+pvtH = 0.0
+pvtL = 0.0
+pvtH := na(ph) ? pvtH[1] : srcH[rightLenH]
+pvtL := na(pl) ? pvtL[1] : srcL[rightLenL]
+
+HpC = pvtH != pvtH[1] ? na : colorH
+LpC = pvtL != pvtL[1] ? na : colorL
+
+
+
+// // Add Optional Fractal Break Alerts
+buy = false
+sell = false
+buy := close > pvtH and open <= pvtH
+sell := close < pvtL and open >= pvtL
+
+
+// Inputs
+float TakeprofitLevel = 0.5
+int lengthMS = 14
+string tradetypeMS ="Long and Short"
+
+// Declarations
+float hMS = ta.highest(high, lengthMS * 2 + 1)
+float lMS = ta.lowest(low, lengthMS * 2 + 1)
+f_isMin(lenMS) => lMS == low[lenMS]
+f_isMax(lenMS) => hMS == high[lenMS]
+bool recentTouch = false
+
+// Variables
+var bool dirUp = false
+var float lastLow = high * 100
+var float lastHigh = 0.0
+var int timeLow = bar_index
+var int timeHigh = bar_index
+var line li = na
+bool isMinMS = f_isMin(lengthMS)
+bool isMaxMS = f_isMax(lengthMS)
+
+// Functions
+f_drawLine() => line.new(timeHigh - lengthMS, lastHigh, timeLow - lengthMS, lastLow, xloc.bar_index, color=color.gray, width=1 )
+
+// Direction
+if dirUp and MarketstructureWithTPSwitch=="Draw Structure"
+    if isMinMS and low[lengthMS] < lastLow
+        lastLow := low[lengthMS]
+        timeLow := bar_index
+        line.delete(li)
+        li := f_drawLine()
+
+    if isMaxMS and high[lengthMS] > lastLow
+        lastHigh := high[lengthMS]
+        timeHigh := bar_index
+        dirUp := false
+        li := f_drawLine()
+
+if not dirUp and MarketstructureWithTPSwitch=="Draw Structure"
+    if isMaxMS and high[lengthMS] > lastHigh
+        lastHigh := high[lengthMS]
+        timeHigh := bar_index
+        line.delete(li)
+        li := f_drawLine()
+    if isMinMS and low[lengthMS] < lastHigh
+        lastLow := low[lengthMS]
+        timeLow := bar_index
+        dirUp := true
+        li := f_drawLine()
+        if (isMaxMS and high[lengthMS] > lastLow)
+            lastHigh := high[lengthMS]
+            timeHigh := bar_index
+            dirUp := false
+            li := f_drawLine()
+
+// Checkers        
+for int iMS = 1 to 10
+    if (low[iMS] <= lastLow[iMS] and low[iMS + 1] > lastLow[iMS + 1]) or (high[iMS] >= lastHigh[iMS] and high[iMS + 1] < lastHigh[iMS + 1])
+        recentTouch := true
+        break
+
+// Conditions Definiitions
+longConditionMS = high >= lastHigh and high[1] < lastHigh[1] and not recentTouch and (tradetypeMS == "Long and Short" or tradetypeMS == "Long")
+shortConditionMS = low <= lastLow and low[1] > lastLow[1] and not recentTouch and (tradetypeMS == "Long and Short" or tradetypeMS == "Short")
+
+// // Plots
+
+
+// if shortConditionMS and MarketstructureWithTPSwitch=="Draw Structure"
+//     label.new(bar_index - 2, lastLow + syminfo.mintick * 2, "Entry Short", xloc.bar_index, yloc.price, color.red, label.style_none, color.red)
+//     label.new(bar_index - 2, lastLow - (lastHigh - lastLow) * TakeprofitLevel, "Take Profit", xloc.bar_index, yloc.price, color.red, label.style_none, color.red)
+//     label.new(bar_index - 2, lastHigh, "Stop Loss", xloc.bar_index, yloc.price, color.red, label.style_none, color.red)
+//     line.new(timeLow - lengthMS, lastLow, bar_index, lastLow, xloc.bar_index, color=color.red, width=2)
+//     line.new(timeHigh - lengthMS, lastHigh, bar_index, lastHigh, xloc.bar_index, color=color.red, width=1, style=line.style_dotted)
+//     line.new(timeLow - lengthMS, lastLow - (lastHigh - lastLow) * TakeprofitLevel, bar_index, lastLow - (lastHigh - lastLow) * TakeprofitLevel, xloc.bar_index, color=color.red, width=1, style=line.style_dashed)
+
+// if longConditionMS and not shortConditionMS and MarketstructureWithTPSwitch=="Draw Structure"
+//     line.new(timeHigh - lengthMS, lastHigh, bar_index, lastHigh, xloc.bar_index, color=color.green, width=2)
+//     line.new(timeLow - lengthMS, lastLow, bar_index, lastLow, xloc.bar_index, color=color.green, width=1, style=line.style_dotted)
+//     line.new(timeHigh - lengthMS, lastHigh + (lastHigh - lastLow) * TakeprofitLevel, bar_index, lastHigh + (lastHigh - lastLow) * TakeprofitLevel, xloc.bar_index, color=color.green, width=1, style=line.style_dashed)
+//     label.new(bar_index - 2, lastHigh + syminfo.mintick, "Entry Long", xloc.bar_index, yloc.price, color.green, label.style_none, color.green)
+//     label.new(bar_index - 2, lastLow, "Stop Loss", xloc.bar_index, yloc.price, color.green, label.style_none, color.green)
+//     label.new(bar_index - 2, lastHigh + (lastHigh - lastLow) * TakeprofitLevel, "Take Profit", xloc.bar_index, yloc.price, color.green, label.style_none, color.green)
+
+
+
+//Regression Channel HistoGram ***************************************************
+//*******************************************************************************
+
+HistoChannellSwitch = input(false,title="Regression Histogram",group='⚙️ENTRY OPPORTUNITY SETTINGS⚙️',tooltip = "The indicator is constructed by dividing the linear regression channel range into a series of intervals (bins) of equal width. We then count the number of price values falling within each interval.")
+lengthRegressionHisto = 100
+binsHisto   = 10
+multHisto   = 2.
+srcHisto    = close
+
+show_histHisto = true
+dn_colHisto    = color(#ff1100)
+up_colHisto    = color(#2157f3)
+hist_colHisto  = color(#ff5d00)
+//----
+var l_reg = array.new_line(0)
+var l_hist = array.new_line(0)
+
+lset(l,x1,y1,x2,y2,col)=>
+    line.set_xy1(l,x1,y1)
+    line.set_xy2(l,x2,y2)
+    line.set_color(l,col)
+
+if barstate.isfirst
+    for iHisto = 1 to binsHisto
+        array.push(l_reg,line.new(na,na,na,na))
+        array.push(l_hist,line.new(na,na,na,na))
+//----
+nHisto = bar_index
+vHisto = ta.variance(srcHisto,lengthRegressionHisto)
+rHisto = ta.correlation(srcHisto,nHisto,lengthRegressionHisto) 
+
+alphaHisto = rHisto*(math.sqrt(vHisto)/ta.stdev(nHisto,lengthRegressionHisto))
+betaHisto = ta.sma(srcHisto,lengthRegressionHisto) - alphaHisto*ta.sma(nHisto,lengthRegressionHisto)
+
+madHisto = math.sqrt(vHisto - vHisto*math.pow(rHisto,2))*multHisto
+//----
+if barstate.islast and HistoChannellSwitch
+    aHisto = alphaHisto*(nHisto-lengthRegressionHisto+1) + betaHisto - madHisto
+    bHisto = alphaHisto*nHisto + betaHisto - madHisto
+    
+    for iHisto = 0 to binsHisto-2
+        kHisto = iHisto/(binsHisto-1)
+        wmad = kHisto*madHisto*2
+        
+        cssHisto = color.from_gradient(kHisto,0,1,dn_colHisto,up_colHisto)
+        lset(array.get(l_reg,iHisto),nHisto-lengthRegressionHisto+1,aHisto+wmad,nHisto,bHisto+wmad,cssHisto)
+        
+        if show_histHisto
+            sumHisto = 0.
+            for jHisto = 0 to lengthRegressionHisto-1
+                kHisto := (iHisto+1)/(binsHisto-1)
+                upperHisto = alphaHisto*(nHisto-jHisto) + betaHisto - madHisto + (kHisto*madHisto*2)
+                lowerHisto = alphaHisto*(nHisto-jHisto) + betaHisto - madHisto + wmad
+                sumHisto := srcHisto[jHisto] > lowerHisto and srcHisto[jHisto] < upperHisto ? sumHisto + 1 : sumHisto
+                
+            lset(array.get(l_hist,iHisto),nHisto,bHisto+wmad,nHisto+int(sumHisto),bHisto+wmad,hist_colHisto)
+    
+    lset(array.get(l_reg,binsHisto-1),nHisto-lengthRegressionHisto+1,aHisto+madHisto*2,nHisto,bHisto+madHisto*2,up_colHisto)
+
+
+
+// Liquidity Sweep Zones *****************************************************
+//****************************************************************************
+
+// --------------- INPUTS ---------------
+
+
+var GRP3 = "•••••••••• Timeframe 3 ••••••••••"
+timeframe3Show = input.string(title='Liquidity Sweeps', defval= 'Disable', options=['Enable','Disable'], group='⚙️Misc')
+timeframe3 = input.timeframe('', title=' Liquidity Sweep timeframe #1',group='⚙️Misc')
+leftBars3 = 20
+rightBars3 =20
+
+topColor3 = color.new(color.red, 30)
+bottomColor3 = color.new(color.green, 30)
+lineLength3 = 15
+
+
+var GRP6 = "•••••••••• Timeframe 6 ••••••••••"
+timeframe6 = input.timeframe('D', title=' Liquidity Sweep timeframe #2',group='⚙️Misc')
+leftBars6 = 20
+rightBars6 = 20
+
+topColor6 = color.new(color.red, 0)
+bottomColor6 = color.new(color.green, 0)
+lineLength6 = 30
+
+
+//---------------- INPUTS ---------------
+
+
+// --------------- FUNCTIONS ---------------
+getPivotData(lb, rb) =>
+    ph12 = ta.pivothigh(lb, rb)
+    phtimestart = ph12 ? time[rb] : na
+    
+    pl3 = ta.pivotlow(lb, rb)
+    pltimestart = pl3 ? time[rb] : na
+    
+    [ph12, phtimestart, pl3, pltimestart]
+
+getLineStyle(_style) =>
+    _linestyle = _style == "Solid" ? line.style_solid : _style == "Dashed" ? line.style_dashed : line.style_dotted
+    _linestyle
+
+resolutionInMinutes(tf = "") =>
+    chartTf = timeframe.multiplier * (timeframe.isseconds ? 1. / 60 : timeframe.isminutes ? 1. : timeframe.isdaily ? 60. * 24 : timeframe.isweekly ? 60. * 24 * 7 : timeframe.ismonthly ? 60. * 24 * 30.4375 : na)
+    float result13 = tf == "" ? chartTf : request.security(syminfo.tickerid, tf, chartTf)
+
+f_timeFrom(length, _units) =>
+    int _timeFrom = na
+    _unit = str.replace_all(_units, 's', '')
+    _timeFrom := int(time + resolutionInMinutes() * 60 * 1000 * length)
+    _timeFrom
+
+
+//  ▓ ▒ ░ ░ 
+
+generateText(_n = 5, _large = false) =>
+    _symbol = "░"  
+    _text = ""
+    for i = _n to 0
+        _text := _text + " "
+    for i = _n to 0
+        _text := _text + _symbol
+    if _large
+        _text := _text + "\n" + _text
+
+    _text
+// --------------- FUNCTIONS ---------------
+
+
+// --------------- Calculate Pivots ---------------
+[phchart, phtimestartchart, plchart, pltimestartchart] = request.security(syminfo.tickerid, "5", getPivotData(6, 6), lookahead = barmerge.lookahead_on)
+
+[ph3, phtimestart3, pl3, pltimestart3] = request.security(syminfo.tickerid, timeframe3, getPivotData(leftBars3, rightBars3), lookahead = barmerge.lookahead_on)
+
+[ph6, phtimestart6, pl6, pltimestart6] = request.security(syminfo.tickerid, timeframe6, getPivotData(leftBars6, rightBars6), lookahead = barmerge.lookahead_on)
+
+pivothighchart = na(phchart[1]) and phchart ? phchart : na
+pivotlowchart  = na(plchart[1]) and plchart ? plchart : na
+
+
+pivothigh3 = na(ph3[1]) and ph3 ? ph3 : na
+pivotlow3  = na(pl3[1]) and pl3 ? pl3 : na
+
+
+pivothigh6 = na(ph6[1]) and ph6 ? ph6 : na
+pivotlow6  = na(pl6[1]) and pl6 ? pl6 : na
+// --------------- Calculate Pivots ---------------
+
+//  --------------- Add to array ---------------
+
+
+var float[] pivothighs3 = array.new_float(0)
+var float[] pivotlows3 = array.new_float(0)
+
+var float[] pivothighs6 = array.new_float(0)
+var float[] pivotlows6 = array.new_float(0)
+//  --------------- Add to array ---------------
+
+
+// --------------- Plot pivot points ---------------
+
+
+if timeframe3Show=="Enable" and pivothigh3 
+    label.new(phtimestart3, ph3, xloc=xloc.bar_time, text=generateText(lineLength3), style=label.style_none, textcolor=topColor3)
+if timeframe3Show=="Enable" and pivotlow3 
+    label.new(pltimestart3, pl3, xloc=xloc.bar_time, text=generateText(lineLength3), style=label.style_none, textcolor=bottomColor3)
+
+// Timeframe 6
+if timeframe3Show=="Enable" and pivothigh6 
+    label.new(phtimestart6, ph6, xloc=xloc.bar_time, text=generateText(lineLength6, true), style=label.style_none, textcolor=topColor6)
+if timeframe3Show=="Enable" and pivotlow6 
+    label.new(pltimestart6, pl6, xloc=xloc.bar_time, text=generateText(lineLength6, true), style=label.style_none, textcolor=bottomColor6)
+
+
+
+//------------------------------ParallelPivot----------------------------------------------} 
+
+
+
+ParallelPivotSwitch = input(false,"Parallel Pivot Lines",group='⚙️ENTRY OPPORTUNITY SETTINGS⚙️',tooltip = "can be used to get supports and resistances and is more so closer to a drawing tool due to its limitations. The lines not updating with the arrival of new bars have the advantage of providing fixed supports/resistances.")
+lengthPL = 30
+lookbackPL = 3
+SlopePL = 1.
+
+//Style
+ph_colPL = color(#2157f3)
+pl_colPL = color(#ff1100)
+
+//──────────────────────────────────────────────────────────────────────────────
+Sma(srcPL, pPL) =>
+    aPL = ta.cum(srcPL)
+    (aPL - aPL[math.max(pPL, 0)]) / math.max(pPL, 0)
+Variance(srcPL, pPL) =>
+    pPL == 1 ? 0 : Sma(srcPL * srcPL, pPL) - math.pow(Sma(srcPL, pPL), 2)
+Covariance(xPL, yPL, pPL) =>
+    Sma(xPL * yPL, pPL) - Sma(xPL, pPL) * Sma(yPL, pPL)
+//──────────────────────────────────────────────────────────────────────────────
+nPL = bar_index
+phPL = ta.pivothigh(lengthPL, lengthPL)
+plPL = ta.pivotlow(lengthPL, lengthPL)
+//──────────────────────────────────────────────────────────────────────────────
+varip ph_arrayPL = array.new_float(0)
+varip pl_arrayPL = array.new_float(0)
+varip ph_n_arrayPL = array.new_int(0)
+varip pl_n_arrayPL = array.new_int(0)
+if phPL
+    array.insert(ph_arrayPL, 0, phPL)
+    array.insert(ph_n_arrayPL, 0, nPL)
+if plPL
+    array.insert(pl_arrayPL, 0, plPL)
+    array.insert(pl_n_arrayPL, 0, nPL)
+//──────────────────────────────────────────────────────────────────────────────
+val_phPL = ta.valuewhen(phPL, nPL - lengthPL, lookbackPL - 1)
+val_plPL = ta.valuewhen(plPL, nPL - lengthPL, lookbackPL - 1)
+valPL = math.min(val_phPL, val_plPL)
+kPL = nPL - valPL > 0 ? nPL - valPL : 2
+slopeGL = Covariance(close, nPL, kPL) / Variance(nPL, kPL) * SlopePL
+var line ph_lPL = na
+var line pl_lPL = na
+if barstate.islast and ParallelPivotSwitch
+    for iPL = 0 to lookbackPL - 1 by 1
+        ph_y2PL = array.get(ph_arrayPL, iPL)
+        ph_x1PL = array.get(ph_n_arrayPL, iPL) - lengthPL
+        pl_y2PL = array.get(pl_arrayPL, iPL)
+        pl_x1PL = array.get(pl_n_arrayPL, iPL) - lengthPL
+        ph_lPL := line.new(ph_x1PL, ph_y2PL, ph_x1PL + 1, ph_y2PL + slopeGL, extend=extend.right, color=ph_colPL)
+        pl_lPL := line.new(pl_x1PL, pl_y2PL, pl_x1PL + 1, pl_y2PL + slopeGL, extend=extend.right, color=pl_colPL)
+        pl_lPL
+
+
+
+
+
+//************************PullbackRe-entry  *******************************//
+
+fastMAC5 = 12
+slowMAc5 =26
+lastColor = color.yellow
+[currMacd, _, _] = ta.macd(close[0], fastMAC5, slowMAc5, 9)
+[prevMacd, _, _] = ta.macd(close[1], fastMAC5, slowMAc5, 9)
+
+signalC5Length = 9
+signalC5 = ta.sma(currMacd, signalC5Length)
+
+MacdScalpbuyZone =  currMacd > 0 and currMacd > prevMacd 
+MacdScalpsellZone =  currMacd < 0 and currMacd < prevMacd 
+
+
+BuyMacD4C = ta.crossover(currMacd,0) and currMacd > prevMacd 
+SellMacD4C = ta.crossunder(currMacd,0) and currMacd < prevMacd 
+
+
+buyconditionMacd = currMacd > 0 and currMacd <= signalC5 and ta.crossover(currMacd,prevMacd) and trendCatch == 0
+sellconditionMacd = currMacd < 0 and currMacd >= signalC5 and ta.crossover(prevMacd, currMacd) and trendCatch != 0
+
+
+
+plotshape(PullbackReentry and sellconditionMacd  , title='', text='', textcolor=color.new(color.white, 0), style=shape.triangledown, size=size.tiny, location=location.abovebar,color=color.new(#e3e641, 0),editable=false)
+plotshape(PullbackReentry and buyconditionMacd , title='', text='', textcolor=color.new(color.white, 0), style=shape.triangleup, size=size.tiny, location=location.belowbar,color=color.new(#e3e641, 0),editable=false)
+
+
+
+///****************************************VOLUME SUPPORT AND RESISTANCE LEVELS ************************************
+
+
+
+// Inputs
+ExtendLines1 =true
+ext_active =true
+ShowLabel = true
+label_loc = 'Right'
+label_offset = 15
+show_HL = true
+show_close =true
+LineStyleHLInput ='Solid'
+LineWidthHLInput = 1
+LineStyleCloseInput = 'Solid'
+LineWidthCloseInput = 1
+
+var string LineStyleHL = na
+
+LineStyleHL := if LineStyleHLInput == 'Solid'
+    line.style_solid
+else if LineStyleHLInput == 'Dotted'
+    line.style_dotted
+else if LineStyleHLInput == 'Dashed'
+    line.style_dashed
+
+var string LineStyleClose = na
+
+LineStyleClose := if LineStyleCloseInput == 'Solid'
+    line.style_solid
+else if LineStyleCloseInput == 'Dotted'
+    line.style_dotted
+else if LineStyleCloseInput == 'Dashed'
+    line.style_dashed
+
+// Time Frame 1 = TF1
+TF1_Menu = input.string(title='Surplus And Deficit Zones', defval='Surplus/Deficit', options=['Surplus/Deficit', 'Surplus/Deficit Zone', 'Disable'], group='Surplus and Deficit Settings')
+TF1_input = input.string(title='Time Frame', defval='Chart', options=['Chart', '3m', '5m', '15m', '30m', '45m', '1h', '2h', '3h', '4h', '6h', '8h', '12h', 'D', '3D', 'W', '2W', '1M'], group='Surplus and Deficit Settings')
+TF1_VolMA1Input = 6
+TF1_NumZones =input(5,title = "Previous Zones:",group='Surplus and Deficit Settings') 
+TF1_extRight = false
+TF1_ResLinesColor = color(color.new(color.red, 20))
+TF1_ResZoneColor = color(color.new(color.red, 90))
+TF1_SupLinesColor = color(color.new(color.lime, 20))
+TF1_SupZoneColor = color(color.new(color.lime, 90))
+
+
+f_TFx(_TF_input) =>
+    if _TF_input == 'Chart'
+        timeframe.period
+    else if _TF_input == '3m'
+        '3'
+    else if _TF_input == '5m'
+        '5'
+    else if _TF_input == '15m'
+        '15'
+    else if _TF_input == '30m'
+        '30'
+    else if _TF_input == '45m'
+        '45'
+    else if _TF_input == '1h'
+        '60'
+    else if _TF_input == '2h'
+        '120'
+    else if _TF_input == '3h'
+        '180'
+    else if _TF_input == '4h'
+        '240'
+    else if _TF_input == '6h'
+        '360'
+    else if _TF_input == '8h'
+        '480'
+    else if _TF_input == '12h'
+        '720'
+    else if _TF_input == 'D'
+        'D'
+    else if _TF_input == '3D'
+        '3D'
+    else if _TF_input == 'W'
+        'W'
+    else if _TF_input == '2W'
+        '2W'
+    else if _TF_input == '1M'
+        '1M'
+
+TF1 = f_TFx(TF1_input)
+
+vol_check = na(volume)
+var table vol_check_table = na
+if barstate.islast and vol_check
+    table.delete(vol_check_table)
+    vol_check_table := table.new(position=position.middle_right, columns=1, rows=1, frame_color=color.red, frame_width=1)
+    table.cell(vol_check_table, column=0, row=0, text='There is no volume data for this symbol' + ' (' + syminfo.tickerid + ')' + '\n Please use a different symbol with volume data', text_color=color.red)
+
+// // --------- This ensures that no plots from lower time frames will be plotted on higher time frames.
+// ————— Converts current chart resolution into a float minutes value.
+f_resInMinutes() =>
+    _resInMinutes = timeframe.multiplier * (timeframe.isseconds ? 1. / 60 : timeframe.isminutes ? 1. : timeframe.isdaily ? 60. * 24 : timeframe.isweekly ? 60. * 24 * 7 : timeframe.ismonthly ? 60. * 24 * 30.4375 : na)
+    _resInMinutes
+// ————— Returns the float minutes value of the string _res.
+f_tfResInMinutes(_res) =>
+    // _res: resolution of any TF (in "timeframe.period" string format).
+    // Dependency: f_resInMinutes().
+    request.security(syminfo.tickerid, _res, f_resInMinutes())
+
+// —————————— Determine if current timeframe is smaller that higher timeframe selected in Inputs.
+// Get higher timeframe in minutes.
+TF1InMinutes = f_tfResInMinutes(TF1)
+
+
+// Get current timeframe in minutes.
+currentTFInMinutes = f_resInMinutes()
+// Compare current TF to higher TF to make sure it is smaller, otherwise our plots don't make sense.
+chartOnLowerTF1 = currentTFInMinutes <= TF1InMinutes
+
+
+TF1_inH = str.tostring(TF1InMinutes / 60)
+TF1_text = TF1InMinutes >= 60 and TF1InMinutes < 1440 ? TF1_inH + 'h' : TF1InMinutes < 60 ? TF1 + 'm' : TF1
+
+
+bool TF1_newbar = ta.change(time(TF1)) != 0
+TF1_bi1 = ta.valuewhen(TF1_newbar, bar_index, 1)
+TF1_bi5 = ta.valuewhen(TF1_newbar, bar_index, 5)
+TF1_bb1 = bar_index-TF1_bi1
+TF1_bb5 = bar_index-TF1_bi5
+TF1_br = TF1_bb5 - TF1_bb1
+
+
+
+var int TF1_Hi_Bi = na
+var int TF1_Lo_Bi = na
+var int TF2_Hi_Bi = na
+var int TF2_Lo_Bi = na
+
+
+if TF1_bb1 > 4999 or (TF1_bb1 + TF1_br) > 4999
+    TF1_Hi_Bi := 4999
+    TF1_Lo_Bi := 4999
+else
+    TF1_Hi_Bi := math.abs(ta.highestbars(high, nz(TF1_br, 1)))[TF1_bb1] + TF1_bb1
+    TF1_Lo_Bi := math.abs(ta.lowestbars(low, nz(TF1_br, 1)))[TF1_bb1] + TF1_bb1
+
+
+
+
+
+// TFUp and TFDown Calculations
+f_tfUp(_TF_High, _TF_Vol, _TF_VolMA) =>
+    _TF_High[3] > _TF_High[4] and _TF_High[4] > _TF_High[5] and _TF_High[2] < _TF_High[3] and _TF_High[1] < _TF_High[2] and _TF_Vol[3] > _TF_VolMA[3]
+f_tfDown(_TF_Low, _TF_Vol, _TF_VolMA) =>
+    _TF_Low[3] < _TF_Low[4] and _TF_Low[4] < _TF_Low[5] and _TF_Low[2] > _TF_Low[3] and _TF_Low[1] > _TF_Low[2] and _TF_Vol[3] > _TF_VolMA[3]
+
+// Function for each time frame's various sources used in FractalUp and FractalDown calculations.
+f_tfSources(_res, _source) =>
+    request.security(syminfo.tickerid, _res, _source)
+
+// Line and label arrays
+var TF1_UpperSupportLine_array = array.new_line(TF1_NumZones)
+var TF1_LowerSupportLine_array = array.new_line(TF1_NumZones)
+var TF1SupLabel_array = array.new_label(1)
+
+var TF1_UpperResLine_array = array.new_line(TF1_NumZones)
+var TF1_LowerResLine_array = array.new_line(TF1_NumZones)
+var TF1ResLabel_array = array.new_label(1)
+
+// Resistance Line Functions
+TF_ResistanceLineA(TF_input,TF_FractalUp,TF_ResLineColor,TF_UpperResLine_array,TF_NumZones,TF_ResZone, TF_LowerResLine_array,TF_text,TF_ResLabel_array,bi_hi,bi_3,bi,bi_2,ext_right) =>
+    if show_HL
+        UpperResistanceLine = line.new(x1=TF_input != 'Chart' ? bi_hi : bi_3, y1=TF_FractalUp, x2=bi, y2=TF_FractalUp, color=TF_ResLineColor, style=LineStyleHL, width=LineWidthHLInput, extend=extend.right)
+        line.set_extend(id=array.get(TF_UpperResLine_array, TF_NumZones-1), extend=ext_right ? extend.right : extend.none)
+        if ExtendLines1 == true
+            line.set_x2(id=array.get(TF_UpperResLine_array, TF_NumZones-1), x=TF_input != 'Chart' ? bi_hi : bi_3)
+        array.push(TF_UpperResLine_array, UpperResistanceLine)
+        line.delete(array.shift(TF_UpperResLine_array))
+    if show_close
+        LowerResistanceLine = line.new(x1=TF_input != 'Chart' ? bi_hi : bi_3, y1=TF_ResZone, x2=bi, y2=TF_ResZone, color=TF_ResLineColor, style=LineStyleClose, width=LineWidthCloseInput, extend=extend.right)
+        line.set_extend(id=array.get(TF_LowerResLine_array, TF_NumZones-1), extend=ext_right ? extend.right : extend.none)
+        if ExtendLines1 == true
+            line.set_x2(id=array.get(TF_LowerResLine_array, TF_NumZones-1), x=TF_input != 'Chart' ? bi_hi : bi_3)
+        array.push(TF_LowerResLine_array, LowerResistanceLine)
+        line.delete(array.shift(TF_LowerResLine_array))
+    if ShowLabel == true and label_loc == 'Left'
+        TFResLabel = label.new(TF_input != 'Chart' ? bi_hi : bi_2, TF_FractalUp, text=TF_text + "(Surplus)", color=color.new(color.white, 100), size=size.normal, style=label.style_label_right, textcolor=TF_ResLineColor)
+        array.push(TF_ResLabel_array, TFResLabel)
+        label.delete(array.shift(TF_ResLabel_array))
+
+TF_ResistanceLineB(TF_FractalUp,TF_ResLineColor,TF_UpperResLine_array,TF_NumZones,TF_ResZone,TF_LowerResLine_array,TF_text,TF_ResLabel_array,bi3,bi,ext_right) =>
+    if show_HL
+        UpperResistanceLine = line.new(x1=bi3, y1=TF_FractalUp, x2=bi, y2=TF_FractalUp, color=TF_ResLineColor, style=LineStyleHL, width=LineWidthHLInput, extend=extend.right)
+        line.set_extend(id=array.get(TF_UpperResLine_array, TF_NumZones-1), extend=ext_right ? extend.right : extend.none)
+        if ExtendLines1 == true
+            line.set_x2(id=array.get(TF_UpperResLine_array, TF_NumZones-1), x=bi3)
+        array.push(TF_UpperResLine_array, UpperResistanceLine)
+        line.delete(array.shift(TF_UpperResLine_array))
+    if show_close
+        LowerResistanceLine = line.new(x1=bi3, y1=TF_ResZone, x2=bi, y2=TF_ResZone, color=TF_ResLineColor, style=LineStyleClose, width=LineWidthCloseInput, extend=extend.right)
+        line.set_extend(id=array.get(TF_LowerResLine_array, TF_NumZones-1), extend=ext_right ? extend.right : extend.none)
+        if ExtendLines1 == true
+            line.set_x2(id=array.get(TF_LowerResLine_array, TF_NumZones-1), x=bi3)
+        array.push(TF_LowerResLine_array, LowerResistanceLine)
+        line.delete(array.shift(TF_LowerResLine_array))
+    if ShowLabel == true and label_loc == 'Left'
+        TFResLabel = label.new(bi3, TF_FractalUp, text=TF_text + "(Surplus)", color=color.new(color.white, 100), size=size.normal, style=label.style_label_right, textcolor=TF_ResLineColor)
+        array.push(TF_ResLabel_array, TFResLabel)
+        label.delete(array.shift(TF_ResLabel_array))
+
+// Support Line Functions
+TF_SupportLineA(TF_input, TF_FractalDown,TF_SupLinesColor,TF_UpperSupportLine_array,TF_NumZones,TF_SupportZone, TF_LowerSupportLine_array,TF_text,TF_SupLabel_array,bi_lo,bi_3,bi,bi_2,ext_right) =>
+    if show_close
+        UpperSupportLine = line.new(x1=TF_input != 'Chart' ? bi_lo : bi_3, y1=TF_SupportZone, x2=bi, y2=TF_SupportZone, color=TF_SupLinesColor, style=LineStyleClose, width=LineWidthCloseInput, extend=extend.right)
+        line.set_extend(id=array.get(TF_UpperSupportLine_array, TF_NumZones-1), extend=ext_right ? extend.right : extend.none)
+        if ExtendLines1 == true
+            line.set_x2(id=array.get(TF_UpperSupportLine_array, TF_NumZones-1), x=TF_input != 'Chart' ? bi_lo : bi_3)
+        array.push(TF_UpperSupportLine_array, UpperSupportLine)
+        line.delete(array.shift(TF_UpperSupportLine_array))
+    if show_HL
+        LowerSupportLine = line.new(x1=TF_input != 'Chart' ? bi_lo : bi_3, y1=TF_FractalDown, x2=bi, y2=TF_FractalDown, color=TF_SupLinesColor, style=LineStyleHL, width=LineWidthHLInput, extend=extend.right)
+        line.set_extend(id=array.get(TF_LowerSupportLine_array, TF_NumZones-1), extend=ext_right ? extend.right : extend.none)
+        if ExtendLines1 == true
+            line.set_x2(id=array.get(TF_LowerSupportLine_array, TF_NumZones-1), x=TF_input != 'Chart' ? bi_lo : bi_3)
+        array.push(TF_LowerSupportLine_array, LowerSupportLine)
+        line.delete(array.shift(TF_LowerSupportLine_array))
+    if ShowLabel == true and label_loc == 'Left'
+        SupLabel = label.new(TF_input != 'Chart' ? bi_lo : bi_2, TF_FractalDown, text=TF_text + "(Deficit)", color=color.new(color.white, 100), size=size.normal, style=label.style_label_right, textcolor=TF_SupLinesColor)
+        array.push(TF_SupLabel_array, SupLabel)
+        label.delete(array.shift(TF_SupLabel_array))
+
+TF_SupportLineB(TF_FractalDown,TF_SupLinesColor,TF_UpperSupportLine_array,TF_NumZones,TF_SupportZone,TF_LowerSupportLine_array,TF_text,TF_SupLabel_array,bi3,bi,ext_right) =>
+    if show_close
+        UpperSupportLine = line.new(x1=bi3, y1=TF_SupportZone, x2=bi, y2=TF_SupportZone, color=TF_SupLinesColor, style=LineStyleClose, width=LineWidthCloseInput, extend=extend.right)
+        line.set_extend(id=array.get(TF_UpperSupportLine_array, TF_NumZones-1), extend=ext_right ? extend.right : extend.none)
+        if ExtendLines1 == true
+            line.set_x2(id=array.get(TF_UpperSupportLine_array, TF_NumZones-1), x=bi3)
+        array.push(TF_UpperSupportLine_array, UpperSupportLine)
+        line.delete(array.shift(TF_UpperSupportLine_array))
+    if show_HL
+        LowerSupportLine = line.new(x1=bi3, y1=TF_FractalDown, x2=bi, y2=TF_FractalDown, color=TF_SupLinesColor, style=LineStyleHL, width=LineWidthHLInput, extend=extend.right)
+        line.set_extend(id=array.get(TF_LowerSupportLine_array, TF_NumZones-1), extend=ext_right ? extend.right : extend.none)
+        if ExtendLines1 == true
+            line.set_x2(id=array.get(TF_LowerSupportLine_array, TF_NumZones-1), x=bi3)
+        array.push(TF_LowerSupportLine_array, LowerSupportLine)
+        line.delete(array.shift(TF_LowerSupportLine_array))
+    if ShowLabel == true and label_loc == 'Left'
+        SupLabel = label.new(bi3, TF_FractalDown, text=TF_text + "(Deficit)", color=color.new(color.white, 100), size=size.normal, style=label.style_label_right, textcolor=TF_SupLinesColor)
+        array.push(TF_SupLabel_array, SupLabel)
+        label.delete(array.shift(TF_SupLabel_array))
+
+// Label Function
+TFLabel(bi, TF_Fractal, txt, txtcolor, TFLabel_array) =>
+    Label = label.new(bi, TF_Fractal, text=txt, size=size.normal, style=label.style_none, textcolor=txtcolor)
+    array.push(TFLabel_array, Label)
+    label.delete(array.shift(TFLabel_array))
+
+// Surplus/Deficit  = Time Frame 1 = TF1
+TF1_Vol = f_tfSources(TF1, volume)
+TF1_VolMA = ta.sma(TF1_Vol, TF1_VolMA1Input)
+TF1_High = f_tfSources(TF1, high)
+TF1_Low = f_tfSources(TF1, low)
+TF1_Open = f_tfSources(TF1, open)
+TF1_Close = f_tfSources(TF1, close)
+
+TF1_Up = f_tfUp(TF1_High, TF1_Vol, TF1_VolMA)
+TF1_Down = f_tfDown(TF1_Low, TF1_Vol, TF1_VolMA)
+
+TF1_CalcFractalUp() =>
+    TF1_FractalUp = 0.0
+    TF1_FractalUp := TF1_Up ? TF1_High[3] : TF1_FractalUp[1]
+    TF1_FractalUp
+
+TF1_CalcFractalDown() =>
+    TF1_FractalDown = 0.0
+    TF1_FractalDown := TF1_Down ? TF1_Low[3] : TF1_FractalDown[1]
+    TF1_FractalDown
+
+TF1_FractalUp = request.security(syminfo.tickerid, TF1, TF1_CalcFractalUp())
+TF1_FractalDown = request.security(syminfo.tickerid, TF1, TF1_CalcFractalDown())
+
+// Zones - Current Time Frame = Time Frame 1 = TF1
+// Fractal Up Zones
+TF1_CalcFractalUpZone() =>
+    TF1_FractalUpZone = 0.0
+    TF1_FractalUpZone := TF1_Up and TF1_Close[3] >= TF1_Open[3] ? TF1_Close[3] : TF1_Up and TF1_Close[3] < TF1_Open[3] ? TF1_Open[3] : TF1_FractalUpZone[1]
+    TF1_FractalUpZone
+
+TF1_FractalUpZone = request.security(syminfo.tickerid, TF1, TF1_CalcFractalUpZone())
+TF1_ResZone = TF1_FractalUpZone
+
+// Fractal Down Zones
+TF1_CalcFractalDownZone() =>
+    TF1_FractalDownZone = 0.0
+    TF1_FractalDownZone := TF1_Down and TF1_Close[3] >= TF1_Open[3] ? TF1_Open[3] : TF1_Down and TF1_Close[3] < TF1_Open[3] ? TF1_Close[3] : TF1_FractalDownZone[1]
+    TF1_FractalDownZone
+
+TF1_FractalDownZone = request.security(syminfo.tickerid, TF1, TF1_CalcFractalDownZone())
+TF1_SupportZone = TF1_FractalDownZone
+
+// Time Frame 1 = TF1 Resistance
+if (TF1_Menu == 'Surplus/Deficit Zone' or TF1_Menu == 'Surplus/Deficit') and TF1_FractalUp != TF1_FractalUp[1] and chartOnLowerTF1 
+    TF_ResistanceLineA(TF1_input,TF1_FractalUp,TF1_ResLinesColor,TF1_UpperResLine_array,TF1_NumZones,TF1_ResZone, TF1_LowerResLine_array,TF1_text,TF1ResLabel_array,bar_index[TF1_Hi_Bi], bar_index[3], bar_index,bar_index[2], TF1_extRight)
+else if (TF1_Menu == 'Surplus/Deficit Zone' or TF1_Menu == 'Surplus/Deficit') and na(TF1_FractalUp != TF1_FractalUp[1]) and chartOnLowerTF1 and na(ta.barssince(TF1_FractalUp != TF1_FractalUp[1])) 
+    TF_ResistanceLineB(TF1_FractalUp,TF1_ResLinesColor,TF1_UpperResLine_array,TF1_NumZones,TF1_ResZone,TF1_LowerResLine_array,TF1_text,TF1ResLabel_array,bar_index[3],bar_index, TF1_extRight)
+
+if (TF1_Menu == 'Surplus/Deficit Zone')
+    linefill.new(array.get(TF1_UpperResLine_array, TF1_NumZones-1), array.get(TF1_LowerResLine_array, TF1_NumZones-1), TF1_ResZoneColor)
+
+if ShowLabel == true and (TF1_Menu == 'Surplus/Deficit Zone' or TF1_Menu == 'Surplus/Deficit')
+    TFLabel(bar_index+label_offset, TF1_FractalUp, TF1_text+"(Surplus)", TF1_ResLinesColor, TF1ResLabel_array)
+
+
+// Time Frame 1 = TF1 Support
+if (TF1_Menu == 'Surplus/Deficit Zone' or TF1_Menu == 'Surplus/Deficit') and TF1_FractalDown != TF1_FractalDown[1]
+    TF_SupportLineA(TF1_input,TF1_FractalDown,TF1_SupLinesColor,TF1_UpperSupportLine_array,TF1_NumZones,TF1_SupportZone, TF1_LowerSupportLine_array,TF1_text,TF1SupLabel_array,bar_index[TF1_Lo_Bi], bar_index[3], bar_index,bar_index[2], TF1_extRight)
+else if (TF1_Menu == 'Surplus/Deficit Zone' or TF1_Menu == 'Surplus/Deficit') and na(TF1_FractalDown != TF1_FractalDown[1]) and chartOnLowerTF1 and na(ta.barssince(TF1_FractalDown != TF1_FractalDown[1])) 
+    TF_SupportLineB(TF1_FractalDown,TF1_SupLinesColor,TF1_UpperSupportLine_array,TF1_NumZones,TF1_SupportZone,TF1_LowerSupportLine_array,TF1_text,TF1SupLabel_array,bar_index[3],bar_index, TF1_extRight)
+
+if (TF1_Menu == 'Surplus/Deficit Zone')
+    linefill.new(array.get(TF1_UpperSupportLine_array, TF1_NumZones-1), array.get(TF1_LowerSupportLine_array, TF1_NumZones-1), TF1_SupZoneColor)
+
+if ShowLabel == true and (TF1_Menu == 'Surplus/Deficit Zone' or TF1_Menu == 'Surplus/Deficit') and chartOnLowerTF1 
+    TFLabel(bar_index+label_offset, TF1_FractalDown, TF1_text+"(Deficit)", TF1_SupLinesColor, TF1SupLabel_array)
+
+if ext_active == false and barstate.islast
+    line.set_extend(array.get(TF1_UpperResLine_array, TF1_NumZones-1), extend.none)
+    line.set_x2(array.get(TF1_UpperResLine_array, TF1_NumZones-1), bar_index)
+    line.set_extend(array.get(TF1_LowerResLine_array, TF1_NumZones-1), extend.none)
+    line.set_x2(array.get(TF1_LowerResLine_array, TF1_NumZones-1), bar_index)
+
+if ext_active == false and barstate.islast
+    line.set_extend(array.get(TF1_UpperSupportLine_array, TF1_NumZones-1), extend.none)
+    line.set_x2(array.get(TF1_UpperSupportLine_array, TF1_NumZones-1), bar_index)
+    line.set_extend(array.get(TF1_LowerSupportLine_array, TF1_NumZones-1), extend.none)
+    line.set_x2(array.get(TF1_LowerSupportLine_array, TF1_NumZones-1), bar_index)
+
+
+
+
+
+
+//*****************************alerts*************************
+//**************************************************************
+alertcondition(buy or sell, title='Liquidity Sweep Zones', message='Liquidity Sweep Zones Alert')
+alertcondition(ExtremitiesSell or ExtremitiesBuy, title="Extremities Buy or Sell", message= "There is a Extremities Trend Change")
+alertcondition(sellSetupInCloudE or buySetupInCloudE or sellSetupInCloud1 or buySetupInCloud1,title="Reversals",message="Reversals Buy/Sell Opportunity")
+alertcondition(htPlotCattchCatch or sellSignalCatch, title = "Buy/Sell",message = "Buy/Sell Oppertunity")
+
+
+// -->
+
+
+
+

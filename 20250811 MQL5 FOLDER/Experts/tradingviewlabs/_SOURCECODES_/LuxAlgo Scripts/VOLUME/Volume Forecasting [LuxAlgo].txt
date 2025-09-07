@@ -1,0 +1,113 @@
+// This work is licensed under a Attribution-NonCommercial-ShareAlike 4.0 International (CC BY-NC-SA 4.0) https://creativecommons.org/licenses/by-nc-sa/4.0/
+// © LuxAlgo
+
+//@version=5
+indicator("Volume Forecasting [LuxAlgo]", max_lines_count = 500)
+//------------------------------------------------------------------------------
+//Settings
+//-----------------------------------------------------------------------------{
+length = input.int(10, 'Median Memory'  , minval = 2, maxval = 500)
+fcast  = input.int(150, 'Forecast Window', minval = 0)
+auto   = input(false, 'Auto Forecast Window')
+
+//Style
+q50Css = input.color(#e91e63, 'Median Forecast Color'               , group = 'Style')
+iqrCss = input.color(color.new(color.gray, 50), 'IQR Forecast Color', group = 'Style')
+
+//-----------------------------------------------------------------------------}
+//UDT
+//-----------------------------------------------------------------------------{
+type vector
+    array<float> v
+
+//-----------------------------------------------------------------------------}
+//Main
+//-----------------------------------------------------------------------------{
+n = bar_index
+src = volume
+
+var bars = 0
+var step = 0
+var prevbars = 0
+var q75 = 0.
+var q50 = 0.
+var q25 = 0.
+
+var array_2d = array.new<vector>(0)
+
+//-----------------------------------------------------------------------------}
+//Populate arrays
+//-----------------------------------------------------------------------------{
+tfd = timeframe.change('D')
+
+//Get bars since daily tf change
+step := tfd ? 1 : step
+bars := tfd ? 1 : step ? bars + 1 : 0
+prevbars := tfd ? bars[1]-1 : prevbars
+
+//Push volume to corresponding array
+if array_2d.size() < bars
+    array_2d.push(vector.new(array.new<float>(1, src)))
+else if step
+    get = array_2d.get(bars-1)
+    get.v.unshift(src)
+
+    if get.v.size() > length
+        get.v.pop()
+    
+    //Get quartiles
+    q75 := get.v.percentile_linear_interpolation(75)
+    q50 := get.v.percentile_linear_interpolation(50)
+    q25 := get.v.percentile_linear_interpolation(25)
+
+//-----------------------------------------------------------------------------}
+//Display forecast
+//-----------------------------------------------------------------------------{
+float y1_75 = na
+float y1_50 = na
+float y1_25 = na
+fcast_bar = bars > prevbars ? 0 : bars
+
+if barstate.islast
+    //Delete lines
+    for element in line.all
+        element.delete()
+    
+    //Delete linefills
+    for element in linefill.all
+        element.delete()
+
+    //Set forecast horizon
+    iter = auto ? (prevbars - fcast_bar)-1 : fcast
+    
+    //Get quartiles and set forecast
+    for i = 0 to iter-1
+        get = array_2d.get(fcast_bar).v
+        y2_75 = get.percentile_linear_interpolation(75)
+        y2_50 = get.percentile_linear_interpolation(50)
+        y2_25 = get.percentile_linear_interpolation(25)
+
+        //Set line and linefill
+        l75 = line.new(n + i, y1_75, n + i + 1, y2_75, color = na)
+        line.new(n + i, y1_50, n + i + 1, y2_50, color = q50Css)
+        l25 = line.new(n + i, y1_25, n + i + 1, y2_25, color = na)
+        linefill.new(l75, l25, iqrCss)
+        
+        y1_75 := y2_75, y1_50 := y2_50, y1_25 := y2_25
+        fcast_bar += 1
+        
+        //Reset if forecast index exceed bars since daily tf change
+        if fcast_bar > prevbars
+            fcast_bar := 0
+
+//-----------------------------------------------------------------------------}
+//Plots
+//-----------------------------------------------------------------------------{
+plot(src, 'Volume')
+plot0 = plot(q75, 'Historial Forecast Q1', na)
+plot(q50, 'Historial Forecast Median', #ff5d00)
+plot1 = plot(q25, 'Historial Forecast Q3', na)
+
+fill(plot0, plot1, color.new(color.gray, 50), 'Historical Interquartile Area')
+
+//-----------------------------------------------------------------------------}

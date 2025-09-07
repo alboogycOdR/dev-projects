@@ -1,0 +1,156 @@
+// This work is licensed under a Attribution-NonCommercial-ShareAlike 4.0 International (CC BY-NC-SA 4.0) https://creativecommons.org/licenses/by-nc-sa/4.0/
+// © LuxAlgo
+ 
+//@version=5
+indicator("Volume Profile (Maps) [LuxAlgo]", shorttitle="LuxAlgo - Volume Profile (Maps)", max_lines_count = 500, max_boxes_count = 500, max_bars_back=2000, overlay=true)
+
+//------------------------------------------------------------------------------
+// Settings
+//-----------------------------------------------------------------------------{
+sp1      ='                                          '              , sp2 =                         '                                     '
+src      = input.source(          close              ,              'source'                                                              )
+mtV      = input.bool  (          false     , sp2    +         'Volume * currency'                                                        
+ ,tooltip=                                             'Example BTCUSD -> volume in USD'                                                  )
+barsBack = input.int   (           5000              ,          'Amount of bars'                            , maxval=50000                )
+maxLines = input.int   (           500               ,             'Max lines'              , minval= 100   , maxval= 1000                
+ ,tooltip=                                                         'max 1000'                                                             )
+iStep    = input.string(         'Round'             ,                 ''                   , group ='Round', options=['Round', 'Step'])
+mlt      = input.int   (            0                ,              'Round'                 , group ='Round', minval=  -8    , maxval=  4  
+ ,tooltip=                'Example: 123456.789 \n  0->123456.789\n  1->123456.79\n  2->123456.8\n  3->123457\n-1->123460\n-2->123500'     ) 
+step     = input.float (            1                                                       , group ='Round'                              )
+offset   = input.int   (           200               ,              'Offset'                , group ='display Volume Profile', maxval=500 ) 
+width    = input.int   (           205               ,       'Max width Volume Profile'     , group ='display Volume Profile'             ) 
+cReg     = input.color(color.rgb(178, 181, 190, 50),                sp1                   , group ='display Volume Profile', inline='c' ) 
+cH_1     = input.color(color.rgb(255,   0,   0, 25),                 ''                   , group ='display Volume Profile', inline='c' ) 
+cH_2     = input.color(color.rgb(255, 153,   0, 25),                 ''                   , group ='display Volume Profile', inline='c' ) 
+sTab     = input.bool (           false     , sp1    +         '   Show table'              , group ='display Volume Profile'             )
+
+m        =                                         mlt > 0 ? math.pow  (10, mlt) : 1
+src     := iStep == 'Step' ? math.round(src / step) * step : mlt > 0 ? math.round(src / m) * m : math.round(src, math.round(math.abs(math.log10(syminfo.mintick)) +mlt)) 
+
+
+//------------------------------------------------------------------------------
+// Methods
+//-----------------------------------------------------------------------------{
+method  set (line ln, int x, float y, int o)   => 
+    ln  .set_xy1        (math.max(0, bar_index + o        ), y)
+    ln  .set_xy2        (math.max(0, bar_index + o - nz(x)), y) 
+
+method  set (box  bx, int x, float y, int o)   => 
+    bx  .set_lefttop    (math.max(0, bar_index + o        ), y)
+    bx  .set_rightbottom(math.max(0, bar_index + o - nz(x)), y) 
+
+method inOut(int  [] a, int   val) => a.unshift(val), a.pop()
+method inOut(float[] a, float val) => a.unshift(val), a.pop()
+
+//------------------------------------------------------------------------------
+// Variables
+//-----------------------------------------------------------------------------{
+var originalMap = map  .new <float, float>()                                    // key: close, value: volume
+var lines       = array.new < line       >()                                    // array of lines
+var boxes       = array.new < box        >()                                    // array of boxes
+var tab         = table.new(position.top_right, 2, 7, chart.bg_color, chart.bg_color, 1, chart.bg_color, 1)
+
+//------------------------------------------------------------------------------
+// Execution
+//-----------------------------------------------------------------------------{
+n               =                            bar_index 
+barsBack       := math.min  (barsBack , last_bar_index)                         // minimum of ['Amount of bars' - total available bars]
+mxLines2        = math.round(maxLines / 2)
+
+if barstate.isfirst 
+    for i = 0 to math.min(500,             maxLines           )                 // fill line array till "maxLines" or "500" reached
+        lines.unshift(line.new(na, na, na, na,        width=2))
+    for i = 0 to math.min(500, math.max(0, maxLines   -   500))                 // fill  box array till "maxLines" or "500" reached (only after line array is filled)
+        boxes.unshift(box .new(na, na, na, na, border_width=1))
+
+if last_bar_index - n == barsBack 
+    line.new(n, close, n, close+ syminfo.mintick, extend=extend.both)
+
+if last_bar_index - n <= barsBack
+    if  originalMap.contains(src)
+        originalMap.put(src, originalMap.get(src) + (volume * (mtV ? src : 1))) // if originalMap already contains the close value, add volume on that same key level (instead of replace)
+    else 
+        originalMap.put(src,                        (volume * (mtV ? src : 1))) // key (close) :value (volume) 
+
+if barstate.islast 
+    maxVol = 0.
+    for ln in lines 
+        ln.set_color(cReg)                                                      // set colour of all lines to default
+    for bx in boxes 
+        bx.set_border_color(color.new(cReg, 70))                                // set colour of all boxes to default
+
+    if originalMap.size() > 1
+        copyK = originalMap.keys().copy()                                       // make a copy of the keys -> array
+        copyK.sort()                                                            // sort (ascending)
+        idx = copyK.binary_search_leftmost(src)                                 // look for position of 'current' src in copyK
+        szL = idx, szR = copyK.size() -1 - idx                                  // check how many left (lower) and right (higher) of idx (size: left - idx - right)
+        sml = math.min(szL, szR)                                                // smallest side 
+        if szR == sml 
+            szL := math.min(maxLines - math.min(mxLines2, szR), szL)            // if R side has 'unused' lines -> give them to L side
+            szR := math.min(mxLines2, szR)
+        else 
+            szL := math.min(mxLines2, szL)            
+            szR := math.min(maxLines - math.min(mxLines2, szL), szR)            // if L side has 'unused' lines -> give them to R side
+
+        sliceK = copyK.slice(idx - szL, idx + szR)                              // grab (max. 500) keys around 'current' close
+
+        newMap = map.new<float, float>()                                        // new map
+        for i = 0 to sliceK.size() -1                                           // all keys from sliceK : values from originalMap
+            getKey = sliceK.get(i)                                              // key      from sliceK 
+            getVal = originalMap.get(getKey)                                    // values   from originalMap 
+            if getVal > maxVol                                                  // get max volume of the set
+                maxVol := getVal
+            newMap.put(getKey, getVal)                                          // put in 'newMap'
+
+        w = width / maxVol                                                      // make sure lines don't exceed 'max width Volume Profile'
+
+        aMaxI = array.from(0 , 0 )                                              // index of largest and second largest volume
+        aMaxV = array.from(0., 0.)                                              // value of largest and second largest volume
+
+        max  = 0., keys = newMap.keys(), vals = newMap.values()
+
+        for i = 0 to keys.size()-1
+            clo = keys.get(i)
+            vol = vals.get(i)
+            if vol > max                                                        // when        largest volume is found -> set index so line can be coloured later
+                max  :=     vol 
+                aMaxI.inOut( i )
+                aMaxV.inOut(vol)
+            else if vol > aMaxV.get(1)                                          // when second largest volume is found -> set index so line can be coloured later
+                aMaxI.set(1, i )
+                aMaxV.set(1,vol)
+            if i < 500
+                lines.get(i      ).set(math.round(vol * w), clo, offset)       // update 'lines' array
+            else
+                boxes.get(i - 500).set(math.round(vol * w), clo, offset)       // update 'boxes' array (line array is full -> box array)
+
+        uno = aMaxI.first( ), duo = aMaxI.get  (1)
+        if uno < 500
+            lines .get(uno) .set_color(cH_1)                                   // colour line       with        largest volume 
+        else 
+            boxes .get(uno - 500) .set_border_color(cH_1)                      // colour line (box) with        largest volume 
+        if duo < 500
+            lines .get(duo) .set_color(cH_2)                                   // colour line       with second largest volume 
+        else 
+            boxes .get(duo - 500) .set_border_color(cH_2)                      // colour line (box) with second largest volume 
+
+//------------------------------------------------------------------------------
+// Table
+//-----------------------------------------------------------------------------{
+        if sTab
+            tab.cell(0, 0, text='size originalMap'                    , text_font_family=font.family_monospace, text_color=chart.fg_color, height=2)
+            tab.cell(1, 0, text=str.tostring(originalMap.size())      , text_font_family=font.family_monospace, text_color=chart.fg_color, height=2)
+            tab.cell(0, 1, text=    '# higher'                        , text_font_family=font.family_monospace, text_color=chart.fg_color, height=2)
+            tab.cell(1, 1, text=str.tostring(originalMap.size() - idx), text_font_family=font.family_monospace, text_color=chart.fg_color, height=2)
+            tab.cell(0, 2, text=  'index "close"'                     , text_font_family=font.family_monospace, text_color=chart.fg_color, height=2)
+            tab.cell(1, 2, text=str.tostring(       idx        )      , text_font_family=font.family_monospace, text_color=chart.fg_color, height=2)
+            tab.cell(0, 3, text=      '   '                           , text_font_family=font.family_monospace, text_color=chart.fg_color, height=2)
+            tab.cell(0, 4, text=   'size newMap'                      , text_font_family=font.family_monospace, text_color=chart.fg_color, height=2)
+            tab.cell(1, 4, text=str.tostring(   newMap.size()  )      , text_font_family=font.family_monospace, text_color=chart.fg_color, height=2)
+            tab.cell(0, 5, text=    '# higher'                        , text_font_family=font.family_monospace, text_color=chart.fg_color, height=2)
+            tab.cell(1, 5, text=str.tostring(       szR        )      , text_font_family=font.family_monospace, text_color=chart.fg_color, height=2)
+            tab.cell(0, 6, text=    '# lower'                         , text_font_family=font.family_monospace, text_color=chart.fg_color, height=2)
+            tab.cell(1, 6, text=str.tostring(       szL        )      , text_font_family=font.family_monospace, text_color=chart.fg_color, height=2)
+
+//-----------------------------------------------------------------------------}

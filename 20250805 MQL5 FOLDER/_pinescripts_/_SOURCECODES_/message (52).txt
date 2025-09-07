@@ -1,0 +1,220 @@
+//@version=5
+indicator(title='Sonarlab - Order Blocks', shorttitle='Sonarlab - OB', overlay=true, max_boxes_count=20)
+_v = input.string("1.0.2", title="Version", options=["1.0.2"], group="Sonarlab.io", tooltip="This is a free script based on our premium Smart Money Concepts (SMC) indicator. Get a free trial of our SMC indicator by visiting our website.\nhttps://www.sonarlab.io")
+sens = input.int(28, minval=1, title='Sensitivity', group='Order Block', tooltip='Lower the sensitivity to show more order blocks. A higher sensitivity will show less order blocks.')
+sens /= 100
+
+// OB
+OBMitigationType = input.string("Close", title="OB Mitigation Type", options=["Close", "Wick"], group="Order Block", tooltip="Choose how Order Blocks are mitigated")
+OBBullMitigation = OBMitigationType=="Close" ? close[1] : low
+OBBearMitigation = OBMitigationType=="Close" ? close[1] : high
+
+//OB Colors
+col_bullish = input.color(#5db49e, title="Bullish OB Border", inline="a", group="Order Block")
+col_bullish_ob = input.color(color.new(#64C4AC, 85), title="Background", inline="a", group="Order Block")
+
+col_bearish = input.color(#4760bb, title="Bearish OB Border", inline="b", group="Order Block")
+col_bearish_ob = input.color(color.new(#506CD3, 85), title="Background", inline="b", group="Order Block")
+
+
+// Alerts
+buy_alert = input.bool(title='Buy Signal', defval=true, group='Alerts', tooltip='An alert will be sent when price goes below the top of a bullish order block.')
+sell_alert = input.bool(title='Sell Signal', defval=true, group='Alerts', tooltip='An alert will be sent when price goes above the bottom of a bearish order block.')
+
+
+// Delacring Variables
+bool ob_created = false
+bool ob_created_bull = false
+var int cross_index = na
+
+// Declaring Box Arrays
+var box drawlongBox = na
+var longBoxes = array.new_box()
+var box drawShortBox = na
+var shortBoxes = array.new_box()
+
+
+// Custom Rate of Change (ROC) calculation. This is to calculate high momentum moves in the market.
+pc = (open - open[4]) / open[4] * 100
+
+// If the ROC crossover our Sensitivty input - Then create an Order Block
+// Sensitivty is negative as this is a Bearish OB
+if ta.crossunder(pc, -sens)
+    ob_created := true
+    cross_index := bar_index
+    cross_index
+
+// If the ROC crossover our Sensitivty input - Then create an Order Block
+if ta.crossover(pc, sens)
+    ob_created_bull := true
+    cross_index := bar_index
+    cross_index
+
+
+// -------------------------------
+// Bearish OB Creation
+// -------------------------------
+// Check if we should create a OB, Also check if we haven't created an OB in the last 5 candles.
+if ob_created and cross_index - cross_index[1] > 5
+    float last_green = 0
+    float highest = 0
+    // Loop through the most recent candles and find the first GREEN (Bullish) candle. We will place our OB here.
+    for i = 4 to 15 by 1
+        if close[i] > open[i]
+            last_green := i
+            break
+    // Draw our OB on that candle - then push the box into our box arrays.
+    drawShortBox := box.new(left=bar_index[last_green], top=high[last_green], bottom=low[last_green], right=bar_index[last_green], bgcolor=col_bearish_ob, border_color=col_bearish, extend=extend.right)
+    array.push(shortBoxes, drawShortBox)
+
+// -------------------------------
+// Bullish OB Creation
+// -------------------------------
+// Check if we should create a OB, Also check if we haven't created an OB in the last 5 candles.
+if ob_created_bull and cross_index - cross_index[1] > 5
+    float last_red = 0
+    float highest = 0
+    // Loop through the most recent candles and find the first RED (Bearish) candle. We will place our OB here.
+    for i = 4 to 15 by 1
+        if close[i] < open[i]
+            last_red := i
+            break
+    // Draw our OB on that candle - then push the box into our box arrays.
+    drawlongBox := box.new(left=bar_index[last_red], top=high[last_red], bottom=low[last_red], right=bar_index[last_red], bgcolor=col_bullish_ob, border_color=col_bullish, extend=extend.right)
+    array.push(longBoxes, drawlongBox)
+
+
+// ----------------- Bearish Order Block -------------------
+// Clean up OB boxes and place alerts
+if array.size(shortBoxes) > 0
+    for i = array.size(shortBoxes) - 1 to 0 by 1
+        sbox = array.get(shortBoxes, i)
+        top = box.get_top(sbox)
+        bot = box.get_bottom(sbox)
+        // If the two last closes are above the high of the bearish OB - Remove the OB
+        if OBBearMitigation > top
+            array.remove(shortBoxes, i)
+            box.delete(sbox)
+        // Alerts
+        if high > bot and sell_alert
+            alert('Price inside Bearish OB', alert.freq_once_per_bar)
+
+// ----------------- Bullish Clean Up -------------------
+// Clean up OB boxes and place alerts
+if array.size(longBoxes) > 0
+    for i = array.size(longBoxes) - 1 to 0 by 1
+        sbox = array.get(longBoxes, i)
+        bot = box.get_bottom(sbox)
+        top = box.get_top(sbox)
+        // If the two last closes are below the low of the bullish OB - Remove the OB
+        if OBBullMitigation < bot
+            array.remove(longBoxes, i)
+            box.delete(sbox)
+        // Alerts
+        if low < top and buy_alert
+            alert('Price inside Bullish OB', alert.freq_once_per_bar)
+
+// ----------------- Up/Down Volume Script -------------------
+//indicator("Up/Down Volume", "Up/Down Vol", format=format.volume)
+
+lowerTimeframeTooltip = "The indicator scans lower timeframe data to approximate Up/Down volume. By default, the timeframe is chosen automatically. These inputs override this with a custom timeframe.\n\nHigher timeframes provide more historical data, but the data will be less precise."
+useCustomTimeframeInput = input.bool(false, "Use custom timeframe", tooltip=lowerTimeframeTooltip)
+lowerTimeframeInput = input.timeframe("1", "Timeframe")
+
+upAndDownVolume() =>
+    posVol = 0.0
+    negVol = 0.0
+
+    switch
+        close > open       => posVol += volume
+        close < open       => negVol -= volume
+        close >= close[1]  => posVol += volume
+        close < close[1]   => negVol -= volume
+
+    [posVol, negVol]
+
+lowerTimeframe = switch
+    useCustomTimeframeInput => lowerTimeframeInput
+    timeframe.isintraday    => "1"
+    timeframe.isdaily       => "5"
+    => "60"
+
+[upVolumeArray, downVolumeArray] = request.security_lower_tf(syminfo.tickerid, lowerTimeframe, upAndDownVolume())
+
+upVolume = array.sum(upVolumeArray)
+downVolume = array.sum(downVolumeArray)
+delta = upVolume + downVolume
+
+
+// Declare the variables
+
+var bool highClose = false
+var bool lowClose = false
+var bool bullishPinBar = false
+var bool bearishPinBar = false
+var bool ectopicPinBar = false
+var bool ectopicBar1 = false
+var bool Vibhisan = false
+var bool CandleColor = false
+var bool Redcandle = false
+var bool Greencandle = false 
+
+// Add the input for closeRange
+//closeRange = input.float(0.35, title="Close Range", minval=0.05, maxval=0.75, step=0.05)
+
+
+
+barRange = (open - close)
+if barRange < 0
+    Redcandle := true
+else
+    Greencandle := true
+
+
+// Check if Close is closer to High
+// if highClose and (close >= high - (barRange * closeRange)) and (open >= high - (barRange * closeRange))
+//     bullishPinBar := true
+// else
+//     bullishPinBar := false
+// 
+// Check if Close is closer to Low
+// if lowClose and (close <= low + (barRange * closeRange)) and (open <= low + (barRange * closeRange))
+//    bearishPinBar := true
+//else
+//    bearishPinBar := false
+
+
+//ectopicPinBar := (bullishPinBar and (math.abs(downVolume) > 1.5 * upVolume)) or (bearishPinBar and (upVolume > 1.5 *  math.abs(downVolume)))
+//ectopicPinBarColor = ectopicPinBar ? color.rgb(216, 5, 235) : na
+//barcolor(ectopicPinBarColor, title="Ectopic Pin Bar")
+
+
+//ectopicBar := (highClose  and (math.abs(downVolume) > 1 * upVolume)) or (lowClose and (upVolume > 1 * math.abs(downVolume)))
+//ectopicBarColor = ectopicBar ? color.yellow : na
+//barcolor(ectopicBarColor, title="Ectopic Bar")
+
+//ectopicBar := (highClose  and (math.abs(downVolume) > 1 * upVolume)) or (lowClose and (upVolume > 1 * math.abs(downVolume)))
+//ectopicBarColor = ectopicBar ? color.yellow : na
+//barcolor(ectopicBarColor, title="Ectopic Bar")
+
+//ectopicBar := (Greencandle and negVol) or (Redcandle and posVol)
+//ectopicBarColor = ectopicBar ? color.yellow : na
+//barcolor(ectopicBarColor, title="Ectopic Bar")
+
+ectopicBar1 := (Redcandle and (upVolume > math.abs(downVolume))) or (Greencandle and (math.abs(downVolume) > upVolume))
+ectopicBarColor1 = ectopicBar1 ? color.yellow : na
+barcolor(ectopicBarColor1, title="Ectopic Bar1")
+
+
+
+
+//ectopicBar := (Greencandle and ((delta) < 0)) or (Redcandle and (delta > 0))
+//ectopicBarColor = ectopicBar ? color.yellow : na
+//barcolor(ectopicBarColor, title="Ectopic Bar")
+
+
+//ectopicBar := (Greencandle and ((downVolume) > upVolume)) or (Redcandle and (upVolume > (downVolume)))
+//ectopicBarColor = ectopicBar ? color.yellow : na
+//barcolor(ectopicBarColor, title="Ectopic Bar")
+
+// ... (Remaining code from the original script)

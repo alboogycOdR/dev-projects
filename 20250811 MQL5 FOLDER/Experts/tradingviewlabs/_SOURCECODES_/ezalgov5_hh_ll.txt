@@ -1,0 +1,31 @@
+showSwings = input(false, "Show Swing Points", group="SWING POINTS")
+period     = input.int(10, "Swing Point Period", 2, group="SWING POINTS")
+colorPos   = input(color.new(#4caf50, 50), "Positive Swing Color")
+colorNeg   = input(color.new(#ff5252, 50), "Negative Swing Color")
+
+add_to_zz(zz, val, bi) =>
+    array.unshift(zz, bi)
+    array.unshift(zz, val)
+    if array.size(zz) > 12
+        array.pop(zz)
+update_zz(zz, val, bi, dir) =>
+    if array.size(zz) == 0
+        add_to_zz(zz, val, bi)
+    else
+        if dir == 1 and val > array.get(zz, 0) or dir == -1 and val < array.get(zz, 0)
+            array.set(zz, 0, val)
+            array.set(zz, 1, bi)
+        0
+
+float ph     = ta.highestbars(high, period) == 0 ? high : na
+float pl     = ta.lowestbars (low,  period) == 0 ? low  : na
+var   dir    = 0, dir_ = pl and na(ph) ? -1 : dir, dir := ph and na(pl) ? 1 : dir_, dirChg = ta.change(dir)
+var   zz     = array.new_float(0), zzOld = array.copy(zz)
+float zzLive = ph or pl ? (dirChg ? add_to_zz(zz, dir == 1 ? ph : pl, bar_index) : update_zz(zz, dir == 1 ? ph : pl, bar_index, dir)) : na
+
+var label zzLabel = na
+if array.size(zz) > 12 and showSwings
+    if array.get(zz, 0) != array.get(zzOld, 0) or array.get(zz, 1) != array.get(zzOld, 1)
+        if array.get(zz, 2) == array.get(zzOld, 2) and array.get(zz, 3) == array.get(zzOld, 3)
+            label.delete(zzLabel)
+        zzLabel := label.new(math.round(array.get(zz, 1)), array.get(zz, 0), dir == 1 ? array.get(zz, 0) > array.get(zz, 4) ? "HH" : "LH" : array.get(zz, 0) < array.get(zz, 4) ? "LL" : "HL", xloc.bar_index, yloc.price, color.new(color.white, 100), dir == 1 ? label.style_label_down : label.style_label_up, dir == 1 ? colorPos : colorNeg)

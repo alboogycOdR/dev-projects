@@ -1,0 +1,83 @@
+
+//@version=5 
+//mod RNG
+indicator('𝒮𝐸𝒞𝑅𝐸𝒯 𝑅𝒮𝐼 𝒱𝒲𝒜𝒫', overlay=false)
+//
+RSI_VWAP_overBought = input.float(80, 'ʀꜱɪ ᴏᴠᴇʀʙᴏᴜɢʜᴛ')
+Act_RSI_VWAP = input(true, 'ʀꜱɪ ᴠᴏʟᴜᴍᴇ ᴡᴇɪɢʜᴛᴇᴅ ᴀᴠᴇʀᴀɢᴇ ᴘʀɪᴄᴇ')
+RSI_VWAP_length = input(17, 'ʀꜱɪ-ʟᴇɴɢᴛʜ')
+RSI_VWAP_overSold = input.float(20, 'ʀꜱɪ-ᴏᴠᴇʀꜱᴏʟᴅ')
+// 
+RSI_VWAP = ta.rsi(ta.vwap(close), RSI_VWAP_length)
+// 
+r = plot(RSI_VWAP, color=RSI_VWAP > RSI_VWAP_overBought ? #ff3f0e : RSI_VWAP < RSI_VWAP_overSold ? #3fff00 : #00bcd4, title='𝑅𝒮𝐼', linewidth=1, style=plot.style_line, editable = false)
+h1 = plot(RSI_VWAP_overBought, color=color.new(color.gray, 0), style=plot.style_stepline)
+h2 = plot(RSI_VWAP_overSold, color=color.new(color.gray, 0), style=plot.style_stepline)
+fill(r, h1, color=RSI_VWAP > RSI_VWAP_overBought ? color.red : na, transp=60, editable = false)
+fill(r, h2, color=RSI_VWAP < RSI_VWAP_overSold ? color.lime : na, transp=60, editable = false)
+
+rsiRSI = RSI_VWAP
+
+// DIVS code
+pivRSI = input(false, 'ʜɪᴅᴇ ᴘɪᴠᴏᴛꜱ?')
+shrt = input(false, 'ꜱʜᴏʀᴛᴇʀ ʟᴀʙᴇʟꜱ?')
+hidel = false
+xbarsRSI = input.int(defval=90, title='ᴅɪᴠ ʟᴏᴏᴋʙᴀᴄᴋ ᴘᴇʀɪᴏᴅ (ʙᴀʀꜱ)?', minval=1)
+hbRSI = math.abs(ta.highestbars(rsiRSI, xbarsRSI))  
+lbRSI = math.abs(ta.lowestbars(rsiRSI, xbarsRSI))  
+// 
+maxRSI = float(na)
+max_rsiRSI = float(na)
+minRSI = float(na)
+min_rsiRSI = float(na)
+pivothRSI = bool(na)
+pivotlRSI = bool(na)
+divbearRSI = bool(na)
+divbullRSI = bool(na)
+//
+maxRSI := hbRSI == 0 ? close : na(maxRSI[1]) ? close : maxRSI[1]
+max_rsiRSI := hbRSI == 0 ? rsiRSI : na(max_rsiRSI[1]) ? rsiRSI : max_rsiRSI[1]
+minRSI := lbRSI == 0 ? close : na(minRSI[1]) ? close : minRSI[1]
+min_rsiRSI := lbRSI == 0 ? rsiRSI : na(min_rsiRSI[1]) ? rsiRSI : min_rsiRSI[1]
+// 
+if close > maxRSI  
+    maxRSI := close  
+    maxRSI
+if rsiRSI > max_rsiRSI  
+    max_rsiRSI := rsiRSI  
+    max_rsiRSI
+if close < minRSI  
+    minRSI := close  
+    minRSI
+if rsiRSI < min_rsiRSI  
+    min_rsiRSI := rsiRSI  
+    min_rsiRSI
+
+// 
+pivothRSI := max_rsiRSI == max_rsiRSI[2] and max_rsiRSI[2] != max_rsiRSI[3] ? true : na
+pivotlRSI := min_rsiRSI == min_rsiRSI[2] and min_rsiRSI[2] != min_rsiRSI[3] ? true : na
+
+// 
+if maxRSI[1] > maxRSI[2] and rsiRSI[1] < max_rsiRSI and rsiRSI <= rsiRSI[1]
+    divbearRSI := true
+    divbearRSI
+if minRSI[1] < minRSI[2] and rsiRSI[1] > min_rsiRSI and rsiRSI >= rsiRSI[1]
+    divbullRSI := true
+    divbullRSI
+
+// 
+alertcondition(divbearRSI, title='ʙᴇᴀʀ ᴅɪᴠ', message='ʙᴇᴀʀ ᴅɪᴠ')
+alertcondition(divbullRSI, title='ʙᴜʟʟ ᴅɪᴠ', message='ʙᴜʟʟ ᴅɪᴠ')
+
+// 
+l = divbearRSI ? label.new(bar_index - 1, rsiRSI[1] + 1, 'BEAR', color=color.red, textcolor=color.white, style=label.style_label_down, yloc=yloc.price, size=size.tiny) : divbullRSI ? label.new(bar_index - 1, rsiRSI[1] - 1, 'BULL', color=color.green, textcolor=color.white, style=label.style_label_up, yloc=yloc.price, size=size.small) : pivothRSI ? label.new(bar_index - 2, max_rsiRSI + 1, 'PIVOT', color=color.blue, textcolor=color.white, style=label.style_label_down, yloc=yloc.price, size=size.tiny) : pivotlRSI ? label.new(bar_index - 2, min_rsiRSI - 1, 'PIVOT', color=color.blue, textcolor=color.white, style=label.style_label_up, yloc=yloc.price, size=size.tiny) : na
+// 
+if shrt
+    label.set_text(l, na)
+// 
+if pivRSI and (pivothRSI or pivotlRSI) or hidel
+    label.delete(l)
+// 
+bgcolor(hidel ? divbearRSI ? #ff5252 : divbullRSI ? #4caf50 : na : na, offset=-1, transp=50)
+bgcolor(hidel ? pivRSI ? na : pivothRSI or pivotlRSI ? #2196f3 : na : na, offset=-2, transp=50)
+

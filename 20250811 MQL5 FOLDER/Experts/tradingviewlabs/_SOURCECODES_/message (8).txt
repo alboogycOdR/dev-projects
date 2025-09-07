@@ -1,0 +1,379 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © TL_ID
+
+//@version=5
+indicator(title='TL Waves v.1', shorttitle='TL Waves', overlay=true)
+
+////////////////////////////////////////////////////////////////////////
+//                                                                    //
+//                        Moving Average Types                        //
+//                                                                    //
+////////////////////////////////////////////////////////////////////////
+
+//      SMA     --->      Simple
+//      WMA     --->      Weighted
+//      VWMA    --->      Volume Weighted
+//      EMA     --->      Exponential
+//      DEMA    --->      Double EMA
+//      ALMA    --->      Arnaud Legoux
+//      HMA     --->      Hull MA
+//      SMMA    --->      Smoothed
+//      LSMA    --->      Least Squares
+//      KAMA    --->      Kaufman Adaptive
+//      TEMA    --->      Triple EMA
+//      ZLEMA   --->      Zero Lag
+//      FRAMA   --->      Fractal Adaptive
+//      VIDYA   --->      Variable Index Dynamic Average
+//      JMA     --->      Jurik Moving Average
+//      T3      --->      Tillson
+//      TRIMA   --->      Triangular
+
+
+////////////////////////////////////////////////////////////////////////
+//                                                                    //
+//                        Guppy and Wave Basis                        //
+//                                                                    //
+////////////////////////////////////////////////////////////////////////
+
+//Wave Basis
+line0 = input.int(defval=107, title='Wave Basis', minval=1)
+line0_type = input.string(defval='HMA', title='Wave Basis Type', options=['SMA', 'WMA', 'VWMA', 'EMA', 'DEMA', 'ALMA', 'HMA', 'SMMA', 'LSMA', 'KAMA', 'TEMA', 'ZLEMA', 'ViDYA', 'FRAMA', 'JMA', 'T3', 'TRIMA'])
+line0_src = close
+//Guppyline 1
+line1 = input.int(defval=150, title='GuppyLine 1', minval=1)
+line1_type = input.string(defval='JMA', title='GuppyLine 1 Type', options=['SMA', 'WMA', 'VWMA', 'EMA', 'DEMA', 'ALMA', 'HMA', 'SMMA', 'LSMA', 'KAMA', 'TEMA', 'ZLEMA', 'ViDYA', 'FRAMA', 'JMA', 'T3', 'TRIMA'])
+line1_src = input(close)
+//GuppyLine 2
+line2 = input.int(defval=200, title='GuppyLine 2', minval=1)
+line2_type = input.string(defval='JMA', title='GuppyLine 2 Type', options=['SMA', 'WMA', 'VWMA', 'EMA', 'DEMA', 'ALMA', 'HMA', 'SMMA', 'LSMA', 'KAMA', 'TEMA', 'ZLEMA', 'ViDYA', 'FRAMA', 'JMA', 'T3', 'TRIMA'])
+line2_src = input(close)
+//GuppyLine 3
+line3 = input.int(defval=250, title='GuppyLine 3', minval=1)
+line3_type = input.string(defval='JMA', title='GuppyLine 3 Type', options=['SMA', 'WMA', 'VWMA', 'EMA', 'DEMA', 'ALMA', 'HMA', 'SMMA', 'LSMA', 'KAMA', 'TEMA', 'ZLEMA', 'ViDYA', 'FRAMA', 'JMA', 'T3', 'TRIMA'])
+line3_src = input(close)
+
+
+
+////////////////////////////////////////////////////////////////////////
+//                                                                    //
+//                     Moving Average Definitions                     //
+//                                                                    //
+////////////////////////////////////////////////////////////////////////
+
+//DEMA
+getDEMA(src, len) =>
+    dema = 2 * ta.ema(src, len) - ta.ema(ta.ema(src, len), len)
+    dema
+//HMA
+getHULLMA(src, len) =>
+    hullma = ta.wma(2 * ta.wma(src, len / 2) - ta.wma(src, len), math.round(math.sqrt(len)))
+    hullma
+//KAMA
+getKAMA(src, len, k1, k2) =>
+    change = math.abs(ta.change(src, len))
+    volatility = math.sum(math.abs(ta.change(src)), len)
+    efficiency_ratio = volatility != 0 ? change / volatility : 0
+    kama = 0.0
+    fast = 2 / (k1 + 1)
+    slow = 2 / (k2 + 1)
+    smooth_const = math.pow(efficiency_ratio * (fast - slow) + slow, 2)
+    kama := nz(kama[1]) + smooth_const * (src - nz(kama[1]))
+    kama
+//TEMA
+getTEMA(src, len) =>
+    e = ta.ema(src, len)
+    tema = 3 * (e - ta.ema(e, len)) + ta.ema(ta.ema(e, len), len)
+    tema
+//ZLEMA
+getZLEMA(src, len) =>
+    zlemalag_1 = (len - 1) / 2
+    zlemadata_1 = src + src - src[zlemalag_1]
+    zlema = ta.ema(zlemadata_1, len)
+    zlema
+//FRAMA
+getFRAMA(src, len) =>
+    Price = src
+    N = len
+    if N % 2 != 0
+        N += 1
+        N
+    N1 = 0.0
+    N2 = 0.0
+    N3 = 0.0
+    HH = 0.0
+    LL = 0.0
+    Dimen = 0.0
+    alpha = 0.0
+    Filt = 0.0
+    N3 := (ta.highest(N) - ta.lowest(N)) / N
+    HH := ta.highest(N / 2 - 1)
+    LL := ta.lowest(N / 2 - 1)
+    N1 := (HH - LL) / (N / 2)
+    HH := high[N / 2]
+    LL := low[N / 2]
+    for i = N / 2 to N - 1 by 1
+        if high[i] > HH
+            HH := high[i]
+            HH
+        if low[i] < LL
+            LL := low[i]
+            LL
+    N2 := (HH - LL) / (N / 2)
+    if N1 > 0 and N2 > 0 and N3 > 0
+        Dimen := (math.log(N1 + N2) - math.log(N3)) / math.log(2)
+        Dimen
+    alpha := math.exp(-4.6 * (Dimen - 1))
+    if alpha < .01
+        alpha := .01
+        alpha
+    if alpha > 1
+        alpha := 1
+        alpha
+    Filt := alpha * Price + (1 - alpha) * nz(Filt[1], 1)
+    if bar_index < N + 1
+        Filt := Price
+        Filt
+    Filt
+//VIDYA
+getVIDYA(src, len) =>
+    mom = ta.change(src)
+    upSum = math.sum(math.max(mom, 0), len)
+    downSum = math.sum(-math.min(mom, 0), len)
+    out = (upSum - downSum) / (upSum + downSum)
+    cmo = math.abs(out)
+    alpha = 2 / (len + 1)
+    vidya = 0.0
+    vidya := src * alpha * cmo + nz(vidya[1]) * (1 - alpha * cmo)
+    vidya
+//JMA
+getJMA(src, len, power, phase) =>
+    phase_ratio = phase < -100 ? 0.5 : phase > 100 ? 2.5 : phase / 100 + 1.5
+    beta = 0.45 * (len - 1) / (0.45 * (len - 1) + 2)
+    alpha = math.pow(beta, power)
+    MA1 = 0.0
+    Det0 = 0.0
+    MA2 = 0.0
+    Det1 = 0.0
+    JMA = 0.0
+    MA1 := (1 - alpha) * src + alpha * nz(MA1[1])
+    Det0 := (src - MA1) * (1 - beta) + beta * nz(Det0[1])
+    MA2 := MA1 + phase_ratio * Det0
+    Det1 := (MA2 - nz(JMA[1])) * math.pow(1 - alpha, 2) + math.pow(alpha, 2) * nz(Det1[1])
+    JMA := nz(JMA[1]) + Det1
+    JMA
+//T3
+getT3(src, len, vFactor) =>
+    ema1 = ta.ema(src, len)
+    ema2 = ta.ema(ema1, len)
+    ema3 = ta.ema(ema2, len)
+    ema4 = ta.ema(ema3, len)
+    ema5 = ta.ema(ema4, len)
+    ema6 = ta.ema(ema5, len)
+    c1 = -1 * math.pow(vFactor, 3)
+    c2 = 3 * math.pow(vFactor, 2) + 3 * math.pow(vFactor, 3)
+    c3 = -6 * math.pow(vFactor, 2) - 3 * vFactor - 3 * math.pow(vFactor, 3)
+    c4 = 1 + 3 * vFactor + math.pow(vFactor, 3) + 3 * math.pow(vFactor, 2)
+    T3 = c1 * ema6 + c2 * ema5 + c3 * ema4 + c4 * ema3
+    T3
+//TRIMA
+getTRIMA(src, len) =>
+    N = len + 1
+    Nm = math.round(N / 2)
+    TRIMA = ta.sma(ta.sma(src, Nm), Nm)
+    TRIMA
+
+getMA(type, src, len) =>
+    float result = 0
+    if type == 'SMA'
+        result := ta.sma(src, len)
+        result
+    if type == 'EMA'
+        result := ta.ema(src, len)
+        result
+    if type == 'WMA'
+        result := ta.wma(src, len)
+        result
+    if type == 'VWMA'
+        result := ta.vwma(src, len)
+        result
+    if type == 'ALMA'
+        result := ta.alma(src, len, 0.85, 6)
+        result
+    if type == 'SMMA'
+        result := ta.rma(src, len)
+        result
+    if type == 'LSMA'
+        result := ta.linreg(src, len, 0)
+        result
+    if type == 'DEMA'
+        result := getDEMA(src, len)
+        result
+    if type == 'TEMA'
+        result := getTEMA(src, len)
+        result
+    if type == 'HMA'
+        result := getHULLMA(src, len)
+        result
+    if type == 'ZLEMA'
+        result := getZLEMA(src, len)
+        result
+    if type == 'TRIMA'
+        result := getTRIMA(src, len)
+        result
+    if type == 'T3'
+        result := getT3(src, len, 0.7)
+        result
+    if type == 'KAMA'
+        result := getKAMA(src, len, 2, 30)
+        result
+    if type == 'FRAMA'
+        result := getFRAMA(src, len)
+        result
+    if type == 'JMA'
+        result := getJMA(src, len, 2, 50)
+        result
+    if type == 'ViDYA'
+        result := getVIDYA(src, len)
+        result
+    result
+
+//Select MA Type
+hullma = getMA(line0_type, line0_src, line0)
+line_1 = getMA(line1_type, line1_src, line1)
+line_2 = getMA(line2_type, line2_src, line2)
+line_3 = getMA(line3_type, line3_src, line3)
+
+////////////////////////////////////////////////////////////////////////
+//                                                                    //
+//                             Waves                                  //
+//                                                                    //
+////////////////////////////////////////////////////////////////////////
+
+//Source
+src = close
+//Poles
+N = input.int(defval=4, minval=1, maxval=9, title='Poles')
+//Sampling Period
+per = input.int(defval=350, minval=2, title='Sampling Period')
+//Filtered True Range Multiplier
+mult = input.float(defval=1.9, minval=0, title='Band Multiplier 1')
+//Filtered True Range Multiplier
+mult1 = input.float(defval=3.8, minval=0, title='Band Multiplier 2')
+//Filtered True Range Multiplier
+mult2 = input.float(defval=5.8, minval=0, title='Band Multiplier 3')
+//Filtered True Range Multiplier
+mult3 = input.float(defval=6.4, minval=0, title='Band Multiplier 4')
+//Reduced Lag Mode
+lagreduce = input(defval=true, title='Reduced Lag Mode')
+//Fast Response Mode
+fastresponse = input(defval=false, title='Fast Response Mode')
+//Pi
+pi = 3.1415926535897932384626433832795028841971693993751058209749445923078164062862089986280348253421170679821483
+//Beta and Alpha Components
+beta = (1 - math.cos(2 * pi / per)) / (math.pow(1.414, 2 / N) - 1)
+alpha = -beta + math.sqrt(math.pow(beta, 2) + 2 * beta)
+x = 1 - alpha
+//Lag Reduction
+lag = (per - 1) / (2 * N)
+srcdata = lagreduce ? src + src - src[lag] : src
+trdata = lagreduce ? ta.tr + ta.tr - ta.tr[lag] : ta.tr
+//Filters (1 - 9 poles)
+filt1 = 0.0
+filt1 := alpha * srcdata + x * nz(filt1[1])
+filt2 = 0.0
+filt2 := math.pow(alpha, 2) * srcdata + 2 * x * nz(filt2[1]) - math.pow(x, 2) * nz(filt2[2])
+filt3 = 0.0
+filt3 := math.pow(alpha, 3) * srcdata + 3 * x * nz(filt3[1]) - 3 * math.pow(x, 2) * nz(filt3[2]) + math.pow(x, 3) * nz(filt3[3])
+filt4 = 0.0
+filt4 := math.pow(alpha, 4) * srcdata + 4 * x * nz(filt4[1]) - 6 * math.pow(x, 2) * nz(filt4[2]) + 4 * math.pow(x, 3) * nz(filt4[3]) - math.pow(x, 4) * nz(filt4[4])
+filt5 = 0.0
+filt5 := math.pow(alpha, 5) * srcdata + 5 * x * nz(filt5[1]) - 10 * math.pow(x, 2) * nz(filt5[2]) + 10 * math.pow(x, 3) * nz(filt5[3]) - 5 * math.pow(x, 4) * nz(filt5[4]) + math.pow(x, 5) * nz(filt5[5])
+filt6 = 0.0
+filt6 := math.pow(alpha, 6) * srcdata + 6 * x * nz(filt6[1]) - 15 * math.pow(x, 2) * nz(filt6[2]) + 20 * math.pow(x, 3) * nz(filt6[3]) - 15 * math.pow(x, 4) * nz(filt6[4]) + 6 * math.pow(x, 5) * nz(filt6[5]) - math.pow(x, 6) * nz(filt6[6])
+filt7 = 0.0
+filt7 := math.pow(alpha, 7) * srcdata + 7 * x * nz(filt7[1]) - 21 * math.pow(x, 2) * nz(filt7[2]) + 35 * math.pow(x, 3) * nz(filt7[3]) - 35 * math.pow(x, 4) * nz(filt7[4]) + 21 * math.pow(x, 5) * nz(filt7[5]) - 7 * math.pow(x, 6) * nz(filt7[6]) + math.pow(x, 7) * nz(filt7[7])
+filt8 = 0.0
+filt8 := math.pow(alpha, 8) * srcdata + 8 * x * nz(filt8[1]) - 28 * math.pow(x, 2) * nz(filt8[2]) + 56 * math.pow(x, 3) * nz(filt8[3]) - 70 * math.pow(x, 4) * nz(filt8[4]) + 56 * math.pow(x, 5) * nz(filt8[5]) - 28 * math.pow(x, 6) * nz(filt8[6]) + 8 * math.pow(x, 7) * nz(filt8[7]) - math.pow(x, 8) * nz(filt8[8])
+filt9 = 0.0
+filt9 := math.pow(alpha, 9) * srcdata + 9 * x * nz(filt9[1]) - 36 * math.pow(x, 2) * nz(filt9[2]) + 84 * math.pow(x, 3) * nz(filt9[3]) - 126 * math.pow(x, 4) * nz(filt9[4]) + 126 * math.pow(x, 5) * nz(filt9[5]) - 84 * math.pow(x, 6) * nz(filt9[6]) + 36 * math.pow(x, 7) * nz(filt9[7]) - 9 * math.pow(x, 8) * nz(filt9[8]) + math.pow(x, 9) * nz(filt9[9])
+//Filter Selection
+filtn = N == 1 ? filt1 : N == 2 ? filt2 : N == 3 ? filt3 : N == 4 ? filt4 : N == 5 ? filt5 : N == 6 ? filt6 : N == 7 ? filt7 : N == 8 ? filt8 : N == 9 ? filt9 : na
+rlfilt = (filtn + filt1) / 2
+filt = fastresponse ? rlfilt : filtn
+//Filtered True Range (1 - 9 poles)
+filt1tr = 0.0
+filt1tr := alpha * trdata + x * nz(filt1tr[1])
+filt2tr = 0.0
+filt2tr := math.pow(alpha, 2) * trdata + 2 * x * nz(filt2tr[1]) - math.pow(x, 2) * nz(filt2tr[2])
+filt3tr = 0.0
+filt3tr := math.pow(alpha, 3) * trdata + 3 * x * nz(filt3tr[1]) - 3 * math.pow(x, 2) * nz(filt3tr[2]) + math.pow(x, 3) * nz(filt3tr[3])
+filt4tr = 0.0
+filt4tr := math.pow(alpha, 4) * trdata + 4 * x * nz(filt4tr[1]) - 6 * math.pow(x, 2) * nz(filt4tr[2]) + 4 * math.pow(x, 3) * nz(filt4tr[3]) - math.pow(x, 4) * nz(filt4tr[4])
+filt5tr = 0.0
+filt5tr := math.pow(alpha, 5) * trdata + 5 * x * nz(filt5tr[1]) - 10 * math.pow(x, 2) * nz(filt5tr[2]) + 10 * math.pow(x, 3) * nz(filt5tr[3]) - 5 * math.pow(x, 4) * nz(filt5tr[4]) + math.pow(x, 5) * nz(filt5tr[5])
+filt6tr = 0.0
+filt6tr := math.pow(alpha, 6) * trdata + 6 * x * nz(filt6tr[1]) - 15 * math.pow(x, 2) * nz(filt6tr[2]) + 20 * math.pow(x, 3) * nz(filt6tr[3]) - 15 * math.pow(x, 4) * nz(filt6tr[4]) + 6 * math.pow(x, 5) * nz(filt6tr[5]) - math.pow(x, 6) * nz(filt6tr[6])
+filt7tr = 0.0
+filt7tr := math.pow(alpha, 7) * trdata + 7 * x * nz(filt7tr[1]) - 21 * math.pow(x, 2) * nz(filt7tr[2]) + 35 * math.pow(x, 3) * nz(filt7tr[3]) - 35 * math.pow(x, 4) * nz(filt7tr[4]) + 21 * math.pow(x, 5) * nz(filt7tr[5]) - 7 * math.pow(x, 6) * nz(filt7tr[6]) + math.pow(x, 7) * nz(filt7tr[7])
+filt8tr = 0.0
+filt8tr := math.pow(alpha, 8) * trdata + 8 * x * nz(filt8tr[1]) - 28 * math.pow(x, 2) * nz(filt8tr[2]) + 56 * math.pow(x, 3) * nz(filt8tr[3]) - 70 * math.pow(x, 4) * nz(filt8tr[4]) + 56 * math.pow(x, 5) * nz(filt8tr[5]) - 28 * math.pow(x, 6) * nz(filt8tr[6]) + 8 * math.pow(x, 7) * nz(filt8tr[7]) - math.pow(x, 8) * nz(filt8tr[8])
+filt9tr = 0.0
+filt9tr := math.pow(alpha, 9) * trdata + 9 * x * nz(filt9tr[1]) - 36 * math.pow(x, 2) * nz(filt9tr[2]) + 84 * math.pow(x, 3) * nz(filt9tr[3]) - 126 * math.pow(x, 4) * nz(filt9tr[4]) + 126 * math.pow(x, 5) * nz(filt9tr[5]) - 84 * math.pow(x, 6) * nz(filt9tr[6]) + 36 * math.pow(x, 7) * nz(filt9tr[7]) - 9 * math.pow(x, 8) * nz(filt9tr[8]) + math.pow(x, 9) * nz(filt9tr[9])
+//Filtered True Range Selection
+filtntr = N == 1 ? filt1tr : N == 2 ? filt2tr : N == 3 ? filt3tr : N == 4 ? filt4tr : N == 5 ? filt5tr : N == 6 ? filt6tr : N == 7 ? filt7tr : N == 8 ? filt8tr : N == 9 ? filt9tr : na
+rlfilttr = (filtntr + filt1tr) / 2
+filttr = fastresponse ? rlfilttr : filtntr
+//Bands
+hband = hullma + filttr * mult
+lband = hullma - filttr * mult
+hband1 = hullma + filttr * mult1
+lband1 = hullma - filttr * mult1
+hband2 = hullma + filttr * mult2
+lband2 = hullma - filttr * mult2
+hband3 = hullma + filttr * mult3
+lband3 = hullma - filttr * mult3
+
+////////////////////////////////////////////////////////////////////////
+//                                                                    //
+//                             Colors                                 //
+//                                                                    //
+////////////////////////////////////////////////////////////////////////
+
+fcolor = hullma > hullma[1] ? color.lime : hullma < hullma[1] ? color.red : color.orange
+col1  = low < lband3 ? color.green : na
+col2  = high > hband3 ? color.red : na
+rcol  = line_3 > hullma ? color.red : color.green
+rcol1 = line_2 > hullma ? color.red : color.green
+rcol2 = line_1 > hullma ? color.red : color.green
+
+////////////////////////////////////////////////////////////////////////
+//                                                                    //
+//                             Plots                                  //
+//                                                                    //
+////////////////////////////////////////////////////////////////////////
+
+hullplot   = plot(hullma, style=plot.style_line, color = fcolor, linewidth=2, title="Basis")
+hbandplot  = plot(hband, color=color.new(color.gray, 60), linewidth=1, style=plot.style_line, title='Filtered True Range High Band')
+lbandplot  = plot(lband, color=color.new(color.gray, 60), linewidth=1, style=plot.style_line, title='Filtered True Range Low Band')
+hbandplot1 = plot(hband1, color=color.new(color.gray, 40), linewidth=1, style=plot.style_line, title='Filtered True Range High Band 2')
+lbandplot1 = plot(lband1, color=color.new(color.gray, 40), linewidth=1, style=plot.style_line, title='Filtered True Range Low Band 2')
+hbandplot2 = plot(hband2, color=fcolor, linewidth=2, style=plot.style_line, title='Filtered True Range High Band 3', transp=100)
+lbandplot2 = plot(lband2, color=fcolor, linewidth=2, style=plot.style_line, title='Filtered True Range Low Band 3', transp=100)
+hbandplot3 = plot(hband3, color=color.new(color.gray, 20), linewidth=1, style=plot.style_circles, title='Filtered True Range High Band 4')
+lbandplot3 = plot(lband3, color=color.new(color.gray, 20), linewidth=1, style=plot.style_circles, title='Filtered True Range Low Band 4')
+ribboplot1 = plot(line_1, color=color.new(color.gray, 100), linewidth=1, style=plot.style_line, title="MA №1")
+ribboplot2 = plot(line_2, color=color.new(color.gray, 100), linewidth=1, style=plot.style_line, title="MA №2")
+ribboplot3 = plot(line_3, color=color.new(color.gray, 100), linewidth=1, style=plot.style_line, title="MA №3")
+
+
+////////////////////////////////////////////////////////////////////////
+//                                                                    //
+//                             Fills                                  //
+//                                                                    //
+////////////////////////////////////////////////////////////////////////
+
+fill(lbandplot2, lbandplot3, color=col1, title='Channel Fill', transp=30)
+fill(hbandplot2, hbandplot3, color=col2, title='Channel Fill', transp=30)
+fill(hullplot, ribboplot3, color=rcol, title='Channel Fill', transp=90)
+fill(hullplot, ribboplot2, color=rcol1, title='Channel Fill', transp=85)
+fill(hullplot, ribboplot1, color=rcol2, title='Channel Fill', transp=80)

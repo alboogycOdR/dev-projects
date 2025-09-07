@@ -1,0 +1,153 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © chartcommandos
+
+//@version=5
+indicator(title="3C Price Action indicator", shorttitle="3C Price Action in", overlay=true)
+showVWAP = input(title='Show VWAP', defval=true)
+ema2= input(title='Data 1', defval=false)
+ema3= input(title='Data 2', defval=true)
+showhhll = input(title='Real Time HH-LL', defval=true)
+prd1 = input.int(defval=8, title='HH-LL /Length', minval=2, maxval=20)
+prd = input.int(defval=10, title='S/R Length', minval=2, maxval=100)
+maxnumsr = input.int(defval=5, title='Number of S/R', minval=1, maxval=20) - 1
+loopback = 200////
+float ph = ta.pivothigh(close, prd,prd)
+float pl = ta.pivotlow(low, prd,prd)
+prdhighest = ta.highest(200)
+prdlowest = ta.lowest(200)
+cwidth = (prdhighest - prdlowest) * 2 / 100
+var pivotvals = array.new_float(0)
+var pivotlocs = array.new_float(0)
+if ph or pl
+    array.unshift(pivotvals, ph ? ph : pl)
+    array.unshift(pivotlocs, bar_index)
+    for x = array.size(pivotvals) - 1 to 0 by 1
+        if bar_index - array.get(pivotlocs, x) > loopback
+            array.pop(pivotvals)
+            array.pop(pivotlocs)
+get_sr_vals(ind) =>
+    float lo = array.get(pivotvals, ind)
+    float hi = lo
+    int numpp = 0
+    for y = 0 to array.size(pivotvals) - 1 by 1
+        float cpp = array.get(pivotvals, y)
+        float wdth = cpp <= hi ? hi - cpp : cpp - lo
+        if wdth <= cwidth
+            if cpp <= hi
+                lo := math.min(lo, cpp)
+                hi := math.max(hi, cpp)
+            numpp += 20
+    [hi, lo, numpp]
+var sup = array.new_float(20, 0)
+changeit(x, y) =>
+    tmp = array.get(sup, y * 2)
+    array.set(sup, y * 2, array.get(sup, x * 2))
+    array.set(sup, x * 2, tmp)
+    tmp := array.get(sup, y * 2 + 1)
+    array.set(sup, y * 2 + 1, array.get(sup, x * 2 + 1))
+    array.set(sup, x * 2 + 1, tmp)
+if ph or pl
+    supres = array.new_float(0)
+    stren = array.new_float(10, 0)
+    for x = 0 to array.size(pivotvals) - 1 by 1
+        [hi, lo, strength] = get_sr_vals(x)
+        array.push(supres, strength)
+        array.push(supres, hi)
+        array.push(supres, lo)
+    for x = 0 to array.size(pivotvals) - 1 by 1
+        h = array.get(supres, x * 3 + 1)
+        l = array.get(supres, x * 3 + 2)
+        s = 0
+        for y = 0 to loopback by 1
+            if high[y] <= h and high[y] >= l or low[y] <= h and low[y] >= l
+                s += 1
+        array.set(supres, x * 3, array.get(supres, x * 3) + s)
+    array.fill(sup, 0)
+    src = 0
+    for x = 0 to array.size(pivotvals) - 1 by 1
+        stv = -1.
+        stl = -1
+        for y = 0 to array.size(pivotvals) - 1 by 1
+            if array.get(supres, y * 3) > stv and array.get(supres, y * 3) >= 1 * 20
+                stv := array.get(supres, y * 3)
+                stl := y
+                stl
+        if stl >= 0
+            hh = array.get(supres, stl * 3 + 1)
+            ll = array.get(supres, stl * 3 + 2)
+            array.set(sup, src * 2, hh)
+            array.set(sup, src * 2 + 1, ll)
+            array.set(stren, src, array.get(supres, stl * 3))
+            for y = 0 to array.size(pivotvals) - 1 by 1
+                if array.get(supres, y * 3 + 1) <= hh and array.get(supres, y * 3 + 1) >= ll or 
+                   array.get(supres, y * 3 + 2) <= hh and array.get(supres, y * 3 + 2) >= ll
+                    array.set(supres, y * 3, -1)
+            src += 1
+            if src >= 10
+                break
+    for x = 0 to 8 by 1
+        for y = x + 1 to 9 by 1
+            if array.get(stren, y) > array.get(stren, x)
+                tmp = array.get(stren, y)
+                array.set(stren, y, array.get(stren, x))
+                changeit(x, y)
+get_level(ind) =>
+    float ret = na
+    if ind < array.size(sup)
+        if array.get(sup, ind) != 0
+            ret := array.get(sup, ind)
+get_color(ind) =>
+    color ret = na
+    if ind < array.size(sup)
+        if array.get(sup, ind) != 0
+            ret := array.get(sup, ind) > close and array.get(sup, ind + 1) > close ? #ff525259
+                                             : array.get(sup, ind) < close and array.get(sup, ind + 1) < close ? #089981b3 : #787b86b3
+var srchannels = array.new_box(10)
+for x = 0 to math.min(9, maxnumsr) by 1
+    box.delete(array.get(srchannels, x))
+    srcol = get_color(x * 2)
+    if not na(srcol)
+        array.set(srchannels, x, box.new(left=bar_index - 180, top=get_level(x * 2)
+                                 ,right=bar_index + 2, bottom=get_level(x * 2 + 1), border_color=srcol, border_width=1, bgcolor=srcol))
+emalen2= input.int(13, minval=1, title="Data 1")
+source2= input(close, title="Data 1")
+eout2= ta.ema(source2, emalen2)
+plot(ema2 ? eout2 : na, title="Data 1", color=#00bcd4bf, linewidth=2)
+emalen3= input.int(50, minval=1, title="Data 2")
+source3= input(close, title="Data 2")
+eout3= ta.ema(source3, emalen3)
+plot(ema3 ? eout3 : na, title="Data 2", color=#f23645b3, linewidth=2)
+cvwap = ta.vwap(hlc3)
+plotvwap = plot(timeframe.isintraday ? showVWAP ? cvwap : na  : na, title='VWAP', color=color.new(#ff9800, 0), linewidth=1)
+liceco = input(defval = #131722, title = "Color Size HH-LL",inline='#4')
+size = input.string("tiny", title="", options=["tiny", "small", "large"],inline='#4')
+ph1 = ta.highestbars(high, prd1) == 0 ? high : na, pl1 = ta.lowestbars(low, prd1) == 0 ? low : na, var dir1 = 0
+iff_1 = pl1 and na(ph1) ? -1 : dir1, dir1 := ph1 and na(pl1) ? 1 : iff_1
+var max_array_size = 10, var zigzag1 = array.new_float(0),oldzigzag1 = array.copy(zigzag1)
+add_to_zigzag(pointer, value, bindex) =>
+    array.unshift(pointer, bindex), array.unshift(pointer, value)
+    if array.size(pointer) > max_array_size
+        array.pop(pointer),array.pop(pointer)
+update_zigzag(pointer, value, bindex, dir) =>
+    if array.size(pointer) == 0
+        add_to_zigzag(pointer, value, bindex)
+    else
+        if dir == 1 and value > array.get(pointer, 0) or dir == -1 and value < array.get(pointer, 0)
+            array.set(pointer, 0, value), array.set(pointer, 1, bindex)
+        0.
+dir1changed = ta.change(dir1), if ph1 or pl1
+    if dir1changed
+        add_to_zigzag(zigzag1, dir1 == 1 ? ph1 : pl1, bar_index)
+    else
+        update_zigzag(zigzag1, dir1 == 1 ? ph1 : pl1, bar_index, dir1)
+if array.size(zigzag1) >= 6
+    var line zzline1 = na, var label zzlabel1 = na
+    if array.get(zigzag1, 0) != array.get(oldzigzag1, 0) or array.get(zigzag1, 1) != array.get(oldzigzag1, 1)
+        if array.get(zigzag1, 2) == array.get(oldzigzag1, 2) and array.get(zigzag1, 3) == array.get(oldzigzag1, 3)
+            line.delete(zzline1), label.delete(zzlabel1)
+        if showhhll == true
+            hhlltxt = dir1 == 1 ? array.get(zigzag1, 0) > array.get(zigzag1, 4) ? 'HH' : 'LH' : array.get(zigzag1, 0) < array.get(zigzag1, 4) ? 'LL':'HL'
+            l= dir1 == 1 ? array.get(zigzag1, 0) > array.get(zigzag1, 4) ? liceco : liceco : array.get(zigzag1, 0) < array.get(zigzag1, 4) ? liceco : liceco
+            zzlabel1 :=label.new(x=math.round(array.get(zigzag1, 1)),y=array.get(zigzag1,0),text=hhlltxt,color=l,size=size,textcolor=#ffffff,style=dir1==1?
+                       label.style_label_lower_right:label.style_label_upper_right)////(zigzag1,0),text=hhlltxt,color=l,size=size,textcolor=#ffffff,style=dir1==1?
+///////////////////////////////////////////////END OF LINE/////////////////////////////////////////////////////////////////////////////////////////////////////////

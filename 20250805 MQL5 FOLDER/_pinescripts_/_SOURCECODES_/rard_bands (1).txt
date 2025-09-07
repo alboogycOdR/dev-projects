@@ -1,0 +1,38 @@
+//@version=5
+indicator("Rard Bands", overlay=true)
+
+useEzAlgo = input(true, "Enable EzAlgo", group="EzAlgo")
+lenEzAlgo = input.int(30, "Length EzAlgo", 2, group="EzAlgo")
+useFibDyn = input(true, "Enable Fib Dynamic", group="Fib Dynamic")
+lenFibDyn = input.int(20, "Length Fib Dynamic", 2, group="Fib Dynamic")
+
+f_kc(src, len, mult, sma, atr) =>
+    float basis = sma ? ta.sma(src, len) : ta.ema(src, len)
+    float span  = atr ? ta.atr(len) : ta.rma(high - low, len)
+    [basis + span * mult, basis - span * mult]
+
+[upperKC1, lowerKC1] = f_kc(close, lenEzAlgo, 3, true, true)
+[upperKC2, lowerKC2] = f_kc(close, lenEzAlgo, 4, true, true)
+[upperKC3, lowerKC3] = f_kc(close, lenEzAlgo, 5, true, true)
+[upperKC4, lowerKC4] = f_kc(close, lenEzAlgo, 6, true, true)
+[upperKC5, lowerKC5] = f_kc(close, lenFibDyn, 1.618, false, false)
+[upperKC6, lowerKC6] = f_kc(close, lenFibDyn, 1.705, false, false)
+[upperKC7, lowerKC7] = f_kc(close, lenFibDyn, 2.618, false, false)
+[upperKC8, lowerKC8] = f_kc(close, lenFibDyn, 3.618, false, false)
+
+b01 = plot(useEzAlgo ? upperKC1 : na, "", color.rgb(233,30,99,70), editable=false)
+b02 = plot(useEzAlgo ? upperKC2 : na, "", color.rgb(233,30,99,70), editable=false)
+b03 = plot(useEzAlgo ? upperKC3 : na, "", color.rgb(233,30,99,70), editable=false)
+b04 = plot(useEzAlgo ? upperKC4 : na, "", color.rgb(233,30,99,70), editable=false)
+b05 = plot(useEzAlgo ? lowerKC1 : na, "", color.rgb(0,219,255,70), editable=false)
+b06 = plot(useEzAlgo ? lowerKC2 : na, "", color.rgb(0,219,255,70), editable=false)
+b07 = plot(useEzAlgo ? lowerKC3 : na, "", color.rgb(0,219,255,70), editable=false)
+b08 = plot(useEzAlgo ? lowerKC4 : na, "", color.rgb(0,219,255,70), editable=false)
+b09 = plot(useFibDyn ? upperKC5 : na, "", color.green , editable=false)
+b10 = plot(useFibDyn ? upperKC6 : na, "", color.yellow, editable=false)
+b11 = plot(useFibDyn ? upperKC7 : na, "", color.orange, editable=false)
+b12 = plot(useFibDyn ? upperKC8 : na, "", color.red   , editable=false)
+b13 = plot(useFibDyn ? lowerKC5 : na, "", color.green , editable=false)
+b14 = plot(useFibDyn ? lowerKC6 : na, "", color.yellow, editable=false)
+b15 = plot(useFibDyn ? lowerKC7 : na, "", color.orange, editable=false)
+b16 = plot(useFibDyn ? lowerKC8 : na, "", color.red   , editable=false)

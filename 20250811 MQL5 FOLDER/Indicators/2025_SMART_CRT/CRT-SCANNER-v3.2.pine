@@ -1,0 +1,134 @@
+//@version=6
+indicator("Institutional Bias Scanner v3.2", "CRT_ScanR", true)
+//author: alister
+//freelance work:    https://t.me/NuburoFx
+//whatsapp           0834492741
+
+
+
+// --- INPUTS ---
+var string G_ASSETS_1 = "Assets (Left Column: 1-8)"
+s1 = input.symbol("OANDA:EURUSD", "", group=G_ASSETS_1, inline="s1")
+s2 = input.symbol("OANDA:GBPUSD", "", group=G_ASSETS_1, inline="s1")
+s3 = input.symbol("OANDA:USDJPY", "", group=G_ASSETS_1, inline="s2")
+s4 = input.symbol("OANDA:USDCAD", "", group=G_ASSETS_1, inline="s2")
+s5 = input.symbol("OANDA:AUDUSD", "", group=G_ASSETS_1, inline="s3")
+s6 = input.symbol("OANDA:XAUUSD", "", group=G_ASSETS_1, inline="s3")
+s7 = input.symbol("OANDA:USDCHF", "", group=G_ASSETS_1, inline="s4")
+s8 = input.symbol("TVC:DXY", "", group=G_ASSETS_1, inline="s4")
+
+var string G_ASSETS_2 = "Assets (Right Column: 9-16)"
+s9 = input.symbol("OANDA:NAS100USD", "", group=G_ASSETS_2, inline="s5")
+s10 = input.symbol("OANDA:US30USD", "", group=G_ASSETS_2, inline="s5")
+s11 = input.symbol("COMEX:GC1!", "", group=G_ASSETS_2, inline="s6")
+s12 = input.symbol("NYMEX:CL1!", "", group=G_ASSETS_2, inline="s6")
+s13 = input.symbol("BITSTAMP:BTCUSD", "", group=G_ASSETS_2, inline="s7")
+s14 = input.symbol("BITSTAMP:ETHUSD", "", group=G_ASSETS_2, inline="s7")
+s15 = input.symbol("OANDA:EURJPY", "", group=G_ASSETS_2, inline="s8")
+s16 = input.symbol("OANDA:GBPJPY", "", group=G_ASSETS_2, inline="s8")
+
+var string G_LAYOUT = "Visual Theme & Layout"
+i_theme     = input.string("Dark", "Theme", options=["Dark", "Light", "Blueprint"], group=G_LAYOUT, tooltip="Choose the visual color scheme for the scanner dashboard.")
+i_table_pos = input.string("Top Right", "Table Position", options=["Top Right", "Top Left", "Middle Right", "Middle Left", "Bottom Right", "Bottom Left"], group=G_LAYOUT)
+
+// --- COLOR THEME & ICON LOGIC ---
+// [FIX] These are declared ONCE with 'var'.
+var color color_bg      = color(na)
+var color color_header  = color(na)
+var color color_text    = color(na)
+var color color_bull    = color(na)
+var color color_bear    = color(na)
+var color color_neutral = color(na)
+var color color_wait    = color(na)
+
+// [FIX] Using the ':=' operator to RE-ASSIGN values to already declared 'var' variables.
+if barstate.isfirst
+    switch i_theme
+        "Light" => 
+            color_bg      := #e0e3ebCC
+            color_header  := #000000FF
+            color_text    := #000000FF
+            color_bull    := #26a69aFF
+            color_bear    := #ef5350FF
+            color_neutral := #434651FF
+            color_wait    := #e0e3ebCC
+        
+        "Blueprint" => 
+            color_bg      := #2a3449CC
+            color_header  := #f7c975FF
+            color_text    := #f7c975FF
+            color_bull    := #00BCD4FF
+            color_bear    := #E91E63FF
+            color_neutral := #9E9E9EFF
+            color_wait    := #2a3449CC
+        
+        => 
+            color_bg      := #1e222dCC
+            color_header  := #FFFFFFD9
+            color_text    := #FFFFFFFF
+            color_bull    := #26a69aFF
+            color_bear    := #ef5350FF
+            color_neutral := #868b9cFF
+            color_wait    := #1e222dCC
+
+var string icon_bull = "▲"
+var string icon_bear = "▼"
+var string icon_sandd = "↔" // Seek & Destroy
+var string icon_wait = "—"
+
+// --- TABLE ---
+f_getTablePosition(pos) =>
+    switch pos
+        "Top Right"     => position.top_right
+        "Top Left"      => position.top_left
+        "Middle Right"  => position.middle_right
+        "Middle Left"   => position.middle_left
+        "Bottom Right"  => position.bottom_right
+        "Bottom Left"   => position.bottom_left
+
+var table results_table = table.new(f_getTablePosition(i_table_pos), 4, 9, border_width = 1, border_color=color_header)
+
+// --- FUNCTION TO PROCESS EACH SYMBOL ---
+processSymbol(symbol_ticker, row_index, col_index) =>
+    // --- DATA REQUEST ---
+    [c1_h, c1_l, c1_c, c2_h, c2_l] = request.security(symbol_ticker, "240", [high[1], low[1], close[1], high[2], low[2]], lookahead=barmerge.lookahead_on)
+
+    // --- CRT REJECTION LOGIC ---
+    status_icon = icon_wait
+    cell_color  = color_wait
+
+    high_sweep = c1_h > c2_h
+    low_sweep  = c1_l < c2_l
+
+    if high_sweep and low_sweep
+        status_icon := icon_sandd, cell_color := color_neutral
+    else if high_sweep and c1_c <= c2_h
+        status_icon := icon_bear, cell_color := color_bear
+    else if low_sweep and c1_c >= c2_l
+        status_icon := icon_bull, cell_color := color_bull
+
+    // --- Populate Table ---
+    symbol_name = str.replace_all(str.replace_all(symbol_ticker, "FX:", ""), "_PERP", "")
+    table.cell(results_table, col_index, row_index, symbol_name, text_halign=text.align_left, bgcolor=cell_color, text_color=color_text)
+    table.cell(results_table, col_index + 1, row_index, status_icon, text_halign=text.align_center, bgcolor=cell_color, text_color=color_text, text_size=size.normal)
+
+// --- MAIN DRAWING LOGIC ---
+if barstate.islast
+    table.set_position(results_table, f_getTablePosition(i_table_pos))
+    table.clear(results_table, 0, 0, 3, 8)
+    
+    // Create Table Headers
+    table.cell(results_table, 0, 0, "Asset", text_halign=text.align_center, bgcolor=color_bg, text_color=color_header)
+    table.merge_cells(results_table, 0, 0, 1, 0)
+    table.cell(results_table, 2, 0, "Asset", text_halign=text.align_center, bgcolor=color_bg, text_color=color_header)
+    table.merge_cells(results_table, 2, 0, 3, 0)
+
+    // Process All 16 Symbols in a Two-Column Grid
+    processSymbol(s1, 1, 0), processSymbol(s9, 1, 2)
+    processSymbol(s2, 2, 0), processSymbol(s10, 2, 2)
+    processSymbol(s3, 3, 0), processSymbol(s11, 3, 2)
+    processSymbol(s4, 4, 0), processSymbol(s12, 4, 2)
+    processSymbol(s5, 5, 0), processSymbol(s13, 5, 2)
+    processSymbol(s6, 6, 0), processSymbol(s14, 6, 2)
+    processSymbol(s7, 7, 0), processSymbol(s15, 7, 2)
+    processSymbol(s8, 8, 0), processSymbol(s16, 8, 2)

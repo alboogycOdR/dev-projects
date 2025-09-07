@@ -1,0 +1,712 @@
+//Crypto Paul
+//@version=5
+
+strategy(title = "CryptoPaul Auto Trading BOT", overlay = true,
+         pyramiding=0, initial_capital = 10000,
+         default_qty_type= strategy.cash, default_qty_value = 500,
+         calc_on_order_fills=false,
+         slippage = 0,
+         commission_type=strategy.commission.percent, commission_value=0)
+
+
+// Alert comment Long
+openLongcomment         = input.string(title='Apri Long/ Chiudi Short',         defval="LONG",                    group=" 🔔 Commenta Long 🔔 ")
+stlLongcomment          = input.string(title='Stoploss Long',                   defval='CHIUSA',                  group=" 🔔 Commenta Long 🔔 ")
+longtp1comment          = input.string(title='Long TP1',                        defval='TP1🎯',                     group=" 🔔 Commenta Long 🔔 ")
+longtp2comment          = input.string(title='Long TP2',                        defval='TP2🎯',                     group=" 🔔 Commenta Long 🔔 ")
+longtp3comment          = input.string(title='Long TP3',                        defval='TP3🎯',                     group=" 🔔 Commenta Long 🔔 ")
+longtp4comment          = input.string(title='Long TP4',                        defval='TP4🎯',                     group=" 🔔 Commenta Long 🔔 ")
+longtp5comment          = input.string(title='Long TP5',                        defval='TP5🎯',                     group=" 🔔 Commenta Long 🔔 ")
+longaftercomment        = input.string(title='2°Long',                          defval='2°Long',                  group=" 🔔 Commenta Long 🔔 ")
+
+
+openShortcomment        = input.string(title='Apri Short/ Chiudi Long'    ,     defval='SHORT',                 group=" 🔔 Commenta Short 🔔 ")
+stlShortcomment         = input.string(title='Stoploss Short'     ,             defval='CHIUSA',                group=" 🔔 Commenta Short 🔔 ")
+shorttp1comment         = input.string(title='Short TP1'     ,                  defval='TP1🎯',                   group=" 🔔 Commenta Short 🔔 ")
+shorttp2comment         = input.string(title='Short TP2'     ,                  defval='TP2🎯',                   group=" 🔔 Commenta Short 🔔 ")
+shorttp3comment         = input.string(title='Short TP3'     ,                  defval='TP3🎯',                   group=" 🔔 Commenta Short 🔔 ")
+shorttp4comment         = input.string(title='Short TP4'  ,                     defval='TP4🎯',                   group=" 🔔 Commenta Short 🔔 ")
+shorttp5comment         = input.string(title='Short TP5'  ,                     defval='TP5🎯',                   group=" 🔔 Commenta Short 🔔 ")
+shortaftercomment       = input.string(title='2°Short',                         defval='2°Short',               group=" 🔔 Commenta Short 🔔 ")
+
+// Ema Trend
+lenema1         = 30
+Nowdetailc      = close
+ematrend       = ta.ema(Nowdetailc,    lenema1)
+plot            (ematrend,                              title="EMA",    color=color.new(color.blue, transp = 30), display = display.none)
+
+start = 0.02
+increment = 0.02
+maximum = 0.2
+out = ta.sar(start, increment, maximum)
+plot(out, "ParabolicSAR", style=plot.style_cross, color=color.new(color.aqua, transp = 60))
+
+// Calculating condition pullback
+[macdLine, signalLine, histLine] = ta.macd(close, 12, 26, 9)
+hist3m      = request.security(syminfo.tickerid, "3", histLine)
+hist1m      = request.security(syminfo.tickerid, "1", histLine)
+
+// Parabol SAR
+a = 0.02
+b = 0.02
+c = 0.2
+var bool trendlong = na
+var float EP = na
+var float f = na
+var float SARAF = a
+var float d = na
+if bar_index > 0
+    trendfirst = false
+    f := d
+    if bar_index == 1
+        float valuef = na
+        float valueEP = na
+        lowprevious = low[1]
+        highprevious = high[1]
+        closeCur = close
+        closeprevious = close[1]
+        if closeCur > closeprevious
+            trendlong := true
+            EP := high
+            valuef := lowprevious
+            valueEP := high
+        else
+            trendlong := false
+            EP := low
+            valuef := highprevious
+            valueEP := low
+        trendfirst := true
+        f := valuef + a * (valueEP - valuef)
+    if trendlong
+        if f > low
+            trendfirst := true
+            trendlong := false
+            f := math.max(EP, high)
+            EP := low
+            SARAF := a
+    else
+        if f < high
+            trendfirst := true
+            trendlong := true
+            f := math.min(EP, low)
+            EP := high
+            SARAF := a
+    if not trendfirst
+        if trendlong
+            if high > EP
+                EP := high
+                SARAF := math.min(SARAF + b, c)
+        else
+            if low < EP
+                EP := low
+                SARAF := math.min(SARAF + b, c)
+    if trendlong
+        f := math.min(f, low[1])
+        if bar_index > 1
+            f := math.min(f, low[2])
+    else
+        f := math.max(f, high[1])
+        if bar_index > 1
+            f := math.max(f, high[2])
+    d := f + SARAF * (EP - f)
+
+
+// MTF Resistants in higher timeframe (SuperTrend +Ema)
+distance        =   0.003
+[supertrend, direction] = ta.supertrend(3, 10)
+
+//
+// EMA 100 200 4H D
+ema_len1    = 100
+ema_len2    = 200
+tf1         = '240'
+tf2         = 'D'
+_ma1        = ta.ema(Nowdetailc, ema_len1)
+_ma2        = ta.ema(Nowdetailc, ema_len2)
+ema1        = request.security(syminfo.tickerid, tf1, _ma1)
+ema2        = request.security(syminfo.tickerid, tf1, _ma2)
+ema3        = request.security(syminfo.tickerid, tf2, _ma1)
+ema4        = request.security(syminfo.tickerid, tf2, _ma2)
+
+// SuperTrend MTF
+supertrend30        = request.security(syminfo.tickerid, "30", supertrend)
+direction30         = request.security(syminfo.tickerid, "30", direction)
+supertrend60        = request.security(syminfo.tickerid, "60", supertrend)
+direction60         = request.security(syminfo.tickerid, "60", direction)
+supertrend120       = request.security(syminfo.tickerid, "120", supertrend)
+direction120        = request.security(syminfo.tickerid, "120", direction)
+supertrend240       = request.security(syminfo.tickerid, "240", supertrend)
+direction240        = request.security(syminfo.tickerid, "240", direction)
+supertrendD         = request.security(syminfo.tickerid, "D", supertrend)
+directionD          = request.security(syminfo.tickerid, "D", direction)
+
+// Zone to entry
+
+up30    = supertrend30 + supertrend30 * distance
+down30  = supertrend30 - supertrend30 * distance
+
+up1h    = supertrend60 + supertrend60 * distance
+down1h  = supertrend60 - supertrend60 * distance
+
+up2h    = supertrend120 + supertrend120 * distance
+down2h  = supertrend120 - supertrend120 * distance
+
+up4h    = supertrend240 + supertrend240 * distance
+down4h  = supertrend240 - supertrend240 * distance
+
+up1d    = supertrendD + supertrendD * distance
+down1d  = supertrendD - supertrendD * distance
+
+up2004h    = ema2 + ema2 * distance
+down2004h  = ema2 - ema2 * distance
+
+up100D    = ema3 + ema3 * distance
+down100D  = ema3 - ema3 * distance
+
+up200D    = ema4 + ema4 * distance
+down200D  = ema4 - ema4 * distance
+
+// Draw Plot and Label
+lapos_x = timenow + math.round(ta.change(time) * 2)
+f_draw_label(x, y, _text, _textcolor, _size) =>
+    var label Label = na
+    label.delete(Label)
+    Label := label.new(x, y, _text, color=color.new(color.white, 100), textcolor=_textcolor, style=label.style_label_left, yloc=yloc.price, xloc=xloc.bar_time, size=_size, textalign=text.align_left)
+    Label
+res_to_string(res) =>
+    iff_1 = res == '1M' ? '1M' : ''
+    iff_2 = res == '1W' ? '1W' : iff_1
+    iff_3 = res == '3D' ? '3D' : iff_2
+    iff_4 = res == '1D' ? '1D' : iff_3
+    iff_5 = res == '180' ? '3H' : iff_4
+    iff_6 = res == '120' ? '2H' : iff_5
+    iff_7 = res == '720' ? '12H' : iff_6
+    iff_8 = res == '360' ? '6H' : iff_7
+    iff_9 = res == '240' ? '4H' : iff_8
+    iff_10 = res == '120' ? '2H' : iff_9
+    iff_11 = res == '60' ? '1H' : iff_10
+    iff_12 = res == '45' ? '45m' : iff_11
+    iff_13 = res == '30' ? '30m' : iff_12
+    iff_14 = res == '15' ? '15m' : iff_13
+    iff_15 = res == '3' ? '3m' : iff_14
+    iff_16 = res == '5' ? '5m' : iff_15
+    str = res == '1' ? '1m' : iff_16
+    str
+
+// Draw Plot
+showsupertrend          = input.bool(title="Mostra tutti SuperTrend",               defval=false, group="⚒️ PERSONALIZZARE ⚒️")
+showsupertrend_label    = input.bool(title="Mostra tutti Label SuperTrend",         defval=false, group="⚒️ PERSONALIZZARE ⚒️")
+showstable              = input.bool(title="Mostra Tabella Risultati",              defval=true, group="⚒️ PERSONALIZZARE ⚒️")
+// SuperTrend 15m
+upTrend = plot(direction < 0 ? supertrend : na, "Up Trend", color = color.green, style=plot.style_linebr)
+downTrend = plot(direction < 0? na : supertrend, "Down Trend", color = color.red, style=plot.style_linebr)
+bodyMiddle = plot((open + close) / 2, display=display.none)
+fill(bodyMiddle, upTrend, color.new(color.green, 90), fillgaps=false)
+fill(bodyMiddle, downTrend, color.new(color.red, 90), fillgaps=false)
+
+if showsupertrend_label == true
+    f_draw_label(lapos_x, supertrend, res_to_string('15') + ': ' + str.tostring(math.round(supertrend, 2)) + '', color.yellow, size.small)
+
+// SuperTend 30
+p301        =  plot(( direction30 < 0) and showsupertrend == true ? supertrend30 : na, "Up Trend 30", color = color.new(color.aqua, transp = 50), style=plot.style_linebr)
+p302        =  plot(( direction30 > 0) and showsupertrend == true ? supertrend30 : na, "Down Trend 30", color = color.new(#e91e63, transp = 50), style=plot.style_linebr)
+if showsupertrend_label == true
+    f_draw_label(lapos_x, supertrend30, res_to_string('30') + ': ' + str.tostring(math.round(supertrend30, 2)) + '', color.yellow, size.small)
+
+
+// SuperTend 1H
+p601        =  plot(( direction60 < 0) and showsupertrend == true ? supertrend60 : na, "Up Trend 60", color = color.new(color.aqua, transp = 50), style=plot.style_linebr)
+p602        =  plot(( direction60 > 0) and showsupertrend == true ? supertrend60 : na, "Down Trend 60", color = color.new(#e91e63, transp = 50), style=plot.style_linebr)
+if showsupertrend_label == true
+    f_draw_label(lapos_x, supertrend60, res_to_string('60') + ': ' + str.tostring(math.round(supertrend60, 2)) + '', color.yellow, size.small)
+p60up       =  plot(( direction60 < 0) ? up1h : na, "Zona Up Trend 60", color = color.new(color.aqua, transp = 50), style=plot.style_linebr, display = display.none)
+fill(p601, p60up, color.new(color.aqua, 90), fillgaps=false)
+p60down     =  plot(( direction60 > 0) ? down1h : na, "Zona Down Trend 60", color = color.new(#e91e63, transp = 50), style=plot.style_linebr, display = display.none)
+fill(p602, p60down, color.new(color.red, 90), fillgaps=false)
+
+
+// SuperTrend 2H
+p1201       = plot(( direction120 < 0) and showsupertrend == true ? supertrend120 : na, "Up Trend 120", color = color.new(color.aqua, transp = 50), style=plot.style_linebr)
+p1202       = plot(( direction120 > 0) and showsupertrend == true ? supertrend120 : na, "Down Trend 120", color = color.new(#e91e63, transp = 50), style=plot.style_linebr)
+if showsupertrend_label == true
+    f_draw_label(lapos_x, supertrend120, res_to_string('120') + ': ' + str.tostring(math.round(supertrend120, 2)) + '', color.yellow, size.small)
+p120up      =  plot(( direction120 < 0) ? up2h : na, "Zona Up Trend 120", color = color.new(color.aqua, transp = 50), style=plot.style_linebr, display = display.none)
+fill(p1201, p120up, color.new(color.aqua, 90), fillgaps=false)
+p120down    =  plot(( direction120 > 0) ? down2h : na, "Zona Down Trend 120", color = color.new(#e91e63, transp = 50), style=plot.style_linebr, display = display.none)
+fill(p1202, p120down, color.new(color.red, 90), fillgaps=false)
+
+
+// SuperTrend 4H
+p2401       = plot(( direction240 < 0) and showsupertrend == true ? supertrend240 : na, "Up Trend 240", color = color.new(color.aqua, transp = 50), style=plot.style_linebr)
+p2402       = plot(( direction240 > 0) and showsupertrend == true ? supertrend240 : na, "Down Trend 240", color = color.new(#e91e63, transp = 50), style=plot.style_linebr)
+if showsupertrend_label == true
+    f_draw_label(lapos_x, supertrend240, res_to_string('240') + ': ' + str.tostring(math.round(supertrend240, 2)) + '', color.yellow, size.small)
+p240up      =  plot(( direction240 < 0) ? up4h : na, "Zona Up Trend 240", color = color.new(color.aqua, transp = 50), style=plot.style_linebr, display = display.none)
+fill(p2401, p240up, color.new(color.aqua, 90), fillgaps=false)
+p240down    =  plot(( direction240 > 0) ? down4h : na, "Zona Down Trend 240", color = color.new(#e91e63, transp = 50), style=plot.style_linebr, display = display.none)
+fill(p2402, p240down, color.new(color.red, 90), fillgaps=false)
+
+
+// SuperTrend D
+pd1         = plot(( directionD < 0) and showsupertrend == true ? supertrendD : na, "Up Trend D", color = color.new(color.aqua, transp = 50), style=plot.style_linebr)
+pd2         = plot(( directionD > 0) and showsupertrend == true ? supertrendD : na, "Down Trend D", color = color.new(#e91e63, transp = 50), style=plot.style_linebr)
+if showsupertrend_label == true
+    f_draw_label(lapos_x, supertrendD, res_to_string('1D') + ': ' + str.tostring(math.round(supertrendD, 2)) + '', color.yellow, size.small)
+pdup        =  plot(( directionD < 0) ? up1d : na, "Zona Up Trend D", color = color.new(color.aqua, transp = 50), style=plot.style_linebr, display = display.none)
+fill(pd1, pdup, color.new(color.aqua, 90), fillgaps=false)
+pddown      =  plot(( directionD > 0) ? down1d : na, "Zona Down Trend D", color = color.new(#e91e63, transp = 50), style=plot.style_linebr, display = display.none)
+fill(pd2, pddown, color.new(color.red, 90), fillgaps=false)
+
+
+
+
+// BUY SELL FOLLOW BTC 1H 2H 4H D
+buy60   = request.security("BTCUSDTPERP", "60", direction) < 0
+         and request.security("BTCUSDTPERP", "60", low) < request.security("BTCUSDTPERP", "60", supertrend)
+         and request.security("BTCUSDTPERP", "60", close) > request.security("BTCUSDTPERP", "60", supertrend)
+sell60  = request.security("BTCUSDTPERP", "60", direction) > 0
+         and request.security("BTCUSDTPERP", "60", high)    > request.security("BTCUSDTPERP", "60", supertrend)
+         and request.security("BTCUSDTPERP", "60", close) < request.security("BTCUSDTPERP", "60", supertrend)
+
+buy120   = request.security("BTCUSDTPERP", "120", direction) < 0
+         and request.security("BTCUSDTPERP", "120", low) < request.security("BTCUSDTPERP", "120", supertrend)
+         and request.security("BTCUSDTPERP", "120", close) > request.security("BTCUSDTPERP", "120", supertrend)
+sell120  = request.security("BTCUSDTPERP", "120", direction) > 0
+         and request.security("BTCUSDTPERP", "120", high)    > request.security("BTCUSDTPERP", "120", supertrend)
+         and request.security("BTCUSDTPERP", "120", close) < request.security("BTCUSDTPERP", "120", supertrend)
+
+buy240   = request.security("BTCUSDTPERP", "240", direction) < 0
+         and request.security("BTCUSDTPERP", "240", low) < request.security("BTCUSDTPERP", "240", supertrend)
+         and request.security("BTCUSDTPERP", "240", close) > request.security("BTCUSDTPERP", "240", supertrend)
+sell240  = request.security("BTCUSDTPERP", "240", direction) > 0
+         and request.security("BTCUSDTPERP", "240", high)    > request.security("BTCUSDTPERP", "240", supertrend)
+         and request.security("BTCUSDTPERP", "240", close) < request.security("BTCUSDTPERP", "240", supertrend)
+
+buyD      = directionD < 0 and request.security(syminfo.tickerid, "D", low)   < up1d                and request.security(syminfo.tickerid, "D", close) > supertrendD
+sellD     = directionD > 0 and request.security(syminfo.tickerid, "D", high)  > down1d              and request.security(syminfo.tickerid, "D", close) < supertrendD
+
+buy_follow_btc      = buy60     or buy120   or buy240
+sell_follow_btc     = sell60    or sell120  or sell240
+
+//Strategy
+
+var inputGroupTradeSett     = " ⚽ Impostazioni ENTRATA ⚽"
+usemacd3m   = true
+buysell_follow_btc   = input.bool(title="Compra&Vendi seguendo BTC", tooltip = "Compra&Vende quando BTC testa Supporti/Resistenze nel TF 1H, 2H, 4H, D.",       defval=false ,   group=inputGroupTradeSett, inline = "ETH")
+
+longagain   = input.bool(title="2°Long",      defval=false ,   group=inputGroupTradeSett)
+shortagain  = input.bool(title="2°Short",     defval=false ,   group=inputGroupTradeSett)
+dontshort   = input.bool(title="Non aprire Short quando RSI 4H <",       defval=true ,   group=inputGroupTradeSett, inline = "11")
+valuersi4h  = input.float(30,   title="",                           step=1,         group=inputGroupTradeSett, inline = "11")
+rsi4h       = request.security(syminfo.tickerid, "240", ta.rsi(close, 14))
+
+
+useSession  = input.bool        (defval = false,        title = 'Sessione ', inline = 'Sessione', group = " ⚽ Impostazioni ENTRATA ⚽")
+session     = input.session     (defval = '0000-0000',  title = '',         inline = 'Sessione', group = " ⚽ Impostazioni ENTRATA ⚽") + ':'
+   + (input.bool                (defval = true,         title = 'Lu',      inline = 'Days',    group = " ⚽ Impostazioni ENTRATA ⚽") ? str.tostring(dayofweek.monday) : '')
+   + (input.bool                (defval = true,         title = 'Ma',      inline = 'Days',    group = " ⚽ Impostazioni ENTRATA ⚽") ? str.tostring(dayofweek.tuesday) : '')
+   + (input.bool                (defval = true,         title = 'Me',      inline = 'Days',    group = " ⚽ Impostazioni ENTRATA ⚽") ? str.tostring(dayofweek.wednesday) : '')
+   + (input.bool                (defval = true,         title = 'Gi',      inline = 'Days',    group = " ⚽ Impostazioni ENTRATA ⚽") ? str.tostring(dayofweek.thursday) : '')
+   + (input.bool                (defval = true,         title = 'Ve',      inline = 'Days',    group = " ⚽ Impostazioni ENTRATA ⚽") ? str.tostring(dayofweek.friday) : '')
+   + (input.bool                (defval = true,        title = 'Sa',      inline = 'Days',    group = " ⚽ Impostazioni ENTRATA ⚽") ? str.tostring(dayofweek.saturday) : '')
+   + (input.bool                (defval = true,        title = 'Do',      inline = 'Days',    group = " ⚽ Impostazioni ENTRATA ⚽") ? str.tostring(dayofweek.sunday) : '')
+closeAtSessionEnd = input.bool  (defval = false,        title = 'Chiudi tutte le sessioni alla fine',     group = " ⚽ Impostazioni ENTRATA ⚽", tooltip = 'Chiudi tutte le posizioni al prezzo di mercato alla fine di ogni sessione')
+
+bool sessionFilter = useSession ? not (na(time(timeframe.period, session)) or na(time_close(timeframe.period, session))) : true
+
+//SETUP ENTRY
+
+
+if usemacd3m == true and sessionFilter
+    if (trendlong       and hist3m > 0      and close < supertrend and direction > 0 and (dontshort == true ? rsi4h > valuersi4h : rsi4h > 0))
+        strategy.entry("Short",     strategy.short,     stop=d, comment =   "SHORT")
+    if (not trendlong   and hist3m < 0      and close > supertrend and direction < 0)
+        strategy.entry("Long",  strategy.long,          stop=d, comment =   "LONG")
+
+if buysell_follow_btc == true and (sell240)     and sessionFilter
+    strategy.entry("Short",     strategy.short, comment =   "SHORT")
+
+
+
+
+
+//////////////////////////////////////////////////////////////////////////////// SETUP EXIT
+
+multiprofit     = input.bool(title="Usa Multi Profit",                       defval = true ,   group = " 💰 Impostazioni USCITA 💰 ")
+percentTPSL(x) =>
+    strategy.position_size != 0 ? math.round(x / 100 * strategy.position_avg_price / syminfo.mintick) : float(na)
+
+TP1     =   input.float(0.9,          title="TP1 %",          step=0.1,       group=" 💰 Impostazioni USCITA 💰 ", inline='1')
+TP2     =   input.float(1.8,          title="TP2 %",          step=0.1,       group=" 💰 Impostazioni USCITA 💰 ", inline='2')
+TP3     =   input.float(3.6,          title="TP3 %",          step=0.1,       group=" 💰 Impostazioni USCITA 💰 ", inline='3')
+TP4     =   input.float(5,         title="TP4 %",          step=0.1,       group=" 💰 Impostazioni USCITA 💰 ", inline='4')
+TP5     =   input.float(10,       title="TP5 %",          step=0.1,       group=" 💰 Impostazioni USCITA 💰 ", inline='5')
+
+qty1    =   input.float(30,         title="% USCITA", step=1,             group=" 💰 Impostazioni USCITA 💰 ", inline='1')
+qty2    =   input.float(30,         title="% USCITA", step=1,             group=" 💰 Impostazioni USCITA 💰 ", inline='2')
+qty3    =   input.float(15,        title="% USCITA", step=1,             group=" 💰 Impostazioni USCITA 💰 ", inline='3')
+qty4    =   input.float(15,        title="% USCITA", step=1,             group=" 💰 Impostazioni USCITA 💰 ", inline='4')
+qty5    =   input.float(10,        title="% USCITA", step=1,             group=" 💰 Impostazioni USCITA 💰 ", inline='5')
+TP1AI   =   input.bool(title="AUTO TP1",          defval = false , group=" 💰 Impostazioni USCITA 💰 ", inline='1', tooltip = "Se abbiamo una resistenza nel timeframe più grande vicino al TP1, il TP1 si inserirà autonomamente sulla resistenza.")
+TP2AI   =   input.bool(title="AUTO TP2",          defval = true , group=" 💰 Impostazioni USCITA 💰 ", inline='2', tooltip = "Se abbiamo una resistenza nel timeframe più grande vicino al TP2, il TP2 si inserirà autonomamente sulla resistenza.")
+TP3AI   =   input.bool(title="AUTO TP3",          defval = true , group=" 💰 Impostazioni USCITA 💰 ", inline='3', tooltip = "Se abbiamo una resistenza nel timeframe più grande vicino al TP3, il TP3 si inserirà autonomamente sulla resistenza.")
+TP4AI   =   input.bool(title="AUTO TP4",          defval = true , group=" 💰 Impostazioni USCITA 💰 ", inline='4', tooltip = "Se abbiamo una resistenza nel timeframe più grande vicino al TP4, il TP4 si inserirà autonomamente sulla resistenza.")
+TP5AI   =   input.bool(title="AUTO TP5",          defval = true , group=" 💰 Impostazioni USCITA 💰 ", inline='5', tooltip = "Se abbiamo una resistenza nel timeframe più grande vicino al TP5, il TP5 si inserirà autonomamente sulla resistenza.")
+
+SL                  =   input.float(3,      title="Stoploss %",     step=0.1,               group=" 💰 Impostazioni USCITA 💰 ",    inline='6')
+
+//SL ATR
+SL_ATR              = input.bool(         title="Stoploss basato su ATR/Length/Mult",         group=" 💰 Impostazioni USCITA 💰 ",    defval = true, inline='SL_ATR')
+SL_atrLength        = input(14,             title='', group=" 💰 Impostazioni USCITA 💰 ",                                               inline='SL_ATR')
+SL_atrMultiplier    = input(6,              title='', group=" 💰 Impostazioni USCITA 💰 ",                                               inline='SL_ATR')
+
+atr                     = ta.atr(SL_atrLength)
+float stoploss_long_atr_lv      = na
+stoploss_long_atr_lv            := strategy.position_size[1] <= 0 and (strategy.position_size > 0)      ? close - atr * SL_atrMultiplier : stoploss_long_atr_lv[1]
+
+float stoploss_short_atr_lv     = na
+stoploss_short_atr_lv           := strategy.position_size[1] >= 0 and (strategy.position_size < 0)      ? close + atr * SL_atrMultiplier : stoploss_short_atr_lv[1]
+
+
+
+
+movestoploss    = input.bool(title="Se il TP1 viene raggiunto: Sposta Stoploss al prezzo di entrata",   group=" 💰 Impostazioni USCITA 💰 ",  defval = true)
+//Trailing StopLoss
+active_trailing = input.bool(title="Se il TP1 viene raggiunto: Attiva il Trailing Stoploss ",     group=" 💰 Impostazioni USCITA 💰 ",  defval = false)
+
+sl_type         = input.string('ATR',   title='Tipo di Trailing', options=['ATR', '%'],                    inline='Trailing1')
+atrLength       = input(14,             title='Durata ATR',                                             inline='Trailing1')
+stopLoss        = input.int(            title='% Trailing',                 defval=5, minval=1,         inline='Trailing2')
+atrMultiplier   = input(5,              title='ATR Multi Trailing',                                      inline='Trailing2')
+
+sl_val = sl_type == 'ATR' ? atrMultiplier * ta.atr(atrLength) : sl_type == 'PERCENTUALE' ? close * stopLoss / 100 : 0.00 
+
+trailing_sl_long = 0.0
+trailing_sl_long := strategy.position_size > 0 ? math.max(low - sl_val, nz(trailing_sl_long[1])) : na
+
+
+trailing_sl_short = 0.0
+trailing_sl_short := strategy.position_size < 0 and strategy.position_size[1] >= 0 ? high + sl_val :
+         strategy.position_size < 0 and strategy.position_size[1] < 0 ? math.min(high + sl_val, nz(trailing_sl_short[1])) : na
+
+
+// Logic SL TP ----------------------------------------
+//
+bool status_long_hit_tp1 = na
+status_long_hit_tp1 := (strategy.position_size[1] > 0 and strategy.position_size > 0 and strategy.position_size[1] > strategy.position_size) ? true : strategy.position_size <= 0 ? false : status_long_hit_tp1[1]
+
+bool status_short_hit_tp1 = na
+status_short_hit_tp1 := (strategy.position_size[1] < 0 and strategy.position_size < 0 and strategy.position_size[1] < strategy.position_size) ? true : strategy.position_size >= 0 ? false : status_short_hit_tp1[1]
+
+
+float STLLong = na 
+float STLShort = na
+
+//
+STLLong         := (status_long_hit_tp1 == true  and movestoploss == true)                          ? strategy.position_avg_price                 : SL_ATR == true ? stoploss_long_atr_lv    : strategy.position_avg_price - percentTPSL(SL)*syminfo.mintick
+
+STLShort        := (status_short_hit_tp1 == true and movestoploss == true)                          ? strategy.position_avg_price                 : SL_ATR == true ? stoploss_short_atr_lv    : strategy.position_avg_price+ percentTPSL(SL)*syminfo.mintick
+
+
+
+
+//Calculate levels
+long_sl_lv      = (status_long_hit_tp1 == true      and active_trailing == true) ? trailing_sl_long     : STLLong
+short_sl_lv     = (status_short_hit_tp1 == true     and active_trailing == true) ? trailing_sl_short    : STLShort
+
+long_tp1_lv     = strategy.position_avg_price + percentTPSL(TP1)*syminfo.mintick
+long_tp2_lv     = strategy.position_avg_price + percentTPSL(TP2)*syminfo.mintick
+long_tp3_lv     = strategy.position_avg_price + percentTPSL(TP3)*syminfo.mintick
+long_tp4_lv     = strategy.position_avg_price + percentTPSL(TP4)*syminfo.mintick
+long_tp5_lv     = strategy.position_avg_price + percentTPSL(TP5)*syminfo.mintick
+
+short_tp1_lv    = strategy.position_avg_price - percentTPSL(TP1)*syminfo.mintick
+short_tp2_lv    = strategy.position_avg_price - percentTPSL(TP2)*syminfo.mintick
+short_tp3_lv    = strategy.position_avg_price - percentTPSL(TP3)*syminfo.mintick
+short_tp4_lv    = strategy.position_avg_price - percentTPSL(TP4)*syminfo.mintick
+short_tp5_lv    = strategy.position_avg_price - percentTPSL(TP5)*syminfo.mintick
+
+
+// SETUP Auto TP
+//TP1
+float       TP1Long         = na
+string      TP1Longlabel    = na
+float       TP1Short         = na
+string      TP1Shortlabel    = na
+if TP1AI == true and (supertrend120) < long_tp1_lv + long_tp1_lv*0.01 and (supertrend120) > long_tp1_lv - long_tp1_lv*0.01
+    TP1Long         := ((down2h-strategy.position_avg_price)/strategy.position_avg_price)*100
+    TP1Longlabel    := "AutoTP1"
+else if TP1AI == true and (supertrend240) < long_tp1_lv + long_tp1_lv*0.01 and (supertrend240) > long_tp1_lv - long_tp1_lv*0.01
+    TP1Long         := ((down4h-strategy.position_avg_price)/strategy.position_avg_price)*100
+    TP1Longlabel    := "AutoTP1"
+else
+    TP1Long         := TP1
+    TP1Longlabel    := "TP1"    
+
+if TP1AI == true and (supertrend120) < short_tp1_lv + short_tp1_lv*0.01 and (supertrend120) > short_tp1_lv - short_tp1_lv*0.01
+    TP1Short         := ((-up2h+strategy.position_avg_price)/strategy.position_avg_price)*100
+    TP1Shortlabel    := "AutoTP1"
+else if TP1AI == true and (supertrend240) < short_tp1_lv + short_tp1_lv*0.01 and (supertrend240) > short_tp1_lv - short_tp1_lv*0.01
+    TP1Short         := ((-up4h+strategy.position_avg_price)/strategy.position_avg_price)*100
+    TP1Shortlabel    := "AutoTP1"
+else
+    TP1Short         := TP1
+    TP1Shortlabel    := "TP1" 
+
+//TP2
+float       TP2Long         = na
+string      TP2Longlabel    = na
+float       TP2Short         = na
+string      TP2Shortlabel    = na
+
+if TP2AI == true and (supertrend120) < long_tp2_lv + long_tp2_lv*0.01 and (supertrend120) > long_tp2_lv - long_tp2_lv*0.01
+    TP2Long         := ((down2h-strategy.position_avg_price)/strategy.position_avg_price)*100
+    TP2Longlabel    := "AutoTP2"
+else if TP2AI == true and (supertrend240) < long_tp2_lv + long_tp2_lv*0.01 and (supertrend240) > long_tp2_lv - long_tp2_lv*0.01
+    TP2Long         := ((down4h-strategy.position_avg_price)/strategy.position_avg_price)*100
+    TP2Longlabel    := "AutoTP2"
+else if TP2AI == true and (supertrendD) < long_tp2_lv + long_tp2_lv*0.01 and (supertrendD) > long_tp2_lv - long_tp2_lv*0.01
+    TP2Long         := ((down1d-strategy.position_avg_price)/strategy.position_avg_price)*100
+    TP2Longlabel    := "AutoTP2"
+else
+    TP2Long         := TP2
+    TP2Longlabel    := "TP2"  
+
+if TP2AI == true and (supertrend120) < short_tp2_lv + short_tp2_lv*0.01 and (supertrend120) > short_tp2_lv - short_tp2_lv*0.01
+    TP2Short         := ((-up2h+strategy.position_avg_price)/strategy.position_avg_price)*100
+    TP2Shortlabel    := "AutoTP2"
+else if TP1AI == true and (supertrend240) < short_tp2_lv + short_tp2_lv*0.01 and (supertrend240) > short_tp2_lv - short_tp2_lv*0.01
+    TP2Short         := ((-up4h+strategy.position_avg_price)/strategy.position_avg_price)*100
+    TP2Shortlabel    := "AutoTP2"
+else
+    TP2Short         := TP2
+    TP2Shortlabel    := "TP2" 
+
+
+//
+float       TP3Long         = na
+string      TP3Longlabel    = na
+if TP3AI == true and (supertrend120) < long_tp3_lv + long_tp3_lv*0.01 and (supertrend120) > long_tp3_lv - long_tp3_lv*0.01
+    TP3Long         := ((down2h-strategy.position_avg_price)/strategy.position_avg_price)*100
+    TP3Longlabel    := "AutoTP3"
+else if TP3AI == true and (supertrend240) < long_tp3_lv + long_tp3_lv*0.01 and (supertrend240) > long_tp3_lv - long_tp3_lv*0.01
+    TP3Long         := ((down4h-strategy.position_avg_price)/strategy.position_avg_price)*100
+    TP3Longlabel    := "AutoTP3"
+else if TP3AI == true and (supertrendD) < long_tp3_lv + long_tp3_lv*0.01 and (supertrendD) > long_tp3_lv - long_tp3_lv*0.01
+    TP3Long         := ((down1d-strategy.position_avg_price)/strategy.position_avg_price)*100
+    TP3Longlabel    := "AutoTP3"
+else
+    TP3Long         := TP3
+    TP3Longlabel    := "TP3" 
+
+//
+float       TP5Long         = na
+string      TP5Longlabel    = na
+if TP5AI == true and (supertrend120) < long_tp5_lv + long_tp5_lv*0.01 and (supertrend120) > long_tp5_lv - long_tp5_lv*0.01
+    TP5Long         := ((down2h-strategy.position_avg_price)/strategy.position_avg_price)*100
+    TP5Longlabel    := "AutoTP5"
+else if TP5AI == true and (supertrend240) < long_tp5_lv + long_tp5_lv*0.01 and (supertrend240) > long_tp5_lv - long_tp5_lv*0.01
+    TP5Long         := ((down4h-strategy.position_avg_price)/strategy.position_avg_price)*100
+    TP5Longlabel    := "AutoTP5"
+else if TP5AI == true and (supertrendD) < long_tp5_lv + long_tp5_lv*0.01 and (supertrendD) > long_tp5_lv - long_tp5_lv*0.01
+    TP5Long         := ((down1d-strategy.position_avg_price)/strategy.position_avg_price)*100
+    TP5Longlabel    := "AutoTP5"
+else if TP5AI == true and (ema2) < long_tp5_lv + long_tp5_lv*0.01 and (ema2) > long_tp5_lv - long_tp5_lv*0.01
+    TP5Long         := ((down2004h-strategy.position_avg_price)/strategy.position_avg_price)*100
+    TP5Longlabel    := "AutoTP5"
+else
+    TP5Long         := TP5
+    TP5Longlabel    := "TP5"
+    
+    
+////////////////////////////////////////////////////////////////////////////////SETUP EXIT
+if multiprofit == true
+    strategy.exit("TP1", "Long", qty_percent = qty1,    profit = percentTPSL(TP1Long),  comment = "Tp1🎯")
+    strategy.exit("TP2", "Long", qty_percent = qty2,    profit = percentTPSL(TP2Long),  comment = "Tp2🎯")
+    strategy.exit("TP3", "Long", qty_percent = qty3,    profit = percentTPSL(TP3Long),  comment = "Tp3🎯")
+    strategy.exit("TP4", "Long", qty_percent = qty4,    profit = percentTPSL(TP4),      comment = "Tp4🎯")
+    strategy.exit("TP5", "Long", qty_percent = qty5,    profit = percentTPSL(TP5Long),  comment = "Tp5🎯")
+    strategy.close_all(when = strategy.position_size > 0 and low < long_sl_lv,          comment = "CHIUSA")
+    strategy.exit("TP1", "Short", qty_percent = qty1,   profit = percentTPSL(TP1Short),     comment = "Tp1🎯")
+    strategy.exit("TP2", "Short", qty_percent = qty2,   profit = percentTPSL(TP2Short),     comment = "Tp2🎯")
+    strategy.exit("TP3", "Short", qty_percent = qty3,   profit = percentTPSL(TP3),          comment = "Tp3🎯")
+    strategy.exit("TP4", "Short", qty_percent = qty4,   profit = percentTPSL(TP4),          comment = "Tp4🎯")
+    strategy.exit("TP5", "Short", qty_percent = qty5,   profit = percentTPSL(TP5),          comment = "Tp5🎯")
+    strategy.close_all(when = strategy.position_size < 0 and high > short_sl_lv,            comment = "CHIUSA")
+
+//Close all positions at the end of the session
+strategy.close_all(when = closeAtSessionEnd and not sessionFilter, comment = 'Fine Sessione')
+
+
+//SETUP exit sipmle
+if multiprofit == false
+    strategy.exit("SL",     "Long",     loss = STLLong,     comment     = "SL")
+    strategy.exit("SL",     "Short",    loss = STLShort,    comment     = "SL")
+
+
+
+
+//SETUP Open Long/Short Again
+long_fakeshort = strategy.closedtrades.exit_id(strategy.closedtrades - 1) == "Short" and direction<0 and strategy.position_size[1] > 0
+long_again_condition = longagain == true and strategy.position_size == 0  and strategy.closedtrades.entry_id(strategy.closedtrades - 1) == "Long"       and direction<0 and     ta.rsi(close, 14) < 50
+
+if sessionFilter and (long_again_condition)
+    strategy.entry("Long", strategy.long,   comment=longaftercomment)
+
+
+short_fakelong = strategy.closedtrades.exit_id(strategy.closedtrades - 1) == "Long" and direction>0 and strategy.position_size[1] < 0
+short_again_condition = shortagain == true and strategy.position_size == 0  and strategy.closedtrades.entry_id(strategy.closedtrades - 1) == "Short"       and direction>0 and     ta.rsi(close, 14) > 50 and (dontshort == true ? rsi4h > valuersi4h : rsi4h > 0)
+if sessionFilter and (short_again_condition or short_fakelong)
+    strategy.entry("Short", strategy.short, comment=shortaftercomment)
+
+
+
+
+
+
+
+//////////////////////////////////////////////////////////////////////////////// Plot TP & SL
+
+plot(strategy.position_size > 0 ? long_sl_lv : na,      color=color.new(color.red, 20), style=plot.style_linebr, title="SL Long")
+plot(strategy.position_size < 0 ? short_sl_lv : na,     color=color.new(color.red, 20), style=plot.style_linebr, title="SL Short")
+
+
+plot(multiprofit == true and strategy.position_size > 0 ? strategy.position_avg_price + percentTPSL(TP1Long)*syminfo.mintick : na,     color=color.new(color.lime, 60), style=plot.style_linebr, title="Long TP1")
+plot(multiprofit == true and strategy.position_size > 0 ? strategy.position_avg_price + percentTPSL(TP2Long)*syminfo.mintick : na,     color=color.new(color.lime, 60), style=plot.style_linebr, title="Long TP2")
+plot(multiprofit == true and strategy.position_size > 0 ? strategy.position_avg_price + percentTPSL(TP3Long)*syminfo.mintick : na,     color=color.new(color.lime, 60), style=plot.style_linebr, title="Long TP3")
+plot(multiprofit == true and strategy.position_size > 0 ? long_tp4_lv : na,     color=color.new(color.lime, 60), style=plot.style_linebr, title="Long TP4")
+plot(multiprofit == true and strategy.position_size > 0 ? strategy.position_avg_price + percentTPSL(TP5Long)*syminfo.mintick : na,     color=color.new(color.lime, 60), style=plot.style_linebr, title="Long TP5")
+
+plot(multiprofit == true and strategy.position_size < 0 ? strategy.position_avg_price - percentTPSL(TP1Short)*syminfo.mintick : na,    color=color.new(color.lime, 60), style=plot.style_linebr, title="Short TP1")
+plot(multiprofit == true and strategy.position_size < 0 ? strategy.position_avg_price - percentTPSL(TP2Short)*syminfo.mintick : na,    color=color.new(color.lime, 60), style=plot.style_linebr, title="Short TP2")
+plot(multiprofit == true and strategy.position_size < 0 ? short_tp3_lv : na,    color=color.new(color.lime, 60), style=plot.style_linebr, title="Short TP3")
+plot(multiprofit == true and strategy.position_size < 0 ? short_tp4_lv : na,    color=color.new(color.lime, 60), style=plot.style_linebr, title="Short TP4")
+plot(multiprofit == true and strategy.position_size < 0 ? short_tp5_lv : na,    color=color.new(color.lime, 60), style=plot.style_linebr, title="Short TP5")
+
+
+//Label TP/SL
+_x = timenow + math.round(ta.change(time) * 2)
+
+draw_label(y1, y2, label1, label2, percent1, percent2, _textcolor) =>
+    var label Label = na
+    label.delete(Label)
+    Label := label.new(_x, strategy.position_size > 0 ? y1 : y2, strategy.position_size > 0 ? '' + str.tostring(label1) + ': ' + str.tostring(math.round(y1,2)) + ' (' + str.tostring(math.round(percent1,2)) + '%)' : '' + str.tostring(label2) + ': ' + str.tostring(math.round(y2,2)) + ' (' + str.tostring(math.round(percent2,2)) + '%)'  , color=color.new(color.white, 100), textcolor=_textcolor, style=label.style_label_left, yloc=yloc.price, xloc=xloc.bar_time, size=size.small, textalign=text.align_left)
+    Label
+if multiprofit == true
+    draw_label(strategy.position_avg_price + percentTPSL(TP1Long)*syminfo.mintick,      strategy.position_avg_price - percentTPSL(TP1Short)*syminfo.mintick,   TP1Longlabel,   TP1Shortlabel, TP1Long, TP1Short,    color.lime)
+    draw_label(strategy.position_avg_price + percentTPSL(TP2Long)*syminfo.mintick,      strategy.position_avg_price - percentTPSL(TP2Short)*syminfo.mintick,   TP2Longlabel,   TP2Shortlabel, TP2Long, TP2Short,    color.lime)
+    draw_label(strategy.position_avg_price + percentTPSL(TP3Long)*syminfo.mintick,      short_tp3_lv,   TP3Longlabel,   "TP3", TP3Long, TP3,    color.lime)
+    draw_label(long_tp4_lv,                                                             short_tp4_lv,   "TP4",          "TP4", TP4,     TP4,    color.lime)
+    draw_label(strategy.position_avg_price + percentTPSL(TP5Long)*syminfo.mintick,      short_tp5_lv,   TP5Longlabel,   "TP5", TP5Long, TP5,    color.lime)
+    draw_label(long_sl_lv,                                                              short_sl_lv,    "SL",           "SL",  (strategy.position_avg_price-long_sl_lv)*100/strategy.position_avg_price,      (-strategy.position_avg_price+short_sl_lv)*100/strategy.position_avg_price,     color.red)
+
+
+//Label EMA 4H D
+
+var label labelema2 = na
+label.delete(labelema2)
+labelema2 := label.new(x=_x, y=ema2, text='Ema' + str.tostring(ema_len2) + ' ' + str.tostring(tf1) + ': ' + str.tostring(math.round(ema2,2)) + '', color=color.new(#000000, 100), textcolor = color.yellow, size=size.small, style=label.style_label_left, xloc=xloc.bar_time, yloc=yloc.price)
+
+var label labelema3 = na
+label.delete(labelema3)
+if showsupertrend_label == true
+    labelema3 := label.new(x=_x, y=ema3, text='Ema' + str.tostring(ema_len1) + ' ' + str.tostring(tf2) + ': ' + str.tostring(math.round(ema3,2)) + '', color=color.new(#000000, 100), textcolor = color.yellow, size=size.small, style=label.style_label_left, xloc=xloc.bar_time, yloc=yloc.price)
+
+var label labelema4 = na
+label.delete(labelema4)
+if showsupertrend_label == true
+    labelema4 := label.new(x=_x, y=ema4, text='Ema' + str.tostring(ema_len2) + ' ' + str.tostring(tf2) + ': ' + str.tostring(math.round(ema4,2)) + '', color=color.new(#000000, 100), textcolor = color.yellow, size=size.small, style=label.style_label_left, xloc=xloc.bar_time, yloc=yloc.price)
+
+
+
+
+
+
+
+////////////////////////////////////////////////////////////////////////////////TABLE DETAIL
+detail = strategy.position_size<0 ? -1 : 0
+Nowdetail = strategy.position_size>0 ? 1 : detail
+//
+Buyprice        = '' + str.tostring(strategy.position_avg_price, '##.######') + ''
+ProfitLong      = '' + str.tostring(100 * ((-strategy.position_avg_price + close) / strategy.position_avg_price),'##.##') + ' %'
+Longdistance    = '' + str.tostring(100 * ((close - long_sl_lv) / long_sl_lv),'##.##') + ' %' + ''
+
+Sellprice       = '' + str.tostring(strategy.position_avg_price, '##.######') + ''
+ProfitShort     = '' + str.tostring(100 * ((strategy.position_avg_price - close) / strategy.position_avg_price),'##.##') + ' %'
+Selldistance    = '' + str.tostring(100 * ((-close + short_sl_lv) / short_sl_lv),'##.##') + ' %' + ''
+
+
+// Time
+get_month_string(month_number) =>
+    if month_number == 1
+        _string = 'Gen'
+    else if month_number == 2
+        _string = 'Feb'
+    else if month_number == 3
+        _string = 'Mar'
+    else if month_number == 4
+        _string = 'Apr'
+    else if month_number == 5
+        _string = 'Mag'
+    else if month_number == 6
+        _string = 'Giu'
+    else if month_number == 7
+        _string = 'Lug'
+    else if month_number == 8
+        _string = 'Ago'
+    else if month_number == 9
+        _string = 'Set'
+    else if month_number == 10
+        _string = 'Ott'
+    else if month_number == 11
+        _string = 'Nov'
+    else if month_number == 12
+        _string = 'Dic'
+
+time_to_date_string(timeinms) =>
+    if timeinms > 0
+        _string = str.tostring(dayofmonth(timeinms), '00/') + get_month_string(month(timeinms)) + '/' + str.tostring(year(timeinms), '0000') + ' ' + str.tostring(hour(timeinms), '00:') + str.tostring(minute(timeinms), '00:') + str.tostring(second(timeinms), '00')
+    else
+        _string = ''
+
+
+
+// TABLE
+var tabledetail = table.new(position.top_right, 2, 5, frame_color=#151715, frame_width=1,   border_width=2,     border_color=color.new(color.white, 100))
+
+table.cell(tabledetail, 0, 0, 'DETTAGLI',     width = 1,     text_halign = text.align_center, bgcolor = color.gray, text_color = color.white, text_size = size.small)
+table.cell(tabledetail, 1, 0, 'STATO',     width = 1,     text_halign = text.align_center, bgcolor = color.gray, text_color = color.white, text_size = size.small)
+if Nowdetail == -1
+    table.cell(tabledetail, 0, 1, text  ="SHORT", text_halign = text.align_center,          bgcolor = color.maroon,    text_color = color.white, text_size = size.small)
+    table.cell(tabledetail, 0, 2, text  ="Prezzo Entrata", text_halign = text.align_center,    bgcolor = color.gray,   text_color = color.white, text_size = size.small)
+    table.cell(tabledetail, 0, 3, text  ="Profitto", text_halign = text.align_center,         bgcolor = color.gray,   text_color = color.white, text_size = size.small)
+    table.cell(tabledetail, 0, 4, text  ="Distanza Stoploss", text_halign = text.align_center, bgcolor = color.gray, text_color = color.white, text_size = size.small)
+
+    table.cell(tabledetail, 1, 1, text  =''+str.tostring(time_to_date_string((time+2*86400000-strategy.opentrades.entry_time(strategy.opentrades - 1)/10000)))+'', text_halign = text.align_center, bgcolor = color.maroon, text_color = color.white, text_size = size.small)
+    table.cell(tabledetail, 1, 2, text  =Sellprice, text_halign = text.align_center,        bgcolor = color.gray, text_color = color.white, text_size = size.small)
+    table.cell(tabledetail, 1, 3, text  =ProfitShort, text_halign = text.align_center,      bgcolor= (strategy.position_avg_price - close)>0?color.teal:color.maroon, text_color = color.white, text_size = size.small)
+    table.cell(tabledetail, 1, 4, text  =Selldistance, text_halign = text.align_center,     bgcolor = color.gray, text_color = color.white, text_size = size.small)
+
+if Nowdetail == 1
+    table.cell(tabledetail, 0, 1, text  ="Long", text_halign = text.align_center,           bgcolor = color.teal,  text_color = color.white, text_size = size.small)
+    table.cell(tabledetail, 0, 2, text  ="Prezzo Entrata", text_halign = text.align_center,    bgcolor = color.gray,   text_color = color.white, text_size = size.small)
+    table.cell(tabledetail, 0, 3, text  ="Profitto", text_halign = text.align_center,         bgcolor = color.gray,   text_color = color.white, text_size = size.small)
+    table.cell(tabledetail, 0, 4, text  ="Distanza Stoploss", text_halign = text.align_center, bgcolor = color.gray, text_color = color.white, text_size = size.small)
+   
+    table.cell(tabledetail, 1, 1, text  =''+str.tostring(time_to_date_string((time+2*86400000-strategy.opentrades.entry_time(strategy.opentrades - 1)/10000)))+'', text_halign = text.align_center, bgcolor = color.teal, text_color = color.white, text_size = size.small)
+    table.cell(tabledetail, 1, 2, text  =Buyprice, text_halign = text.align_center,         bgcolor = color.gray,   text_color = color.white, text_size = size.small)
+    table.cell(tabledetail, 1, 3, text  =ProfitLong, text_halign = text.align_center,       bgcolor= (-strategy.position_avg_price + close)>0?color.teal:color.maroon, text_color = color.white, text_size = size.small)
+    table.cell(tabledetail, 1, 4, text  =Longdistance, text_halign = text.align_center,     bgcolor = color.gray,   text_color = color.white, text_size = size.small)
+   
+// Table Results
+tableBgcolor=#686868
+if barstate.islastconfirmedhistory and showstable  == true
+    var tbl = table.new(position.bottom_right, 3, 3, bgcolor = tableBgcolor, frame_width = 2, frame_color = color.black, border_width=2,border_color=color.black)
+    table.cell(tbl, 0, 1, "Trade totali: " + str.tostring(strategy.closedtrades),           bgcolor=color.gray,text_size=size.small,text_color=color.white,text_valign=text.align_center)
+    table.cell(tbl, 0, 2, "Win Rate: " +  str.tostring(math.round(strategy.wintrades / strategy.closedtrades * 100,2)) + "%", bgcolor=color.gray,text_size=size.small,text_color=color.white,text_valign=text.align_center)
+    table.cell(tbl, 0, 0, "Capitale iniziale: " + str.tostring(strategy.initial_capital),     bgcolor=color.gray,text_size=size.small,text_color=color.white,text_valign=text.align_center)
+    table.cell(tbl, 1, 0, "Profitto netto: "  + str.tostring(math.round(strategy.netprofit,2)) + " ("+  str.tostring(math.round(strategy.netprofit / strategy.initial_capital * 100,2)) + "%"+ ")", bgcolor=strategy.netprofit>0?color.teal:color.maroon,text_size=size.small,text_color=color.white,text_valign=text.align_center)
+    table.cell(tbl, 1, 1, "Patrimonio netto attuale: "+ str.tostring(math.round(strategy.equity,2))+ "",    bgcolor=strategy.netprofit>0?color.teal:color.red,text_size=size.small,text_color=color.white,text_valign=text.align_center)
+    table.cell(tbl, 1, 2, "Massimo DrawDown: "+ str.tostring(math.round(strategy.max_drawdown))+ " ("+ str.tostring(math.round(strategy.max_drawdown/ strategy.initial_capital * 100,2))+ "%"+ ")",     bgcolor=color.maroon,text_size=size.small,text_color=color.white,text_valign=text.align_center)
+
+

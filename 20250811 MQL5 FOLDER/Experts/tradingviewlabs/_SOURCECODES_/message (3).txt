@@ -1,0 +1,719 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © HasanGocmen
+// Designed by Hasan Göçmen 
+
+//@version=5
+indicator("Cryptoverse", overlay = true, max_labels_count = 500, max_lines_count = 500)
+
+period = input.int(defval = 6, title="Pivot Period", minval = 2, maxval = 100, group = "GENERAL SETUP")
+source = input.source(title="Pivot Source", defval = close, group = "GENERAL SETUP")
+
+// Support / Resistance Setups
+b_back = input.int(defval=500, title="Custom Bars Back", group = "SUPPORT / RESISTANCE SETUP")
+cbd = input.int(defval=0, title="Current Bar Decrease", group = "SUPPORT / RESISTANCE SETUP")
+showSR = input.bool(true, "Show S/R Lines", group = "SUPPORT / RESISTANCE SETUP")
+autoSmplfctn = input.bool(true, "Auto Simplification", group = "SUPPORT / RESISTANCE SETUP", tooltip = "If Auto Simplification Checked, Simplification Steps are not working!")
+fltr_stps = input(defval = 14, title = "Simplifaction Steps", group = "SUPPORT / RESISTANCE SETUP")
+labelloc = input(defval = 50, title = "Label Location", group = "SUPPORT / RESISTANCE SETUP", tooltip = "Positive numbers reference future bars, negative numbers reference historical bars")
+line_clr = input.color(color.rgb(57, 137, 184, 30), "S/R Lines Color", group = "SUPPORT / RESISTANCE SETUP")
+
+// Trend Lines Setups
+showTL = input.bool(true, "Show All Trend Lines", group = "TREND LINES SETUP")
+hideOL = input.bool(false, "Hide Old Trend Lines", group = "TREND LINES SETUP")
+hlpr_l_f = input.string(title="Helper Line Format", defval="$", options=["%", "$"], group = "TREND LINES SETUP")
+ut_clr = input.color(color.rgb(113, 165, 42), "Up Trend Color", group = "TREND LINES SETUP", inline = "trendcolor")
+dt_clr = input.color(color.rgb(246, 12, 122), "Down Trend Color", group = "TREND LINES SETUP", inline = "trendcolor")
+uto_show = input.bool(true, "Show Up Trend Overflow", group = "TREND LINES SETUP", inline = "upoverflow")
+uto_clr = input.color(color.rgb(255, 153, 0), "", group = "TREND LINES SETUP", inline = "upoverflow")
+dto_show = input.bool(true, "Show Down Trend Overflow", group = "TREND LINES SETUP", inline = "downoverflow")
+dto_clr = input.color(color.rgb(250, 81, 29), "", group = "TREND LINES SETUP", inline = "downoverflow")
+
+// RSI Divergence Setups
+showReg = input.bool(true, "Show Regular", group = "RSI DIVERGENCE SETUP", inline = "Divergence")
+showHid = input.bool(true, "Show Hidden", group = "RSI DIVERGENCE SETUP", inline = "Divergence")
+showOPD = input.bool(true, "Show Old Potential Divergence", group = "RSI DIVERGENCE SETUP")
+bullD_clr = input.color(color.rgb(12, 158, 87), "Bullish Divergence Label Color", group = "RSI DIVERGENCE SETUP")
+bearD_clr = input.color(color.rgb(141, 19, 19), "Bearish Divergence Label Color", group = "RSI DIVERGENCE SETUP")
+pod_clr = input.color(color.rgb(26, 82, 182, 50), "Potential Divergence Label Color", group = "RSI DIVERGENCE SETUP")
+rsiLength = input.int(defval = 14, title="Rsi Length", minval = 1, maxval = 100, group = "RSI DIVERGENCE SETUP")
+rsiSource = input.source(title="Rsi Source", defval = close, group = "RSI DIVERGENCE SETUP")
+
+// EMA Setups
+ema_1 = input.int(defval = 21, title = 'Ema 1', group = "EMA SETUP", inline = "Ema 1")
+ema_1_color = input.color(color.rgb(231, 231, 231), "", group = "EMA SETUP", inline = "Ema 1")
+ema_2 = input.int(defval = 50, title = 'Ema 2', group = "EMA SETUP", inline = "Ema 2")
+ema_2_color = input.color(color.rgb(95, 95, 95), "", group = "EMA SETUP", inline = "Ema 2")
+ema_3 = input.int(defval = 100, title = 'Ema 3', group = "EMA SETUP", inline = "Ema 3")
+ema_3_color = input.color(color.rgb(75, 75, 75), "", group = "EMA SETUP", inline = "Ema 3")
+ema_4 = input.int(defval = 200, title = 'Ema 4', group = "EMA SETUP", inline = "Ema 4")
+ema_4_color = input.color(color.rgb(51, 51, 51), "", group = "EMA SETUP", inline = "Ema 4")
+
+f_resInMiliseconds() => 
+    _resInMiliseconds = 60000 * timeframe.multiplier * (
+      timeframe.isseconds ? 1. / 60             :
+      timeframe.isminutes ? 1.                  :
+      timeframe.isdaily   ? 60. * 24            :
+      timeframe.isweekly  ? 60. * 24 * 7        :
+      timeframe.ismonthly ? 60. * 24 * 30.4375  : na)
+      
+bar_diff = int((timenow-time) / f_resInMiliseconds())
+bar_in_window = bar_diff < b_back + cbd and bar_diff > cbd
+
+float src1 =  math.max(source, source)
+float src2 =  math.min(source, source)
+float ph = ta.pivothigh(src1, period, period)
+float pl = ta.pivotlow(src2, period, period)
+
+plotshape(ph, style = shape.triangledown, color = color.red, textcolor = color.red, location = location.abovebar,  offset = -period, size = size.auto)
+plotshape(pl, style = shape.triangleup, color = color.lime, textcolor = color.lime, location = location.belowbar,  offset = -period)
+
+ema1 = ta.ema(close, ema_1)
+plot(ema1, 'Ema1', color = ema_1_color)
+
+ema2 = ta.ema(close, ema_2)
+plot(ema2, 'Ema2', color = ema_2_color, linewidth = 2)
+
+ema3 = ta.ema(close, ema_3)
+plot(ema3, 'Ema3', color = ema_3_color, linewidth = 2)
+
+ema4 = ta.ema(close, ema_4)
+plot(ema4, 'Ema4', color = ema_4_color, linewidth = 3)
+
+var pvtH = array.new_float(0)
+var pvtHRsi = array.new_float(0)
+var pvtL = array.new_float(0)
+var pvtLRsi = array.new_float(0)
+var pvtHI = array.new_int(0)
+var pvtLI = array.new_int(0)
+
+var pvtvals = array.new_float(0)
+var f_l = array.new_float(0)
+var temp_f_l = array.new_float(0)
+var l_s = array.new_int(0)
+var temp_l_s = array.new_int(0)
+
+prdhighest =  ta.highest(close, b_back)
+prdlowest = ta.lowest(close, b_back)
+cw = (prdhighest - prdlowest) * 100 / prdlowest
+
+smplfctn = 0
+if(autoSmplfctn)
+    if(cw < 5)
+        smplfctn := 25
+    else if(cw >= 5 and cw < 7)
+        smplfctn := 35
+    else if(cw >= 7 and cw < 10) 
+        smplfctn := 70
+    else if(cw >= 10 and cw < 20)
+        smplfctn := 100
+    else if(cw >= 20 and cw < 40)
+        smplfctn := 150
+    else if(cw >= 40 and cw < 100)
+        smplfctn := 250
+    else
+        smplfctn := 500
+else
+    smplfctn := fltr_stps
+
+var f_stps = array.new_float(0)
+array.clear(f_stps)
+for x = 1 to smplfctn
+    val = 0.0001 * x
+    array.push(f_stps, 1.0000 + val)
+
+f_match_line_w_step(indx, nextIndx, stepVal)=>
+    float c_line = array.get(f_l, indx)
+    float a_line = array.size(f_l) > nextIndx ? array.get(f_l, nextIndx) : 0.0
+    int strength = array.get(l_s, indx)
+    int nextStrength = array.size(f_l) > nextIndx ? array.get(l_s, nextIndx) : 0
+
+    rtrn = false
+    float perc = c_line * stepVal
+    if a_line > 0 and a_line != c_line and perc > a_line
+        rtrn := true
+        strength := strength + 1
+
+    [rtrn, c_line, a_line, strength]
+
+if(bar_in_window and showSR)
+    var sr_lines = array.new_line(0)
+    var sr_labels = array.new_label(0)
+    var temp_sr_lines = array.new_line(0)
+    var temp_sr_labels = array.new_label(0)
+
+    if ph or pl
+        array.push(pvtvals, ph ? ph : pl)
+        array.sort(pvtvals, order.ascending)
+        l_s := array.new_int(array.size(pvtvals))
+        array.fill(l_s, 1)
+        f_l := array.copy(pvtvals)
+
+        for x = 0 to smplfctn - 1
+            step_val = array.get(f_stps, x)
+
+            whileCondition = true
+
+            while whileCondition
+                whileCondition := false
+                int m_i = -1
+
+                if(array.size(f_l) > 1)
+                    for f = 0 to array.size(f_l) - 1
+                        [rtrn, c_line, a_line, strength] = f_match_line_w_step(f, f + 1, step_val)
+                        if rtrn
+                            whileCondition := true
+                            new_line = ((a_line + c_line) / 2)
+                            m_i := f + 1
+                            array.push(temp_f_l, new_line)
+                            array.push(temp_l_s, strength)
+                        else
+                            if f != m_i and a_line != c_line
+                                array.push(temp_f_l, c_line)
+                                array.push(temp_l_s, strength)
+
+                f_l := array.copy(temp_f_l)
+                l_s := array.copy(temp_l_s)
+                array.clear(temp_f_l)
+                array.clear(temp_l_s)
+
+        if(array.size(sr_lines) > 0)
+            for x = 0 to array.size(sr_lines) - 1
+                line.delete(array.get(sr_lines, x))
+                label.delete(array.get(sr_labels, x))
+            array.clear(sr_lines)
+            array.clear(sr_labels)
+
+        if array.size(f_l) > 0
+            for x = 0 to array.size(f_l) - 1
+                line_val = array.get(f_l, x)
+                rate = 100 * (line_val - close) / close
+                array.push(sr_labels, 
+                          label.new(x = bar_index + labelloc,
+                          y = line_val, 
+                          text = str.tostring(line_val) + "(" + str.tostring(rate,'#.##') + "%)",
+                          color = line_val >= close ? color.rgb(150, 53, 53) : color.rgb(58, 180, 121),
+                          textcolor = line_val >= close ? color.white : color.black,
+                          style = line_val >= close ? label.style_label_down : label.style_label_up))                        
+
+                array.push(sr_lines, 
+                          line.new(x1 = bar_index, y1 = line_val, x2 = bar_index - 1, y2 = line_val, 
+                          extend = extend.both,
+                          color = line_clr,
+                          style = line.style_solid, 
+                          width = 1))
+
+    if(array.size(sr_lines) > 0)
+        for x = 0 to array.size(sr_lines) - 1
+            first = array.get(sr_labels, 0)
+            c_lbl = array.get(sr_labels, x)
+            c_Strength = array.get(l_s, x)
+            l_lbl_rate = 0.0
+            h_lbl_rate = 0.0
+            if(x > 0 and array.size(sr_lines) > 1)
+                l_lbl_rate := 100 * (label.get_y(array.get(sr_labels, x - 1)) - label.get_y(c_lbl)) / label.get_y(c_lbl)
+
+            if(array.size(sr_lines) > 1 and x < array.size(sr_lines) - 1)
+                h_lbl_rate := 100 * (label.get_y(array.get(sr_labels, x + 1)) - label.get_y(c_lbl)) / label.get_y(c_lbl)
+
+            rate = 100 * (label.get_y(c_lbl) - close) / close
+            label.set_text(c_lbl, text = "Line: " + str.tostring(label.get_y(c_lbl), '#.#####') + " | Distance: (" + str.tostring(rate,'#.##') + "%)\n▲ (" + str.tostring(h_lbl_rate, '#.##') + "%) | ▼ (" + str.tostring(l_lbl_rate, '#.##') + "%) | Strength: " + str.tostring(c_Strength) + "\nC. Width: " + str.tostring(cw, '#.##') + "%, S. Steps: " + str.tostring(smplfctn))
+            label.set_x(c_lbl, x = bar_index + labelloc)
+            label.set_color(c_lbl, color = label.get_y(c_lbl) >= close ? color.rgb(150, 53, 53) : color.rgb(120, 212, 168))
+            label.set_textcolor(c_lbl, textcolor = label.get_y(c_lbl) >= close ? color.white : color.black)
+            label.set_style(c_lbl, style = label.get_y(c_lbl) >= close ? label.style_label_down : label.style_label_up)
+
+
+var line t_h_l = na
+var line t_l_l = na
+
+var line b_l_l = na
+var line b_h_l = na
+
+add_to_array(arr, indexArr, val)=>
+    array.push(arr, val)
+    array.push(indexArr, bar_index - period)
+
+c_e_p(price, process, percent)=>
+    result = 0.0
+    if(process == "plus")
+        result := price + (price / 100) * percent
+    else
+        result := price - (price / 100) * percent
+
+u_d_l(line, type)=>
+    l_x_i = line.get_x1(line)
+    l_x_p = line.get_y1(line)
+    l_y_i = line.get_x2(line)
+    l_y_p = line.get_y2(line)
+    l_b_c = l_y_i - l_x_i
+    l_d_p = type == "top" ? l_x_p - l_y_p : l_y_p - l_x_p 
+    l_u_p = l_d_p / l_b_c
+    d_l_f_p = (bar_index - period) - l_x_i
+    c_l_p_p = 0.0
+    if(type == "top")
+        c_l_p_p := l_x_p - (l_u_p * d_l_f_p)
+    else
+        c_l_p_p := l_x_p + (l_u_p * d_l_f_p)
+    c_l_p_p
+
+d_t_h_l(pHI, pHP, lHP)=>
+    new_l_b_c = (bar_index - period) - pHI
+    new_l_d_p = pHP - lHP
+    new_l_u_p = new_l_d_p / new_l_b_c
+
+    lowest = 100000.0
+    t_lowest = 100000.0
+    l_i = 0
+    for y = 0 to new_l_b_c
+        if(close[period + new_l_b_c - y] - (new_l_u_p * (new_l_b_c - y)) < t_lowest)
+            lowest := close[period + new_l_b_c -  y]
+            t_lowest := close[period + new_l_b_c -  y] - (new_l_u_p * (new_l_b_c - y))
+            l_i := bar_index - (period + new_l_b_c - y)
+
+    d_l_b_c = l_i - pHI
+    c_l_l_p = pHP - (new_l_u_p * d_l_b_c)
+    pLP = 0.0
+    lLP = 0.0
+    if(hlpr_l_f == '%')
+        l_perc = (lowest - c_l_l_p) * 100 / c_l_l_p
+        pLP := pHP * ((100 - math.abs(l_perc)) / 100)
+        lLP := lHP * ((100 - math.abs(l_perc)) / 100)
+    else
+        pLP := pHP + (lowest - c_l_l_p)
+        lLP := lHP + (lowest - c_l_l_p)
+    [pLP, lLP]
+
+c_u_p(h_l)=>
+    uf = false
+    uf_i = 0
+    uf_p = 100000.0
+    c_c = 0.0
+    c_i = 0
+    l_x_i = line.get_x1(h_l)
+    l_x_p = line.get_y1(h_l)
+    l_y_i = line.get_x2(h_l)
+    l_y_p = line.get_y2(h_l)
+    l_b_c = l_y_i - l_x_i
+    l_d_p = l_x_p - l_y_p
+    l_u_p = l_d_p / l_b_c
+    for x = 0 to l_b_c
+        c_c := close[period + l_b_c - x]
+        c_i := bar_index - (period + l_b_c - x)
+        d_l_f_p = (bar_index - period) - l_x_i
+        c_p_p = l_x_p - (l_u_p * x)
+        if(c_c < c_p_p)
+            uf := true
+            uf_i := c_c < uf_p ? c_i : uf_i
+            uf_p := c_c < uf_p ? c_c : uf_p
+    [uf, uf_i, uf_p, l_u_p]
+
+r_d_t_h_l(h_l, uf_i, uf_p, l_u_p)=>
+    g_x_i = line.get_x1(h_l)
+    g_x_p = line.get_y1(h_l)
+    g_y_i = line.get_x2(h_l)
+    g_y_p = line.get_y2(h_l)
+
+    c_l_b_c = g_y_i - g_x_i
+    d_l_b_c = uf_i - g_x_i
+
+    c_l_l_p = g_x_p - (l_u_p * d_l_b_c)
+    pLP = 0.0
+    lLP = 0.0
+    if(hlpr_l_f == '%')
+        l_perc = (uf_p - c_l_l_p) * 100 / c_l_l_p
+        pLP := g_x_p * ((100 - math.abs(l_perc)) / 100)
+        lLP := g_y_p * ((100 - math.abs(l_perc)) / 100)
+    else
+        pLP := g_x_p + (uf_p - c_l_l_p)
+        lLP := g_y_p + (uf_p - c_l_l_p)
+    line.set_y1(t_l_l, pLP)
+    line.set_y2(t_l_l, lLP)
+
+d_b_h_l(pLI, pLP, lLP)=>
+    new_l_b_c = (bar_index - period) - pLI
+    new_l_d_p = lLP - pLP
+    new_l_u_p = new_l_d_p / new_l_b_c
+
+    highest = 0.0
+    t_highest = 0.0
+    h_i = 0
+
+    for y = 0 to new_l_b_c
+        if(close[period + new_l_b_c - y] + (new_l_u_p * (new_l_b_c - y)) > t_highest)
+            highest := close[period + new_l_b_c -  y]
+            t_highest := close[period + new_l_b_c -  y] + (new_l_u_p * (new_l_b_c - y))
+            h_i := bar_index - (period + new_l_b_c - y) 
+
+    d_l_b_c = h_i - pLI
+
+    c_h_l_p = pLP + (new_l_u_p * d_l_b_c)
+    pHP = 0.0
+    lHP = 0.0
+    if(hlpr_l_f == '%')
+        l_perc = (highest - c_h_l_p) * 100 / c_h_l_p
+        pHP := pLP * ((100 + math.abs(l_perc)) / 100)
+        lHP := lLP * ((100 + math.abs(l_perc)) / 100)
+    else
+        pHP := pLP + (highest - c_h_l_p)
+        lHP := lLP + (highest - c_h_l_p)
+    [pHP, lHP]
+
+c_o_p(h_l)=>
+    of = false
+    of_i = 0
+    of_p = 0.0
+    c_c = 0.0
+    c_i = 0
+    l_x_i = line.get_x1(h_l)
+    l_x_p = line.get_y1(h_l)
+    l_y_i = line.get_x2(h_l)
+    l_y_p = line.get_y2(h_l)
+    l_b_c = l_y_i - l_x_i
+    l_d_p = l_y_p - l_x_p
+    l_u_p = l_d_p / l_b_c
+    for x = 0 to l_b_c
+        c_c := close[period + l_b_c - x]
+        c_i := bar_index - (period + l_b_c - x)
+        d_l_f_p = (bar_index - period) - l_x_i
+        c_p_p = l_x_p + (l_u_p * x)
+        if(c_c > c_p_p)
+            of := true
+            of_i := c_c > of_p ? c_i : of_i
+            of_p := c_c > of_p ? c_c : of_p
+    [of, of_i, of_p, l_u_p]
+
+r_d_b_h_l(h_l, of_i, of_p, l_u_p)=>
+    g_x_i = line.get_x1(h_l)
+    g_x_p = line.get_y1(h_l)
+    g_y_i = line.get_x2(h_l)
+    g_y_p = line.get_y2(h_l)
+
+    c_l_b_c = g_y_i - g_x_i
+    d_h_b_c = of_i - g_x_i
+
+    c_h_l_p = g_x_p + (l_u_p * d_h_b_c)
+    pHP = 0.0
+    lHP = 0.0
+    if(hlpr_l_f == '%')
+        l_perc = (of_p - c_h_l_p) * 100 / c_h_l_p
+        pHP := g_x_p * ((100 + math.abs(l_perc)) / 100)
+        lHP := g_y_p * ((100 + math.abs(l_perc)) / 100)
+    else
+        pHP := g_x_p + (of_p - c_h_l_p)
+        lHP := g_y_p + (of_p - c_h_l_p)
+    line.set_y1(b_h_l, pHP)
+    line.set_y2(b_h_l, lHP)
+
+var uf_c = 0
+var of_c = 0
+if(ph)
+    if(array.size(pvtH) > 0 and showTL)
+        pPH = array.get(pvtH, array.size(pvtH) - 1)
+        two_pPH = array.size(pvtH) > 1 ? array.get(pvtH, array.size(pvtH) - 2) : 0
+        prev_pvtHI = array.get(pvtHI, array.size(pvtHI) - 1)
+        c_HLPP = u_d_l(t_h_l, "top")
+        c_LLPP = u_d_l(t_l_l, "top")
+        a_LTP = line.get_y1(t_h_l)
+
+        if(a_LTP > ph * 1.001 and ph >= c_HLPP and two_pPH == a_LTP)
+            line.set_xy2(t_h_l, bar_index - period, ph)
+            uf_c := 1
+            [pLP, lLP] = d_t_h_l(line.get_x1(t_h_l), line.get_y1(t_h_l), ph)
+            line.set_xy1(t_l_l, line.get_x1(t_l_l), pLP)
+            line.set_xy2(t_l_l, bar_index - period, lLP)
+        else if(pPH >= two_pPH and ph * 1.001 < pPH)
+            line.set_xy2(t_h_l, bar_index - period, c_HLPP)
+            line.set_xy2(t_l_l, bar_index - period, c_LLPP)
+            if(na(c_HLPP) or c_e_p(c_HLPP, "plus", 0.35) < ph or c_e_p(c_LLPP, "minus", 0.35) > ph)
+                line.set_color(t_h_l, color.new(dt_clr, 50))
+                line.set_color(t_l_l, color.new(dt_clr, 50))
+                line.set_extend(t_h_l, extend.none)
+                line.set_extend(t_l_l, extend.none)
+                if(hideOL)
+                    line.delete(t_h_l)
+                    line.delete(t_l_l)
+
+                uf_c := 0
+                t_h_l := line.new(prev_pvtHI, pPH, bar_index - period, ph, extend = extend.right, width = 1, color= dt_clr, style = line.style_dashed)
+
+                [pLP, lLP] = d_t_h_l(prev_pvtHI, pPH, ph)
+                t_l_l := line.new(prev_pvtHI, pLP, bar_index - period, lLP, extend = extend.right, width = 1, color= dt_clr, style = line.style_dashed)
+        else
+            if(a_LTP > ph)
+                line.set_xy2(t_h_l, bar_index - period, c_HLPP)
+                line.set_xy2(t_l_l, bar_index - period, c_LLPP)
+
+        [uf, uf_i, uf_p, l_u_p] = c_u_p(t_l_l)
+        if(uf and c_LLPP < ph and c_HLPP > ph and c_LLPP < open[period] and uf_c == 0)
+            uf_c := uf_c + 1
+            r_d_t_h_l(t_h_l, uf_i, uf_p, l_u_p)
+
+if(pl)
+    if(array.size(pvtL) > 0 and showTL)
+        pPL = array.get(pvtL, array.size(pvtL) - 1)
+        two_pPL = array.size(pvtL) > 1 ? array.get(pvtL, array.size(pvtL) - 2) : 0
+        prev_pvtLI = array.get(pvtLI, array.size(pvtLI) - 1)
+        c_LLPP = u_d_l(b_l_l, "bottom")
+        c_HLPP = u_d_l(b_h_l, "bottom")
+        a_LBP = line.get_y1(b_l_l)
+
+        if(a_LBP < pl * 0.999 and pl <= c_LLPP and two_pPL == a_LBP)
+            line.set_xy2(b_l_l, bar_index - period, pl)
+            of_c := 1
+            [pHP, lHP] = d_b_h_l(line.get_x1(b_l_l), line.get_y1(b_l_l), pl)
+
+            line.set_xy1(b_h_l, line.get_x1(b_h_l), pHP)
+            line.set_xy2(b_h_l, bar_index - period, lHP)
+        else if(pPL <= two_pPL and pl * 0.999 > pPL)
+            line.set_xy2(b_l_l, bar_index - period, c_LLPP)
+            line.set_xy2(b_h_l, bar_index - period, c_HLPP)
+            if(na(c_LLPP) or c_e_p(c_LLPP, "minus", 0.35) > pl or c_e_p(c_HLPP, "plus", 0.35) < pl)
+
+                line.set_xy2(b_l_l, bar_index - period, c_LLPP)
+                line.set_xy2(b_h_l, bar_index - period, c_HLPP)
+
+                line.set_color(b_h_l, color.new(ut_clr, 50))
+                line.set_color(b_l_l, color.new(ut_clr, 50))
+                line.set_extend(b_h_l, extend.none)
+                line.set_extend(b_l_l, extend.none)
+                if(hideOL)
+                    line.delete(b_h_l)
+                    line.delete(b_l_l)  
+
+                of_c := 0
+                b_l_l := line.new(prev_pvtLI, pPL, bar_index - period, pl, extend = extend.right, width = 1, color= ut_clr, style = line.style_dashed)
+
+                [pHP, lHP] = d_b_h_l(prev_pvtLI, pPL, pl)
+                b_h_l := line.new(prev_pvtLI, pHP, bar_index - period, lHP, extend = extend.right, width = 1, color= ut_clr, style = line.style_dashed)
+        else
+            if(a_LBP < pl)
+                line.set_xy2(b_l_l, bar_index - period, c_LLPP)
+                line.set_xy2(b_h_l, bar_index - period, c_HLPP)
+
+        [of, of_i, of_p, l_u_p] = c_o_p(b_h_l)
+        if(of and c_HLPP > pl and c_LLPP < pl and c_HLPP > open[period] and of_c == 0)
+            of_c := of_c + 1
+            r_d_b_h_l(b_l_l, of_i, of_p, l_u_p)
+
+rsi = ta.rsi(close, 14)
+
+var label bullD = na
+var label bearD = na
+
+var label potbullD = na
+var label potbearD = na
+
+if pl
+    if(array.size(pvtL) > 0)
+        l_l = array.get(pvtL, array.size(pvtL) - 1)
+        l_l_i = array.get(pvtLI, array.size(pvtLI) - 1)
+        p_l_l = array.size(pvtL) > 1 ? array.get(pvtL, array.size(pvtL) - 2) : 0
+        l_l_r = array.get(pvtLRsi, array.size(pvtLRsi) - 1)
+
+        distance = bar_index[period] - l_l_i
+        l_r = 101.0
+        h_p = 0.0
+
+        for x = 1 to distance - 1
+            l_r := rsi[period + x] < l_r ? rsi[period + x] : l_r
+            h_p := close[period + x] > h_p ? close[period + x] : h_p
+
+        if(p_l_l and p_l_l > l_l and rsi[period] <= l_r and h_p > l_l * 1.01)
+            if(pl < l_l and rsi[period] > l_l_r + 1 and l_l_r < 50 and showReg)
+                label.delete(potbullD)
+                textDiv = "Regular\nDivergence"
+                bullD := label.new(bar_index - period, pl, text = textDiv, textcolor = color.white, color = color.new(bullD_clr, 25), style = label.style_label_up, yloc = yloc.belowbar, size = size.small)
+            else if(pl > l_l and rsi[period] + 1 < l_l_r and rsi[period] < 50 and showHid)
+                label.delete(potbullD)
+                textDiv = "Hidden\nDivergence"
+                bullD := label.new(bar_index - period, pl, text = textDiv, textcolor = color.white, color = color.new(bullD_clr, 75), style = label.style_label_up, yloc = yloc.belowbar, size = size.small)           
+
+if ph
+    if(array.size(pvtH) > 0)
+        l_h = array.get(pvtH, array.size(pvtH) - 1)
+        l_h_i = array.get(pvtHI, array.size(pvtHI) - 1)
+        p_l_h = array.size(pvtH) > 1 ? array.get(pvtH, array.size(pvtH) - 2) : 0
+        l_h_r = array.get(pvtHRsi, array.size(pvtHRsi) - 1)
+
+        distance = bar_index[period] - l_h_i
+        h_r = 0.0
+        l_p = 100000.0
+        for x = 1 to distance - 1
+            h_r := rsi[period + x] > h_r ? rsi[period + x] : h_r
+            l_p := close[period + x] < l_p ? close[period + x] : l_p
+
+        if(p_l_h and p_l_h < l_h and rsi[period] >= h_r and l_p * 1.01 < l_h)
+            if(ph > l_h and rsi[period] + 1 < l_h_r and l_h_r > 50 and showReg)
+                label.delete(potbearD)
+                textDiv = "Regular\nDivergence"
+                bearD := label.new(bar_index - period, ph, text = textDiv, textcolor = color.white, color = color.new(bearD_clr, 25), style = label.style_label_down, yloc = yloc.abovebar, size = size.small)
+            else if(ph < l_h and rsi[period] > l_h_r + 1 and rsi[period] > 50 and showHid)
+                label.delete(potbearD)
+                textDiv = "Hidden\nDivergence"
+                bearD := label.new(bar_index - period, ph, text = textDiv, textcolor = color.white, color = color.new(bearD_clr, 75), style = label.style_label_down, yloc = yloc.abovebar, size = size.small)          
+
+if(array.size(pvtL) > 0)
+    l_l = array.get(pvtL, array.size(pvtL) - 1)
+    l_l_i = array.get(pvtLI, array.size(pvtLI) - 1)
+    p_l_l = array.size(pvtL) > 1 ? array.get(pvtL, array.size(pvtL) - 2) : 0
+    l_l_r = array.get(pvtLRsi, array.size(pvtLRsi) - 1)
+
+    distance = bar_index[1] - l_l_i
+
+    l_r = 101.0
+    h_p = 0.0
+
+    for x = 2 to distance
+        l_r := rsi[x] < l_r ? rsi[x] : l_r
+        h_p := close[x] > h_p ? close[x] : h_p
+
+    if(close >= open and close[1] <= open[1] and close[1] != l_l and rsi[1] <= l_r and p_l_l and p_l_l > l_l and h_p > l_l * 1.01)
+        if(close[1] < l_l and rsi[1] > l_l_r + 1 and l_l_r < 50 and showReg)
+            if not showOPD 
+                label.delete(potbullD)
+            textDiv = "Potential\nRegular\nDivergence"
+            potbullD := label.new(bar_index[1], close[1], text = textDiv, textcolor = color.white, color = color.new(pod_clr, 25), style = label.style_label_up, yloc = yloc.belowbar, size = size.small)
+        else if(close[1] > l_l and rsi[1] + 1 < l_l_r and rsi[1] < 50 and showHid)
+            if not showOPD
+                label.delete(potbullD)
+            textDiv = "Potential\nHidden\nDivergence"
+            potbullD := label.new(bar_index[1], close[1], text = textDiv, textcolor = color.white, color = color.new(pod_clr, 25), style = label.style_label_up, yloc = yloc.belowbar, size = size.small)
+
+if(array.size(pvtH) > 0)
+    l_h = array.get(pvtH, array.size(pvtH) - 1)
+    l_h_i = array.get(pvtHI, array.size(pvtHI) - 1)
+    p_l_h = array.size(pvtH) > 1 ? array.get(pvtH, array.size(pvtH) - 2) : 0
+    l_h_r = array.get(pvtHRsi, array.size(pvtHRsi) - 1)
+    
+    distance = bar_index[1] - l_h_i
+
+    h_r = 0.0
+    l_p = 100000.0
+
+    for x = 2 to distance
+        h_r := rsi[x] > h_r ? rsi[x] : h_r
+        l_p := close[x] < l_p ? close[x] : l_p
+
+    if(close <= open and close[1] >= open[1] and close[1] != l_h and rsi[1] >= h_r and p_l_h and p_l_h < l_h and l_p * 1.01 < l_h)
+        if(close[1] > l_h and rsi[1] + 1 < l_h_r and l_h_r > 50 and showReg)
+            if not showOPD 
+                label.delete(potbearD)
+            textDiv = "Potential\nRegular\nDivergence"
+            potbearD := label.new(bar_index[1], close[1], text = textDiv, textcolor = color.white, color = color.new(pod_clr, 25), style = label.style_label_down, yloc = yloc.abovebar, size = size.small)
+        else if(close[1] < l_h and rsi[1] > l_h_r + 1 and rsi[1] > 50 and showHid)
+            if not showOPD 
+                label.delete(potbearD)
+            textDiv = "Potential\nHidden\nDivergence"
+            potbearD := label.new(bar_index[1], close[1], text = textDiv, textcolor = color.white, color = color.new(pod_clr, 25), style = label.style_label_down, yloc = yloc.abovebar, size = size.small)
+
+if(ph)
+    add_to_array(pvtH, pvtHI, ph)
+    array.push(pvtHRsi, rsi[period])
+
+if(pl)
+    add_to_array(pvtL, pvtLI, pl)
+    array.push(pvtLRsi, rsi[period])
+
+c_p_t_o(h_l, l_l)=>
+    dtuo = false
+    dtdo = false
+
+    h_l_x_i = line.get_x1(h_l)
+    h_l_x_p = line.get_y1(h_l)
+    h_l_y_i = line.get_x2(h_l)
+    h_l_y_p = line.get_y2(h_l)
+
+    l_l_x_i = line.get_x1(l_l)
+    l_l_x_p = line.get_y1(l_l)
+    l_l_y_i = line.get_x2(l_l)
+    l_l_y_p = line.get_y2(l_l)
+
+    l_b_c = h_l_y_i - h_l_x_i
+    l_d_p = h_l_x_p - h_l_y_p
+    l_u_p = l_d_p / l_b_c
+    cd = bar_index - h_l_x_i
+    pcd = bar_index[1] - h_l_x_i
+    tpcd = bar_index[2] - h_l_x_i
+    clhp = h_l_x_p - (l_u_p * cd)
+    cllp = l_l_x_p - (l_u_p * cd)
+    pclhp = h_l_x_p - (l_u_p * pcd)
+    pcllp = l_l_x_p - (l_u_p * pcd)
+    tpclhp = h_l_x_p - (l_u_p * tpcd)
+    tpcllp = l_l_x_p - (l_u_p * tpcd)
+
+    if(close[2] < tpclhp and close[2] > tpcllp and 
+      open[2] < tpclhp and open[2] > tpcllp and
+      close[1] < pclhp and close[1] > pcllp and 
+      open[1] < pclhp and open[1] > pcllp)
+        if(close > clhp and close > open)
+            dtuo := true
+        else if(close < cllp and close < open)
+            dtdo := true    
+
+    [dtuo, dtdo]
+
+c_p_t_u(h_l, l_l)=>
+    utdo = false
+    utuo = false
+
+    h_l_x_i = line.get_x1(h_l)
+    h_l_x_p = line.get_y1(h_l)
+    h_l_y_i = line.get_x2(h_l)
+    h_l_y_p = line.get_y2(h_l)
+
+    l_l_x_i = line.get_x1(l_l)
+    l_l_x_p = line.get_y1(l_l)
+    l_l_y_i = line.get_x2(l_l)
+    l_l_y_p = line.get_y2(l_l)
+
+    l_b_c = h_l_y_i - h_l_x_i
+    l_d_p = h_l_y_p - h_l_x_p
+    l_u_p = l_d_p / l_b_c
+    cd = bar_index - h_l_x_i
+    pcd = bar_index[1] - h_l_x_i
+    tpcd = bar_index[2] - h_l_x_i
+    clhp = h_l_x_p + (l_u_p * cd)
+    cllp = l_l_x_p + (l_u_p * cd)
+    pclhp = h_l_x_p + (l_u_p * pcd)
+    pcllp = l_l_x_p + (l_u_p * pcd)
+    tpclhp = h_l_x_p + (l_u_p * tpcd)
+    tpcllp = l_l_x_p + (l_u_p * tpcd)
+
+    if(close[2] < tpclhp and close[2] > tpcllp and
+      open[2] < tpclhp and open[2] > tpcllp and 
+      close[1] < pclhp and close[1] > pcllp and
+      open[1] < pclhp and open[1] > pcllp)
+        if(close < cllp and close < open)
+            utdo := true
+        else if(close > clhp and close > open)
+            utuo := true
+
+    [utdo, utuo]
+
+var label lbl_dtuo = na
+var label lbl_dtdo = na
+
+var label lbl_utuo = na
+var label lbl_utdo = na
+
+if(not na(t_h_l) and not na(t_l_l))
+    [dtuo, dtdo] = c_p_t_o(t_h_l, t_l_l)
+    if(dtuo and dto_show)
+        if(hideOL)
+            label.delete(lbl_dtuo)
+        lbl_dtuo := label.new(bar_index, close, text = "Down Trend\nUp Overflow", textcolor = dto_clr, color = dto_clr, style = label.style_arrowup, yloc = yloc.belowbar, size = size.small)
+    if(dtdo and dto_show)
+        if(hideOL)
+            label.delete(lbl_dtdo)
+        lbl_dtdo := label.new(bar_index, close, text = "Down Trend\nDown Overflow", textcolor = dto_clr, color = dto_clr, style = label.style_arrowdown, yloc = yloc.abovebar, size = size.small)
+
+if(not na(b_h_l) and not na(b_l_l))
+    [utdo, utuo] = c_p_t_u(b_h_l, b_l_l)
+    if(utdo and uto_show)
+        if(hideOL)
+            label.delete(lbl_utdo)
+        lbl_utdo := label.new(bar_index, close, text = "Up Trend\nDown Overflow", textcolor = uto_clr, color = uto_clr, style = label.style_arrowdown, yloc = yloc.abovebar, size = size.small)
+    if(utuo and uto_show)
+        if(hideOL)
+            label.delete(lbl_utuo)
+        lbl_utuo := label.new(bar_index, close, text = "Up Trend\nUp Overflow", textcolor = uto_clr, color = uto_clr, style = label.style_arrowup, yloc = yloc.belowbar, size = size.small)

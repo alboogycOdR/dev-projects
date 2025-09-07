@@ -1,0 +1,618 @@
+//@version=5
+indicator(title='hamsiseverim Binary options', shorttitle='binary options', overlay=true)
+startCalc = 0.5
+incrementCalc = 0.5
+maximumCalc = 5.0
+out = ta.sar(startCalc, incrementCalc, maximumCalc)
+sarUp = ta.sar(startCalc, incrementCalc, maximumCalc)
+sarDown = ta.sar(startCalc, incrementCalc, maximumCalc)
+
+colUp = close >= sarDown ? #013220 : na
+colDown = close <= sarUp ? #8a0303 : na
+
+psar = ta.sar(startCalc, incrementCalc, maximumCalc)
+
+src = close[0]
+zero = 0.00
+
+lights = input.string(title='Barcolor I / 0 ? ', options=['ON', 'OFF'], defval='OFF')
+
+// Definition : BLOCKCHAIN PARAMETERS
+
+
+// AVERAGE BLOCK SIZE
+
+block = 'QUANDL:BCHAIN/AVBLS'
+
+_block = request.security(block, 'D', close[0])
+
+// API BLOCKCHAIN SIZE
+
+bsize = 'QUANDL:BCHAIN/BLCHS'
+
+_bsize = request.security(bsize, 'D', close[0])
+
+// MINERS REVENUE
+
+minrev = 'QUANDL:BCHAIN/MIREV'
+
+_minrev = request.security(minrev, 'D', close[0])
+
+// HASH RATE 
+
+hrate = 'QUANDL:BCHAIN/HRATE'
+
+_hrate = request.security(hrate, 'D', close[0])
+
+// BITCOIN COST PER TRANSACTION 
+
+cptra = 'QUANDL:BCHAIN/CPTRA'
+
+_cptra = request.security(cptra, 'D', close[0])
+
+// BITCOIN USD EXCHANGE TRADE VOLUME 
+
+trvou = 'QUANDL:BCHAIN/TRVOU'
+
+_trvou = request.security(trvou, 'D', close[0])
+
+// BITCOIN TOTAL NUMBER OF TRANSACTIONS 
+
+ntrat = 'QUANDL:BCHAIN/NTRAT'
+
+_ntrat = request.security(ntrat, 'D', close[0])
+
+// CHANGE 
+
+// DEEP LEARNING INDICATORS
+
+
+_indicator1 = (_block - _block[1]) / _block[1]
+_indicator2 = (_bsize - _bsize[1]) / _bsize[1]
+_indicator3 = (_minrev - _minrev[1]) / _minrev[1]
+_indicator4 = (_hrate - _hrate[1]) / _hrate[1]
+_indicator5 = (_cptra - _cptra[1]) / _cptra[1]
+_indicator6 = (_trvou - _trvou[1]) / _trvou[1]
+_indicator7 = (_ntrat - _ntrat[1]) / _ntrat[1]
+src_chg = (src - src[1]) / src[1]
+
+
+// Inputs on Tangent Function : 
+
+tangentdiff(_src) =>
+    nz((_src - _src[1]) / _src[1])
+
+
+// Deep Learning Activation Function (Tanh) : 
+
+ActivationFunctionTanh(v) =>
+    (1 - math.exp(-2 * v)) / (1 + math.exp(-2 * v))
+
+
+// DEEP LEARNING 
+
+// INPUTS : 
+
+input_1 = tangentdiff(_indicator1)
+input_2 = tangentdiff(_indicator2)
+input_3 = tangentdiff(_indicator3)
+input_4 = tangentdiff(_indicator4)
+input_5 = tangentdiff(_indicator5)
+input_6 = tangentdiff(_indicator6)
+input_7 = tangentdiff(_indicator7)
+
+
+// LAYERS : 
+
+// Input Layers 
+
+n_0 = ActivationFunctionTanh(input_1 + 0)
+n_1 = ActivationFunctionTanh(input_2 + 0)
+n_2 = ActivationFunctionTanh(input_3 + 0)
+n_3 = ActivationFunctionTanh(input_4 + 0)
+n_4 = ActivationFunctionTanh(input_5 + 0)
+n_5 = ActivationFunctionTanh(input_6 + 0)
+n_6 = ActivationFunctionTanh(input_7 + 0)
+
+// Hidden Layer 1 Node : 
+
+n_7 = ActivationFunctionTanh(-4.781763 * n_0 + 10.461760 * n_1 + 3.315506 * n_2 + -2.904398 * n_3 + -3.395257 * n_4 + 1.198382 * n_5 + -0.673757 * n_6 + -4.189406)
+
+n_8 = ActivationFunctionTanh(13.037002 * n_0 + -23.995687 * n_1 + -7.415491 * n_2 + 6.033804 * n_3 + 1.473729 * n_4 + -1.364151 * n_5 + 1.505107 * n_6 + 7.924747)
+
+n_9 = ActivationFunctionTanh(6.872487 * n_0 + -8.574429 * n_1 + 3.611399 * n_2 + 0.685256 * n_3 + 6.047363 * n_4 + -2.365322 * n_5 + -8.248883 * n_6 + -2.230143)
+
+n_10 = ActivationFunctionTanh(8.357794 * n_0 + 18.730190 * n_1 + 45.193578 * n_2 + -19.113609 * n_3 + 22.992774 * n_4 + -43.047078 * n_5 + -53.282232 * n_6 + -3.277878)
+
+n_11 = ActivationFunctionTanh(-0.439029 * n_0 + 49.038087 * n_1 + 72.164782 * n_2 + -43.762872 * n_3 + 23.856610 * n_4 + -73.080145 * n_5 + -56.878190 * n_6 + -6.168150)
+
+// OUTPUT
+
+_output = ActivationFunctionTanh(-19.795264 * n_7 + -19.868848 * n_8 + -2.712585 * n_9 + 4.355774 * n_10 + -3.682000 * n_11 + 19.939365)
+
+
+// Plot data 
+
+_chg_src = tangentdiff(src) * 100
+
+_seed = _output - _chg_src
+
+
+// MACD : SEED 
+
+fastLength = 12
+slowlength = 26
+signalLength = 9
+
+
+macd = ta.ema(_seed, fastLength) - ta.ema(_seed, slowlength)
+signal = ta.ema(macd, signalLength)
+
+
+hist = macd - signal
+
+//---------------------------------------------------------------------------------------------------------//
+//Range&Trend Filter
+
+maType = input.string('EMA', 'MA Type', options=['SMA', 'EMA', 'HMA', 'RMA'])
+ma(t, s, l) =>
+    maType == 'SMA' ? ta.sma(s, l) : maType == 'EMA' ? ta.ema(s, l) : maType == 'HMA' ? ta.hma(s, l) : maType == 'RMA' ? ta.rma(s, l) : na
+
+maPeriod = 10
+trendType = 'Trailing'
+
+showRange = true
+extend = false
+
+atrPeriod = 100
+atrMulti = 1
+
+// —————————————————————————————————————————————————————————————————————————————
+// —————————— SuperTrend
+
+maHigh = ma(maType, high, maPeriod)
+maLow = ma(maType, low, maPeriod)
+
+atr = ta.atr(atrPeriod) * atrMulti
+
+minLow = maLow - atr
+float upTrend = na
+upTrend := trendType == 'Flexible' ? minLow : close[1] > upTrend[1] ? math.max(minLow, upTrend[1]) : minLow
+minHigh = maHigh - atr
+float upRange = na
+upRange := trendType == 'Flexible' ? minHigh : close[1] > upRange[1] ? math.max(minHigh, upRange[1]) : minHigh
+
+plusHigh = maHigh + atr
+float downTrend = na
+downTrend := trendType == 'Flexible' ? plusHigh : close[1] < downTrend[1] ? math.min(plusHigh, downTrend[1]) : plusHigh
+plusLow = maLow + atr
+float downRange = na
+downRange := trendType == 'Flexible' ? plusLow : close[1] < downRange[1] ? math.min(plusLow, downRange[1]) : plusLow
+
+var up = 1
+up := up != 1 and close > (showRange ? downRange : downTrend) ? 1 : up == 1 and close < upTrend ? -1 : up
+
+var down = 1
+down := down != 1 and close < (showRange ? upRange : upTrend) ? 1 : down == 1 and close > downTrend ? -1 : down
+
+// —————————————————————————————————————————————————————————————————————————————
+// —————————— Plot
+
+
+back_length = input.int(7, 'GERI BAR SAYISI', minval=1, group = " #################  Stoch RSI   ################ ", tooltip = "How many candles are left behind, even if there is a buy or sell signal, it will be valid now")
+
+//Son 20 mumu al
+mumlar_close = request.security(syminfo.tickerid, timeframe.period, close, expression = back_length)
+mumlar_open = request.security(syminfo.tickerid, timeframe.period, open, expression = back_length)
+
+
+//Yükseliş mumlarını say
+yukari_mumlar = 0
+for i = 0 to back_length
+    if mumlar_close[i] > mumlar_open[i+1]
+        yukari_mumlar := yukari_mumlar + 1
+
+//Düşüş mumlarını say
+asagi_mumlar = 0
+for i = 0 to back_length
+    if mumlar_close[i] < mumlar_open[i+1]
+        asagi_mumlar := asagi_mumlar + 1
+
+//Sonuçları grafik üzerinde göster
+
+// Bars filter
+
+plotSource = plot(close, editable=false, display=display.none)
+
+startUp = up != up[1] and up == 1
+plotUp = plot(up == 1 ? upTrend : na, 'Up', color.new(#013220, 0), 2, plot.style_linebr)
+plotshape(startUp ? upTrend : na, 'Start Up', shape.circle, location.absolute, color.new(#013220, 0), size=size.tiny)
+fill(plotSource, plotUp, color.new(color.navy, 90), 'Up')
+alertcondition(startUp, 'Start Up', 'Start Up {{ticker}}')
+
+startDown = down != down[1] and down == 1
+plotDown = plot(down == 1 ? downTrend : na, 'Down', color.red, 2, plot.style_linebr)
+plotshape(startDown ? downTrend : na, 'Start Down', shape.circle, location.absolute, color.red, size=size.tiny)
+fill(plotSource, plotDown, color.new(color.navy, 90), 'Down')
+alertcondition(startDown, 'Start Down', 'Start Down {{ticker}}')
+
+upLine = if extend and up == 1
+    line.new(bar_index[1], upTrend, bar_index, upTrend, xloc.bar_index, extend.right, color.new(#013220, 0), line.style_solid, 2)
+line.delete(upLine[1])
+
+downLine = if extend and down == 1
+    line.new(bar_index[1], downTrend, bar_index, downTrend, xloc.bar_index, extend.right, color.red, line.style_solid, 2)
+line.delete(downLine[1])
+//----------------------//
+
+
+lengthzx = input(50)
+srczx = input(close)
+//----
+azx = 0.
+bzx = 0.
+azx := math.max(srczx, nz(azx[1])) - nz(azx[1] - bzx[1]) / lengthzx
+bzx := math.min(srczx, nz(bzx[1])) + nz(azx[1] - bzx[1]) / lengthzx
+avgzx = math.avg(azx, bzx)
+//----
+crossup = bzx[1] < close[1] and bzx > close
+crossdn = azx[1] < close[1] and azx > close
+bullish = ta.barssince(crossdn) <= ta.barssince(crossup)
+czx = bullish ? color.lime : color.red
+
+//--------------------//
+
+/////////////////////////////////////
+/// Params
+shape_loc = location.belowbar
+shape_style = shape.labelup
+
+////////////////////////////////////
+/// Patterns
+// Inside bars
+ibar_0 = high < high[1] and low > low[1] and bullish
+ibar_1 = high < high[2] and low > low[2] and high[1] < high[2] and low[1] > low[2] and bullish
+ibar_2 = high < high[3] and low > low[3] and high[1] < high[3] and low[1] > low[3] and high[2] < high[3] and low[2] > low[3] and bullish
+
+// Outside bars
+obar_0 = high > high[1] and low < low[1] and bullish
+obar_1 = high > high[2] and low < low[2] and high[1] > high[2] and low[1] < low[2] and bullish
+obar_2 = high > high[3] and low < low[3] and high[1] > high[3] and low[1] < low[3] and high[2] > high[3] and low[2] < low[3] and bullish
+
+////////////////////////////////////
+/// Plot patterns
+plotshape(ibar_0, title='Inside_bar', location=shape_loc, color=color.new(#013220, 0), style=shape.labelup, textcolor=color.new(#ffffff, 0), text='Call')
+
+//--------------------//
+
+// Conditions : 
+
+positive_condition = hist < 0
+negative_condition = hist > 0
+
+neg_moment = ta.crossover(macd, signal)
+pos_moment = ta.crossunder(macd, signal)
+
+// V22 is the latest working vaersion. id you want to turn back just delete plots below and paste this code:
+//bullishPSAR = psar < high and psar[1] > low and upTrend and bullish
+//bearishPSAR = psar > low and psar[1] < high and downTrend and not bullish
+
+
+bullishPSAR = psar < high and psar[1] > low and yukari_mumlar > asagi_mumlar
+bearishPSAR = psar > low and psar[1] < high and asagi_mumlar > yukari_mumlar
+
+plotshape(bullishPSAR, color=color.new(#013220, 0), style=shape.labelup, textcolor=color.new(#ffffff, 0), text='Call', location=location.belowbar)
+plotshape(bearishPSAR, color=color.new(#8a0303, 0), style=shape.labeldown, textcolor=color.new(#ffffff, 0), text='Put', location=location.abovebar)
+
+alertcondition(bullishPSAR, title='Buy SAR', message='Buy SAR')
+alertcondition(bearishPSAR, title='Sell SAR', message='Sell SAR')
+
+// Trend Tracker
+
+//————————————————————————————————————————————————————————————————————————————————
+// Author | © Dziwne — — — — — — — — — — — — — — — — — — — — — — — — — — — — — — —
+//————————————————————————————————————————————————————————————————————————————————
+// Changelog — — — — — — — — — — — — — — — — — — — — — — — — — — — — — — — — — — —
+//
+// 2021.04.15 >  A-V1.0 -First publish
+// 2021.05.05 >  A-V2.0 -Added high and low calculation and display
+// 						-Minor script optimisation
+// 2021.05.06 >  A-V2.1 -Added resolution customisation in the study
+// 2021.10.18 >  A-V2.2 -Added "MA Type" customisation possibility
+// 						-Replaced the "colour schemes" feature by a "base color inputs" feature (user friendly, easy to customise)
+// 						-Switched the title names to English for a better understanding
+// 						-Minor script optimisation
+//————————————————————————————————————————————————————————————————————————————————
+// Related links — — — — — — — — — — — — — — — — — — — — — — — — — — — — — — — — — — — — —
+//
+// A-V1 : https://fr.tradingview.com/script/IHObMw67-Dziwne-Trend-Indicator-A-EMA-Heikin-Ashi-cloud/
+// A-V2 : https://fr.tradingview.com/script/DTDQ3y76/
+//————————————————————————————————————————————————————————————————————————————————
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+//————————————————————————————————————————————————————————————————————————————————
+
+
+
+//————————————————————————————————————————————————————————————————————————————————
+// I.1. Settings, Input — — — — — — — — — — — — — — — — — — — — — — — — — — — — — 
+//————————————————————————————————————————————————————————————————————————————————
+
+ma_type = input.string(title='MA Type', defval='VWMA', options=['EMA', 'SMA', 'SWMA', 'VWMA', 'WMA'])
+ma_period = input.int(title='MA Period (Length)', defval=7, minval=1)
+ma_period_smoothing = input.int(title='MA Period smoothing (Length)', defval=7, minval=1)
+
+color_positive = input(title='Positive color (Bullish)', defval=color.new(#26A69A, 50))
+color_negative = input(title='Negative color (Bearish)', defval=color.new(#EF5350, 50))
+color_hl = input(title='High & Low cloud color', defval=color.new(#808080, 80))
+
+show_line = input(title='Show (lines)', defval=false)
+show_hl_cloud = input(title='Show (High & Low cloud)', defval=true)
+show_oc_cloud = input(title='Show (Open & Close cloud)', defval=true)
+
+//————————————————————————————————————————————————————————————————————————————————
+// I.2. Settings, Function definition — — — — — — — — — — — — — — — — — — — — — — 
+//————————————————————————————————————————————————————————————————————————————————
+
+f_ma_type(input_ma_type, input_source, input_ma_period) =>
+    result = float(na)
+
+    if input_ma_type == 'EMA'
+        result := ta.ema(input_source, input_ma_period)
+        result
+    if input_ma_type == 'SMA'
+        result := ta.sma(input_source, input_ma_period)
+        result
+    if input_ma_type == 'SWMA'
+        result := ta.swma(input_source)
+        result
+    if input_ma_type == 'VWMA'
+        result := ta.vwma(input_source, input_ma_period)
+        result
+    if input_ma_type == 'WMA'
+        result := ta.wma(input_source, input_ma_period)
+        result
+
+    result
+
+//————————————————————————————————————————————————————————————————————————————————
+// II.1. Calculations, MA — — — — — — — — — — — — — — — — — — — — — — — — — — — — 
+//————————————————————————————————————————————————————————————————————————————————
+
+o = f_ma_type(ma_type, open, ma_period)
+c = f_ma_type(ma_type, close, ma_period)
+h = f_ma_type(ma_type, high, ma_period)
+l = f_ma_type(ma_type, low, ma_period)
+
+//————————————————————————————————————————————————————————————————————————————————
+// II.2. Calculations, Heikin Ashi — — — — — — — — — — — — — — — — — — — — — — — — 
+//————————————————————————————————————————————————————————————————————————————————
+
+ha = ticker.heikinashi(syminfo.tickerid)
+
+ha_o = request.security(ha, timeframe.period, o)
+ha_c = request.security(ha, timeframe.period, c)
+ha_h = request.security(ha, timeframe.period, h)
+ha_l = request.security(ha, timeframe.period, l)
+
+//————————————————————————————————————————————————————————————————————————————————
+// II.3. Calculations, MA (Smoothing) — — — — — — — — — — — — — — — — — — — — — — 
+//————————————————————————————————————————————————————————————————————————————————
+
+ha_o_smooth = f_ma_type(ma_type, ha_o, ma_period_smoothing)
+ha_c_smooth = f_ma_type(ma_type, ha_c, ma_period_smoothing)
+ha_h_smooth = f_ma_type(ma_type, ha_h, ma_period_smoothing)
+ha_l_smooth = f_ma_type(ma_type, ha_l, ma_period_smoothing)
+
+//————————————————————————————————————————————————————————————————————————————————
+// III.1. Display, Colors — — — — — — — — — — — — — — — — — — — — — — — — — — — — 
+//————————————————————————————————————————————————————————————————————————————————
+
+trend = ha_c_smooth >= ha_o_smooth
+
+color_trend = trend ? color_positive : color_negative
+
+color_show_line_positive = show_line ? color_positive : na
+color_show_line_negative = show_line ? color_negative : na
+
+color_show_hl_cloud = show_hl_cloud ? color_hl : na
+color_show_oc_cloud = show_oc_cloud ? color_trend : na
+
+//————————————————————————————————————————————————————————————————————————————————
+// III.2. Display, Plotting & Filling — — — — — — — — — — — — — — — — — — — — — — 
+//————————————————————————————————————————————————————————————————————————————————
+
+o_line = plot(ha_o_smooth, color=color_show_line_positive, title='Open line')
+c_line = plot(ha_c_smooth, color=color_show_line_negative, title='Close line')
+
+h_line = plot(ha_h_smooth, color=color_show_line_positive, title='High line')
+l_line = plot(ha_l_smooth, color=color_show_line_negative, title='Low line')
+
+fill(o_line, c_line, color=color_show_oc_cloud, title='Open & Close Trendcloud', transp=90)
+fill(h_line, l_line, color=color_show_hl_cloud, title='High & Low Trendcloud', transp=90)
+
+// Technical Ratings
+
+import TradingView/TechnicalRating/1 as TVtr
+
+
+
+//#region ———————————————————— Constants and Inputs
+
+
+// Colors
+color BLUE    = color.blue
+color GOLD    = #CCCC00ff
+color LIME    = #00FF00ff
+color PINK    = #FF0080ff
+color RED     = #FF0000ff
+color VIOLET  = #AA00FFff
+color WHITE   = #FFFFFFff
+color NEUTRAL = #434650
+
+// Input `options` selections.
+string RT1 = "MAs and Oscillators"
+string RT2 = "MAs"
+string RT3 = "Oscillators"
+string ON  = "On"
+string OFF = "Off"
+
+// Tooltips.
+string C_TT  = "Pick only one. These are preset colors, but you can modify anyone of them."
+string TF_TT = "When using a higher timeframe, values do not repaint, which means that only values from COMPLETED timeframes are displayed."
+string RP_TT = "When NOT using a higher timeframe, setting this to 'Off' will show you the confirmed value from the last closed bar. This ensures the rating will not change during the current bar."
+string MA_TT = "Determines the respective weight of MAs and Oscillators when both are used to calculate the overall rating. Equal weight for MAs and Oscillators is 50%. If you use 60% for MAs, then Oscillators weigh in at 40% of the overall rating."
+
+// Threshold levels for "Strong Buy/Sell" and "Buy/Sell" ratings.
+float LEVEL_STRONG = 0.5
+float LEVEL_WEAK   = 0.1
+
+// ————— Global arrays
+// Array holding values for the 3 ratings in this order: All, MAs, Osc.
+var array<float> ratings = array.new<float>(3)
+// Array holding the index into `ratings` and `texts` arrays determined by which rating user chooses to display.
+var array<int> indices = array.new<int>(3)
+
+// Inputs
+string  GRP1            = "Display"
+string  yPosInput       = input.string("top",    "Position", inline = "11", group = GRP1, options = ["top", "middle", "bottom"])
+string  xPosInput       = input.string("right",  "",         inline = "11", group = GRP1, options = ["left", "center", "right"])
+int     heightInput     = input.int(3,           "Height",   inline = "12", group = GRP1, minval  = 1, maxval = 100)
+int     widthInput      = input.int(7,           "Width",    inline = "12", group = GRP1, minval  = 1, maxval = 100, tooltip = "1-100")
+color   textColorInput  = input.color(WHITE,     "Text",     inline = "13", group = GRP1)
+string  textSizeInput   = input.string("normal", "Size",     inline = "13", group = GRP1, options = ["tiny", "small", "normal", "large", "huge", "auto"])
+color   colorInput1     = input.color(LIME,      "Bull  ",   inline = "14", group = GRP1, tooltip = C_TT)
+bool    showColorInput1 = input.bool(false,      "",         inline = "14", group = GRP1)
+color   colorInput2     = input.color(GOLD,      "",         inline = "14", group = GRP1)
+bool    showColorInput2 = input.bool(false,      "",         inline = "14", group = GRP1)
+color   colorInput3     = input.color(BLUE,      "",         inline = "14", group = GRP1)
+bool    showColorInput3 = input.bool(true,       "",         inline = "14", group = GRP1)
+color   colorInput4     = input.color(PINK,      "Bear   ",  inline = "15", group = GRP1, tooltip = C_TT)
+bool    showColorInput4 = input.bool(false,      "",         inline = "15", group = GRP1)
+color   colorInput5     = input.color(VIOLET,    "",         inline = "15", group = GRP1)
+bool    showColorInput5 = input.bool(false,      "",         inline = "15", group = GRP1)
+color   colorInput6     = input.color(RED,       "",         inline = "15", group = GRP1)
+bool    showColorInput6 = input.bool(true,       "",         inline = "15", group = GRP1)
+color   neutColorInput  = input.color(NEUTRAL,   "Neutral",  inline = "16", group = GRP1)
+
+string  GRP2            = "Calculations"
+string  tfInput         = input.timeframe("",    "Higher timeframe",  group = GRP2, tooltip = TF_TT)
+bool    repaintInput    = input.string(ON,       "Repainting",        group = GRP2, options = [ON, OFF], tooltip = RP_TT) == ON
+string  calcsInput      = input.string(RT1,      "Rating uses",       group = GRP2, options = [RT2, RT3, RT1])
+float   maInput         = input.int(50,          "Weight of MAs (%)", group = GRP2, tooltip = MA_TT, minval = 0, maxval = 100, step = 10) / 100
+
+// Determine base bull/bear colors based on user selection.
+color bullColor = showColorInput1 ? colorInput1 : showColorInput2 ? colorInput2 : showColorInput3 ? colorInput3 : colorInput1
+color bearColor = showColorInput4 ? colorInput4 : showColorInput5 ? colorInput5 : showColorInput6 ? colorInput6 : colorInput4
+//#endregion
+
+
+
+//#region ———————————————————— Functions 
+
+
+// @function            Orders the `indices` array such that its elements represent the indices into the `ratings` array. The first index will 
+//                      fetch the proper values for each of the three lines in the results in accordance with the user-selected "Rating uses".
+// @param userSelection (series string) User choice of which rating group to display.
+// @returns             (void) Sorts the `indices` array according to the user-selected rating to display as to place the desired rating in the first index. 
+orderSignals(userSelection) =>
+    [i1, i2, i3] = switch userSelection
+        RT2 => [1, 2, 0]
+        RT3 => [2, 1, 0]
+        =>     [0, 1, 2]
+    array.set(indices, 0, i1),
+    array.set(indices, 1, i2),
+    array.set(indices, 2, i3)
+   
+
+// @function            Derives a color gradient based on a number between +5 and -5.
+// @param gradient      (series int) Gradient level (+5 to -5) from which to derive a color.    
+// @returns             (color) A 3 color scale based on the `gradient` input. 
+signalColor(series int gradient) =>
+    color col  = gradient > 0 ? bullColor : gradient < 0 ? bearColor : neutColorInput
+    float transp = 100 - (math.abs(gradient) * 20)
+    transp :=  transp == 80 ? 75 : transp
+    color result = col == neutColorInput ? col : color.new(col, transp)
+
+
+// @function            Produces a color based on a rating value.
+// @param rating        (series float) Rating from which to derive a color.
+// @returns             (color) A color based on the `rating`. 
+colorFromRating(series float rating) =>
+    color result = switch 
+        rating >  LEVEL_STRONG => color.new(bullColor, 20)
+        rating >  LEVEL_WEAK   => color.new(bullColor, 50)
+        rating < -LEVEL_STRONG => color.new(bearColor, 20)
+        rating < -LEVEL_WEAK   => color.new(bearColor, 50)
+        =>                        neutColorInput
+
+
+// @function            Produces a string based on a rating value.
+// @param rating        (series float) Rating from which to derive the output string.   
+// @returns             (string) A string based on the `rating`. Can be either "Strong Sell", "Sell", "Neutral", "Buy", or "Strong Buy". 
+textFromRating(series float rating) =>
+    string result = switch 
+        rating >  LEVEL_STRONG => "Strong Buy"
+        rating >  LEVEL_WEAK   => "Buy"
+        rating < -LEVEL_STRONG => "Strong Sell"
+        rating < -LEVEL_WEAK   => "Sell"
+        =>                        "Neutral"
+//#endregion
+
+
+
+//#region ———————————————————— Calculations 
+
+
+// Set text of results legends and determine their order from user-selected group of ratings.
+if barstate.isfirst
+    orderSignals(calcsInput)
+
+// ————— Calculate ratings.
+
+// Determine if HTF is used.
+bool htfUsed = tfInput != ""
+// If HTF is used, ensure chart TF < HTF.
+bool chartTfIsTooHigh = htfUsed and timeframe.in_seconds() >= timeframe.in_seconds(tfInput)
+// Fetch ratings, adjusting series offset with HTF (which never repaints) and user-selected repaint settings (when no HTF is used). Two-stage offsetting is required because `ratings()` returns a tuple.
+int idx1 = htfUsed and barstate.isrealtime ? 1 : 0
+int idx2 = (repaintInput and not htfUsed) or (htfUsed and barstate.isrealtime) ? 0 : 1
+[_, _ratingOsc, _ratingMas] = TVtr.calcRatingAll()
+float _ratingTot = nz(_ratingMas * maInput) + nz(_ratingOsc * (1. - maInput))
+
+[ratingTot_, ratingOsc_, ratingMas_] = request.security(syminfo.tickerid, tfInput, [_ratingTot[idx1], _ratingOsc[idx1], _ratingMas[idx1]])
+float ratingTot = ratingTot_[idx2]
+float ratingMas = ratingMas_[idx2]
+float ratingOsc = ratingOsc_[idx2]
+
+// Place ratings in known order.
+array.set(ratings, 0, ratingTot)
+array.set(ratings, 1, ratingMas)
+array.set(ratings, 2, ratingOsc)
+// User-selected ratings group to display as the signal and whose state always appears on the first line of results.
+float userRating = array.get(ratings, array.get(indices, 0))
+//#endregion
+
+
+
+//#region ———————————————————— Display 
+
+
+// Error script if user selects HTF that is not greater than the chart tf. 
+if chartTfIsTooHigh
+    runtime.error("Chart's timeframe must be smaller than " + tfInput)
+
+// Display rating on chart.
+var table display = table.new(yPosInput + "_" + xPosInput, 1, 1)
+if barstate.isfirst
+    table.cell(display, 0, 0, na, widthInput, heightInput, textColorInput, text_size = textSizeInput)
+else if barstate.islast
+    table.cell_set_text(display,    0, 0, textFromRating(userRating))   
+    table.cell_set_bgcolor(display, 0, 0, colorFromRating(userRating))
+
+// Data Window values.
+plot(ratingTot, "All",         colorFromRating(ratingTot), display = display.data_window, editable = false)
+plot(ratingMas, "MAs",         colorFromRating(ratingMas), display = display.data_window, editable = false)
+plot(ratingOsc, "Oscillators", colorFromRating(ratingOsc), display = display.data_window, editable = false)
+//#endregion
+
+

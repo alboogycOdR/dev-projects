@@ -1,0 +1,4 @@
+After a loss, do not enter trade within the same price range again, on day two I lost 3 trades between the same price range - set max daily loss to 190 to avoid this - done
+Try only use highs and lows to be more precise, drop midpoints - done
+add previous week high or low
+add AM and PM sessions

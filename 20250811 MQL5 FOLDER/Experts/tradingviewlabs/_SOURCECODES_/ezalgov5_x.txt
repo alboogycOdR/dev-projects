@@ -1,0 +1,11 @@
+wavetrend(src, chlLen, avgLen) =>
+    esa = ta.ema(src, chlLen)
+    d = ta.ema(math.abs(src - esa), chlLen)
+    ci = (src - esa) / (0.015 * d)
+    wt1 = ta.ema(ci, avgLen)
+    wt2 = ta.sma(wt1, 3)
+    [wt1, wt2]
+[wt1, wt2] = wavetrend(hlc3, 9, 12)
+
+plotshape(ta.crossover(wt1, wt2) and wt2 <= -53, "", shape.xcross, location.belowbar, #00dbff, size=size.tiny)
+plotshape(ta.crossunder(wt1, wt2) and wt2 >= 53, "", shape.xcross, location.abovebar, #e91e63, size=size.tiny)

@@ -1,0 +1,191 @@
+//@version=5
+//
+// ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒ 
+//  -----------------------------------------------------------------------------
+//  Copyright 2022 Hawkeye
+//  Authors:  @hawkeye
+//  Revision: v1.0
+//  Date:     December-17-2022
+//
+// ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒ 
+indicator("Hawkeye Algo Premium", shorttitle="Hawkeye Algo [1.0]", overlay = true, precision=0, explicit_plot_zorder=true, max_labels_count=500)
+
+//
+// ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒ 
+// ---------------------------------------------- User Inputes  -----------------------------------------------------
+
+// basic settings
+
+signalMode        = input.string('Simple Entry + Exits', 'Signal Stragety⠀⠀⠀⠀⠀⠀⠀⠀⠀', ['Simple Entry + Exits', 'Minimized Entry + Exits', 'None'],
+     group='basic settings', tooltip='Change Your Signal Appearance And Strategies')
+sensitivity        =  input.float(2.3, "Sensitivity⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀", 0.6, 15.1, step=0.1,
+      group="basic settings", tooltip='Change Your Signal Sensitivity And Accuracy')
+strongSignalOnly  = input(false, "Strong Only⠀⠀⠀⠀⠀⠀ ⠀  ⠀⠀⠀", group="basic settings", inline='BasicFilters')
+noRepainting      = input(false, 'No Repainting', group='basic settings', inline='BasicFilters',
+      tooltip='Disables All Signals Except Strong Signals \n \nDisables Repainting For Signals')
+
+// basic chart features
+
+ReversalCloud     = input(false, 'Reversal Cloud⠀⠀⠀', group='basic chart features', inline='feature [R, 1]')
+LongTrendAverage  = input(false, 'Long Trend Average', group='basic chart features', inline='feature [R, 1]', 
+      tooltip='Places A Reversal Channel In Which Reversals Can Be Predicted \n \nTrend Cloud Line (EMA), Will Be Shown On The Chart')
+ReversalBands     = input(false, 'Reversal Bands⠀⠀⠀', group='basic chart features', inline='feature [R, 2]')
+TrendTracer       = input(false, 'Trend Tracer', group='basic chart features', inline='feature [R, 2]',
+      tooltip='Displays Revesal Bands Similar To Reversal Cloud \n \nA Line Will Be Placed On The Chart Which Is Used To Confirm Signals')
+frequencyCloud    = input(false, 'Frequency Cloud⠀⠀', 'Displays Short Trend Cloud', group='basic chart features')
+CandleColor       = input.string('Trend Confirmation', 'Candle Stick Coloring', ['Trend Confirmation', 'Gradient Confirmation', 'Simple Gradient',
+      'Off'], group='basic chart features')
+
+// leading features
+
+TPlabels          = input.string('Advanced', 'TP & SL Labels', ['Advanced', 'Disabled'], group='leading features', inline='TP & SL')
+TPrisk            = input.int(4, '', group='leading features', inline='TP & SL')
+TPpoints          = input(false, 'TP & SL Points', group='leading features')
+LTAsensitivity    = input.int(160, 'Long Trend Average Sensitivity⠀', group='leading features')
+
+//
+// ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒ 
+// -----------------------------------------------  Buy & Sell  -----------------------------------------------------
+
+src       = close
+smoothrng(x, t, m) =>
+    wper  = t * 2 - 1
+    avrng = ta.ema(math.abs(x - x[1]), t)
+    smoothrng = ta.ema(avrng, wper) * m
+    smoothrng
+smrng     = smoothrng(close, 100, sensitivity)
+
+rngfilt(x, r) =>
+    rngfilt = x
+    rngfilt := x > nz(rngfilt[1]) ? x - r < nz(rngfilt[1]) ? nz(rngfilt[1]) : x - r : x + r > nz(rngfilt[1]) ? nz(rngfilt[1]) : x + r
+    rngfilt
+filt = rngfilt(src, smrng)
+
+// ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒ 
+
+upward = 0.0
+upward := filt > filt[1] ? nz(upward[1]) + 1 : filt < filt[1] ? 0 : nz(upward[1])
+downward = 0.0
+downward := filt < filt[1] ? nz(downward[1]) + 1 : filt > filt[1] ? 0 : nz(downward[1])
+
+[mi, u, lo] = ta.kc(close, 90, 6.8)
+[mid, upp, loww] = ta.kc(close, 90, 5.3)
+[midd, ups, lowe] = ta.kc(close, 90, 4)
+
+shorttop = ta.sma(close, 13)
+longtop  = ta.ema(close, 65)
+eq_cloud_is_bullish    = shorttop > longtop
+
+
+// ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒ 
+
+hband = filt + smrng
+lband = filt - smrng
+
+longCond      = bool(na)
+shortCond     = bool(na)
+longCond     := src > filt and src > src[1] and upward > 0 or src > filt and src < src[1] and upward > 0
+shortCond    := src < filt and src < src[1] and downward > 0 or src < filt and src > src[1] and downward > 0
+CondIni = 0
+CondIni := longCond ? 1 : shortCond ? -1 : CondIni[1]
+
+//▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒ 
+
+buyCond         = longCond and CondIni[1] == -1 and close[2] > lowe
+strongBuyCond1  = longCond and CondIni[1] == -1 and close[2] <= lowe
+sellCond        = shortCond and CondIni[1] == 1 and open[4] < ups
+strongSellCond1 = shortCond and CondIni[1] == 1 and open[4] >= ups
+
+if noRepainting
+    buyCond         := buyCond and barstate.isconfirmed
+    strongBuyCond1  := strongBuyCond1 and barstate.isconfirmed
+    sellCond        := sellCond and barstate.isconfirmed
+    strongSellCond1 := strongSellCond1 and barstate.isconfirmed
+
+plotshape(signalMode == 'Simple Entry + Exits' ? buyCond and not strongSignalOnly : na,
+      'Buy', shape.labelup, location.belowbar, color.new(#00cf4b, 45), size=size.normal, textcolor=color.white, text='Buy')
+
+plotshape(signalMode == 'Minimized Entry + Exits' ? buyCond and not strongSignalOnly : na,
+      'Minimized Buy', shape.diamond, location.belowbar, color.new(#00cf4b, 45), size=size.tiny)
+
+plotshape(signalMode == 'Simple Entry + Exits' ? strongBuyCond1 : na, 'Strong Buy',
+      shape.labelup, location.belowbar, color.new(#00cf4b, 45), size=size.normal, textcolor=color.white, text='Strong Buy')
+
+plotshape(signalMode == 'Minimized Entry + Exits' ? strongBuyCond1 : na, 'Minimized Strong Buy',
+      shape.diamond, location.belowbar, color.new(#00cf4b, 45), size=size.small)
+
+plotshape(signalMode == 'Simple Entry + Exits' ? sellCond and not strongSignalOnly : na, 'Sell',
+      shape.labeldown, location.abovebar, color.new(#ff0000, 45), size=size.normal, textcolor=color.white, text='Sell')
+
+plotshape(signalMode == 'Minimized Entry + Exits' ? sellCond and not strongSignalOnly : na,
+      'Minimized Sell', shape.diamond, location.abovebar, color.new(#ff0000, 45), size=size.tiny)
+
+plotshape(signalMode == 'Simple Entry + Exits' ? strongSellCond1 : na, 'Strong Sell',
+      shape.labeldown, location.abovebar, color.new(#ff0000, 45), size=size.normal, textcolor=color.white, text='Strong Sell')
+
+plotshape(signalMode == 'Minimized Entry + Exits' ? strongSellCond1 : na, 'Minimized Strong Sell',
+      shape.diamond, location.abovebar, color.new(#ff0000, 45), size=size.small)
+
+//
+// ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒ 
+// ------------------------------------------------ Candle Color ----------------------------------------------------
+
+barcolor = src > filt and src > src[1] and upward > 0 ? color.new(#00db0a, 5) : src > filt and src <
+      src[1] and upward > 0 ? color.new(#00db05, 5) : src < filt and src < src[1] and downward > 0 ? color.new(#c90505, 5) :
+      src < filt and src > src[1] and downward > 0 ? color.new(#ff0000 , 5) : color.new(#3ebe48, 5) // 442886
+
+barcolor(CandleColor == 'Trend Confirmation' ? barcolor : na, title='Candle Colors')
+
+//
+// ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒ 
+// ------------------------------------------------ Reversal Cloud --------------------------------------------------
+
+u1 = plot(ReversalCloud ? ta.sma(u, 1) : na, transp=100, editable=false)
+u2 = plot(ReversalCloud ? ta.sma(upp, 5) : na, transp=100, editable=false)
+u3 = plot(ReversalCloud ? ta.sma(ups, 10) : na, transp=100, editable=false)
+l1 = plot(ReversalCloud ? ta.sma(lo, 1) : na, transp=100, editable=false)
+l2 = plot(ReversalCloud ? ta.sma(loww, 5) : na, transp=100, editable=false)
+l3 = plot(ReversalCloud ? ta.sma(lowe, 10) : na, transp=100, editable=false)
+plot(ReversalBands ? ta.sma(u, 1) : na, transp=50, editable=false, offset=2, color=color.new(#f23645, 60))
+plot(ReversalBands ? ta.sma(upp, 5) : na, transp=50, editable=false, offset=3, color=color.new(#f23645, 70))
+plot(ReversalBands ? ta.sma(ups, 10)  : na, transp=50, editable=false, offset=3, color=color.new(#f23645, 65))
+plot(ReversalBands ? ta.sma(lowe, 10) : na, transp=50, editable=false, offset=3, color=color.new(#089981, 65))
+plot(ReversalBands ? ta.sma(loww, 5) : na, transp=50, editable=false, offset =3, color=color.new(#089981, 70))
+plot(ReversalBands ? ta.sma(lo, 1) : na, transp=50, editable=false, offset =2 , color=color.new(#089981, 60))
+
+fill(u1, u2, color=color.new(#f23645, 65), title='Reversal Zones [R3, R2]')
+fill(u2, u3, color=color.new(#f23645, 75), title='Reversal Zones [R2, R1]')
+fill(l2, l3, color=color.new(#089981, 75), title='Reversal Zones [S2, S1]')
+fill(l1, l2, color=color.new(#089981, 65), title='Reversal Zones [S3, S2]')
+
+//
+// ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒ 
+// ------------------------------------------------- Trend Catcher --------------------------------------------------
+
+filtcolor = upward > 0 ? color.rgb(0, 255, 85) : downward > 0 ? color.new(#ff0000, 0) : color.new(#56328f, 0)
+
+plot(TrendTracer ? filt : na, color=filtcolor, linewidth=3, title='Trend Tracer')
+
+//
+// ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒ 
+// ------------------------------------------------ Frquency Cloud --------------------------------------------------
+
+plot_eq_closing_price  = plot(frequencyCloud ? shorttop : na, transp=100, editable=false)
+plot_eq_external_value = plot(frequencyCloud ? longtop  : na, transp=100, editable=false)
+
+eqCloudColor = ta.sma(close, 26) < ta.sma(close, 48) ? color.new(#9f0700, 80) : shorttop < longtop ? color.new(#ff1100, 80) :
+      ta.sma(close, 26) > ta.sma(close, 48) ? color.new(#10253b, 80) :
+      shorttop > longtop ? color.new(#0d67c2, 80) : ta.sma(close, 34) > ta.sma(close, 56) ? color.new(#549de6, 80) : na
+
+fill(plot_eq_closing_price, plot_eq_external_value, color = eqCloudColor, title='Frequency Cloud Fill')
+
+//
+// ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒ 
+// ---------------------------------------------- Long Trend Average ------------------------------------------------
+
+plot(LongTrendAverage ? ta.ema(close, LTAsensitivity) : na, 'Long Trend Average', linewidth=5, color=close[8] > ta.ema(close, LTAsensitivity) ?
+      color.new(#0d67c2, 65) : color.new(#ff1100, 65))
+
+//
+// ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒ 
+// ------------------------------------------------- TP & SL LABELS -------------------------------------------------

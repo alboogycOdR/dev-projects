@@ -1,0 +1,65 @@
+WORLD-CLASS EA QUICK SETUP GUIDE
+================================
+
+=== BASIC SETTINGS ===
+
+CONSERVATIVE (Low Risk):
+- MaxRisk = 1.0%
+- StopLoss = 50 points
+- TakeProfit = 100 points
+- MaxPositions = 1
+
+MODERATE (Balanced):
+- MaxRisk = 2.0%
+- StopLoss = 100 points
+- TakeProfit = 200 points
+- MaxPositions = 2
+
+AGGRESSIVE (High Risk):
+- MaxRisk = 5.0%
+- StopLoss = 200 points
+- TakeProfit = 400 points
+- MaxPositions = 3
+
+=== STRATEGY SELECTION ===
+
+TRENDING MARKETS:
+- Enable: Trend Following + Multi-timeframe
+- Disable: Mean Reversion + Scalping
+
+RANGING MARKETS:
+- Enable: Mean Reversion + Grid Trading
+- Disable: Trend Following + Breakout
+
+=== BEST TIMEFRAMES ===
+
+M1/M5: Scalping, News Trading
+M15/H1: Trend Following, Mean Reversion
+H4: Swing Trading
+
+=== BEST TRADING SESSIONS ===
+
+London/NY Overlap (13:00-17:00 GMT): Highest volatility
+London Session (8:00-17:00 GMT): EUR/GBP pairs
+New York Session (13:00-22:00 GMT): USD pairs
+
+=== IMPORTANT NOTES ===
+
+1. Always test on demo first
+2. Start with conservative settings
+3. Use proper risk management
+4. Monitor performance daily
+5. Optimize for your broker
+
+=== GRID TRADING SETTINGS ===
+
+Conservative: 300 point steps, 5 levels
+Moderate: 200 point steps, 8 levels
+Aggressive: 150 point steps, 12 levels
+
+=== NEWS TRADING SETTINGS ===
+
+High Impact: 30min filter, 2.0 multiplier
+Medium Impact: 15min filter, 1.5 multiplier
+
+Remember: Risk management is key to success! 

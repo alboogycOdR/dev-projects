@@ -1,0 +1,494 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// ©Trade Confident
+
+// License Agreement: You are granted a personal license agreement to the following script for use on ONE TrdingView account. 
+// You may NOT resell or distribute this script in any way, this is strictly prohibited and is tracked on TradingView.
+// PLEASE READ: We will take legal action if this script is shared with another TradingView account or modified and reposted on TradingView or online IN ANY WAY.
+
+//@version=5
+indicator(title="TC 1W Trades in Favor")
+
+line_width = input(1,title="Line Width")
+dist            = input(10, "Label Distance")
+labelSize       = input.string(title='All Label Size', defval='Large', options=['Small', 'Normal', 'Large'])
+lSize           = labelSize == 'Large' ? size.normal : labelSize == 'Small' ? size.small : size.large
+
+makelabel(x, y, msg, col=color.white)=>
+    var label _la = label.new(x, y, msg, color=#00000000, style=label.style_label_left, size = lSize)
+    
+    label.set_xy(_la, x, y)
+    label.set_text(_la, msg)
+    label.set_textcolor(_la, col)
+    _la
+
+os = 10
+makelabel(bar_index+dist, os, '1W Long Trade Zone ↑')
+
+makelabel2(x, y, msg, col=color.white)=>
+    var label _la = label.new(x, y, msg, color=#00000000, style=label.style_label_left, size = lSize)
+    
+    label.set_xy(_la, x, y)
+    label.set_text(_la, msg)
+    label.set_textcolor(_la, col)
+    _la
+
+ob = 90
+makelabel2(bar_index+dist, ob, '1W Short Trade Zone ↓ ')
+
+
+
+calculations = close==high and close==low or high==low ? 0 : ((2*close-low-high)/(high-low))*volume
+trendstrength = math.sum(calculations, 1) / math.sum(volume, 1)
+toptrend = math.sum(volume * (ta.change(ohlc4) <= 0 ? 0 : ohlc4), 8)
+lowertrend = math.sum(volume * (ta.change(ohlc4) >= 0 ? 0 : ohlc4), 8)
+paramaters(upper, lower) =>
+    if lower == 0
+        100
+    if upper == 0
+        0
+	100.0 - (100.0 / (1.0 + toptrend / lowertrend))
+trendline = paramaters(toptrend, lowertrend)
+
+calculations2 = close==high and close==low or high==low ? 0 : ((2*close-low-high)/(high-low))*volume
+trendstrength2 = math.sum(calculations2, 1) / math.sum(volume, 1)
+toptrend2 = math.sum(volume * (ta.change(close) <= 0 ? 0 : close), 20)
+lowertrend2 = math.sum(volume * (ta.change(close) >= 0 ? 0 : close), 20)
+paramaters2(upper2, lower2) =>
+    if lower2 == 0
+        100
+    if upper2 == 0
+        0
+	100.0 - (100.0 / (1.0 + toptrend2 / lowertrend2))
+trendline2 = paramaters2(toptrend2, lowertrend2)
+
+One=hline(100, title='Red', color=color.new(#ff2a3b,55), linestyle=hline.style_solid, linewidth=2)
+Two=hline(80, title='Red', color=color.new(#ff5252, 100), linestyle=hline.style_solid, linewidth=1)
+Five=hline(20, title='Green', color=color.new(#0dee83, 100), linestyle=hline.style_solid, linewidth=1)
+Six=hline(0, title='Green', color=color.new(#0dee83, 50), linestyle=hline.style_solid, linewidth=2)
+
+
+fill(Five, Six, color = color.new(#0dee83, 70))
+fill(One, Two, color = color.new(#ff2a3c34, 70))
+
+_tc = trendline+trendstrength/trendline2+trendstrength2
+
+//ticker.standard(syminfo.ticker)
+//tc_5m =request.security(ticker.standard(syminfo.ticker), "5", _tc)
+
+mtf_tc = request.security(syminfo.tickerid, 'W', _tc)
+
+
+plot(mtf_tc, "Trend", color=color.white, linewidth=line_width)
+
+
+
+DropAlert=ta.crossover(trendline+trendstrength/trendline2+trendstrength2, 80)
+PumpAlert=ta.crossunder(trendline+trendstrength/trendline2+trendstrength2, 20)
+
+alertcondition(DropAlert, title='Watch for Drop', message='Watch for Drop')
+alertcondition(PumpAlert, title='Watch for Pump', message='Watch for Pump')
+
+/////Day
+tcClose = request.security(syminfo.tickerid, "1D", close)
+tcOpen = request.security(syminfo.tickerid, "1D", open)
+tcHigh = request.security(syminfo.tickerid, "1D", high)
+tcLow = request.security(syminfo.tickerid, "1D", low)
+tcohlc4 = request.security(syminfo.tickerid, "1D", ohlc4)
+tcVolume = request.security(syminfo.tickerid, "1D", volume)
+
+_calculations = tcClose==tcHigh and tcClose==tcLow or tcHigh==tcLow ? 0 : ((2*tcClose-tcLow-tcHigh)/(tcHigh-tcLow))*tcVolume
+_trendstrength = math.sum(_calculations, 1) / math.sum(tcVolume, 1)
+_toptrend = math.sum(tcVolume * (ta.change(tcohlc4) <= 0 ? 0 : tcohlc4), 8)
+_lowertrend = math.sum(tcVolume * (ta.change(tcohlc4) >= 0 ? 0 : tcohlc4), 8)
+_paramaters(_upper, _lower) =>
+    if _lower == 0
+        100
+    if _upper == 0
+        0
+	100.0 - (100.0 / (1.0 + _toptrend / _lowertrend))
+_trendline = _paramaters(_toptrend, _lowertrend)
+
+_calculations2 = tcClose==tcHigh and tcClose==tcLow or tcHigh==tcLow ? 0 : ((2*tcClose-tcLow-tcHigh)/(tcHigh-tcLow))*tcVolume
+_trendstrength2 = math.sum(_calculations2, 1) / math.sum(tcVolume, 1)
+_toptrend2 = math.sum(tcVolume * (ta.change(tcClose) <= 0 ? 0 : tcClose), 20)
+_lowertrend2 = math.sum(tcVolume * (ta.change(tcClose) >= 0 ? 0 : tcClose), 20)
+paramaters_2(_upper2, _lower2) =>
+    if _lower2 == 0
+        100
+    if _upper2 == 0
+        0
+	100.0 - (100.0 / (1.0 + _toptrend2 / _lowertrend2))
+_trendline2 = paramaters_2(_toptrend2, _lowertrend2)
+
+
+_tc_ = _trendline+_trendstrength/_trendline2+_trendstrength2
+
+
+tc_day =request.security(syminfo.tickerid, "1D", _tc)
+
+//plot(tc_day, "Day Trend", color=color.white, linewidth=1)
+
+//////////Weekly
+
+tcCloseW = request.security(syminfo.tickerid, "W", close)
+tcOpenW = request.security(syminfo.tickerid, "W", open)
+tcHighW = request.security(syminfo.tickerid, "W", high)
+tcLowW = request.security(syminfo.tickerid, "W", low)
+tcohlc4W = request.security(syminfo.tickerid, "W", ohlc4)
+tcVolumeW = request.security(syminfo.tickerid, "W", volume)
+
+_calculationsW = tcCloseW==tcHighW and tcCloseW==tcLowW or tcHighW==tcLowW ? 0 : ((2*tcCloseW-tcLowW-tcHighW)/(tcHighW-tcLowW))*tcVolumeW
+_trendstrengthW = math.sum(_calculationsW, 1) / math.sum(tcVolumeW, 1)
+_toptrendW = math.sum(tcVolumeW * (ta.change(tcohlc4W) <= 0 ? 0 : tcohlc4W), 8)
+_lowertrendW = math.sum(tcVolumeW * (ta.change(tcohlc4W) >= 0 ? 0 : tcohlc4W), 8)
+_paramatersW(_upperW, _lowerW) =>
+    if _lowerW == 0
+        100
+    if _upperW == 0
+        0
+	100.0 - (100.0 / (1.0 + _toptrendW / _lowertrendW))
+_trendlineW = _paramatersW(_toptrendW, _lowertrendW)
+
+_calculations2W = tcCloseW==tcHighW and tcCloseW==tcLowW or tcHighW==tcLowW ? 0 : ((2*tcCloseW-tcLowW-tcHighW)/(tcHighW-tcLowW))*tcVolumeW
+_trendstrength2W = math.sum(_calculations2W, 1) / math.sum(tcVolumeW, 1)
+_toptrend2W = math.sum(tcVolumeW * (ta.change(tcCloseW) <= 0 ? 0 : tcCloseW), 20)
+_lowertrend2W = math.sum(tcVolumeW * (ta.change(tcCloseW) >= 0 ? 0 : tcCloseW), 20)
+paramaters_2W(_upper2W, _lower2W) =>
+    if _lower2W == 0
+        100
+    if _upper2W == 0
+        0
+	100.0 - (100.0 / (1.0 + _toptrend2W / _lowertrend2W))
+_trendline2W = paramaters_2W(_toptrend2W, _lowertrend2W)
+
+tc_week =request.security(syminfo.tickerid, "W", _tc)
+//plot(tc_week, "Week Trend", color=color.white, linewidth=1)
+
+////////////4 Hour
+tcClose4h = request.security(syminfo.tickerid, "240", close)
+tcOpen4h = request.security(syminfo.tickerid, "240", open)
+tcHigh4h = request.security(syminfo.tickerid, "240", high)
+tcLow4h = request.security(syminfo.tickerid, "240", low)
+tcohlc44h = request.security(syminfo.tickerid, "240", ohlc4)
+tcVolume4h = request.security(syminfo.tickerid, "240", volume)
+
+_calculations4h = tcClose4h==tcHigh4h and tcClose4h==tcLow4h or tcHigh4h==tcLow4h ? 0 : ((2*tcClose4h-tcLow4h-tcHigh4h)/(tcHigh4h-tcLow4h))*tcVolume4h
+_trendstrength4h = math.sum(_calculations4h, 1) / math.sum(tcVolume4h, 1)
+_toptrend4h = math.sum(tcVolume4h * (ta.change(tcohlc44h) <= 0 ? 0 : tcohlc44h), 8)
+_lowertrend4h = math.sum(tcVolume4h * (ta.change(tcohlc44h) >= 0 ? 0 : tcohlc44h), 8)
+_paramaters4h(_upper4h, _lower4h) =>
+    if _lower4h == 0
+        100
+    if _upper4h == 0
+        0
+	100.0 - (100.0 / (1.0 + _toptrend4h / _lowertrend4h))
+_trendline4h = _paramaters4h(_toptrend4h, _lowertrend4h)
+
+_calculations24h = tcClose4h==tcHigh4h and tcClose4h==tcLow4h or tcHigh4h==tcLow4h ? 0 : ((2*tcClose4h-tcLow4h-tcHigh4h)/(tcHigh4h-tcLow4h))*tcVolume4h
+_trendstrength24h = math.sum(_calculations24h, 1) / math.sum(tcVolume4h, 1)
+_toptrend24h = math.sum(tcVolume4h * (ta.change(tcClose4h) <= 0 ? 0 : tcClose4h), 20)
+_lowertrend24h = math.sum(tcVolume4h * (ta.change(tcClose4h) >= 0 ? 0 : tcClose4h), 20)
+paramaters_24h(_upper24h, _lower24h) =>
+    if _lower24h == 0
+        100
+    if _upper24h == 0
+        0
+	100.0 - (100.0 / (1.0 + _toptrend24h / _lowertrend24h))
+_trendline24h = paramaters_24h(_toptrend24h, _lowertrend24h)
+
+tc_4h =request.security(syminfo.tickerid, "240", _tc)
+//plot(tc_4h, "4 Hour Trend", color=color.white, linewidth=1)
+
+/////////2 hour
+tcCloseh2 = request.security(syminfo.tickerid, "120", close)
+tcOpenh2 = request.security(syminfo.tickerid, "120", open)
+tcHighh2 = request.security(syminfo.tickerid, "120", high)
+tcLowh2 = request.security(syminfo.tickerid, "120", low)
+tcohlc4h2 = request.security(syminfo.tickerid, "120", ohlc4)
+tcVolumeh2 = request.security(syminfo.tickerid, "120", volume)
+
+_calculationsh2 = tcCloseh2==tcHighh2 and tcCloseh2==tcLowh2 or tcHighh2==tcLowh2 ? 0 : ((2*tcCloseh2-tcLowh2-tcHighh2)/(tcHighh2-tcLowh2))*tcVolumeh2
+_trendstrengthh2 = math.sum(_calculationsh2, 1) / math.sum(tcVolumeh2, 1)
+_toptrendh2 = math.sum(tcVolumeh2 * (ta.change(tcohlc4h2) <= 0 ? 0 : tcohlc4h2), 8)
+_lowertrendh2 = math.sum(tcVolumeh2 * (ta.change(tcohlc4h2) >= 0 ? 0 : tcohlc4h2), 8)
+_paramatersh2(_upperh2, _lowerh2) =>
+    if _lowerh2 == 0
+        100
+    if _upperh2 == 0
+        0
+	100.0 - (100.0 / (1.0 + _toptrendh2 / _lowertrendh2))
+_trendlineh2 = _paramatersh2(_toptrendh2, _lowertrendh2)
+
+_calculations2h2 = tcCloseh2==tcHighh2 and tcCloseh2==tcLowh2 or tcHighh2==tcLowh2 ? 0 : ((2*tcCloseh2-tcLowh2-tcHighh2)/(tcHighh2-tcLowh2))*tcVolumeh2
+_trendstrength2h2 = math.sum(_calculations2h2, 1) / math.sum(tcVolumeh2, 1)
+_toptrend2h2 = math.sum(tcVolumeh2 * (ta.change(tcCloseh2) <= 0 ? 0 : tcCloseh2), 20)
+_lowertrend2h2 = math.sum(tcVolumeh2 * (ta.change(tcCloseh2) >= 0 ? 0 : tcCloseh2), 20)
+paramaters_2h2(_upper2h2, _lower2h2) =>
+    if _lower2h2 == 0
+        100
+    if _upper2h2 == 0
+        0
+	100.0 - (100.0 / (1.0 + _toptrend2h2 / _lowertrend2h2))
+_trendline2h2 = paramaters_2h2(_toptrend2h2, _lowertrend2h2)
+
+tc_2h =request.security(syminfo.tickerid, "120", _tc)
+//plot(tc_2h, "2 Hour Trend", color=color.white, linewidth=1)
+
+////////////
+
+
+
+/////////1 hour
+tcClose1h = request.security(syminfo.tickerid, "60", close)
+tcOpen1h = request.security(syminfo.tickerid, "60", open)
+tcHigh1h = request.security(syminfo.tickerid, "60", high)
+tcLow1h = request.security(syminfo.tickerid, "60", low)
+tcohlc41h = request.security(syminfo.tickerid, "60", ohlc4)
+tcVolume1h = request.security(syminfo.tickerid, "60", volume)
+
+_calculations1h = tcClose1h==tcHigh1h and tcClose1h==tcLow1h or tcHigh1h==tcLow1h ? 0 : ((2*tcClose1h-tcLow1h-tcHigh1h)/(tcHigh1h-tcLow1h))*tcVolume1h
+_trendstrength1h = math.sum(_calculations1h, 1) / math.sum(tcVolume1h, 1)
+_toptrend1h = math.sum(tcVolume1h * (ta.change(tcohlc41h) <= 0 ? 0 : tcohlc41h), 8)
+_lowertrend1h = math.sum(tcVolume1h * (ta.change(tcohlc41h) >= 0 ? 0 : tcohlc41h), 8)
+_paramaters1h(_upper1h, _lower1h) =>
+    if _lower1h == 0
+        100
+    if _upper1h == 0
+        0
+	100.0 - (100.0 / (1.0 + _toptrend1h / _lowertrend1h))
+_trendline1h = _paramaters1h(_toptrend1h, _lowertrend1h)
+
+_calculations21h = tcClose1h==tcHigh1h and tcClose1h==tcLow1h or tcHigh1h==tcLow1h ? 0 : ((2*tcClose1h-tcLow1h-tcHigh1h)/(tcHigh1h-tcLow1h))*tcVolume1h
+_trendstrength21h = math.sum(_calculations21h, 1) / math.sum(tcVolume1h, 1)
+_toptrend21h = math.sum(tcVolume1h * (ta.change(tcClose1h) <= 0 ? 0 : tcClose1h), 20)
+_lowertrend21h = math.sum(tcVolume1h * (ta.change(tcClose1h) >= 0 ? 0 : tcClose1h), 20)
+paramaters_21h(_upper21h, _lower21h) =>
+    if _lower21h == 0
+        100
+    if _upper21h == 0
+        0
+	100.0 - (100.0 / (1.0 + _toptrend21h / _lowertrend21h))
+_trendline21h = paramaters_21h(_toptrend21h, _lowertrend21h)
+
+tc_1h =request.security(syminfo.tickerid, "60", _tc)
+//plot(tc_1h, "1 Hour Trend", color=color.white, linewidth=1)
+
+//////////30m
+
+tcClose30 = request.security(syminfo.tickerid, "30", close)
+tcOpen30 = request.security(syminfo.tickerid, "30", open)
+tcHigh30 = request.security(syminfo.tickerid, "30", high)
+tcLow30 = request.security(syminfo.tickerid, "30", low)
+tcohlc430 = request.security(syminfo.tickerid, "30", ohlc4)
+tcVolume30 = request.security(syminfo.tickerid, "30", volume)
+
+_calculations30 = tcClose30==tcHigh30 and tcClose30==tcLow30 or tcHigh30==tcLow30 ? 0 : ((2*tcClose30-tcLow30-tcHigh30)/(tcHigh30-tcLow30))*tcVolume30
+_trendstrength30 = math.sum(_calculations30, 1) / math.sum(tcVolume30, 1)
+_toptrend30 = math.sum(tcVolume30 * (ta.change(tcohlc430) <= 0 ? 0 : tcohlc430), 8)
+_lowertrend30 = math.sum(tcVolume30 * (ta.change(tcohlc430) >= 0 ? 0 : tcohlc430), 8)
+_paramaters30(_upper30, _lower30) =>
+    if _lower30 == 0
+        100
+    if _upper30 == 0
+        0
+	100.0 - (100.0 / (1.0 + _toptrend30 / _lowertrend30))
+_trendline30 = _paramaters30(_toptrend30, _lowertrend30)
+
+_calculations230 = tcClose30==tcHigh30 and tcClose30==tcLow30 or tcHigh30==tcLow30 ? 0 : ((2*tcClose30-tcLow30-tcHigh30)/(tcHigh30-tcLow30))*tcVolume30
+_trendstrength230 = math.sum(_calculations230, 1) / math.sum(tcVolume30, 1)
+_toptrend230 = math.sum(tcVolume30 * (ta.change(tcClose30) <= 0 ? 0 : tcClose30), 20)
+_lowertrend230 = math.sum(tcVolume30 * (ta.change(tcClose30) >= 0 ? 0 : tcClose30), 20)
+paramaters_230(_upper230, _lower230) =>
+    if _lower230 == 0
+        100
+    if _upper230 == 0
+        0
+	100.0 - (100.0 / (1.0 + _toptrend230 / _lowertrend230))
+_trendline230 = paramaters_230(_toptrend230, _lowertrend230)
+
+tc_30m =request.security(syminfo.tickerid, "30", _tc)
+//plot(tc_30m, "30 Minute Trend", color=color.white, linewidth=1)
+
+///////////15m
+
+tcClose15 = request.security(syminfo.tickerid, "15", close)
+tcOpen15 = request.security(syminfo.tickerid, "15", open)
+tcHigh15 = request.security(syminfo.tickerid, "15", high)
+tcLow15 = request.security(syminfo.tickerid, "15", low)
+tcohlc415 = request.security(syminfo.tickerid, "15", ohlc4)
+tcVolume15 = request.security(syminfo.tickerid, "15", volume)
+
+_calculations15 = tcClose15==tcHigh15 and tcClose15==tcLow15 or tcHigh15==tcLow15 ? 0 : ((2*tcClose15-tcLow15-tcHigh15)/(tcHigh15-tcLow15))*tcVolume15
+_trendstrength15 = math.sum(_calculations15, 1) / math.sum(tcVolume15, 1)
+_toptrend15 = math.sum(tcVolume15 * (ta.change(tcohlc415) <= 0 ? 0 : tcohlc415), 8)
+_lowertrend15 = math.sum(tcVolume15 * (ta.change(tcohlc415) >= 0 ? 0 : tcohlc415), 8)
+_paramaters15(_upper15, _lower15) =>
+    if _lower15 == 0
+        100
+    if _upper15 == 0
+        0
+	100.0 - (100.0 / (1.0 + _toptrend15 / _lowertrend15))
+_trendline15 = _paramaters15(_toptrend15, _lowertrend15)
+
+_calculations215 = tcClose15==tcHigh15 and tcClose15==tcLow15 or tcHigh15==tcLow15 ? 0 : ((2*tcClose15-tcLow15-tcHigh15)/(tcHigh15-tcLow15))*tcVolume15
+_trendstrength215 = math.sum(_calculations215, 1) / math.sum(tcVolume15, 1)
+_toptrend215 = math.sum(tcVolume15 * (ta.change(tcClose15) <= 0 ? 0 : tcClose15), 20)
+_lowertrend215 = math.sum(tcVolume15 * (ta.change(tcClose15) >= 0 ? 0 : tcClose15), 20)
+paramaters_215(_upper2v, _lower215) =>
+    if _lower215 == 0
+        100
+    if _upper2v == 0
+        0
+	100.0 - (100.0 / (1.0 + _toptrend215 / _lowertrend215))
+_trendline215 = paramaters_215(_toptrend215, _lowertrend215)
+
+tc_15m =request.security(syminfo.tickerid, "15", _tc)
+//plot(tc_15m, "15 Minute Trend", color=color.white, linewidth=1)
+///////////
+
+////////////5m
+
+tcClose5 = request.security(syminfo.tickerid, "5", close)
+tcOpen5 = request.security(syminfo.tickerid, "5", open)
+tcHigh5 = request.security(syminfo.tickerid, "5", high)
+tcLow5 = request.security(syminfo.tickerid, "5", low)
+tcohlc45 = request.security(syminfo.tickerid, "5", ohlc4)
+tcVolume5 = request.security(syminfo.tickerid, "5", volume)
+
+_calculations5 = tcClose5==tcHigh5 and tcClose5==tcLow5 or tcHigh5==tcLow5 ? 0 : ((2*tcClose5-tcLow5-tcHigh5)/(tcHigh5-tcLow5))*tcVolume5
+_trendstrength5 = math.sum(_calculations5, 1) / math.sum(tcVolume5, 1)
+_toptrend5 = math.sum(tcVolume5 * (ta.change(tcohlc45) <= 0 ? 0 : tcohlc45), 8)
+_lowertrend5 = math.sum(tcVolume5 * (ta.change(tcohlc45) >= 0 ? 0 : tcohlc45), 8)
+_paramaters5(_upper5, _lower5) =>
+    if _lower5 == 0
+        100
+    if _upper5 == 0
+        0
+	100.0 - (100.0 / (1.0 + _toptrend5 / _lowertrend5))
+_trendline5 = _paramaters5(_toptrend5, _lowertrend5)
+
+_calculations25 = tcClose==tcHigh5 and tcClose5==tcLow5 or tcHigh==tcLow5 ? 0 : ((2*tcClose5-tcLow5-tcHigh5)/(tcHigh5-tcLow5))*tcVolume5
+_trendstrength25 = math.sum(_calculations25, 1) / math.sum(tcVolume5, 1)
+_toptrend25 = math.sum(tcVolume5 * (ta.change(tcClose5) <= 0 ? 0 : tcClose5), 20)
+_lowertrend25 = math.sum(tcVolume5 * (ta.change(tcClose5) >= 0 ? 0 : tcClose5), 20)
+paramaters_25(_upper25, _lower25) =>
+    if _lower25 == 0
+        100
+    if _upper25 == 0
+        0
+	100.0 - (100.0 / (1.0 + _toptrend25 / _lowertrend25))
+_trendline25 = paramaters_25(_toptrend25, _lowertrend25)
+//ticker.standard(syminfo.ticker)
+//tc_5m =request.security(ticker.standard(syminfo.ticker), "5", _tc)
+//plot(tc_5m, "5 Minute Trend", color=color.white, linewidth=1)
+///////////
+
+tc = mtf_tc //trendline+trendstrength/trendline2+trendstrength2
+
+TC_CondText = tc >= 99 ? str.format("🔴 99% Chance of Drop/Squeeze", tc):   
+      tc > 98 and tc < 98.99 ? str.format("🔴 98% Chance of Drop/Squeeze", tc) :
+      tc > 97 and tc < 97.99 ? str.format("🔴 97% Chance of Drop", tc) :
+      tc > 96 and tc < 96.99 ? str.format("🔴 96% Chance of Drop", tc) :
+      tc > 95 and tc < 95.99 ? str.format("🔴 95% Chance of Drop", tc) :
+      tc > 94 and tc < 94.99 ? str.format("🔴 94% Chance of Drop", tc) :
+      tc > 93 and tc < 93.99 ? str.format("🔴 93% Chance of Drop", tc) :
+      tc > 92 and tc < 92.99 ? str.format("🔴 92% Chance of Drop", tc) :
+      tc > 91 and tc < 91.99 ? str.format("🔴 91% Chance of Drop", tc) :
+      tc > 90 and tc < 90.99 ? str.format("🔴 90% Chance of Drop", tc) :
+      tc > 89 and tc < 89.99 ? str.format("🔴 89% Chance of Drop", tc) :
+      tc > 88 and tc < 88.99 ? str.format("🔴 88% Chance of Drop", tc) :
+      tc > 87 and tc < 87.99 ? str.format("🔴 87% Chance of Drop", tc) :
+      tc > 86 and tc < 86.99 ? str.format("🔴 86% Chance of Drop", tc) :
+      tc > 85 and tc < 85.99 ? str.format("🔴 85% Chance of Drop", tc) :
+      tc > 84 and tc < 84.99 ? str.format("🔴 84% Chance of Drop", tc) :
+      tc > 83 and tc < 83.99 ? str.format("🔴 83% Chance of Drop", tc) :
+      tc > 82 and tc < 82.99 ? str.format("🔴 82% Chance of Drop", tc) :
+      tc > 81 and tc < 81.99 ? str.format("🔴 81% Chance of Drop", tc) :
+      tc > 80 and tc < 80.99 ? str.format("80% Chance of Drop", tc) :
+      tc > 79 and tc < 79.99 ? str.format("79% Chance of Drop", tc) :
+      tc > 78 and tc < 78.99 ? str.format("78% Chance of Drop", tc) :  
+      tc > 77 and tc < 77.99 ? str.format("77% Chance of Drop", tc) :      
+      tc > 76 and tc < 76.99 ? str.format("76% Chance of Drop", tc) :      
+      tc > 75 and tc < 75.99 ? str.format("75% Chance of Drop", tc) :      
+      tc > 74 and tc < 74.99 ? str.format("74% Chance of Drop", tc) :      
+      tc > 73 and tc < 73.99 ? str.format("73% Chance of Drop", tc) :      
+      tc > 72 and tc < 72.99 ? str.format("72% Chance of Drop", tc) :      
+      tc > 71 and tc < 71.99 ? str.format("71% Chance of Drop", tc) :      
+      tc > 70 and tc < 70.99 ? str.format("70% Chance of Drop", tc) :
+      tc > 69 and tc < 69.99 ? str.format("69% Chance of Drop", tc) :
+      tc > 68 and tc < 68.99 ? str.format("68% Chance of Drop", tc) :
+      tc > 67 and tc < 67.99 ? str.format("67% Chance of Drop", tc) :
+      tc > 66 and tc < 66.99 ? str.format("66% Chance of Drop", tc) :
+      tc > 65 and tc < 65.99 ? str.format("65% Chance of Drop", tc) :
+      tc > 64 and tc < 64.99 ? str.format("64% Chance of Drop", tc) :
+      tc > 63 and tc < 63.99 ? str.format("63% Chance of Drop", tc) :
+      tc > 62 and tc < 62.99 ? str.format("62% Chance of Drop", tc) :
+      tc > 61 and tc < 61.99 ? str.format("61% Chance of Drop", tc) :
+      tc > 60 and tc < 60.99 ? str.format("60% Chance of Drop", tc) :
+      tc > 59 and tc < 59.99 ? str.format("59% Chance of Drop", tc) :
+      tc > 58 and tc < 58.99 ? str.format("58% Chance of Drop", tc) :  
+      tc > 57 and tc < 57.99 ? str.format("57% Chance of Drop", tc) :      
+      tc > 56 and tc < 56.99 ? str.format("56% Chance of Drop", tc) :      
+      tc > 55 and tc < 55.99 ? str.format("55% Chance of Drop", tc) :      
+      tc > 54 and tc < 54.99 ? str.format("54% Chance of Drop", tc) :      
+      tc > 53 and tc < 53.99 ? str.format("53% Chance of Drop", tc) :      
+      tc > 52 and tc < 52.99 ? str.format("52% Chance of Drop", tc) :      
+      tc > 51 and tc < 51.99 ? str.format("51% Chance of Drop", tc) :   
+      tc > 50.5 and tc < 50.99 ? str.format("50% Chance of Drop", tc) :  
+      tc > 50 and tc < 50.49 ? str.format("50% Chance of Pump", tc) :
+      tc > 49 and tc < 49.99 ? str.format("51% Chance of Pump", tc) :
+      tc > 48 and tc < 48.99 ? str.format("52% Chance of Pump", tc) :
+      tc > 47 and tc < 47.99 ? str.format("53% Chance of Pump", tc) :
+      tc > 46 and tc < 46.99 ? str.format("54% Chance of Pump", tc) :
+      tc > 45 and tc < 45.99 ? str.format("55% Chance of Pump", tc) :
+      tc > 44 and tc < 44.99 ? str.format("56% Chance of Pump", tc) :
+      tc > 43 and tc < 43.99 ? str.format("57% Chance of Pump", tc) :
+      tc > 42 and tc < 42.99 ? str.format("58% Chance of Pump", tc) :
+      tc > 41 and tc < 41.99 ? str.format("59% Chance of Pump", tc) :
+      tc > 40 and tc < 40.99 ? str.format("60% Chance of Pump", tc) :
+      tc > 39 and tc < 39.99 ? str.format("61% Chance of Pump", tc) :
+      tc > 38 and tc < 38.99 ? str.format("62% Chance of Pump", tc) :
+      tc > 37 and tc < 37.99 ? str.format("63% Chance of Pump", tc) :
+      tc > 36 and tc < 36.99 ? str.format("64% Chance of Pump", tc) :
+      tc > 35 and tc < 35.99 ? str.format("65% Chance of Pump", tc) :
+      tc > 34 and tc < 34.99 ? str.format("66% Chance of Pump", tc) :
+      tc > 33 and tc < 33.99 ? str.format("67% Chance of Pump", tc) :
+      tc > 32 and tc < 32.99 ? str.format("68% Chance of Pump", tc) :
+      tc > 31 and tc < 31.99 ? str.format("69% Chance of Pump", tc) :
+      tc > 30 and tc < 30.99 ? str.format("70% Chance of Pump", tc) :  
+      tc > 29 and tc < 29.99 ? str.format("71% Chance of Pump", tc) :      
+      tc > 28 and tc < 28.99 ? str.format("72% Chance of Pump", tc) :      
+      tc > 27 and tc < 27.99 ? str.format("73% Chance of Pump", tc) :      
+      tc > 26 and tc < 26.99 ? str.format("74% Chance of Pump", tc) :      
+      tc > 25 and tc < 25.99 ? str.format("75% Chance of Pump", tc) :      
+      tc > 24 and tc < 24.99 ? str.format("76% Chance of Pump", tc) :      
+      tc > 23 and tc < 23.99 ? str.format("77% Chance of Pump", tc) :      
+      tc > 22 and tc < 22.99 ? str.format("78% Chance of Pump", tc) :
+      tc > 21 and tc < 21.99 ? str.format("79% Chance of Pump", tc) :
+      tc > 20 and tc < 20.99 ? str.format("80% Chance of Pump", tc) :
+      tc > 19 and tc < 19.99 ? str.format("🟢 81% Chance of Pump", tc) :
+      tc > 18 and tc < 18.99 ? str.format("🟢 82% Chance of Pump", tc) :
+      tc > 17 and tc < 17.99 ? str.format("🟢 83% Chance of Pump", tc) :
+      tc > 16 and tc < 16.99 ? str.format("🟢 84% Chance of Pump", tc) :
+      tc > 15 and tc < 15.99 ? str.format("🟢 85% Chance of Pump", tc) :
+      tc > 14 and tc < 14.99 ? str.format("🟢 86% Chance of Pump", tc) :
+      tc > 13 and tc < 13.99 ? str.format("🟢 87% Chance of Pump", tc) :
+      tc > 12 and tc < 12.99 ? str.format("🟢 88% Chance of Pump", tc) :
+      tc > 11 and tc < 11.99 ? str.format("🟢 89% Chance of Pump", tc) :
+      tc > 10 and tc < 10.99 ? str.format("🟢 90% Chance of Pump", tc) :  
+      tc > 9 and tc < 9.99 ? str.format("🟢 91% Chance of Pump", tc) :      
+      tc > 8 and tc < 8.99 ? str.format("🟢 92% Chance of Pump", tc) :      
+      tc > 7 and tc < 7.99 ? str.format("🟢 93% Chance of Pump", tc) :      
+      tc > 6 and tc < 6.99 ? str.format("🟢 94% Chance of Pump", tc) :      
+      tc > 5 and tc < 5.99 ? str.format("🟢 95% Chance of Pump", tc) :      
+      tc > 4 and tc < 4.99 ? str.format("🟢 96% Chance of Pump", tc) :      
+      tc > 3 and tc < 3.99 ? str.format("🟢 97% Chance of Pump", tc) :   
+      tc > 2 and tc < 2.99 ? str.format("🟢 98% Chance of Pump/Squeeze", tc) :     
+      tc < 2 ? str.format("🟢 99% Chance of Pump/Squeeze", tc) :              
+
+      str.format("", tc)
+
+if true
+    label tclabel = label.new(bar_index+dist, 50,text= TC_CondText,color=color.rgb(0, 0, 0, 100), xloc= xloc.bar_index, style=label.style_label_left, textcolor=tc > 50 ? color.red : tc < 50 ? color.green : na, textalign=text.align_left, size = lSize)
+    label.set_x(tclabel, bar_index+dist)
+    label.delete(tclabel[1])

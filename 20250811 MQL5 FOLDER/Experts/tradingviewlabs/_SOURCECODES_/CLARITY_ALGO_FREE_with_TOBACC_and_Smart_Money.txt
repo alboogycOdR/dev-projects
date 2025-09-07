@@ -1,0 +1,55 @@
+//@version=4
+study("CLARITY ALGO FREE with TOBACC and Smart Money", overlay=true)
+
+slow = input(21, title="Slow EMA")
+tobaccPeriod = input(50, title="TOBACC Period")
+
+//ema definitions
+emaSlow = ema(close, slow)
+
+sma(src, length) =>
+    sma = 0.0
+    sma := na(sma[1]) ? sum(src, length) / length : (sma[1] * (length - 1) + src) / length
+    sma
+
+smaFast = sma(close, 9)
+
+//Color definition for Moving Averages (linha verde escuro para compra e vermelho escuro para venda)
+col = close > emaSlow ? color.new(color.green, 50) : close < emaSlow ? color.new(color.red, 50) : color.yellow
+
+//Moving Average Plots and Fill
+p1 = plot(emaSlow, title="Slow MA", style=plot.style_linebr, linewidth=6, color=col)  // Espessura aumentada para 6
+p2 = plot(smaFast, title="Fast MA", style=plot.style_linebr, linewidth=6, color=col)  // Espessura aumentada para 6
+fill(p1, p2, color=col, transp=70)
+
+// Determine Buy and Sell Conditions
+buyCondition = crossover(smaFast, emaSlow) and close > emaSlow
+sellCondition = crossunder(smaFast, emaSlow) and close < emaSlow
+
+// Plot Buy and Sell Signals with Highlighted Style (triângulos de compra em verde escuro e de venda em vermelho escuro)
+plotshape(buyCondition, style=shape.triangleup, location=location.belowbar, color=color.new(color.green, 50), size=size.small, title="Buy Signal", text="Buy")
+plotshape(sellCondition, style=shape.triangledown, location=location.abovebar, color=color.new(color.red, 50), size=size.small, title="Sell Signal", text="Sell")
+
+// TOBACC calculation
+obvValue = close >= close[1] ? volume : -volume
+obv = cum(obvValue)
+tobacc = ema(obv, tobaccPeriod)
+
+//Plotting TOBACC with thicker line (linha azul escuro)
+plot(tobacc, title="TOBACC", style=plot.style_line, linewidth=6, color=color.new(color.blue, 50))  // Espessura aumentada para 6
+
+// MFI calculation
+mfiLength = input(14, title="MFI Length")
+typicalPrice = (high + low + close) / 3
+rawMoneyFlow = typicalPrice * volume
+positiveMoneyFlow = sum(volume * (change(typicalPrice) > 0 ? typicalPrice : 0), mfiLength)
+negativeMoneyFlow = sum(volume * (change(typicalPrice) < 0 ? typicalPrice : 0), mfiLength)
+moneyFlowRatio = positiveMoneyFlow / negativeMoneyFlow
+mfi = 100 - 100 / (1 + moneyFlowRatio)
+
+// Plotting MFI with color (linha roxa)
+plot(mfi, title="MFI", color=color.new(color.purple, 50))
+
+// Alert conditions
+alertcondition(buyCondition, title="Buy", message="Buy")
+alertcondition(sellCondition, title="Sell", message="Sell")

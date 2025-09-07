@@ -1,0 +1,195 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+
+
+//@version=5
+indicator("Seasonality_OTC", shorttitle = "Seasonality", overlay = true, max_lines_count = 500, precision = 0)
+
+_stdays   = input.string(group = "Daily timeframe", title = "Trading days on daily timeframe", options = ["fixed (252)","variable"], defval = "fixed (252)", display = display.none)
+_utdays   = input.string(group = "Daily timeframe", title = "Use ... number of trading days in a year of the lookback period", options = ["maximum","minimum","average"], defval = "minimum", display = display.none)
+_lookback = input.int   (group = "All timeframes" , title = "Lookback period in years", minval = 1, maxval =  30, defval = 15)
+_future   = input.int   (group = "All timeframes" , title = "Plot seasonality ... bars into the future", minval = 0, maxval = 252, defval = 30, display = display.none)
+_color    = input.color (group = "All timeframes" , title = "Color", defval = #cfcfcf)
+_width    = input.int   (group = "All timeframes" , title = "Line width", minval = 1, defval = 3, display = display.none)
+_malen    = input.int   (group = "All timeframes" , title = "Smoothing: Moving Average Length (1 = no)", minval = 1, defval = 1, display = display.none)
+_offset   = input.int   (group = "All timeframes" , title = "Offset", defval = 0, display = display.none)
+
+// Trading day of month, trading day of year
+var int _tdom = na
+var int _tdoy = na
+
+if bool(ta.change(year(time_close)))  and timeframe.isdaily and timeframe.multiplier == 1
+    _tdoy := 0
+if bool(ta.change(month(time_close))) and timeframe.isdaily and timeframe.multiplier == 1
+    _tdom := 0
+if not na(_tdoy)
+    _tdoy := _tdoy + 1
+if not na(_tdom)
+    _tdom := _tdom + 1
+
+int _twoy = weekofyear(time_close) // Trading week of year
+
+int _nof_bins = na // Number of bins
+int _slot     = na // Trading day/week/month of bar
+
+// Set up bins depending on timeframe
+if timeframe.multiplier == 1
+    if      timeframe.isdaily
+        _nof_bins := _stdays == "fixed (252)" ? 252 : 366
+        _slot   := _tdoy
+    else if timeframe.isweekly
+        _nof_bins := 52
+        _slot   := _twoy
+    else if timeframe.ismonthly
+        _nof_bins := 12
+        _slot   := month(time_close)
+
+// Show trading week oy year, trading day of month and trading day of year in status line
+plot(na(_nof_bins) ? na : _twoy, title = "TWOY" , color = #000000, display = display.status_line)
+plot(na(_nof_bins) ? na : _tdom, title = "TDOM" , color = #000000, display = display.status_line)
+plot(na(_nof_bins) ? na : _tdoy, title = "TDOY" , color = #000000, display = display.status_line)
+
+// One year has 52.18 weeks * 7 days * 86400000 msecs = 31558464000 msecs
+var int _years   = _lookback
+var int _mindate = time_close
+var int _start   = math.max(_mindate,timenow - _years * 31558464000)
+if barstate.isfirst and (timenow - _start)/31558464000 < _years
+    _years  := math.floor((timenow - _start)/31558464000)
+    _start  := timenow - _years * 31558464000
+
+// Arrays of bars storing trading day/week/month, lows and highs for all bars
+var _a_days = array.new_int(0)
+var _a_slot = array.new_int(0)
+var _a_lows = array.new_float(0)
+var _a_high = array.new_float(0)
+
+// Arrays of bins storing seasonal values, the number of years that
+// contributed to the seasonal value and the Y coordinate of the line
+var _a_bins = array.new_float(_nof_bins,0)
+var _a_cntr = array.new_int  (_nof_bins,0)
+var _a_line = array.new_float(_nof_bins,0)
+var _a_mavg = array.new_float(_nof_bins,0)
+
+// Store trading day/week/month, low and high of the current bar
+array.push(_a_slot,_slot)
+array.push(_a_lows,low)
+array.push(_a_high,high)
+
+// The bin of the current bar (one less than the trading day/week/month since array indexes start with 0)
+int _bin = na
+if timeframe.isdaily
+    _bin := _tdoy-1
+else if timeframe.isweekly
+    _bin := weekofyear(time_close)-1
+else if timeframe.ismonthly
+    _bin := month(time_close)-1
+    
+// If the bar falls within the lookback period, add the price
+// delta to the respective bin and increase the counter
+var float _chg = na
+if time > _start and bar_index > 0 and _bin < array.size(_a_bins)
+    _chg := close-close[1]
+    array.set(_a_bins,_bin,array.get(_a_bins,_bin)+_chg)
+    array.set(_a_cntr,_bin,array.get(_a_cntr,_bin)+1)
+    // Store number of trading days of previous year
+    if _tdoy < _tdoy[1]
+        array.push(_a_days,_tdoy[1])
+
+var int _bleft  = na // left visible bar
+var int _bright = na // right visible bar
+
+if time == chart.left_visible_bar_time
+    _bleft := bar_index
+
+if time >= chart.left_visible_bar_time and time <= chart.right_visible_bar_time
+    _bright := bar_index
+
+var int   _used   = 0
+var int   _bin1   = na
+var int   _bin2   = na
+var float _factor = na
+var float _hhigh  = na
+var float _llow   = na
+var float _top    = na
+var float _bot    = na
+
+// Draw the seasonal chart on the last bar
+if barstate.islast and not na(_nof_bins)
+    // On daily chart, determine number of trading days in "variable" mode
+    if _nof_bins == 366
+        _nof_bins := _utdays == "minimum" ? array.min(_a_days) : _utdays == "maximum" ? array.max(_a_days) : math.floor(array.avg(_a_days))
+        // Remove excess trading days
+        if array.size(_a_bins) > _nof_bins
+            for i = array.size(_a_bins)-1 to _nof_bins
+                array.remove(_a_bins,i)
+                array.remove(_a_cntr,i)
+        if not barstate.isrealtime
+            log.info("Number of trading days used: " + str.tostring(_nof_bins))
+    for i = 0 to array.size(_a_bins)-1
+        if array.get(_a_cntr,i) > 0
+            _used := i // on the daily chart, not all markets have the same number of trading days
+            // Divide sum of price deltas by number of years to get the average
+            array.set(_a_bins,i,array.get(_a_bins,i)/array.get(_a_cntr,i))
+        // Use the average price move from one bar to the next to
+        // get the dots to connect by lines to get a seasonal chart
+        if i > 0
+            array.set(_a_line,i,array.get(_a_line,i-1)+array.get(_a_bins,i))
+    // de-trend
+    _first = 0
+    _last  = array.get(_a_line,_used)-_first
+    _step  = _last/_used
+    for i = 1 to _used
+        array.set(_a_line,i,array.get(_a_line,i)-_step*i)
+    // Apply smoothing if applicable
+    if _malen > 1
+        for i = 1 to _used
+            float _sum = 0
+            for j = 1 to math.min(_malen,math.round(_used/2,0))
+                _idx  = i-j < 0 ? _used-i-j : i-j == 0 ? _used-1 : i-j
+                _sum := _sum + array.get(_a_line,_idx)
+            array.set(_a_mavg,i,_sum/_malen)
+        for i = 1 to _used
+            array.set(_a_line,i,array.get(_a_mavg,i))
+    // Get the bins of the left and right visible bars
+    // Values of _a_slot are 1 .. max_tdoy or 1 .. max_twoy or 1 .. 12 (the bin of the bar)
+    _binL = math.min(_used,array.get(_a_slot,_bleft )-1) // min = 0
+    _binR = math.min(_used,array.get(_a_slot,_bright)-1) // max = 251 (or lower) / 51 / 11
+    // Calculate top and bottom of the projection onto the visible chart
+    float _offs = 0
+    _binP = _binL // bin of left visible bar
+    for i = _bleft to _bright+(_bright == last_bar_index ? _future-1 : 0) // visible bars + future projection
+        _binP := ((_binP + 1) > _used) ? 0 : (_binP + 1)
+        _top  := (na(_top) or array.get(_a_line,_binP) > _top) ? array.get(_a_line,_binP) : _top
+        _bot  := (na(_bot) or array.get(_a_line,_binP) < _bot) ? array.get(_a_line,_binP) : _bot
+    // Make seasonality start at 0
+    _offs := -_bot
+    _top  := _top-_bot
+    _bot  := 0
+    // Get the height of the visible chart
+    for i = _bleft to _bright
+        _hhigh := na(_hhigh) or array.get(_a_high,i) > _hhigh ? array.get(_a_high,i) : _hhigh
+        _llow  := na(_llow ) or array.get(_a_lows,i) < _llow  ? array.get(_a_lows,i) : _llow
+    // Calculate the factor to adjust the scale of seasonality to that of price
+    _factor := (_hhigh-_llow)/(_top-_bot)
+    // Draw the seasonality into the past
+    for i = math.max(_bleft+_offset,1) to math.min(_bright+math.max(0,_offset),last_bar_index)
+        _bin1 := math.min(_used,array.get(_a_slot,i-1))//-1)
+        _bin2 := math.min(_used,array.get(_a_slot,i  ))//-1)
+        _y1   = _llow+(array.get(_a_line,_bin1)+_offs)*_factor
+        _y2   = _llow+(array.get(_a_line,_bin2)+_offs)*_factor
+        line.new(-_offset+i,_y1,-_offset+i+1,_y2, xloc = xloc.bar_index, color = _color,width = _width)
+    // Draw the seasonality into the future
+    if _bright == last_bar_index // last visible bar is actually last bar
+        int _bidx = last_bar_index-_offset
+        _bin1 := _binR-1
+        for i = 1 to _future+_offset
+            _bin1 := _bin1 + 1
+            _bin2 := _bin1 + 1
+            if _bin2 > _used
+                _bin2 := 0
+            if _bin1 > _used
+                _bin1 := 0
+                _bin2 := 1
+            _y1   = _llow+(array.get(_a_line,math.min(_used,_bin1))+_offs)*_factor
+            _y2   = _llow+(array.get(_a_line,math.min(_used,_bin2))+_offs)*_factor
+            line.new(_bidx,_y1,_bidx+1,_y2, xloc = xloc.bar_index, color = _color, width = _width)
+            _bidx := _bidx + 1

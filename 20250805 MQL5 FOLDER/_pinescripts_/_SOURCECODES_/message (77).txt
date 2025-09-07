@@ -1,0 +1,24 @@
+```//@version=5
+indicator("Fair Value Gaps", overlay = true)
+
+fvgType = input.string("Candle Only", "Gap Type", ["Candle Only", "Full & Hidden", "Defualt", "None"], group = "fair value gaps")
+le = input.int(20, "Extension Length", 0, 500, 5, group = "fair value gaps")
+
+//fair value gap conditions
+n = bar_index
+
+bullFvg = low > high[2] and close[1] > high[2] and close[1] > open[1]
+bearFvg = high < low[2] and close < low[1] and close[1] < open[1]
+bullFvgMid = bullFvg ? (low - high[2]) /2 + high[2] : na
+bearFvgMid = bearFvg ? high + (low[2] - high) /2 : na
+
+box bullGap = na, box bearGap = na
+line bullGapLine = na, line bearGapLine = na
+
+//plot the fair value gaps
+if fvgType == "Candle Only" and bullFvg
+    bullGap := bullFvg[1] and not bullFvg[2] and not bullFvg[3] and not bullFvg[4] and not bullFvg[5] and not bullFvg[6] and not bullFvg[7] and not bullFvg[8] and not bullFvg[9] and not bullFvg[10] and not bullFvg[11] and not bullFvg[12] ? box.new(n[2], low, n+le, high[2], color.new(#00cf4b, 75), 1, line.style_solid, bgcolor = color.new(#00cf4b, 80)) : na
+    bullGapLine := bullFvg[1] and not bullFvg[2] and not bullFvg[3] and not bullFvg[4] and not bullFvg[5] and not bullFvg[6] and not bullFvg[7] and not bullFvg[8] and not bullFvg[9] and not bullFvg[10] and not bullFvg[11] and not bullFvg[12] ? line.new(n[2], bullFvgMid, n+le, bullFvgMid, color = color.new(#00cf4b, 65), style = line.style_dashed) : na
+if fvgType == "Candle Only" and bearFvg
+    bearGap := not bearFvg[1] and not bearFvg[2] and not bearFvg[3] and not bearFvg[4] and not bearFvg[5] and not bearFvg[6] and not bearFvg[7] and not bearFvg[8] and not bearFvg[9] and not bearFvg[10] and not bearFvg[11] and not bearFvg[12] ? box.new(n[2], high, n+le, low[2], color.new(#ff0000, 75), 1, line.style_solid, bgcolor = color.new(#ff0000, 80)) : na
+    bearGapLine := not bearFvg[1] and not bearFvg[2] and not bearFvg[3] and not bearFvg[4] and not bearFvg[5] and not bearFvg[6] and not bearFvg[7] and not bearFvg[8] and not bearFvg[9] and not bearFvg[10] and not bearFvg[11] and not bearFvg[12] ? line.new(n[2], bearFvgMid, n+le, bearFvgMid, color = color.new(#ff0000, 65), style = line.style_dashed) : na```

@@ -1,0 +1,60 @@
+
+
+//@version=5
+indicator(' dashboard ', overlay=true)
+
+//Gathers User Inputs, dashboard
+dashOn = input(true, 'Dashboard On / Off')
+dashDist = input(13, 'Dashboard Distance')
+dashColor = input.color(color.new(#696969, 80), 'Dashboard Color', inline='Dash Line')
+dashTextColor = input.color(color.new(#ffffff, 0), 'Text Color', inline='Dash Line')
+
+//Calculates Trend for Dashboard
+ema9 = ta.ema(close, 12)
+currentTrend = ema9 > ema9[2] ? 'Up Trend' : ema9 < ema9[2] ? 'Down Trend' : 'Flat Trend'
+
+
+//Defines Each Timeframe for Trend Panel
+sma = ta.sma(close, 50)
+oneM = request.security(syminfo.tickerid, '1', sma, barmerge.gaps_off, barmerge.lookahead_off)
+fiveM = request.security(syminfo.tickerid, '5', sma, barmerge.gaps_off, barmerge.lookahead_off)
+fifteenM = request.security(syminfo.tickerid, '15', sma, barmerge.gaps_off, barmerge.lookahead_off)
+thirtyM = request.security(syminfo.tickerid, '30', sma, barmerge.gaps_off, barmerge.lookahead_off)
+oneH = request.security(syminfo.tickerid, '60', sma, barmerge.gaps_off, barmerge.lookahead_off)
+twoH = request.security(syminfo.tickerid, '120', sma, barmerge.gaps_off, barmerge.lookahead_off)
+fourH = request.security(syminfo.tickerid, '240', sma, barmerge.gaps_off, barmerge.lookahead_off)
+weekly = request.security(syminfo.tickerid, 'W', sma, barmerge.gaps_off, barmerge.lookahead_off)
+monthly = request.security(syminfo.tickerid, 'M', sma, barmerge.gaps_off, barmerge.lookahead_off)
+daily = request.security(syminfo.tickerid, 'D', sma, barmerge.gaps_off, barmerge.lookahead_off)
+
+//Defines An Uptrend for Trend Panel
+oneMUp = oneM > oneM[1]
+fiveMUp = fiveM > fiveM[1]
+fifteenMUp = fifteenM > fifteenM[1]
+thirtyMUp = thirtyM > thirtyM[1]
+oneHUp = oneH > oneH[1]
+twoHUp = twoH > twoH[1]
+fourHUp = fourH > fourH[1]
+weeklyUp = weekly > weekly[1]
+monthlyUp = monthly > monthly[1]
+dailyUp = daily > daily[1]
+
+//Checks if the Current State is an Uptrend or Downtrend for the Trend Panel
+up = '📈'
+down = '📉'
+oneMTrend = oneMUp ? up : down
+fiveMTrend = fiveMUp ? up : down
+fifteenMTrend = fifteenMUp ? up : down
+thirtyMTrend = thirtyMUp ? up : down
+oneHTrend = oneHUp ? up : down
+twoHTrend = twoHUp ? up : down
+fourHTrend = fourHUp ? up : down
+weeklyTrend = weeklyUp ? up : down
+monthlyTrend = monthlyUp ? up : down
+dailyTrend = dailyUp ? up : down
+
+if dashOn
+    label dashLabel = label.new(time, close, text='https://discord.gg/35JC3RvvMs' + '\n━━━━━━━━━━━━━━━━━' + '\n           🤹 Market Information 🤹' + '\n🎈 Current Sentiment | ' + currentTrend + '\n━━━━━━━━━━━━━━━━━' + '\n               🎪 Trend Panel 🎪' + '\n━━━━━━━━━━━━━━━━━' + '\n     1 Minute | ' + oneMTrend + '         2 Hour | ' + twoHTrend + '\n     5 Minute | ' + fiveMTrend + '         4 Hour | ' + fourHTrend + '\n        15 Minute | ' + fifteenMTrend + '         Weekly | ' + weeklyTrend + '\n        30 Minute | ' + thirtyMTrend + '       Monthly |     ' + monthlyTrend + '\n        1 Hour | ' + oneHTrend + '                Daily | ' + dailyTrend + '\n━━━━━━━━━━━━━━━━━' + '\n    Dashboard', color=dashColor, xloc=xloc.bar_time, style=label.style_label_left, textcolor=dashTextColor, textalign=text.align_left)
+    label.set_x(dashLabel, label.get_x(dashLabel) + math.round(ta.change(time) * dashDist))
+    label.delete(dashLabel[1])
+

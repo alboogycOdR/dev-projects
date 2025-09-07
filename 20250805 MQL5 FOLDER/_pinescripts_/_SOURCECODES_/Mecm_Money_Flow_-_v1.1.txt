@@ -1,0 +1,360 @@
+
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © nothuman14
+//@version=5
+bullcolor = #FFD700 
+bearcolor = #E0FFFF 
+rsi = ta.rsi(close,14)
+color greengrad = color.from_gradient(rsi, 10, 90, #FFD700, #b09500)
+color redgrad = color.from_gradient(rsi, 10, 90, #9eaeae, #E0FFFF)
+
+
+indicator('Mecm Money Flow - v1.1', overlay=false, precision=4, timeframe="", timeframe_gaps=true)
+
+rescale(_src, _oldMin, _oldMax, _newMin, _newMax) =>
+    // Rescales series with known min/max.
+    // _src            : series to rescale.
+    // _oldMin, _oldMax: min/max values of series to rescale.
+    // _newMin, _newMin: min/max values of rescaled series.
+    _newMin + (_newMax - _newMin) * (_src - _oldMin) / math.max(_oldMax - _oldMin, 10e-10)
+
+Istyle = input.string("Area",title = "Style",options = ["Area","Histogram"] , group = "Basic - Settings")
+// Bayesian Theorem Starts
+bayesPeriod = input(20, title='Trend Lookback Period' , group = "Basic - Settings")
+
+showNextCandleUp = input(true, title='Pump Detector', group = "Pump & Dump - Settings" , inline = "PND")
+showNextCandleDown = input(true, title='Dump Detector' , group = "Pump & Dump - Settings" , inline = "PND")
+bbSmaPeriod = input(20, title='Trend Agility', group = "Pump & Dump - Settings")
+bbStdDevMult = input.float(2.5, title='Pump & Dump Sensitivity', maxval=50.0, group = "Pump & Dump - Settings")
+smaPeriod = input(11, title='Pump & Dump Average' , group = "Pump & Dump - Settings")
+
+Showbankers = input(true, title='Show Bankers', group = "Pump & Dump - Settings" , inline = "PND")
+bankerthreshold = input.int(3, title='Bankers Entry Threshold', minval=1 , group = "Bankers Entry - Settings")
+
+iNVESTORS = input(false, title="Show Investor's", group = "Investor - Settings" , inline = "NOPE" , tooltip = "Must use on D Timeframe or bigger for better result")
+
+h1h = input.int(title='Money Flow | Min', defval=3, minval=1, maxval=99 , group = "Investor - Settings" , inline = "Investor")
+l1h = input.int(title='Max', defval=9, minval=1, maxval=99 , group = "Investor - Settings" , inline = "Investor")
+
+lengthTy = input(50, title='Magic Flakes Length', group = "Magic Flakes - Settings")
+
+par1 = input.int(20, title='Fast Length', minval=1 , group = "Trend Validator - Settings" )
+par2 = input.int(200, title='Slow Length', minval=2, group = "Trend Validator - Settings" )
+filter = false
+
+gr_customalert = "CUSTOM ALERTS"
+BULL_MNYFLOW = input.bool(title='Bullish Money Flow', defval=false, inline = "NB", group=gr_customalert)
+BEAR_MNYFLOW = input.bool(title='Bearish Money Flow', defval=false, inline = "NB", group=gr_customalert)
+
+slalert = input.bool(title='Stop-Loss     ', defval=false , inline = "SLTP1", group=gr_customalert)
+tp1alert = input.bool(title='Target 1', defval=false , inline = "SLTP1", group=gr_customalert)
+tp2alert = input.bool(title='Target 2       ', defval=false , inline = "TP2TP3", group=gr_customalert)
+tp3alert = input.bool(title='Target 3', defval=false , inline = "TP2TP3", group=gr_customalert)
+
+bullcrosscloud_alert = input.bool(title='Bullish Cloud', defval=false, inline = "CD", group=gr_customalert)
+bearcrosscloud_alert = input.bool(title='Bearish Cloud', defval=false, inline = "CD", group=gr_customalert)
+
+
+//filter = input(false, title='ATR filter')
+
+
+StyleVal = plot.style_histogram
+
+//functions
+
+if Istyle == "Histogram"
+    StyleVal := plot.style_histogram
+
+if Istyle == "Area"
+    StyleVal := plot.style_area
+
+xrf(values, length) =>
+    r_val = float(na)
+    if length >= 1
+        for i = 0 to length by 1
+            if na(r_val) or not na(values[i])
+                r_val := values[i]
+                r_val
+    r_val
+xsa(src, len, wei) =>
+    sumf = 0.0
+    ma = 0.0
+    out = 0.0
+    sumf := nz(sumf[1]) - nz(src[len]) + src
+    ma := na(src[len]) ? na : sumf / len
+    out := na(out[1]) ? ma : (src * wei + out[1] * (len - wei)) / len
+    out
+
+
+//model of banker model with customized input threshold
+
+bankermodel = 3 * xsa((close - ta.lowest(low, 27)) / (ta.highest(high, 27) - ta.lowest(low, 27)) * 100, 5, 1) - 2 * xsa(xsa((close - ta.lowest(low, 27)) / (ta.highest(high, 27) - ta.lowest(low, 27)) * 100, 5, 1), 3, 1)
+crossover_1 = ta.crossover(bankermodel, bankerthreshold)
+pumpdumpsoon = crossover_1 ? 100 : 0
+longshortentry = bankermodel <= 3 ? 50 : 0
+bankermove = bankermodel < 5 ? 25 : 0
+
+
+
+// Magic Flakes
+
+//Credit to LazyBearTy for some of his CVI code\\
+
+
+ValC = ta.sma(hl2, lengthTy)
+
+bullTy = -1.0
+bearTy = 1.0
+volTy = ta.sma(ta.atr(lengthTy), lengthTy)
+//filter=sma(cvi, 400)
+// os2=input(-1.5, title="Oversold 2")
+// ob2=input(1.5, title="Overbought 2")
+
+
+cvi = (close - ValC) / (volTy * math.sqrt(lengthTy))
+
+//plot(bullTy, color=green)
+//plot(bearTy, color=red)
+
+// plot(os2, color=green, style=3)
+// plot(ob2, color=red, style=3)
+cb = cvi <= bullTy ? greengrad : cvi >= bearTy ? redgrad  : cvi > bullTy ? color.blue : cvi < bearTy ? color.blue : na
+bullTy1 = cvi <= bullTy
+bearTy1 = cvi >= bearTy
+bullTy2 = bullTy1[1] and not bullTy1
+bearTy2 = bearTy1[1] and not bearTy1
+plotshape(bullTy2, style=shape.diamond, location=location.top, color=color.new(greengrad, 50), size=size.small)
+plotshape(bearTy2, style=shape.diamond, location=location.top, color=color.new(redgrad , 50), size=size.small)
+//plotchar(bearTy1 ? cb : na)
+//plot(cvi, color=cb, style=histogram, linewidth=2)
+//plot(filter, color=red, linewidth=2)
+
+
+
+bbBasis = ta.sma(close, bbSmaPeriod)
+bbStdDev = bbStdDevMult * ta.stdev(close, bbSmaPeriod)
+
+bbUpper = bbBasis + bbStdDev
+bbLower = bbBasis - bbStdDev
+
+// AO
+aoFast = 5
+aoSlow = 34
+ao = ta.sma(hl2, aoFast) - ta.sma(hl2, aoSlow)
+colorAo = ta.change(ao) > 0 ? greengrad : redgrad
+
+// AC
+acFast = 5
+acSlow = 34
+xSMA1_hl2 = ta.sma(hl2, acFast)
+xSMA2_hl2 = ta.sma(hl2, acSlow)
+xSMA1_SMA2 = xSMA1_hl2 - xSMA2_hl2
+xSMA_hl2 = ta.sma(xSMA1_SMA2, acFast)
+ac = xSMA1_SMA2 - xSMA_hl2
+cClr = ac > ac[1] ? color.blue : redgrad
+
+acAo = (ac + ao) / 2
+
+maAcAoPeriod = 13
+showMaAcAo = false
+maAcAo = ta.vwma(acAo, maAcAoPeriod)
+
+// Combine AC & AO
+acIsBlue = ac > ac[1]
+acIsRed = not(ac > ac[1])
+aoIsGreen = ta.change(ao) > 0
+aoIsRed = not(ta.change(ao) > 0)
+acAoIsBullish = acIsBlue and aoIsGreen
+acAoIsBearish = acIsRed and acIsRed
+acAoColorIndex = acAoIsBullish ? 1 : acAoIsBearish ? -1 : 0
+
+// Alligator
+smma(src, length) =>
+    smma = 0.0
+    smma := na(smma[1]) ? ta.sma(src, length) : (smma[1] * (length - 1) + src) / length
+    smma
+lipsLength = 5
+teethLength = 8
+jawLength = 13
+lipsOffset = 3
+teethOffset = 5
+jawOffset = 8
+lips = smma(hl2, lipsLength)
+teeth = smma(hl2, teethLength)
+jaw = smma(hl2, jawLength)
+
+// SMA
+
+smaValues = ta.sma(close, smaPeriod)
+
+
+
+// Next candles are breaking Down
+probBbUpperUpSeq = close > bbUpper ? 1 : 0
+probBbUpperUp = math.sum(probBbUpperUpSeq, bayesPeriod) / bayesPeriod
+probBbUpperDownSeq = close < bbUpper ? 1 : 0
+probBbUpperDown = math.sum(probBbUpperDownSeq, bayesPeriod) / bayesPeriod
+
+probUpBbUpper = probBbUpperUp / (probBbUpperUp + probBbUpperDown)
+
+probBbBasisUpSeq = close > bbBasis ? 1 : 0
+probBbBasisUp = math.sum(probBbBasisUpSeq, bayesPeriod) / bayesPeriod
+probBbBasisDownSeq = close < bbBasis ? 1 : 0
+probBbBasisDown = math.sum(probBbBasisDownSeq, bayesPeriod) / bayesPeriod
+
+probUpBbBasis = probBbBasisUp / (probBbBasisUp + probBbBasisDown)
+
+probSmaUpSeq = close > smaValues ? 1 : 0
+probSmaUp = math.sum(probSmaUpSeq, bayesPeriod) / bayesPeriod
+probSmaDownSeq = close < smaValues ? 1 : 0
+probSmaDown = math.sum(probSmaDownSeq, bayesPeriod) / bayesPeriod
+
+probUpSma = probSmaUp / (probSmaUp + probSmaDown)
+
+sigmaProbsDn = nz(probUpBbUpper * probUpBbBasis * probUpSma / probUpBbUpper * probUpBbBasis * probUpSma + (1 - probUpBbUpper) * (1 - probUpBbBasis) * (1 - probUpSma))
+
+// Next candles are breaking Up
+probDownBbUpper = probBbUpperDown / (probBbUpperDown + probBbUpperUp)
+probDownBbBasis = probBbBasisDown / (probBbBasisDown + probBbBasisUp)
+probDownSma = probSmaDown / (probSmaDown + probSmaUp)
+
+sigmaProbsUp = nz(probDownBbUpper * probDownBbBasis * probDownSma / probDownBbUpper * probDownBbBasis * probDownSma + (1 - probDownBbUpper) * (1 - probDownBbBasis) * (1 - probDownSma))
+
+
+
+
+
+
+fatr(length) =>
+    a1 = ta.atr(1)
+    a200 = ta.atr(200)
+    tol = a200 + 3 * ta.stdev(a1, 200)  // assume that events larger than 3 sigma are exceptional
+    fa = a1 > tol ? a200 : a1  // and filters them out
+    ta.sma(fa, length)
+
+fatr__1 = fatr(par1)
+atr_1 = ta.atr(par1)
+sig1 = filter ? fatr__1 : atr_1
+fatr__2 = fatr(par2)
+atr_2 = ta.atr(par2)
+sig2 = filter ? fatr__2 : atr_2
+
+sig = 100 * (sig1 - sig2) / sig2
+//lvl = sma(abs(sig),par2) // old definition of vol thr
+lvl = ta.stdev(sig, par2)
+
+col = sig <= 0 ? redgrad : greengrad
+//pp = plot(sig, linewidth=3, color=col, title='volatility')
+//pm = plot(-sig, linewidth=3, color=col, title='volatility mirror')
+//plot(lvl, color=color.new(color.aqua, 0), title='extreme volatility threshold')
+//plot(-lvl, color=color.new(color.aqua, 0), title='extreme volatility threshold mirror')
+
+
+//background
+//bgcolor(magikc)
+//functions
+Level0 = 0
+
+
+
+xrf22(values, len22gth22) =>
+    r_val2 = float(na)
+    if len22gth22 >= 1
+        for i = 0 to len22gth22 by 1
+            if na(r_val2) or not na(values[i])
+                r_val2 := values[i]
+                r_val2
+    r_val2
+xsa22(src22, len22, wei22) =>
+    sumf22 = 0.0
+    ma = 0.0
+    out = 0.0
+    sumf22 := nz(sumf22[1]) - nz(src22[len22]) + src22
+    ma := na(src22[len22]) ? na : sumf22 / len22
+    out := na(out[1]) ? ma : (src22 * wei22 + out[1] * (len22 - wei22)) / len22
+    out
+    
+//algorithm
+var2 = xrf22(low, l1h)
+var3 = xsa22(math.abs(low - var2), h1h, 1) / xsa22(math.max(low - var2, 0), h1h, 1) * 100
+var4 = ta.ema(close * 1.2 ? var3 * h1h : var3 / h1h, h1h)
+var5 = ta.lowest(low, 34)
+var6 = ta.highest(var4, 34)
+lowest_1 = ta.lowest(low, 55)
+var7 = lowest_1 ? 1 : 0
+var8 = ta.ema(low <= var5 ? (var4 + var6 * 2) / 2 : 0, 3) / 618 * var7
+var9 = ta.ema(close, 5)
+var10 = (close - ta.sma(close, 34)) / ta.sma(close, 34) * -10
+var11 = ta.ema(low <= var5 ? (var4 + var6 * 2) / 2 : 0, 3) / 618 * var7 * -1
+var12 = ta.ema(close, 5) * -1
+
+//plot sudden dump strength with yellow stick lines
+//plotcandle(0,var8, 0, var8, color=var8>xrf22(var8,1)?color.yellow:na )
+xl1 = ta.sma(low, 2) * 0.96
+xl2 = ta.sma(low, 26) * 0.85
+xl3 = xrf22(xl1, 1) < xl2 and xrf22(xl1, 1) < xl1 and xrf22(xl1, 1) < xrf22(xl1, 2)
+dump = xl3 ? 0 : var8 * 1
+
+//after a dump there are some quick chance to see a temporary bottom in lime sticks
+//plotcandle(0,-var11, 0, -var11, color=var11>xrf22(var11,1)?color.lime:na )
+// plot orange curve to track post-dump opportunity
+xrf22_1 = xrf22(var8, 1)
+fundready = var8 > xrf22_1 ? 0 : var8
+
+
+//use KDJ to detect long entry opportunity after a dump
+rsv = (close - ta.lowest(low, 9)) / (ta.highest(high, 9) - ta.lowest(low, 9)) * 100
+k = xsa22(rsv, 3, 1)
+d = xsa22(k, 3, 1)
+j = 3 * k - 2 * d
+x = ta.lowest(j, 2) == ta.lowest(j, 8)
+longengry = ta.crossover(j, xrf22(j + 0.01, 1)) and fundready > 0 and dump > 0
+//bgcolor( longengry ? color.green:na, transp=40)
+
+//hline(Level0 , linestyle = hline.style_solid, title='Level - 0', color=color.lime, linewidth=1)
+
+
+
+plot(showNextCandleDown ? sigmaProbsDn * 100 : na, title='Dump Detector', color=color.new(redgrad, 50), linewidth=2 , style=StyleVal)
+
+
+plot(showNextCandleUp ? sigmaProbsUp * 100 : na, title='Pump Detector', color=color.new(greengrad, 50), linewidth=2 , style=StyleVal)
+
+probPrime = nz(sigmaProbsDn * sigmaProbsUp / sigmaProbsDn * sigmaProbsUp + (1 - sigmaProbsDn) * (1 - sigmaProbsUp))
+
+
+//model banker move
+pbankermove = plot(Showbankers ? bankermove : na, title = "Bankers Thinking", color=color.new(#ff2a2a, 70), linewidth=3, style=StyleVal)
+//model long short entry
+plongshortentry = plot(Showbankers ? longshortentry : na, title = "Bankers Prepairing", color=color.new(#ffaa00, 30), linewidth=3, style=StyleVal)
+//model banker pump or dump start soon
+ppumpdumpsoon = plot(Showbankers ? pumpdumpsoon : na, title = "Bankers Entring" , color=color.new(greengrad, 30), linewidth=4, style=StyleVal)
+
+plot(iNVESTORS ? dump :na, title = "Investing Time has come",color=color.new(greengrad, 0), style=StyleVal)
+
+plot(iNVESTORS ? fundready : na, color=color.new(#ffc400, 0),title = "Investors are Buying",style=StyleVal)
+
+//plot(sig2,color=white)
+hhh = hline(100, color=bullcolor , linestyle = hline.style_solid , linewidth = 2, title='Valid Level')
+lll = hline(0, color=bearcolor , linestyle = hline.style_solid , linewidth = 3, title='Base Level')
+
+magikc = sig <= 0 ? color.new(bearcolor, 90) : color.new(bullcolor, 90)
+//fill(pp, pm, color=col, transp=90)
+fill(hhh, lll, color=magikc, transp=90)
+
+//alertcondition(ta.cross(QQEF, QQES), title='Cross Alert', message='QQE Crossing Signal!')
+//alertcondition(ta.crossover(QQEF, QQES), title='Crossover Alarm', message='QQE BUY SIGNAL!')
+// alertcondition(ta.crossunder(QQEF, QQES), title='Crossunder Alarm', message='QQE SELL SIGNAL!')
+// alertcondition(ta.crossover(QQEF, 50), title='Cross 0 Up Alert', message='QQE FAST Crossing 0 UP!')
+// alertcondition(ta.crossunder(QQEF, 50), title='Cross 0 Down Alert', message='QQE FAST Crossing 0 DOWN!')
+// alertcondition(ta.crossover(QQEF, 60), title='Cross 10 Up Alert', message='QQE Above 10 UPTREND SIGNAL!')
+// alertcondition(ta.crossunder(QQEF, 40), title='Cross -10 Down Alert', message='QQE Below -10 DOWNTREND SIGNAL!')
+
+alertcondition(ta.crossover(sigmaProbsUp * 100, 95), title='Bullish Money Flow | Pump', message='Bullish Money Flow | Pump Detected')
+alertcondition(ta.crossover(sigmaProbsDn * 100, 95), title='Bearish Money Flow | Pump', message='Bearish Money Flow | Dump Detected')
+alertcondition(bullTy2, title='Bullish Magic Flakes | Reversal', message='Bullish Magic Flakes | Reversal')
+alertcondition(bearTy2, title='Bearish Magic Flakes | Reversal', message='Bearish Magic Flakes | Reversal')
+
+alertcondition(ta.crossover(bankermove, 20), title='Bankers Thinking | Pull-Back', message='Bankers Thinking | Pull-Back')
+alertcondition(ta.crossover(longshortentry, 40), title='Bankers Prepairing | Prepairing', message='Bankers Prepairing | Prepairing')
+alertcondition(ta.crossover(pumpdumpsoon, 80), title='Bankers Entring | We are in', message='Bankers Entring | We are in')

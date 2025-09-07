@@ -1,0 +1,166 @@
+// This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © World_of_Indicators
+
+
+//@version=5
+indicator("EzAlgo MTF S&R", overlay=true,max_bars_back = 1000,max_boxes_count = 500,max_labels_count = 500)
+
+group               = "MULTI-TIMEFRAME S/R"
+showSR              = input.bool(true, title = "", inline = "01", group=group)
+timef               = input.timeframe("", "", inline = "01", group=group)
+levels              = input.int(7 , "Levels", inline = "01", group = group)
+linewidth           = input.int(1, "Width", inline = "02", group = group) * 20
+supportcolor        = input.color(color.new(#00ddff, 75), "", inline = "02", group = group)
+resistancecolor     = input.color(color.new(#e91e62, 75), "", inline = "02", group = group)
+labelon             = input.string("On", "Label", ["On", "Off"], inline = "03", group = group)
+labelsize           = input.string("Default", "Size", ["Small", "Default", "Large"], inline = "03", group = group)
+labelcol            = input.color(#787b86, "", inline = "03", group = group)
+labelloc            = input.int(10, "Offset", inline = "04", group = group) + 30
+showtimef           = input.bool(true, "Show Timeframe", inline = "04", group = group)
+showtprice          = input.bool(true, "Show Price", inline = "04", group = group)
+
+
+// get data on ticker based on chosen timeframe
+src_c = request.security(syminfo.tickerid,timef,close, gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+src_o = request.security(syminfo.tickerid,timef,open, gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+f_resInMinutes() =>
+    _resInMinutes = timeframe.multiplier * (timeframe.isseconds ? 1. / 60 : timeframe.isminutes ? 1. : timeframe.isdaily ? 60. * 24 : timeframe.isweekly ? 60. * 24 * 7 : timeframe.ismonthly ? 60. * 24 * 30.4375 : na)
+    _resInMinutes
+f_timefResInMinutes(_res) =>
+    request.security(syminfo.tickerid, _res, f_resInMinutes())
+f_timefIsIntraday(_res) =>
+    [intraday, daily, weekly, monthly] = request.security(syminfo.tickerid, _res, [timeframe.isintraday, timeframe.isdaily, timeframe.isweekly, timeframe.ismonthly])
+    check = intraday ? "Intraday" : daily ? "Daily" : weekly ? "Weekly" : monthly ? "Monthly" : "Error" 
+    check
+mtimef_multiplier = int (f_timefResInMinutes(timef) / f_resInMinutes())
+prd = input.int(10 , "Pivot Period")
+maxnumpp = 284
+ChannelW = 10
+min_strength = 2
+prd := prd * mtimef_multiplier
+float src1 = math.max(src_c, src_o) 
+float src2 = math.min(src_c, src_o)
+float src3 = math.max(close, open)  
+float src4 = math.min(close, open)   
+float ph = ta.pivothigh(src1, prd, prd)
+float pl = ta.pivotlow(src2, prd, prd)
+Lstyle = line.style_solid
+timef_res = f_timefIsIntraday(timef)
+timef_text = str.tostring(timef)
+if str.tostring(timef) == ""
+    timef_text := na(timeframe.multiplier / 60) ? timeframe.period : timeframe.multiplier < 60 ?  timeframe.period + " M |" : str.tostring(timeframe.multiplier / 60) + " H |"
+else if timef_res == "Intraday"
+    timef_text := na(str.tonumber(timef) / 60) ? str.tostring(timef) : str.tonumber(timef) < 60 ?  str.tostring(timef) + " M |" : str.tostring(str.tonumber(timef) / 60) + " H |"
+else
+    timef_text := str.tostring(timef)
+//calculate maximum S/R channel zone width
+prdhighest = request.security(syminfo.tickerid, timef, ta.highest(300))
+prdlowest = request.security(syminfo.tickerid, timef, ta.lowest(300))
+cwidth = (prdhighest - prdlowest) * ChannelW / 100
+var pivotvals = array.new_float(0)
+if ph or pl
+    array.unshift(pivotvals, ph ? ph : pl)
+    if array.size(pivotvals) > maxnumpp  // limit the array size
+        array.pop(pivotvals)
+get_sr_vals(ind) =>
+    float lo = array.get(pivotvals, ind)
+    float hi = lo
+    int numpp = 0
+    for y = 0 to array.size(pivotvals) - 1 by 1
+        float cpp = array.get(pivotvals, y)
+        float wdth = cpp <= lo ? hi - cpp : cpp - lo
+        if wdth <= cwidth  // fits the max channel width?
+            lo := cpp <= lo ? cpp : lo
+            hi := cpp > lo ? cpp : hi
+            numpp += 1
+            numpp
+    [hi, lo, numpp]
+var sr_up_level = array.new_float(0)
+var sr_dn_level = array.new_float(0)
+sr_strength = array.new_float(0)
+
+find_loc(strength) =>
+    ret = array.size(sr_strength)
+    for i = ret > 0 ? array.size(sr_strength) - 1 : na to 0 by 1
+        if strength <= array.get(sr_strength, i)
+            break
+        ret := i
+        ret
+    ret
+
+check_sr(hi, lo, strength) =>
+    ret = true
+    for i = 0 to array.size(sr_up_level) > 0 ? array.size(sr_up_level) - 1 : na by 1
+        //included?
+        if array.get(sr_up_level, i) >= lo and array.get(sr_up_level, i) <= hi or array.get(sr_dn_level, i) >= lo and array.get(sr_dn_level, i) <= hi
+            if strength >= array.get(sr_strength, i)
+                array.remove(sr_strength, i)
+                array.remove(sr_up_level, i)
+                array.remove(sr_dn_level, i)
+                ret
+            else
+                ret := false
+                ret
+            break
+    ret
+
+var sr_lines = array.new_line(11, na)
+var sr_labels = array.new_label(11, na)
+var timef_labels = array.new_label(11, na)
+
+if ph or pl
+    //because of new calculation, remove old S/R levels
+    array.clear(sr_up_level)
+    array.clear(sr_dn_level)
+    array.clear(sr_strength)
+    //find S/R zones
+    for x = 0 to array.size(pivotvals) - 1 by 1
+        [hi, lo, strength] = get_sr_vals(x)
+        if check_sr(hi, lo, strength)
+            loc = find_loc(strength)
+            // if strength is in first levels sr then insert it to the arrays 
+            if loc < levels and strength >= min_strength
+                array.insert(sr_strength, loc, strength)
+                array.insert(sr_up_level, loc, hi)
+                array.insert(sr_dn_level, loc, lo)
+                // keep size of the arrays = 5
+                if array.size(sr_strength) > levels
+                    array.pop(sr_strength)
+                    array.pop(sr_up_level)
+                    array.pop(sr_dn_level)
+
+    for x = 1 to 10 by 1
+        line.delete(array.get(sr_lines, x))
+        label.delete(array.get(sr_labels, x))
+        label.delete(array.get(timef_labels, x))
+
+    for x = 0 to array.size(sr_up_level) > 0 ? array.size(sr_up_level) - 1 : na by 1
+        float mid = math.round_to_mintick((array.get(sr_up_level, x) + array.get(sr_dn_level, x)) / 2)
+        if showSR
+            array.set(sr_lines, x + 1, line.new(x1=bar_index, y1=mid, x2=bar_index - 1, y2=mid, extend=extend.both, color=mid >= close ? resistancecolor : supportcolor, style=Lstyle, width=linewidth))
+            if labelon == "On" 
+                size = labelsize == "Small" ? size.small : labelsize == "Default" ? size.normal : size.large
+                array.set(sr_labels, x + 1, label.new(x=bar_index + labelloc, y=mid, text=(showtimef ? timef_text : na) + (showtprice ? (" " + str.tostring(mid)) : na), color=mid >= close ? #ff525200 : #00e67700, textcolor=labelcol,
+                 size = size, style=label.style_label_left))
+
+f_crossed_over() =>
+    ret = false
+    for x = 0 to array.size(sr_up_level) > 0 ? array.size(sr_up_level) - 1 : na by 1
+        float mid = math.round_to_mintick((array.get(sr_up_level, x) + array.get(sr_dn_level, x)) / 2)
+        if close[1] <= mid and close > mid
+            ret := true
+            ret
+    ret
+
+f_crossed_under() =>
+    ret = false
+    for x = 0 to array.size(sr_up_level) > 0 ? array.size(sr_up_level) - 1 : na by 1
+        float mid = math.round_to_mintick((array.get(sr_up_level, x) + array.get(sr_dn_level, x)) / 2)
+        if close[1] >= mid and close < mid
+            ret := true
+            ret
+    ret
+
+alertcondition(f_crossed_over(), title= "Price Breaks Resistance", message = "Price Breaks Resistance, TimeFrame={{interval}}")
+alertcondition(f_crossed_under(), title="Price Loses Support", message="Price Loses Support, TimeFrame={{interval}}")
+

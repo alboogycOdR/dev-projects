@@ -1,0 +1,56 @@
+
+//@version=4
+study("Valuation", shorttitle="Valuation", overlay=false)
+
+// =====================================
+//  Defining input and symbol variables
+// =====================================
+CompId1 = input("DXY", type=input.symbol, title="Symbol 1")
+CompId2 = input("GC1!", type=input.symbol, title="Symbol 2")
+CompId3 = input("ZB1!", type=input.symbol, title="Symbol 3")
+Length = input(10, title="Period Length")
+RescaleLength = input(100, title="Rescale Length")
+
+// =====================================
+//  Fetching close prices
+// =====================================
+Comp1 = security(CompId1, timeframe.period, close)
+Comp2 = security(CompId2, timeframe.period, close)
+Comp3 = security(CompId3, timeframe.period, close)
+Symbol = close
+
+// ======================================
+//  Calculate percentage change
+// ======================================
+CompPerc1 = (Comp1 - nz(Comp1[Length])) / nz(Comp1[Length]) * 100
+CompPerc2 = (Comp2 - nz(Comp2[Length])) / nz(Comp2[Length]) * 100
+CompPerc3 = (Comp3 - nz(Comp3[Length])) / nz(Comp3[Length]) * 100
+SymPerc = (Symbol - nz(Symbol[Length])) / nz(Symbol[Length]) * 100
+
+Diff1 = SymPerc - CompPerc1
+Diff2 = SymPerc - CompPerc2
+Diff3 = SymPerc - CompPerc3
+
+// ======================================
+//  Rescale function
+// ======================================
+rescale(value, length) =>
+    max_val = highest(value, length)
+    min_val = lowest(value, length)
+    (value - min_val) / (max_val - min_val) * 200 - 100
+
+RescaledDiff1 = rescale(Diff1, RescaleLength)
+RescaledDiff2 = rescale(Diff2, RescaleLength)
+RescaledDiff3 = rescale(Diff3, RescaleLength)
+
+// ==================================================================
+//  Plots difference in percentage change of symbols over N bars
+// ==================================================================
+plot(RescaledDiff1, style=plot.style_line, linewidth=2, title="Symbol 1", color=color.navy)
+plot(RescaledDiff2, style=plot.style_line, linewidth=2, title="Symbol 2", color=color.yellow)
+plot(RescaledDiff3, style=plot.style_line, linewidth=2, title="Symbol 3", color=color.purple)
+hline(0, color=color.gray, linestyle=hline.style_solid, linewidth=1)
+
+// Adding threshold lines for overvalued and undervalued areas
+hline(75, color=color.black, linestyle=hline.style_dashed, linewidth=1, title="Overvalued")
+hline(-75, color=color.black, linestyle=hline.style_dashed, linewidth=1, title="Undervalued")

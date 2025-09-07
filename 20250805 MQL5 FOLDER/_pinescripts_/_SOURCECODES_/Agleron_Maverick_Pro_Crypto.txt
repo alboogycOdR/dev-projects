@@ -1,0 +1,274 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Agleron.net
+
+////////////////////////////////////////////////
+// Agleron Maverick Pro Crypto                //
+// Algo by Agleron - www.Agleron.net          //
+// Code by NK_1996 - naderkalil2000@gmail.com //
+////////////////////////////////////////////////
+//                                            //
+//                             SELL           //
+//             SELL              _            //
+//               _              | |           //
+//              | |          _  | |  _        //
+//           _  | |         | | | | | |       //
+//       _  | | |_|  _      | | | | | |       //
+//      | | |_|     | |  _  | | | | | |       //
+//      | |         | | | | | | |_| | |       //
+//      | |         |_| | | | |     | |       //
+//      |_|             | | |_|     | |       //
+//                      |_|         | |       //
+//      BUY                         | |       //
+//                      BUY         |_|       //
+//                                            //
+////////////////////////////////////////////////
+
+
+//@version=5
+indicator("Agleron Maverick Pro Crypto", overlay=true ,max_lines_count=500,max_labels_count=500)
+
+///////////////////
+ema_len = input(title="Length", defval=10 ,group="Signals")
+ema200i = ta.sma(close,ema_len)
+src = input(defval=close,title="Source",group="Signals")
+per = input.int(defval=20, minval=1, title="Sampling Period",group="Signals")
+mult = input.float(defval=1.4, minval=0.1, title="Multiplier",group="Signals")
+
+////////////////////////
+filter= input(false,"Filter Signals EMA",group="Emas")
+ema_length1 = input(21,"Ema1",group="Emas")
+ema_length2 = input(55,"Ema2",group="Emas")
+ema_length3 = input(200,"Ema3",group="Emas")
+
+/////////////////////////////////////////////////
+
+
+ema1 = ta.ema(close,ema_length1)
+ema2 = ta.ema(close,ema_length2)
+ema3 = ta.ema(close,ema_length3)
+
+plot(ema1,color=color.yellow)
+plot(ema2,color=color.orange)
+plot(ema3,color=color.white)
+
+///////////////////////////////////////  Table
+// Colors
+showAllDist = input(false,"Show All Signal Distances",group="Tickers")
+maxLookback = input(3,"Max Signal Lookback",group="Tickers")
+colorBuy = input.color(color.green,"Coloring : Buy ",inline="a",group="Tickers")
+colorSell = input.color(color.red," Sell ",inline="a",group="Tickers")
+colorIdle = input.color(color.gray," Idle ",inline="a",group="Tickers")
+ticker1 = input.symbol("BYBIT:BTCUSDT", title="Ticker 1", group="Tickers")
+ticker2 = input.symbol("BYBIT:MATICUSDT", title="Ticker 2", group="Tickers")
+ticker3 = input.symbol("BYBIT:DOGEUSDT", title="Ticker 3", group="Tickers")
+ticker4 = input.symbol("BYBIT:SHIB1000USDT", title="Ticker 4", group="Tickers")
+ticker5 = input.symbol("BYBIT:BCHUSDT", title="Ticker 5", group="Tickers")
+ticker6 = input.symbol("BYBIT:AAVEUSDT", title="Ticker 6", group="Tickers")
+ticker7 = input.symbol("BYBIT:BNBUSDT", title="Ticker 7", group="Tickers")
+ticker8 = input.symbol("BYBIT:LTCUSDT", title="Ticker 8", group="Tickers")
+ticker9 = input.symbol("BYBIT:ETHUSDT", title="Ticker 9", group="Tickers")
+ticker10 = input.symbol("BYBIT:WAVESUSDT", title="Ticker 10", group="Tickers")
+ticker11 = input.symbol("BYBIT:TRBUSDT", title="Ticker 11", group="Tickers")
+ticker12 = input.symbol("BYBIT:FILUSDT", title="Ticker 12", group="Tickers")
+ticker13 = input.symbol("BYBIT:AVAXUSDT", title="Ticker 13", group="Tickers")
+ticker14 = input.symbol("BYBIT:ATOMUSDT", title="Ticker 14", group="Tickers")
+ticker15 = input.symbol("BYBIT:THETAUSDT", title="Ticker 15", group="Tickers")
+ticker16 = input.symbol("BYBIT:RUNEUSDT", title="Ticker 16", group="Tickers")
+ticker17 = input.symbol("BYBIT:APEUSDT", title="Ticker 17", group="Tickers")
+ticker18 = input.symbol("BYBIT:DOTUSDT", title="Ticker 18", group="Tickers")
+ticker19 = input.symbol("BYBIT:SOLUSD", title="Ticker 19", group="Tickers")
+ticker20 = input.symbol("BYBIT:SOLUSDT", title="Ticker 20", group="Tickers")
+ticker21 = input.symbol("BYBIT:FLOWUSDT", title="Ticker 21", group="Tickers")
+ticker22 = input.symbol("BYBIT:ETCUSDT", title="Ticker 22", group="Tickers")
+ticker23 = input.symbol("BYBIT:LINKUSDT", title="Ticker 23", group="Tickers")
+ticker24 = input.symbol("BYBIT:MANAUSDT", title="Ticker 24", group="Tickers")
+ticker25 = input.symbol("BYBIT:NEARUSDT", title="Ticker 25", group="Tickers")
+ticker26 = input.symbol("BYBIT:BITUSDT", title="Ticker 26", group="Tickers")
+ticker27 = input.symbol("BYBIT:ROSEUSDT", title="Ticker 27", group="Tickers")
+ticker28 = input.symbol("BYBIT:SANDUSDT", title="Ticker 28", group="Tickers")
+ticker29 = input.symbol("BYBIT:TRXUSDT", title="Ticker 29", group="Tickers")
+ticker30 = input.symbol("BYBIT:FTMUSDT", title="Ticker 30", group="Tickers")
+ticker31 = input.symbol("BYBIT:GMTUSDT", title="Ticker 31", group="Tickers")
+ticker32 = input.symbol("BYBIT:XRPUSD", title="Ticker 32", group="Tickers")
+ticker33 = input.symbol("BYBIT:FITFIUSDT", title="Ticker 33", group="Tickers")
+ticker34 = input.symbol("BYBIT:OPUSDT", title="Ticker 34", group="Tickers")
+ticker35 = input.symbol("BYBIT:XRPUSDT", title="Ticker 35", group="Tickers")
+ticker36 = input.symbol("BYBIT:ADAUSDT", title="Ticker 36", group="Tickers")
+ticker37 = input.symbol("BYBIT:ETHUSD", title="Ticker 37", group="Tickers")
+ticker38 = input.symbol("BYBIT:CHZUSDT", title="Ticker 38", group="Tickers")
+ticker39 = input.symbol("BYBIT:BTCUSD",title="Ticker 39", group="Tickers")
+ticker40 = input.symbol("BYBIT:KNCUSDT",title="Ticker 40", group="Tickers")
+
+
+smoothrng(x, t, m) =>
+    wper = t * 2 - 1
+    avrng = ta.ema(math.abs(x - x[1]), t)
+    smoothrng = ta.ema(avrng, wper) * m
+    smoothrng
+    
+rngfilt(x, r) =>
+    rngfilt = x
+    rngfilt := x > nz(rngfilt[1]) ? x - r < nz(rngfilt[1]) ? nz(rngfilt[1]) : x - r : 
+       x + r > nz(rngfilt[1]) ? nz(rngfilt[1]) : x + r
+    rngfilt
+    
+    
+get_indic_pos() =>
+    smrng = smoothrng(src, per, mult)
+    filt = rngfilt(src, smrng)
+    
+    // Filter Direction
+    
+    upward = 0.0
+    upward := filt > filt[1] ? nz(upward[1]) + 1 : filt < filt[1] ? 0 : nz(upward[1])
+    downward = 0.0
+    downward := filt < filt[1] ? nz(downward[1]) + 1 : filt > filt[1] ? 0 : nz(downward[1])
+    
+    // Target Bands
+    
+    hband = filt + smrng
+    lband = filt - smrng
+    
+    longCond = bool(na)
+    shortCond = bool(na)
+    longCond := src > filt and src > src[1] and upward > 0 or 
+      src > filt and src < src[1] and upward > 0
+    shortCond := src < filt and src < src[1] and downward > 0 or 
+      src < filt and src > src[1] and downward > 0
+    
+    CondIni = 0
+    CondIni := longCond ? 1 : shortCond ? -1 : CondIni[1] 
+        
+    ema11 = ta.ema(close,ema_length1)
+    ema22 = ta.ema(close,ema_length2)
+    ema33 = ta.ema(close,ema_length3)
+    
+    result = ""
+    var lastFired = 0
+    var pos = "0"
+    var orderIndex = 0
+    if longCond and CondIni[1] == -1 and (filter? close > ema11 and close > ema22 and close > ema33 : true ) and pos != "1"
+        pos := "1"
+        orderIndex := bar_index
+    if shortCond and CondIni[1] == 1  and (filter? close < ema11 and close < ema22 and close < ema33 : true ) and pos != "-1"
+        pos := "-1"
+        orderIndex := bar_index
+    
+    if bar_index != lastFired
+        lastFired := bar_index
+        syminfo.ticker +"@"+ ((bar_index-orderIndex) <= maxLookback? pos:"0") + "@"+ pos[1] +"@"+ str.tostring(bar_index-orderIndex)
+    else
+        ""
+    
+    
+get_indic_readings(ticker) =>
+    result = request.security(ticker,timeframe.period,get_indic_pos())
+    data = str.split(result,'@')
+    
+    if array.size(data) > 3
+        pos1 = str.tonumber(array.get(data,1))
+        pos2 = str.tonumber(array.get(data,2))
+        ticker = array.get(data,0)
+        
+        if pos1 == 1 and pos2 != 1
+            alertMsg = "Buy On "+ticker
+            alert( alertMsg ,alert.freq_once_per_bar_close)
+        if pos1 == -1 and pos2 != -1
+            alertMsg = "Sell On "+ticker
+            alert( alertMsg ,alert.freq_once_per_bar_close)
+            
+    result
+    
+    
+indicValues = array.new_string(40)
+array.set(indicValues,0,get_indic_readings(ticker1))////(
+array.set(indicValues,1,get_indic_readings(ticker2))////(
+array.set(indicValues,2,get_indic_readings(ticker3))////(
+array.set(indicValues,3,get_indic_readings(ticker4))////(
+array.set(indicValues,4,get_indic_readings(ticker5))////(
+array.set(indicValues,5,get_indic_readings(ticker6))////(
+array.set(indicValues,6,get_indic_readings(ticker7))////(
+array.set(indicValues,7,get_indic_readings(ticker8))////(
+array.set(indicValues,8,get_indic_readings(ticker9))////(
+array.set(indicValues,9,get_indic_readings(ticker10))//(
+array.set(indicValues,10, get_indic_readings(ticker11))//(
+array.set(indicValues,11, get_indic_readings(ticker12))//(
+array.set(indicValues,12, get_indic_readings(ticker13))//(
+array.set(indicValues,13, get_indic_readings(ticker14))//(
+array.set(indicValues,14, get_indic_readings(ticker15))//(
+array.set(indicValues,15, get_indic_readings(ticker16))//(
+array.set(indicValues,16, get_indic_readings(ticker17))//(
+array.set(indicValues,17, get_indic_readings(ticker18))//(
+array.set(indicValues,18, get_indic_readings(ticker19))//(
+array.set(indicValues,19, get_indic_readings(ticker20))//(
+array.set(indicValues,20, get_indic_readings(ticker21))//(
+array.set(indicValues,21, get_indic_readings(ticker22))//(
+array.set(indicValues,22, get_indic_readings(ticker23))//(
+array.set(indicValues,23, get_indic_readings(ticker24))//(
+array.set(indicValues,24, get_indic_readings(ticker25))//(
+array.set(indicValues,25, get_indic_readings(ticker26))//(
+array.set(indicValues,26, get_indic_readings(ticker27))//(
+array.set(indicValues,27, get_indic_readings(ticker28))//(
+array.set(indicValues,28, get_indic_readings(ticker29))//(
+array.set(indicValues,29, get_indic_readings(ticker30))//(
+array.set(indicValues,30, get_indic_readings(ticker31))//(
+array.set(indicValues,31, get_indic_readings(ticker32))//(
+array.set(indicValues,32, get_indic_readings(ticker33))//(
+array.set(indicValues,33, get_indic_readings(ticker34))//(
+array.set(indicValues,34, get_indic_readings(ticker35))//(
+array.set(indicValues,35, get_indic_readings(ticker36))//(
+array.set(indicValues,36, get_indic_readings(ticker37))//(
+array.set(indicValues,37, get_indic_readings(ticker38))//(
+array.set(indicValues,38, get_indic_readings(ticker39))//(
+array.set(indicValues,39, get_indic_readings(ticker40))//(
+
+
+get_bg_text(pos) =>
+    bgText = "Idle"
+    if pos == 1
+        bgText := "Buy"
+    if pos == -1
+        bgText := "Sell"
+        
+    bgText
+    
+
+get_bg_color(pos) =>
+    bgcolor=colorIdle
+    if pos == 1
+        bgcolor:=colorBuy
+    if pos == -1
+        bgcolor:=colorSell
+    bgcolor
+
+
+columnss = 10
+rowss = 4
+bgColoring = color.gray//#dddddd
+//Plot Scanner Table
+var dataTable = table.new(position.bottom_right,frame_color=color.black,bgcolor=bgColoring,border_color=color.black, columns=columnss,border_width=3, rows=rowss, border_width=1)
+//ticker1
+if  barstate.islast
+    counter = 0
+    for offsetr = 0 to rowss-1
+        for offsetc = 0 to columnss-1
+            data = str.split(array.get(indicValues,counter),'@')
+            if array.size(data) > 3
+                pos = str.tonumber(array.get(data,1))
+                num = str.tonumber(array.get(data,3))
+                ticker = array.get(data,0)
+                table.cell(table_id=dataTable, column=offsetc, row=offsetr, text=ticker+ (showAllDist? " ("+str.tostring(num)+")":""), height=0, text_color=color.white, text_halign=text.align_center, text_valign= text.align_center, bgcolor=get_bg_color(pos))
+            counter := counter + 1
+/////////////////////// original plots and alerts
+var float pos = 0
+var float sinceNum = 0
+result = get_indic_pos()
+data = str.split(result,'@')
+if array.size(data) > 3
+    pos := str.tonumber(array.get(data,1))
+    sinceNum := str.tonumber(array.get(data,3))
+
+
+plotshape(pos == 1 and pos != pos[1], title="Buy Signal", text="BUY", textcolor=color.white, style=shape.labelup, size=size.normal, location=location.belowbar, color=#00dbff )
+plotshape(pos == -1 and pos != pos[1], title="Sell Signal", text="SELL", textcolor=color.white, style=shape.labeldown, size=size.normal, location=location.abovebar, color=#ff0057)
+

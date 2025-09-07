@@ -1,0 +1,258 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// @author Rodrigo Kazuma
+// @version=4
+
+
+study("RK's 18 ∴ All Sources Support and Resistance Indicator", "RK 18 ∴", overlay=true) //, max_bars_back = maxBarsBack)//, resolution="")
+
+// >>> Notes >>> {
+//
+// Link:
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//----------------------------------------------------------------- }
+
+
+// ► Unicode characters to cheat the lack of workable \n in inputs --- [
+//U+2003 → 'Em Space' 				→ "_ _"
+//U+2060 → 'Word Joiner' 			→ "_ _"
+//U+2800 → 'Braille Pattern Blank'	→ "_⠀_"
+// ◄ ]
+
+
+// ●───────── Constants Declaration ─────────● {
+
+// ─── Labels Size Options ───► [
+var string	LB_SZ00 = size.auto
+var string	LB_SZ01 = size.tiny
+var string	LB_SZ02 = size.small
+var string	LB_SZ03 = size.normal
+var string	LB_SZ04 = size.large
+var string	LB_SZ05 = size.huge
+// ◄ ]
+
+// ─── Labels Style Options ───► [
+var string 	LB_NONE = "Don't Plot Labels"				//→	label.style_none
+var string 	LB_ST00 = "Just Text"						//→	label.style_none
+var string 	LB_ST01 = "Circle"							//→	label.style_circle
+var string 	LB_ST02 = "Square"							//→	label.style_square
+var string 	LB_ST03 = "Diamond"							//→	label.style_diamond
+var string 	LB_ST04 = "Label Up"						//→	label.style_label_up
+var string 	LB_ST05 = "Label Down"						//→	label.style_label_down
+var string 	LB_ST06 = "Label Left"						//→	label.style_label_left
+var string 	LB_ST07 = "Label Right"						//→	label.style_label_right
+var string 	LB_ST08 = "Label Lower Left"				//→	label.style_label_lower_left
+var string 	LB_ST09 = "Label Lower Right"				//→	label.style_label_lower_right
+var string 	LB_ST10 = "Label Upper Left"				//→	label.style_label_upper_left
+var string 	LB_ST11 = "Label Upper Right"				//→	label.style_label_upper_right
+var string 	LB_ST12 = "Label Center"					//→	label.style_label_center
+var string 	LB_ST13 = "X Cross"							//→	label.style_xcross
+var string 	LB_ST14 = "Cross"							//→	label.style_cross
+var string 	LB_ST15 = "Triangle Up"						//→	label.style_triangleup
+var string 	LB_ST16 = "Triangle Down"					//→	label.style_triangledown
+var string 	LB_ST17 = "Flag"							//→	label.style_flag
+var string 	LB_ST18 = "Arrow Up"						//→	label.style_arrowup
+var string 	LB_ST19 = "Arrow Down"						//→	label.style_arrowdown
+// ◄ ]
+
+
+// ─── Input Titles ───► [
+var string 	group_levels		= "Levels Setup"
+var string 	t_max_levels 		= "Maximum Number of Levels to Draw"
+
+var string 	group_source		= "Source Setup"
+var string 	t_maxBarsBack 		= "Maximum Number of Sources Analyzed"
+
+var string	tooltip_source 		= "Check to use the selected source"
+
+var string	tooltip_precision 	= "Small Values will Rounds Stronger"
+var string 	t_precision_digit 	= "Precision Digit"
+var string	tooltip_strength 	= "It will ignore any level repeated less then this value"
+var string 	t_min_strength 		= "Minimum Level Strength: "
+
+var string	tooltip_min_value 	= "It will ignore any value smaller then this"
+var string 	t_min_value			= "Minimum Source Value"
+
+var string 	group_colors		= "Colors Setup"
+var string 	inLine_resistance	= "Resistance"
+var string 	t_c_resistance		= "Resistance Color"
+var string 	t_c_txt_resistance	= "  Resistance Text Color"
+
+var string 	inLine_support		= "Support"
+var string 	t_c_support			= "Support Color  "
+var string 	t_c_txt_support		= "  Support Text Color  "
+
+var string 	group_labels		= "Labels Setup"
+var string 	t_label_style		= "Style: "
+var string 	t_label_size		= "      Size: "
+var string 	t_label_offset		= "Offset"
+
+var string 	s_SO	= line.style_solid
+var string 	s_DO	= line.style_dotted
+var string 	s_DA	= line.style_dashed
+// ◄ ]
+
+// ●───────────────────────────────── ∴ ─────────────────────────────────● }
+
+
+// ●───────── Get Inputs ─────────● {
+var int 	i_max_levels 		= input(20			, t_max_levels 			,  group=group_levels, minval=0)
+var int 	i_maxBarsBack 		= input(3000		, t_maxBarsBack 		,  group=group_source, minval=0, step=500)
+var float 	i_min_value			= input(0			, t_min_value			, tooltip=tooltip_min_value, group=group_source, step=0.5)
+var bool	i_use_source_0		= input(false		, ""					, tooltip=""				, inline="source_0", group=group_source)
+float		i_source_0			= input(open		, ""					, tooltip=tooltip_source	, inline="source_0", group=group_source)
+var bool	i_use_source_1		= input(true		, ""					, tooltip=""				, inline="source_0", group=group_source)
+float		i_source_1			= input(high		, ""					, tooltip=""				, inline="source_0", group=group_source)
+var bool	i_use_source_2		= input(true		, ""					, tooltip=tooltip_source	, inline="source_1", group=group_source)
+float		i_source_2			= input(low			, ""					, tooltip=""				, inline="source_1", group=group_source)
+var bool	i_use_source_3		= input(true		, ""					, tooltip=""				, inline="source_1", group=group_source)
+float		i_source_3			= input(close		, ""					, tooltip=""				, inline="source_1", group=group_source)
+var int 	i_precision_digit 	= input(1			, t_precision_digit 	, tooltip=tooltip_precision	, group=group_source, minval=0, maxval=15)
+int 		i_min_strength 		= input(1			, t_min_strength 		, tooltip=tooltip_strength	, group=group_source, minval=1)
+var color	i_c_resistance		= input(color.red	, t_c_resistance		, inline=inLine_resistance 	, group=group_colors)
+var color	i_c_txt_resistance	= input(color.white	, t_c_txt_resistance	, inline=inLine_resistance 	, group=group_colors)
+var color	i_c_support			= input(color.green	, t_c_support			, inline=inLine_support 	, group=group_colors)
+var color	i_c_txt_support		= input(color.white	, t_c_txt_support		, inline=inLine_support 	, group=group_colors)
+var string 	i_label_style		= input(LB_ST06		, t_label_style			, inline=group_labels, group=group_labels, options=[LB_NONE, LB_ST00, LB_ST04, LB_ST05, LB_ST06, LB_ST07, LB_ST08, LB_ST09, LB_ST10, LB_ST11, LB_ST12])
+var string 	i_label_size		= input(LB_SZ02		, t_label_size			, inline=group_labels, group=group_labels, options=[LB_SZ00, LB_SZ01, LB_SZ02, LB_SZ03, LB_SZ04, LB_SZ05])
+var int 	i_label_offset		= input(10			, t_label_offset		, inline="group_labels", group=group_labels, step=5)
+var int 	i_line_width		= input(1			, "Line width:"			, inline="Line", group=group_labels, minval=0)
+var string 	i_line_style		= input(s_DO		, "Line Style:"			, inline="Line", group=group_labels, options=[s_SO, s_DO, s_DA])
+// ●───────────────────────────────── ∴ ─────────────────────────────────● }
+
+
+// ●───────── Initialization ─────────● {
+
+// ─── Labels Style ───► [
+string lbl_style =
+	 i_label_style == LB_ST04 ? label.style_label_up	:	 i_label_style == LB_ST08 ? label.style_label_lower_left	:
+	 i_label_style == LB_ST05 ? label.style_label_down	:	 i_label_style == LB_ST09 ? label.style_label_lower_right	:
+	 i_label_style == LB_ST06 ? label.style_label_left	:	 i_label_style == LB_ST10 ? label.style_label_upper_left	:
+	 i_label_style == LB_ST07 ? label.style_label_right	:	 i_label_style == LB_ST11 ? label.style_label_upper_right	:
+	 i_label_style == LB_ST12 ? label.style_label_center:	 i_label_style == LB_ST01 ? label.style_circle				:
+	 i_label_style == LB_ST02 ? label.style_square		:	 i_label_style == LB_ST03 ? label.style_diamond				:
+	 i_label_style == LB_ST13 ? label.style_xcross		:	 i_label_style == LB_ST15 ? label.style_triangleup			:
+	 i_label_style == LB_ST14 ? label.style_cross		:	 i_label_style == LB_ST16 ? label.style_triangledown		:
+	 i_label_style == LB_ST17 ? label.style_flag		:	 i_label_style == LB_ST00 ? label.style_none				:
+	 i_label_style == LB_ST18 ? label.style_arrowup		:	 i_label_style == LB_ST19 ? label.style_arrowdown			:
+	 label.style_none
+// ◄ ]
+
+
+
+// ─── Variables ───► [
+var a_rounded_source 		= array.new_float(na)
+var a_repeated_values 		= array.new_float(na)
+var a_lines 				= array.new_line()
+var a_label 				= array.new_label()
+var bar_size				= time_close - time
+label_position				= time + i_label_offset * bar_size
+to_draw_activator			= barstate.islast and array.size(a_rounded_source) > 0
+// ◄ ]
+
+// ●───────────────────────────────── ∴ ─────────────────────────────────● }
+
+
+// ●───────── Functions ─────────● {
+f_log_round(_source)=>
+	_scaled_base = 2.5
+	_base = round(log10(_source)-i_precision_digit)
+	_mult = pow(10, _base)*_scaled_base
+	_round = round(_source/_mult)*_mult
+
+
+f_value_to_array(_value)=>
+	if array.size(a_rounded_source) > i_maxBarsBack
+		memory_discard = array.shift(a_rounded_source)
+	if _value >= i_min_value
+		array.push(a_rounded_source, _value)
+
+
+f_get_mode_from_array()=>
+	_mode_value		= array.mode(a_rounded_source)
+	array.push(a_repeated_values, _mode_value)
+	_mode_index_0 	= max(array.indexof(a_rounded_source, _mode_value), 0)
+	_mode_index_1 	= max(array.lastindexof(a_rounded_source, _mode_value), 0)
+	_a_mode_slice	= array.slice(a_rounded_source, _mode_index_0, _mode_index_1)
+	_level_strength = array.size(_a_mode_slice)
+	array.clear(_a_mode_slice)
+	[_mode_value, _level_strength]
+
+
+f_draw_lines_and_labels(_value, _strength, _counter)=>
+	if not na(_value) and _strength >= i_min_strength
+		bool	_is_support		= _value <= close
+		color	_line_color		= _is_support ? i_c_support 	: i_c_resistance
+		color	_text_color		= _is_support ? i_c_txt_support : i_c_txt_resistance
+		string 	_level_type		= _is_support ? "Support " : "Resistance "
+		string 	_label_text		= _level_type + "with Strength: " + tostring(_strength)	+ " → Value: " + tostring(_value)
+		string 	_label_tooltip	= "Level Number: " + tostring(_counter)
+		array.push(a_lines, line.new(bar_index - 1, _value, bar_index, _value, xloc.bar_index, extend.both, _line_color, i_line_style, i_line_width))
+		if i_label_style != LB_NONE
+			array.push(a_label, label.new(label_position, _value, _label_text, xloc.bar_time, yloc.price, _line_color, lbl_style, _text_color, i_label_size, text.align_left, _label_tooltip))
+
+		if array.size(a_lines) > i_max_levels
+			delete_lines = array.shift(a_lines)
+			delete_label = array.shift(a_label)
+			line.delete(delete_lines)
+			label.delete(delete_label)
+
+// ●───────────────────────────────── ∴ ─────────────────────────────────● }
+
+
+
+
+// ●───────── Indicator ─────────● {
+float rounded_source_0 = i_use_source_0	? f_log_round(i_source_0)	: na
+float rounded_source_1 = i_use_source_1	? f_log_round(i_source_1)	: na
+float rounded_source_2 = i_use_source_2	? f_log_round(i_source_2)	: na
+float rounded_source_3 = i_use_source_3	? f_log_round(i_source_3) 	: na
+
+f_value_to_array(rounded_source_0)
+f_value_to_array(rounded_source_1)
+f_value_to_array(rounded_source_2)
+f_value_to_array(rounded_source_3)
+
+if	to_draw_activator
+	array.sort(a_rounded_source, order.descending) 	//ascending)
+
+	for i=0 to i_max_levels-1
+		[level_value, level_strength]	= f_get_mode_from_array()
+		f_draw_lines_and_labels(level_value, level_strength, i)
+
+// ●───────────────────────────────── ∴ ─────────────────────────────────● }
+
+
+
+// ●───────── Simplest Version ─────────● {
+// var string	t_use_open			= "Open  "
+// var string	t_use_high			= "High  "
+// var string	t_use_low			= "Low  "
+// var string	t_use_close			= "Close  "
+
+// var bool	i_use_open			= input(false		, t_use_open			, inline=group_source, group=group_source)
+// var bool	i_use_high			= input(true		, t_use_high			, inline=group_source, group=group_source)
+// var bool	i_use_low			= input(true		, t_use_low				, inline=group_source, group=group_source)
+// var bool	i_use_close			= input(true		, t_use_close			, inline=group_source, group=group_source)
+
+// float rounded_open 	= i_use_open	? f_log_round(open)	 : na
+// float rounded_high 	= i_use_high	? f_log_round(high)	 : na
+// float rounded_low 	= i_use_low		? f_log_round(low)	 : na
+// float rounded_close = i_use_close	? f_log_round(close) : na
+
+// f_value_to_array(rounded_open)
+// f_value_to_array(rounded_high)
+// f_value_to_array(rounded_low)
+// f_value_to_array(rounded_close)
+// ●───────────────────────────────── ∴ ─────────────────────────────────● }

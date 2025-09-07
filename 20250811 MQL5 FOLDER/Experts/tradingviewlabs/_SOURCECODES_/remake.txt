@@ -1,0 +1,120 @@
+//@version=5
+indicator(title = "Volume Profile/Fixed Range", shorttitle = "Volume Profile/Fixed Range", overlay = true, max_boxes_count = 100, max_bars_back = 5000)
+
+//-------------------------------------------------------------------------------
+
+// user input
+lookback = input.int(title = "Lookback Period", defval = 100, maxval = 1000, group = "Main Configuration", tooltip = "Number of bars to search for highest high and highest low to create a price range")
+segs = input.int(title = "Number Of Levels", defval = 100, maxval = 100, group = "Main Configuration", tooltip = "Number of volume grids/nodes for the volume profile")
+n_skew = input.int(title = "Profile Width", defval = 100, minval = 10, maxval = 1000, group = "Main Configuration", tooltip = "Length of the volume profile. Higher = Wider, Lower = Skinnier")
+n_shift = input.int(title = "Profile Offset", defval = 120, group = "Main Configuration", tooltip = "Offset the entire volume profile left or right. Higher = Right, Lower = Left")
+high_volume_color = input.color(color.new(#ffffff, 10), "High Volume", inline = "Colors", group = "Cosmetic Settings")
+low_volume_color = input.color(color.new(#ff0000, 10), "Low Volume", inline = "Colors", group = "Cosmetic Settings")
+activity_bull_color = input.color(color.new(color.orange, 10), "Above Point Of Interest", inline = "POI", group = "Cosmetic Settings")
+activity_bear_color = input.color(color.new(color.orange, 10), "Below Point Of Interest", inline = "POI", group = "Cosmetic Settings")
+
+// data
+highest_high = ta.highest(high, lookback)
+lowest_low = ta.lowest(low, lookback)
+avgHL =  math.avg(highest_high, lowest_low)
+avg75 = math.avg(highest_high, avgHL)
+avg25 = math.avg(lowest_low, avgHL)
+// lower timeframe data extraction
+tf = timeframe.isdaily ? 1440 : timeframe.isweekly ? 1440 * 7 : timeframe.ismonthly ? 1440 * 30 : str.tonumber(timeframe.period)
+req_tf = math.round(tf / 16) < 1 ? "30S" : str.tostring(math.round(tf / 16))
+[h, l, v] = request.security_lower_tf(syminfo.tickerid, req_tf, [high, low, volume])
+
+// arrays
+var borders = array.new_float()
+var boxes = array.new_box()
+var box_vols = array.new_float()
+var reversal = array.new_line()
+var line activity_line = na
+
+// initialize box arrays on first bar
+if barstate.isfirst
+    for i = 0 to segs - 1
+        array.push(boxes, box.new(na, na, na, na, xloc = xloc.bar_time, border_color = na))
+        array.push(box_vols, 0)
+
+        activity_line := line.new(na, na, na, na, style = line.style_solid, width = 2)
+
+if barstate.islast
+    //define range and create grid
+    inc = (highest_high - lowest_low) / segs
+    for i = 0 to segs
+        if i == 0
+            array.clear(borders)
+        array.push(borders, highest_high - (inc * i))
+
+    //parse all lower timeframe bars and attribute volume to each grid
+    for b = 0 to array.size(boxes) > 0 ? array.size(boxes) - 1 : na
+        box_ = array.get(boxes, b)
+        box_vol = 0.0
+        t_border = array.get(borders, b)
+        b_border = array.get(borders, b + 1)
+
+        for q = 0 to lookback - 1
+            for e = 0 to array.size(h[q]) > 0 ? array.size(h[q]) - 1 : na
+                ltf_high = array.get(h[q], e)
+                ltf_low = array.get(l[q], e)
+                ltf_vol = array.get(v[q], e)
+
+                ltf_diff = ltf_high - ltf_low
+
+                if ltf_low <= t_border and ltf_high >= b_border
+                    top_register = math.min(ltf_high, t_border)
+                    bot_register = math.max(ltf_low, b_border)
+
+                    register_diff = top_register - bot_register
+                    register_vol = register_diff / ltf_diff
+                    box_vol += nz(register_vol * ltf_vol)
+        array.set(box_vols, b, box_vol)
+
+    //update box objects with proper volume, color, and position
+    max_vol = array.max(box_vols)
+    min_vol = array.min(box_vols)
+    shift = (time - time[n_shift])
+    skew = (time - time[n_skew]) / max_vol
+    ctime = time_close
+    mtime = (time+time_close) / 2
+    lengthtime = time-time[lookback]
+    offsettime = time-time[n_shift]
+    for b = 0 to array.size(boxes) > 0 ? array.size(boxes) - 1 : na
+        box_ = array.get(boxes, b)
+        box_vol = array.get(box_vols, b)
+        t_border = array.get(borders, b)
+        b_border = array.get(borders, b + 1)
+
+        box.set_lefttop(box_, (time + shift) - int(box_vol * skew), t_border)
+        box.set_rightbottom(box_, time + shift, b_border)
+        array.set(box_vols, b, box_vol)
+
+        box.set_bgcolor(box_, color.from_gradient(box_vol, min_vol, max_vol, low_volume_color, high_volume_color))
+
+        if box_vol == max_vol
+            mid = (t_border + b_border) / 2
+            line.set_xloc(activity_line, time, (time + shift) - int(box_vol * skew), xloc.bar_time)
+            line.set_y1(activity_line, mid)
+            line.set_y2(activity_line, mid)
+            line.set_color(activity_line, close > mid ? activity_bull_color : activity_bear_color)
+
+
+
+
+            var label poc_label = na
+            label.delete(poc_label)
+            poc_label := label.new(bar_index + 5 + n_shift, mid, text = "POC: " + str.tostring(math.round_to_mintick(mid)),color = color.new(close > mid ? activity_bull_color : activity_bear_color,80),textcolor = color.new(close > mid ? activity_bull_color : activity_bear_color,0),style = label.style_label_left)
+            var label highest_label = na
+            label.delete(highest_label)
+            highest_label := label.new(bar_index + 5 + n_shift, highest_high, text = "Highest: " + str.tostring(math.round_to_mintick(highest_high)),color = color.new(close > highest_high ? activity_bull_color : activity_bear_color,80),textcolor = color.new(close > mid ? activity_bull_color : activity_bear_color,0),style = label.style_label_left)
+            var label lowest_label = na
+            label.delete(lowest_label)
+            lowest_label := label.new(bar_index + 5 + n_shift, lowest_low, text = "Lowest: " + str.tostring(math.round_to_mintick(lowest_low)),color = color.new(close > lowest_low ? activity_bull_color : activity_bear_color,80),textcolor = color.new(close > mid ? activity_bull_color : activity_bear_color,0),style = label.style_label_left)
+
+
+        array.push(reversal, line.new(mtime - lengthtime, highest_high, ctime + offsettime, highest_high, xloc = xloc.bar_time, color = color.gray, style = line.style_dotted, width = 2 ))
+        array.push(reversal, line.new(mtime - lengthtime, lowest_low, ctime + offsettime, lowest_low, xloc = xloc.bar_time, color = color.gray, style = line.style_dotted, width = 2 ))
+        array.push(reversal, line.new(mtime - lengthtime, avg75, ctime + offsettime, avg75, xloc = xloc.bar_time, color = color.gray, style = line.style_dotted, width = 2 ))
+        array.push(reversal, line.new(mtime - lengthtime, avg25, ctime + offsettime, avg25, xloc = xloc.bar_time, color = color.gray, style = line.style_dotted, width = 2 ))
+        array.push(reversal, line.new(mtime - lengthtime,  avgHL, ctime + offsettime, avgHL, xloc = xloc.bar_time, color = color.gray, style = line.style_dotted, width = 2 ))    

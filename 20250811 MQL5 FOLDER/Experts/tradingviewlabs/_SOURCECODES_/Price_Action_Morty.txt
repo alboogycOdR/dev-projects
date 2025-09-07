@@ -1,0 +1,217 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © M0rty
+
+//@version=5
+indicator('Price Action [Morty]', overlay=true, timeframe="", timeframe_gaps=true)
+
+//------------------------------------------------------------------------------
+// inputs
+mode = input.string(title='HTF Method', defval='Auto', options=['Auto', 'Manual'], group='SSL Channel')
+//auto higher time frame
+HTF_auto = timeframe.period == '1' ? '30' : 
+           timeframe.period == '2' ? '30' : 
+           timeframe.period == '3' ? '60' : 
+           timeframe.period == '5' ? '60' : 
+           timeframe.period == '15' ? '120' : 
+           timeframe.period == '30' ? '240' : 
+           timeframe.period == '45' ? '240' : 
+           timeframe.period == '60' ? '240' : 
+           timeframe.period == '120' ? '480' : 
+           timeframe.period == '180' ? '720' : 
+           timeframe.period == '240' ? 'D' : 
+           timeframe.period == '360' ? 'D' : 
+           timeframe.period == '480' ? '2D' : 
+           timeframe.period == '720' ? '3D' : 
+           timeframe.period == 'D' ? '3D' : 
+           timeframe.period == '3D' ? 'W' : '5W'
+
+HTF_manual = input.timeframe('240', title='Timeframe (if HTF Method=Manual)', group='SSL Channel')
+HTF = mode == 'Auto' ? HTF_auto : HTF_manual
+
+show_htf_ssl = input.bool(false, title='Show HTF SSL Channel', group='SSL Channel')
+highlight_bg = input.bool(true, title='Highlight background', group='SSL Channel')
+
+src = input.source(close, title='EMA Source', group='EMA')
+ema_fast_length = input.int(10, minval=1, title='Fast EMA Length', group='EMA')
+ema_slow_length = input.int(20, minval=1, title='Slow EMA Length', group='EMA')
+len = input.int(60, minval=1, title='Long Period EMA Length', group='EMA')
+
+C_LongShadowPercent = input.int(65, 'Long Shadow Percent', minval=40, maxval=90, group='Candlestick Pattern')
+enable_engulfing = input.bool(true, 'Enable Engulfing', group='Candlestick Pattern')
+enable_harami = input.bool(false, 'Enable Harami', group='Candlestick Pattern')
+enable_pinbar = input.bool(true, 'Enable Pin Bar', group='Candlestick Pattern')
+enable_2bar_reversal = input.bool(true, 'Enable 2 Bar Reversal', group='Candlestick Pattern')
+
+show_c_pattern = input.bool(true, 'Show candlestick patterns', group='Signal')
+show_buy_sell = input.bool(true, 'Show buy and sell signals', group='Signal')
+filter_by_trend = input.bool(true, 'Filter signals by trend', group='Signal')
+filter_by_adx = input.bool(true, title='Filter signals by ADX >', inline='adx', group='Signal')
+adx_th = input.float(20.0, title='ADX_th', inline='adx', group='Signal')
+filter_by_squeeze = input.bool(false, 'Filter by Squeeze (Bbands inside Keltner Channels)', group='Signal')
+filter_by_low_volume = input.bool(false, 'Filter by low volume', group='Signal')
+show_squeeze = input.bool(true, 'Show Squeeze', group='Signal')
+
+
+//------------------------------------------------------------------------------
+// calc adx
+dirmov(len) =>
+    up = ta.change(high)
+    down = -ta.change(low)
+    plusDM = na(up) ? na : up > down and up > 0 ? up : 0
+    minusDM = na(down) ? na : down > up and down > 0 ? down : 0
+    truerange = ta.rma(ta.tr, len)
+    plus = fixnan(100 * ta.rma(plusDM, len) / truerange)
+    minus = fixnan(100 * ta.rma(minusDM, len) / truerange)
+    [plus, minus]
+adx(dilen, adxlen) =>
+    [plus, minus] = dirmov(dilen)
+    sum = plus + minus
+    adx = 100 * ta.rma(math.abs(plus - minus) / (sum == 0 ? 1 : sum), adxlen)
+    adx
+adx_value = adx(14, 14)
+
+strong_trend = adx_value > adx_th
+
+
+//------------------------------------------------------------------------------
+// calc squeeze
+f_squeeze(source) =>
+    // Calculate BB
+    basis = ta.sma(source, 20)
+    dev = 2 * ta.stdev(source, 20)
+    upperBB = basis + dev
+    lowerBB = basis - dev
+    // Calculate KC
+    ma = ta.sma(source, 20)
+    rangema = ta.sma(ta.tr, 20)
+    upperKC = ma + rangema * 1.5
+    lowerKC = ma - rangema * 1.5
+    // return squeeze
+    squeeze = lowerBB > lowerKC and upperBB < upperKC
+    squeeze
+
+
+squeeze = f_squeeze(close)
+// plot squeeze on the top of main chart
+mom = ta.mom(close, 20)
+// squeeze circle location is base on momentum
+
+plotshape(show_squeeze ? (squeeze and mom >= 0) : na, title='Volatility Squeeze', location=location.belowbar, color=color.new(color.orange, 60), style=shape.circle, size=size.tiny)
+plotshape(show_squeeze ? (squeeze and mom <  0) : na, title='Volatility Squeeze', location=location.abovebar, color=color.new(color.orange, 60), style=shape.circle, size=size.tiny)
+
+//------------------------------------------------------------------------------
+// calc higher timeframe SSL Channel
+[h, l, c] = request.security(syminfo.tickerid, HTF, [high, low, close], gaps=barmerge.gaps_on, lookahead=barmerge.lookahead_on)
+smaHigh = ta.sma(h, 10)
+smaLow = ta.sma(l, 10)
+Hlv = float(na)
+Hlv := c > smaHigh ? 1 : c < smaLow ? -1 : Hlv[1]
+sslDown = Hlv < 0 ? smaHigh : smaLow
+sslUp = Hlv < 0 ? smaLow : smaHigh
+
+plot(show_htf_ssl ? sslDown : na, title='SSL Channel Down', linewidth=2, color=color.new(color.red, 0))
+plot(show_htf_ssl ? sslUp : na, title='SSL Channel Up', linewidth=2, color=color.new(color.lime, 0))
+
+
+//------------------------------------------------------------------------------
+// Calc EMA
+ema = ta.ema(src, len)
+ema_fast = ta.ema(src, ema_fast_length)
+ema_slow = ta.ema(src, ema_slow_length)
+// plot EMAs
+plot(ema, title='EMA Long Period', color=color.new(color.blue, 0), linewidth=2)
+l1 = plot(ema_fast, 'EMA Fast', color=color.new(color.green, 0))
+l2 = plot(ema_slow, 'EMA Slow', color=color.new(color.red, 0))
+fill(l1, l2, color=ema_fast > ema_slow ? color.new(color.green, 80) : color.new(color.red, 80), title='Backgroud of EMA cradle')
+
+
+//------------------------------------------------------------------------------
+// detect trend
+C_DownTrend = true
+C_UpTrend = true
+
+C_DownTrend := sslUp < sslDown
+C_UpTrend := sslUp > sslDown
+
+// highlight background base on trend
+bgcolor(highlight_bg ? C_UpTrend ? color.new(color.green, 80)  : na : na, title='Up trend background')
+bgcolor(highlight_bg ? C_DownTrend ? color.new(color.red, 80) : na : na, title='Down trend background')
+
+// low volume
+is_low_volume = volume < ta.sma(volume, 14)
+
+//------------------------------------------------------------------------------
+// candlestick pattern variables
+C_Len = 7  // ema depth for bodyAvg, original 14
+C_ShadowPercent = 5.0  // size of shadows
+C_ShadowEqualsPercent = 100.0
+C_DojiBodyPercent = 8.5  // original 5.0
+C_Factor = 2.0  // shows the number of times the shadow dominates the candlestick body
+
+C_BodyHi = math.max(close, open)
+C_BodyLo = math.min(close, open)
+C_Body = C_BodyHi - C_BodyLo
+C_BodyAvg = ta.ema(C_Body, C_Len)
+C_SmallBody = C_Body < C_BodyAvg
+C_LongBody = C_Body > C_BodyAvg
+C_UpShadow = high - C_BodyHi
+C_DnShadow = C_BodyLo - low
+C_HasUpShadow = C_UpShadow > C_ShadowPercent / 100 * C_Body
+C_HasDnShadow = C_DnShadow > C_ShadowPercent / 100 * C_Body
+C_WhiteBody = open < close
+C_BlackBody = open > close
+C_Range = high - low
+C_IsInsideBar = C_BodyHi[1] > C_BodyHi and C_BodyLo[1] < C_BodyLo
+C_BodyMiddle = C_Body / 2 + C_BodyLo
+C_ShadowEquals = C_UpShadow == C_DnShadow or math.abs(C_UpShadow - C_DnShadow) / C_DnShadow * 100 < C_ShadowEqualsPercent and math.abs(C_DnShadow - C_UpShadow) / C_UpShadow * 100 < C_ShadowEqualsPercent
+C_IsDojiBody = C_Range > 0 and C_Body <= C_Range * C_DojiBodyPercent / 100
+C_Doji = C_IsDojiBody and C_ShadowEquals
+
+
+//------------------------------------------------------------------------------
+// Candlestick patterns recognition
+
+// Engulfing
+C_EngulfingBullish = enable_engulfing and C_WhiteBody and C_LongBody and C_BlackBody[1] and C_SmallBody[1] and close >= open[1] and open <= close[1] and (close > open[1] or open < close[1])
+C_EngulfingBearish = enable_engulfing and C_BlackBody and C_LongBody and C_WhiteBody[1] and C_SmallBody[1] and close <= open[1] and open >= close[1] and (close < open[1] or open > close[1])
+
+// Harami
+C_HaramiBullish = enable_harami and C_LongBody[1] and C_BlackBody[1] and C_WhiteBody and C_SmallBody and high <= C_BodyHi[1] and low >= C_BodyLo[1]
+C_HaramiBearish = enable_harami and C_LongBody[1] and C_WhiteBody[1] and C_BlackBody and C_SmallBody and high <= C_BodyHi[1] and low >= C_BodyLo[1]
+
+// Pin bar Aka long shadow
+C_PinbarBullish = enable_pinbar and C_DnShadow > C_Range / 100 * C_LongShadowPercent
+C_PinbarBearish = enable_pinbar and C_UpShadow > C_Range / 100 * C_LongShadowPercent
+
+// 2 bar reversal
+C_2BarReversalBullish = enable_2bar_reversal and C_LongBody[1] and C_BlackBody[1] and C_WhiteBody and C_Body > C_Body[1]
+C_2BarReversalBearish = enable_2bar_reversal and C_LongBody[1] and C_WhiteBody[1] and C_BlackBody and C_Body > C_Body[1]
+
+// bullish and bearish patterns
+C_Bullish = C_EngulfingBullish or C_HaramiBullish or C_PinbarBullish or C_2BarReversalBullish
+C_Bearish = C_EngulfingBearish or C_HaramiBearish or C_PinbarBearish or C_2BarReversalBearish
+
+
+//------------------------------------------------------------------------------
+// plot patterns labels
+plotshape(show_c_pattern ? C_EngulfingBullish : na, 'Engulfing Bullish', location=location.belowbar, color=color.new(color.green, 0), style=shape.diamond, size=size.tiny)
+plotshape(show_c_pattern ? C_EngulfingBearish : na, 'Engulfing Bearish', location=location.abovebar, color=color.new(color.red, 0), style=shape.diamond, size=size.tiny)
+
+plotshape(show_c_pattern ? C_HaramiBullish : na, 'Harami Bullish', location=location.belowbar, color=color.new(color.green, 0), style=shape.circle, size=size.tiny)
+plotshape(show_c_pattern ? C_HaramiBearish : na, 'Harami Bearish', location=location.abovebar, color=color.new(color.red, 0), style=shape.circle, size=size.tiny)
+
+plotshape(show_c_pattern ? C_PinbarBullish : na, 'Pin Bar Bullish', location=location.belowbar, color=color.new(#00897b, 65), style=shape.triangleup, size=size.tiny)
+plotshape(show_c_pattern ? C_PinbarBearish : na, 'Pin Bar Bearish', location=location.abovebar, color=color.new(color.red, 65), style=shape.triangledown, size=size.tiny)
+
+plotshape(show_c_pattern ? C_2BarReversalBullish : na, '2 Bar Reversal Bullish', location=location.belowbar, color=color.new(#00897b, 0), style=shape.triangleup, size=size.tiny)
+plotshape(show_c_pattern ? C_2BarReversalBearish : na, '2 Bar Reversal Bearish', location=location.abovebar, color=color.new(color.red, 0), style=shape.triangledown, size=size.tiny)
+
+
+//------------------------------------------------------------------------------
+// buy and sell signals
+// Only entry after pullback
+buy = (filter_by_trend ? C_UpTrend : true) and (filter_by_adx ? strong_trend : true) and (filter_by_squeeze ? squeeze : true) and C_Bullish and low < ema_fast and ema_fast > ema_slow and (filter_by_low_volume ? is_low_volume : true)
+sell = (filter_by_trend ? C_DownTrend : true) and (filter_by_adx ? strong_trend : true) and (filter_by_squeeze ? squeeze : true) and C_Bearish and high > ema_fast and ema_fast < ema_slow and (filter_by_low_volume ? is_low_volume : true)
+
+plotshape(show_buy_sell and buy, text='buy', style=shape.labelup, textcolor=color.new(color.white, 0), color=color.new(color.green, 0), location=location.belowbar, title='buy')
+plotshape(show_buy_sell and sell, text='sell', style=shape.labeldown, textcolor=color.new(color.white, 0), color=color.new(color.red, 0), location=location.abovebar, title='sell')

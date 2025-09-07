@@ -1,0 +1,185 @@
+//@version=5
+indicator("Trend lines", overlay=true)
+
+// User inputs
+prd = input.int(defval=30, title=' Period for Pivot Points', minval=1, maxval=50)
+max_num_of_pivots = input.int(defval=6, title=' Maximum Number of Pivots', minval=5, maxval=10)
+max_lines = input.int(defval=1, title=' Maximum number of trend lines', minval=1, maxval=10)
+show_lines = input.bool(defval=true, title=' Show trend lines')
+show_pivots = input.bool(defval=false, title=' Show Pivot Points')
+sup_line_color = input(defval = color.lime, title = "Colors", inline = "tcol")
+res_line_color = input(defval = color.red, title = "", inline = "tcol")
+
+float ph = ta.pivothigh(high, prd, prd)
+float pl = ta.pivotlow(low, prd, prd)
+
+plotshape(ph and show_pivots, style=shape.triangledown, location=location.abovebar, offset=-prd, size=size.tiny)
+plotshape(pl and show_pivots, style=shape.triangleup, location=location.belowbar, offset=-prd, size=size.tiny)
+
+// Creating array of pivots
+var pivots_high = array.new_float(0)
+var pivots_low = array.new_float(0)
+
+var high_ind = array.new_int(0)
+var low_ind = array.new_int(0)
+
+if ph 
+    array.push(pivots_high, ph)
+    array.push(high_ind, bar_index - prd)
+    if array.size(pivots_high) > max_num_of_pivots  // limit the array size
+        array.shift(pivots_high)
+        array.shift(high_ind)
+
+if pl
+    array.push(pivots_low, pl)
+    array.push(low_ind, bar_index - prd)
+    if array.size(pivots_low) > max_num_of_pivots  // limit the array size
+        array.shift(pivots_low)
+        array.shift(low_ind)
+
+// Create arrays to store slopes and lines
+var res_lines = array.new_line()
+var res_slopes = array.new_float()
+
+len_lines = array.size(res_lines)
+
+if (len_lines >= 1)
+    for ind = 0 to len_lines - 1 
+        to_delete = array.pop(res_lines)
+        array.pop(res_slopes)
+        line.delete(to_delete)
+
+
+count_slope(ph1, ph2, pos1, pos2) => (ph2 - ph1) / (pos2 - pos1)
+
+
+if array.size(pivots_high) == max_num_of_pivots
+    index_of_biggest_slope = 0
+    for ind1 = 0 to max_num_of_pivots - 2
+        for ind2 = ind1 + 1 to max_num_of_pivots - 1
+            p1 = array.get(pivots_high, ind1)
+            p2 = array.get(pivots_high, ind2)
+            pos1 = array.get(high_ind, ind1)
+            pos2 = array.get(high_ind, ind2)
+            k = count_slope(p1, p2, pos1, pos2)
+            b = p1 - k * pos1
+
+            ok = true
+
+            if ind2 - ind1 >= 1 and ok
+                for ind3 = ind1 + 1 to ind2 - 1
+                    p3 = array.get(pivots_high, ind3)
+                    pos3 = array.get(high_ind, ind3)
+                    if p3 > k * pos3 + b 
+                        ok := false
+                        break
+
+            pos3 = 0
+            p_val = p2 + k
+            if ok     
+                for ind = pos2 + 1 to bar_index
+                    if close[bar_index - ind] > p_val
+                        ok := false
+                        break
+                    pos3 := ind + 1
+                    p_val += k
+            
+            
+            if ok 
+                if array.size(res_slopes) < max_lines 
+                    line = line.new(pos1, p1, pos3, p_val, color=res_line_color)//, extend=extend.right)
+                    array.push(res_lines, line)
+                    array.push(res_slopes, k)  
+                else
+                    max_slope = array.max(res_slopes)
+                    max_slope_ind = array.indexof(res_slopes, max_slope)
+                    if max_lines == 1
+                        max_slope_ind := 0
+                    if k < max_slope
+                        line_to_delete = array.get(res_lines, max_slope_ind)
+                        line.delete(line_to_delete) 
+                        new_line = line.new(pos1, p1, pos3, p_val, color=res_line_color)//, extend=extend.right)
+                        array.insert(res_lines, max_slope_ind, new_line)
+                        array.insert(res_slopes, max_slope_ind, k)
+                        array.remove(res_lines, max_slope_ind + 1)
+                        array.remove(res_slopes, max_slope_ind + 1)
+
+if not show_lines
+    len_l = array.size(res_lines)
+    if (len_l >= 1)
+        for ind = 0 to len_l - 1 
+            to_delete = array.pop(res_lines)
+            array.pop(res_slopes)
+            line.delete(to_delete)
+
+
+
+var sup_lines = array.new_line()
+var sup_slopes = array.new_float()
+
+len_lines1 = array.size(sup_lines)
+
+if (len_lines1 >= 1)
+    for ind = 0 to len_lines1 - 1 
+        to_delete = array.pop(sup_lines)
+        array.pop(sup_slopes)
+        line.delete(to_delete)
+
+if array.size(pivots_low) == max_num_of_pivots
+    for ind1 = 0 to max_num_of_pivots - 2
+        for ind2 = ind1 + 1 to max_num_of_pivots - 1
+            p1 = array.get(pivots_low, ind1)
+            p2 = array.get(pivots_low, ind2)
+            pos1 = array.get(low_ind, ind1)
+            pos2 = array.get(low_ind, ind2)
+            k = count_slope(p1, p2, pos1, pos2)
+            b = p1 - k * pos1
+
+            ok = true
+
+            // check if pivot points in the middle of two points is lower
+            if ind2 - ind1 >= 1 and ok
+                for ind3 = ind1 + 1 to ind2 - 1
+                    p3 = array.get(pivots_low, ind3)
+                    pos3 = array.get(low_ind, ind3)
+                    if p3 < k * pos3 + b
+                        ok := false
+                        break
+            
+            pos3 = 0
+            p_val = p2 + k
+            if ok
+                for ind = pos2 + 1 to bar_index
+                    if close[bar_index - ind] < p_val
+                        ok := false
+                        break
+                    pos3 := ind + 1
+                    p_val += k
+            
+            if ok
+                if array.size(sup_slopes) < max_lines 
+                    line = line.new(pos1, p1, pos3, p_val, color=sup_line_color)//, extend=extend.right)
+                    array.push(sup_lines, line)
+                    array.push(sup_slopes, k)  
+                else
+                    max_slope = array.min(sup_slopes)
+                    max_slope_ind = array.indexof(sup_slopes, max_slope)
+                    if max_lines == 1
+                        max_slope_ind := 0
+                    if k > max_slope
+                        line_to_delete = array.get(sup_lines, max_slope_ind)
+                        line.delete(line_to_delete) 
+                        new_line = line.new(pos1, p1, pos3, p_val, color=sup_line_color)//, extend=extend.right)
+                        array.insert(sup_lines, max_slope_ind, new_line)
+                        array.insert(sup_slopes, max_slope_ind, k)
+                        array.remove(sup_lines, max_slope_ind + 1)
+                        array.remove(sup_slopes, max_slope_ind + 1)
+
+
+if not show_lines
+    len_l = array.size(sup_lines)
+    if (len_l >= 1)
+        for ind = 0 to len_l - 1 
+            to_delete = array.pop(sup_lines)
+            array.pop(sup_slopes)
+            line.delete(to_delete)

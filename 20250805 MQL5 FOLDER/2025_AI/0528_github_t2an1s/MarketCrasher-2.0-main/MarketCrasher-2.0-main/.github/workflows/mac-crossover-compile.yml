@@ -1,0 +1,32 @@
+name: Local Mac – MT5 compile
+
+on:
+  workflow_dispatch:
+    inputs:
+      files:
+        description: 'Glob of MQ5 files (blank = repo-wide)'
+        required: false
+        default: ''
+
+jobs:
+  build:
+    runs-on: [self-hosted, macOS]         # your ARM64 runner
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 🔨 Compile via CrossOver
+        run: ./compile_all.sh "${{ github.event.inputs.files }}"
+          chmod +x compile_all.sh
+          
+          else
+            ./compile_all.sh
+          fi
+        shell: bash
+
+      - name: 📦 upload logs  (always)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mq5-logs
+          path: build_logs/**/*.log

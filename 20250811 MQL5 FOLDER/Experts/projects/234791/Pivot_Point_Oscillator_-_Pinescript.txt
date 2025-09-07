@@ -1,0 +1,38 @@
+//@version=6
+indicator("Swing Point Distance Oscillator", overlay = false)
+
+// Input parameters
+prd = input.int(defval = 2, title="Pivot Point Period", minval = 1, maxval = 50)
+pointsToAverage = input.int(defval = 10, title="Number of Swing Points for Average", minval = 1)
+
+// Pivot High/Low detection
+float ph = ta.pivothigh(high, prd, prd)
+float pl = ta.pivotlow(low, prd, prd)
+
+// Calculate the distances between swing points
+var float[] distances = array.new_float()
+if not na(ph) or not na(pl)
+    currentSwing = na(ph) ? low[prd] : high[prd]
+    if array.size(distances) > 0
+        lastSwing = array.get(distances, array.size(distances) - 1)
+        distance = math.abs(currentSwing - lastSwing)
+        array.push(distances, currentSwing)
+        if array.size(distances) > pointsToAverage
+            array.shift(distances)
+    else
+        array.push(distances, currentSwing)
+
+// Calculate average distance for the specified number of swing points
+sumDistance = 0.0
+if array.size(distances) > 1
+    for i = 1 to array.size(distances) - 1
+        sumDistance += math.abs(array.get(distances, i) - array.get(distances, i - 1))
+
+averageDistance = array.size(distances) > 1 ? sumDistance / (array.size(distances) - 1) : na
+
+// Plot the oscillator
+hline(0, color=color.gray, linestyle=hline.style_dotted, title="Zero Line")
+plot(averageDistance, color=color.blue, linewidth=2, title="Avg Distance Oscillator")
+
+// Alerts (optional)
+alertcondition(na(averageDistance) == false, title="New Average Distance", message="Updated average swing distance: {{averageDistance}}")

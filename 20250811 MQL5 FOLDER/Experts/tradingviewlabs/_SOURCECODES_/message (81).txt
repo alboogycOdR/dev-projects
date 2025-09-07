@@ -1,0 +1,201 @@
+//@version=5
+indicator(title="Dynamic SNR", shorttitle="Dynamic SNR", overlay=true)
+
+//#region Inputs
+inside_band_group		= "=== Inside Band ==="
+on_1 					= input.bool(true,"", inline="0",group=inside_band_group)
+src_1 					= input(high, title="Source", inline="0",group=inside_band_group)
+inside_col				= input.color(color.new(color.white,100), "",inline="0",group=inside_band_group)
+length_1 				= input.int(77, "Length", minval=1, inline="0.1",group=inside_band_group)
+mult_1 					= input(4.0, "Multi", inline="0.1",group=inside_band_group)
+
+//If you want to add option to let used choose how the bands are calculated unblock these options
+atrLength_1 			= 10//input(10, "ATR ", inline="0",group=inside_band_group)
+exp_1 					= true//input(true, "Use EMA", inline="0.2",group=inside_band_group)
+BandsStyle_1 			= "Range"//input.string("Range", options = ["Average True Range", "True Range", "Range"], title="Bands Style", inline="0.2",group=inside_band_group)
+
+outside_band_group		= "=== Outside Band ==="
+on_2 					= input.bool(true,"", inline="0",group=outside_band_group)
+src_2 					= input(high, title="Source", inline="0",group=outside_band_group)
+outside_col				= input.color(color.new(color.gray,100), "",inline="0",group=outside_band_group)
+length_2 				= input.int(36, "Length", minval=1, inline="0.1",group=outside_band_group)
+mult_2 					= input(8.0, "Multi", inline="0.1",group=outside_band_group)
+
+//If you want to add option to let used choose how the bands are calculated unblock these options
+atrLength_2 			= 10//input(10, "ATR ", inline="0",group=outside_band_group)
+exp_2 					= true//input(true, "Use EMA", inline="0.2",group=outside_band_group)
+BandsStyle_2 			= "Range"//input.string("Range", options = ["Average True Range", "True Range", "Range"], title="Bands Style", inline="0.2",group=outside_band_group)
+
+alert_group				= "=== Alerts ==="
+inside_alert			= input.bool(true, title="Alert for inside Band Touch", group=alert_group, tooltip="To set alert, click on the 3 dots next to the indicators name, click 'Add Alert', You can name the alert what you want but then just click create")
+outside_alert			= input.bool(true, title="Alert for Outside Band Touch", group=alert_group, tooltip="To set alert, click on the 3 dots next to the indicators name, click 'Add Alert', You can name the alert what you want but then just click create")
+
+old_group				= "=== Show Old Signals ==="
+inside_old				= input.bool(true, title="Show where Alerts triggered for Inside touches", group=old_group)
+outside_old				= input.bool(true, title="Show where Alerts triggered for Outside touches", group=old_group)
+
+divergence_group		= "=== Divergence ==="
+show_divergence			= false
+div_line_col			= color.black
+rsi_length				= 14
+show_rsi_val 			= false
+
+gradient_group			= "=== Band Gradients ==="
+band_gradients 			= true
+band_bull_Input 		= #00E600
+band_bear_Input 		= #FF0000
+
+//#endregion
+
+//#region Functions
+esma(source, length, _exp)=>
+	s = ta.sma(source, length)
+	e = ta.ema(source, length)
+	_exp ? e : s
+//#endregion
+
+//#region MA
+
+ma = esma(src_2, length_2, exp_2)
+
+//#endregion
+
+//#region Inside Band Calc
+rangema_1 = BandsStyle_1 == "True Range" ? ta.tr(true) : BandsStyle_1 == "Average True Range" ? ta.atr(atrLength_1) : ta.rma(high - low, length_1)
+upper_1 = ma + rangema_1 * mult_1
+lower_1 = ma - rangema_1 * mult_1
+//#endregion
+
+//#region Outside Band Calc
+
+rangema_2 = BandsStyle_2 == "True Range" ? ta.tr(true) : BandsStyle_2 == "Average True Range" ? ta.atr(atrLength_2) : ta.rma(high - low, length_2)
+upper_2 = ma + rangema_2 * mult_2
+lower_2 = ma - rangema_2 * mult_2
+//#endregion
+
+//#region Signals
+
+inside_touch = ta.crossunder(low,lower_1) or ta.crossover(high,upper_1)
+outside_touch = ta.crossunder(low,lower_2) or ta.crossover(high,upper_2)
+
+//#endregion
+
+//#region Colour Calculation
+
+gradient_up_sig = ta.barssince(close<ma)
+gradient_lo_sig = ta.barssince(close>ma)
+
+gradient_up_col = band_gradients ? color.from_gradient(gradient_up_sig, 0, 250, outside_col,band_bear_Input) : outside_col
+gradient_lo_col = band_gradients ? color.from_gradient(gradient_lo_sig, 0, 250, outside_col,band_bull_Input) : outside_col
+
+//#endregion
+
+//#region plots
+
+//Inside Band Plots and fills
+u1 = plot(on_1 ? upper_1 : na, color=inside_col, title="Upper")
+l1 = plot(on_1 ? lower_1 : na, color=inside_col, title="Lower")
+
+fill(u1, l1, color=inside_col, title="Background")
+
+//Outside Band Plots and Fills
+u2 = plot(on_2 ? upper_2 : na, color=outside_col, title="Outside Upper")
+l2 = plot(on_2 ?lower_2 : na, color=outside_col, title="Outside Lower")
+
+fill(l1, l2, color=gradient_lo_col, title="Outside Lower Background")
+fill(u1, u2, color=gradient_up_col, title="Outside Upper Background")
+
+//Signal Plots
+low_col 		= #00E600
+high_col		= #FF0000
+
+plotshape(inside_old ? ta.crossunder(low,lower_1) : na , location=location.belowbar, color=low_col, style=shape.triangleup)
+plotshape(outside_old ? ta.crossunder(low,lower_2) : na , location=location.belowbar, color=low_col, style=shape.triangleup)
+
+plotshape(inside_old ? ta.crossover(high,upper_1) : na , location=location.abovebar, color=high_col, style=shape.triangledown)
+plotshape(outside_old ? ta.crossover(high,upper_2) : na , location=location.abovebar, color=high_col, style=shape.triangledown)
+
+
+//#endregion
+
+//#region Alerts
+if inside_touch
+	inside_msg =  ta.crossunder(low,lower_1) ? "Inside band Low Touch on " + str.tostring(syminfo.tickerid) : "Inside band High Touch on " + str.tostring(syminfo.tickerid) 
+	alert(inside_msg, alert.freq_once_per_bar)
+if outside_touch
+	outside_msg =  ta.crossunder(low,lower_2) ? "Inside band Low Touch on " + str.tostring(syminfo.tickerid) : "Inside band High Touch on " + str.tostring(syminfo.tickerid) 
+	alert(outside_msg, alert.freq_once_per_bar)
+
+//#endregion
+
+//#region Divergence
+rsi = ta.rsi(close,rsi_length)
+
+offset = 2
+rsi_low = ta.pivotlow(rsi,3,offset)
+price_low = ta.pivotlow(close,3,offset)
+rsi_high = ta.pivothigh(rsi,3,offset)
+price_high = ta.pivothigh(close,3,offset)
+
+//Low Arrays
+var float [] rsi_recent_low = array.new_float()
+var float [] price_recent_low = array.new_float()
+var int [] rsi_recent_low_i = array.new_int()
+var int [] price_recent_low_i = array.new_int()
+
+//High Arrays
+var float [] rsi_recent_high = array.new_float()
+var float [] price_recent_high = array.new_float()
+var int [] rsi_recent_high_i = array.new_int()
+var int [] price_recent_high_i = array.new_int()
+
+
+if price_low
+	array.unshift(price_recent_low, price_low)
+	array.unshift(price_recent_low_i, bar_index-offset)
+	array.unshift(rsi_recent_low, rsi_low)
+	array.unshift(rsi_recent_low_i, bar_index-offset)
+	
+
+if price_high
+	array.unshift(price_recent_high, price_high)
+	array.unshift(price_recent_high_i, bar_index-offset)
+	array.unshift(rsi_recent_high, rsi_high)
+	array.unshift(rsi_recent_high_i, bar_index-offset)
+
+
+div(osc_array,price_array,index_array,direction)=>
+	if array.size(osc_array)>1 and array.size(price_array)>1
+
+		bull_osc_sig 	= array.get(osc_array,0) > array.get(osc_array,1) 
+		bull_price_sig 	= array.get(price_array,0) < array.get(price_array,1)  
+		bear_osc_sig 	= array.get(osc_array,0) < array.get(osc_array,1) 
+		bear_price_sig 	= array.get(price_array,0) > array.get(price_array,1)  
+		
+		sig 		= direction == "Bull" ? bull_osc_sig and bull_price_sig : bear_osc_sig and bear_price_sig
+
+		if sig 
+			//Line Drawing
+			x1 = array.get(index_array,1)
+			x2 = array.get(index_array,0)
+			y1 = array.get(price_array,1)
+			y2 = array.get(price_array,0)
+			line.new(x1,y1,x2,y2, color=div_line_col)
+
+			if 	show_rsi_val
+				//Label direction
+				label_style = direction == "Bull" ? label.style_label_up : label.style_label_down
+				//Label Drawings
+				label_x1 = array.get(index_array,1)
+				label_x2 = array.get(index_array,0)
+				//
+				label.new(label_x1, y1, text=str.tostring(math.round(array.get(osc_array,1),2)), style=label_style, color=color.new(#FFFFFF,0), textcolor = color.black)
+				label.new(label_x2, y2, text=str.tostring(math.round(array.get(osc_array,0),2)), style=label_style, color=color.new(#FFFFFF,0), textcolor = color.black)
+				
+
+if price_low and show_divergence
+	div(rsi_recent_low,price_recent_low,price_recent_low_i, "Bull")
+if price_high and show_divergence 
+	div(rsi_recent_high,price_recent_high,price_recent_high_i, "Bear")
+
+//#endregion

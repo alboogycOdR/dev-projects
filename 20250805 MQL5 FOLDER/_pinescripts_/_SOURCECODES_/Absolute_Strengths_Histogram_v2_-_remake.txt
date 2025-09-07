@@ -1,0 +1,76 @@
+//@version=4
+//Modified by ChatGPT
+study("Absolute Strength Histogram v2 | ChatGPT (Non-Repainting)", overlay=false)
+
+Length = input(9, title="Period of Evaluation", type=input.integer)
+Smooth = input(3, title="Period of Smoothing", type=input.integer)
+show_histo = input(true, title="Show Histogram", type=input.bool)
+src = input(close, title="Source")
+ma_type = input(title="MA", type=input.string, defval="WMA", options=["ALMA", "EMA", "WMA", "SMA", "SMMA", "HMA"])
+alma_offset  = input(defval=0.85, title="* Arnaud Legoux (ALMA) Only - Offset Value", minval=0, step=0.01)
+alma_sigma   = input(defval=6, title="* Arnaud Legoux (ALMA) Only - Sigma Value", minval=0)
+
+ma(type, src, len) =>
+    float result = 0
+    if type=="SMA" // Simple
+        result := sma(src, len)
+    if type=="EMA" // Exponential
+        result := ema(src, len)
+    if type=="WMA" // Weighted
+        result := wma(src, len)
+    if type=="SMMA" // Smoothed
+        w = wma(src, len)
+        result := na(w[1]) ? sma(src, len) : (w[1] * (len - 1) + src) / len
+    if type=="HMA" // Hull
+        result := wma(2 * wma(src, len / 2) - wma(src, len), round(sqrt(len)))
+    if type=="ALMA" // Arnaud Legoux
+        result := alma(src, len, alma_offset, alma_sigma)
+    result
+
+// Calculate RSI
+rsi_val = rsi(src, Length)
+rsi_ma = sma(rsi_val, Smooth)
+Bulls0 = 0.5*(abs(rsi_ma-rsi_ma[1])+(rsi_ma-rsi_ma[1]))
+Bears0 = 0.5*(abs(rsi_ma-rsi_ma[1])-(rsi_ma-rsi_ma[1]))
+
+// Calculate Stochastic
+sto_k = stoch(close, high, low, Length)
+sto_d = sma(sto_k, Smooth)
+Bulls1 = sto_k
+Bears1 = 1 - sto_k
+
+// Calculate ADX
+[adx_val, adx_pos, adx_neg] = dmi(Length, 14)
+Bulls2 = adx_pos
+Bears2 = adx_neg
+
+// Assign values to Bulls and Bears based on the selected Mode
+Mode = input(title="Mode", type=input.string, defval="RSI", options=["RSI", "STOCHASTIC", "ADX"])
+Bulls = Mode == "RSI" ? Bulls0 : Mode == "STOCHASTIC" ? Bulls1 : Bulls2
+Bears = Mode == "RSI" ? Bears0 : Mode == "STOCHASTIC" ? Bears1 : Bears2
+
+// Calculate moving averages of Bulls and Bears
+AvgBulls = sma(Bulls, Length)
+AvgBears = sma(Bears, Length)
+
+// Calculate smoothed moving averages of Bulls and Bears
+SmthBulls = sma(AvgBulls, Smooth)
+SmthBears = sma(AvgBears, Smooth)
+
+// Calculate the difference between the smoothed moving averages
+difference = abs(SmthBulls - SmthBears)
+
+// Determine the trend colors
+bull_trend_color = SmthBulls < SmthBulls[1] ? color.lime : color.green
+bear_trend_color = SmthBears < SmthBears[1] ? color.orange : color.red
+
+// Determine the difference color
+difference_color = difference > SmthBulls ? (SmthBears < SmthBears[1] ? color.orange : color.red) : difference > SmthBears ? (SmthBulls < SmthBulls[1] ? color.lime : color.green) : color.gray
+
+// Plot the difference as a histogram
+plot(difference, style=plot.style_histogram, linewidth=3, color=show_histo ? difference_color : na, transp=45, title="Strength")
+
+// Plot the smoothed moving averages with trend colors
+plot(SmthBulls, color=bull_trend_color, linewidth=4, transp=0, title="Bull")
+plot(SmthBears, color=bear_trend_color, linewidth=4, transp=0, title="Bear")
+

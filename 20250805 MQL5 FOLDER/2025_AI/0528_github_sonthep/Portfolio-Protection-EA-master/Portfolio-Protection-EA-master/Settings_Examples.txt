@@ -1,0 +1,248 @@
+# Portfolio Protection EA - ตัวอย่างการตั้งค่า
+
+## 🔰 สำหรับผู้เริ่มต้น (Conservative)
+```
+Portfolio Protection Settings:
+MaxRiskPercent = 1.0
+MaxDailyLoss = 3.0
+MaxDrawdown = 5.0
+MaxOpenTrades = 3
+UseTrailingStop = true
+TrailingStopPercent = 2.0
+
+Strategy Selection:
+UseStrategy1_TrendFollowing = true
+UseStrategy2_MeanReversion = true
+UseStrategy3_Breakout = false
+UseStrategy4_GridHedging = false
+UseStrategy5_Scalping = false
+
+Risk Management:
+StopLossPercent = 1.5
+TakeProfitPercent = 2.0
+UsePositionSizing = true
+FixedLotSize = 0.01
+```
+
+## 📈 สำหรับผู้มีประสบการณ์ (Moderate)
+```
+Portfolio Protection Settings:
+MaxRiskPercent = 2.0
+MaxDailyLoss = 5.0
+MaxDrawdown = 10.0
+MaxOpenTrades = 5
+UseTrailingStop = true
+TrailingStopPercent = 1.5
+
+Strategy Selection:
+UseStrategy1_TrendFollowing = true
+UseStrategy2_MeanReversion = true
+UseStrategy3_Breakout = true
+UseStrategy4_GridHedging = false
+UseStrategy5_Scalping = true
+
+Risk Management:
+StopLossPercent = 1.0
+TakeProfitPercent = 2.0
+UsePositionSizing = true
+FixedLotSize = 0.01
+```
+
+## 🚀 สำหรับผู้เชี่ยวชาญ (Aggressive)
+```
+Portfolio Protection Settings:
+MaxRiskPercent = 3.0
+MaxDailyLoss = 7.0
+MaxDrawdown = 15.0
+MaxOpenTrades = 8
+UseTrailingStop = true
+TrailingStopPercent = 1.0
+
+Strategy Selection:
+UseStrategy1_TrendFollowing = true
+UseStrategy2_MeanReversion = true
+UseStrategy3_Breakout = true
+UseStrategy4_GridHedging = true
+UseStrategy5_Scalping = true
+
+Risk Management:
+StopLossPercent = 0.8
+TakeProfitPercent = 1.8
+UsePositionSizing = true
+FixedLotSize = 0.01
+```
+
+## 📊 สำหรับตลาด Trending
+```
+Portfolio Protection Settings:
+MaxRiskPercent = 2.5
+MaxDailyLoss = 6.0
+MaxDrawdown = 12.0
+MaxOpenTrades = 4
+UseTrailingStop = true
+TrailingStopPercent = 1.2
+
+Strategy Selection:
+UseStrategy1_TrendFollowing = true
+UseStrategy2_MeanReversion = false
+UseStrategy3_Breakout = true
+UseStrategy4_GridHedging = false
+UseStrategy5_Scalping = false
+
+Risk Management:
+StopLossPercent = 0.8
+TakeProfitPercent = 2.5
+UsePositionSizing = true
+FixedLotSize = 0.01
+```
+
+## 📉 สำหรับตลาด Ranging/Sideways
+```
+Portfolio Protection Settings:
+MaxRiskPercent = 2.0
+MaxDailyLoss = 4.0
+MaxDrawdown = 8.0
+MaxOpenTrades = 6
+UseTrailingStop = true
+TrailingStopPercent = 1.8
+
+Strategy Selection:
+UseStrategy1_TrendFollowing = false
+UseStrategy2_MeanReversion = true
+UseStrategy3_Breakout = false
+UseStrategy4_GridHedging = true
+UseStrategy5_Scalping = true
+
+Risk Management:
+StopLossPercent = 1.2
+TakeProfitPercent = 1.5
+UsePositionSizing = true
+FixedLotSize = 0.01
+```
+
+## ⚡ สำหรับ Scalping เฉพาะ
+```
+Portfolio Protection Settings:
+MaxRiskPercent = 1.5
+MaxDailyLoss = 3.0
+MaxDrawdown = 6.0
+MaxOpenTrades = 10
+UseTrailingStop = true
+TrailingStopPercent = 0.8
+
+Strategy Selection:
+UseStrategy1_TrendFollowing = false
+UseStrategy2_MeanReversion = false
+UseStrategy3_Breakout = false
+UseStrategy4_GridHedging = false
+UseStrategy5_Scalping = true
+
+Risk Management:
+StopLossPercent = 0.5
+TakeProfitPercent = 0.8
+UsePositionSizing = true
+FixedLotSize = 0.01
+```
+
+## 🛡️ สำหรับทดสอบ (Demo/Testing)
+```
+Portfolio Protection Settings:
+MaxRiskPercent = 0.5
+MaxDailyLoss = 2.0
+MaxDrawdown = 3.0
+MaxOpenTrades = 2
+UseTrailingStop = true
+TrailingStopPercent = 2.5
+
+Strategy Selection:
+UseStrategy1_TrendFollowing = true
+UseStrategy2_MeanReversion = false
+UseStrategy3_Breakout = false
+UseStrategy4_GridHedging = false
+UseStrategy5_Scalping = false
+
+Risk Management:
+StopLossPercent = 2.0
+TakeProfitPercent = 2.0
+UsePositionSizing = true
+FixedLotSize = 0.01
+```
+
+## 📅 การตั้งค่าตามช่วงเวลา
+
+### ช่วงเซสชั่น London (15:00-24:00 GMT+7)
+- เหมาะสำหรับ: Trend Following + Breakout
+- Volatility: สูง
+- แนะนำ: MaxRiskPercent = 2.0
+
+### ช่วงเซสชั่น New York (20:00-05:00 GMT+7)
+- เหมาะสำหรับ: Scalping + Mean Reversion
+- Volatility: สูงมาก
+- แนะนำ: MaxRiskPercent = 1.5
+
+### ช่วงเซสชั่น Asian (02:00-11:00 GMT+7)
+- เหมาะสำหรับ: Grid Hedging + Mean Reversion
+- Volatility: ต่ำ
+- แนะนำ: MaxRiskPercent = 2.5
+
+## 💰 การตั้งค่าตามขนาดบัญชี
+
+### บัญชีเล็ก ($100-$1,000)
+```
+MaxRiskPercent = 1.0
+FixedLotSize = 0.01
+MaxOpenTrades = 2
+StopLossPercent = 2.0
+```
+
+### บัญชีกลาง ($1,000-$10,000)
+```
+MaxRiskPercent = 1.5
+UsePositionSizing = true
+MaxOpenTrades = 4
+StopLossPercent = 1.5
+```
+
+### บัญชีใหญ่ ($10,000+)
+```
+MaxRiskPercent = 2.0
+UsePositionSizing = true
+MaxOpenTrades = 6
+StopLossPercent = 1.0
+```
+
+## 📈 การปรับแต่งตาม Market Condition
+
+### ตลาดผันผวนสูง (High Volatility)
+- ลด MaxRiskPercent ลง 0.5%
+- เพิ่ม StopLossPercent ขึ้น 0.5%
+- ลด MaxOpenTrades ลง 1-2 ออเดอร์
+
+### ตลาดผันผวนต่ำ (Low Volatility)
+- เพิ่ม MaxRiskPercent ขึ้น 0.5%
+- ลด StopLossPercent ลง 0.3%
+- เพิ่ม MaxOpenTrades ขึ้น 1-2 ออเดอร์
+
+### ช่วงข่าวสำคัญ (News Events)
+- หยุดการเทรดชั่วคราว หรือ
+- ลด MaxRiskPercent เหลือ 0.5%
+- เปิดเฉพาะ Mean Reversion
+
+## 🔄 การปรับแต่งตามผลงาน
+
+### กำไรต่อเนื่อง 1 สัปดาห์
+- เพิ่ม MaxRiskPercent ขึ้น 0.2%
+- เพิ่มจำนวนกลยุทธ์ที่ใช้
+
+### ขาดทุนต่อเนื่อง 3 วัน
+- ลด MaxRiskPercent ลง 0.5%
+- ปิดกลยุทธ์ที่ขาดทุนมากที่สุด
+
+### Drawdown เกิน 5%
+- หยุดการเทรดทั้งหมด
+- ทบทวนการตั้งค่า
+- เริ่มใหม่ด้วยการตั้งค่า Conservative
+
+---
+
+**คำแนะนำ**: เริ่มต้นด้วยการตั้งค่า Conservative เสมอ และค่อยๆ ปรับเพิ่มความเสี่ยงเมื่อมีประสบการณ์มากขึ้น 

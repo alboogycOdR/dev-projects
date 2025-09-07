@@ -1,0 +1,80 @@
+//@version=5
+// Step 1. Define strategy settings
+strategy(title="Money Moves Algo", overlay=true,
+     pyramiding=0, initial_capital=100000,
+     commission_type=strategy.commission.cash_per_order,
+     commission_value=4, slippage=2)
+
+// SMA inputs
+fastMALen = input.int(50, title="Fast SMA Length")
+slowMALen = input.int(100, title="Slow SMA Length")
+
+// Stop loss inputs
+atrLen     = input.int(10, title="ATR Length")
+stopOffset = input.float(4, title="Stop Offset Multiple", step=.25)
+
+// Position sizing inputs
+usePosSize  = input.bool(true, title="Use Position Sizing?")
+maxRisk     = input.float(2, title="Max Position Risk %", step=.25)
+maxExposure = input.float(10, title="Max Position Exposure %", step=1)
+marginPerc  = input.int(10, title="Margin %")
+
+// Step 2. Calculate strategy values
+fastMA = ta.sma(close, fastMALen)
+slowMA = ta.sma(close, slowMALen)
+
+atrValue = ta.atr(atrLen)
+
+tradeWindow = time <= timenow - (86400000 * 3)
+
+// Calculate position size
+riskEquity = (maxRisk * 0.01) * strategy.equity
+riskTrade  = (atrValue * stopOffset) * syminfo.pointvalue
+
+maxPos = ((maxExposure * 0.01) * strategy.equity) /
+     ((marginPerc * 0.01) * (close * syminfo.pointvalue))
+
+posSize = usePosSize ? math.min(math.floor(riskEquity / riskTrade), maxPos) : 1
+
+// Step 3. Determine long trading conditions
+enterLong = ta.crossover(fastMA, slowMA) and 
+     tradeWindow
+
+longStop = 0.0
+longStop := enterLong ? close - (stopOffset * atrValue) :
+     longStop[1]
+
+// Step 4. Code short trading conditions
+enterShort = ta.crossunder(fastMA, slowMA) and 
+     tradeWindow
+
+shortStop = 0.0
+shortStop := enterShort ? close + (stopOffset * atrValue) :
+     shortStop[1]
+
+// Step 5. Output strategy data
+plot(fastMA, color=color.orange, title="Fast SMA")
+plot(slowMA, color=color.teal, linewidth=2, title="Slow SMA")
+
+plot(strategy.position_size > 0 ? longStop : na, color=color.green, 
+     linewidth=2, style=plot.style_circles)
+
+plot(strategy.position_size < 0 ? shortStop : na, color=color.red, 
+     linewidth=2, style=plot.style_circles)
+
+// Step 6. Submit entry orders
+if enterLong
+    strategy.entry("EL", strategy.long, qty=posSize)
+
+if enterShort
+    strategy.entry("ES", strategy.short, qty=posSize)
+
+// Step 7. Submit exit orders
+if strategy.position_size > 0
+    strategy.exit("XL", from_entry="EL", stop=longStop)
+
+if strategy.position_size < 0
+    strategy.exit("XS", from_entry="ES", stop=shortStop)
+
+if not tradeWindow
+    strategy.close_all()

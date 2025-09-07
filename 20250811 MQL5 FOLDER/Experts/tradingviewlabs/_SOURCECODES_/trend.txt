@@ -1,0 +1,64 @@
+//@version=5
+strategy(title="Trend", shorttitle = "BN Dashboard", overlay=true, max_labels_count = 500, max_lines_count = 500, initial_capital = 100000, calc_on_order_fills = true, default_qty_type=strategy.percent_of_equity, default_qty_value=100, commission_type=strategy.commission.cash_per_contract,commission_value=0.005 )
+
+ShowEma = input(false, "──── Show EMA ─────")
+LenEma = input.int(defval=1)
+EMA = ta.ema(close, LenEma)
+//rsi = rsi(close, 14)
+plot(ShowEma?EMA:na, title="EMA", style=plot.style_line, color=color.orange)
+
+//study("Supertrend", overlay=true)
+ShowSuperTrend = input(true, "──── Show SuperTrend Indicator ─────")
+highlighting = input.bool(title="Show HIghlights",  defval=false)
+len = input.int( defval=3)
+mult = input.int( defval=3)
+[superTrend, dir] = ta.supertrend(mult, len)
+colResistance = dir == 1 and dir == dir[1] ? color.new(color.red, 0) : color.new(color.red, 100)
+colSupport = dir == -1 and dir == dir[1] ? color.new(color.green, 0) : color.new(color.green, 100)
+
+upPlot = plot(ShowSuperTrend?superTrend:na, color = colSupport, linewidth=1)
+dnPlot = plot(ShowSuperTrend?superTrend:na , color = colResistance, linewidth=1)
+hPlot = plot(ohlc4, title="", style=plot.style_circles, linewidth=0, editable = false)
+longFill = highlighting ? (dir == -1 ? color.new(color.green, 20) : na) : na
+shortFill = highlighting ? (dir == 1 ? color.new(color.red, 20) : na ) : na
+fill(hPlot, upPlot, color=longFill)
+fill(hPlot, dnPlot, color=shortFill)
+
+//Plot Buy Signal
+buySignal =  dir == -1 and dir[1] == 1
+plotshape(buySignal ? superTrend : na, title="UpTrend Begins", location=location.absolute, style=shape.circle, size=size.tiny, color=color.green)
+//plotshape(buySignal ? superTrend : na, title="BUY", text="BUY", location=location.absolute, style=shape.labelup, size=size.tiny, color=color.green, textcolor=color.white)
+
+//Plot Sell Signal
+sellSignal = dir == 1 and dir[1] == -1
+plotshape(sellSignal ? superTrend : na, title="DownTrend Begins", location=location.absolute, style=shape.circle, size=size.tiny, color=color.red)
+//plotshape(sellSignal ? superTrend : na, title="SELL", text="SELL", location=location.absolute, style=shape.labeldown, size=size.tiny, color=color.red, textcolor=color.white)
+
+//-------------- Table Start -------------------/////
+compraEntrada = close
+
+compraStopLoss = ta.lowest(low, 5) // Utiliza el mínimo de los últimos 25 bares
+
+compraRatioBeneficio_2 =  input.float(1, "Ratio Para Breakeven", step=0.1,group = "Compras", inline="breakevencompra1")
+compraTakeBE = compraEntrada + (compraEntrada - compraStopLoss) * compraRatioBeneficio_2
+showBreakevenCompra = input.bool(title="Mostrar Breakeven", defval=true, group="Compras", inline="breakevencompra1")
+
+compraRatioBeneficio_1 =  input.float(3, "Ratio Para Take Profit", step=0.1,group = "Compras", inline="breakevenventa2")
+compraTakeProfit_1 = compraEntrada + (compraEntrada - compraStopLoss) * compraRatioBeneficio_1
+showTpCompra = input.bool(title="Mostrar Take Profit", defval=true, group="Compras", inline="breakevenventa2")
+
+if buySignal 
+    label.new(x = bar_index, y = close, style=label.style_label_up,  color = buySignal ? color.rgb(75, 197, 50) : na,text = buySignal ? "BUY" : na, size=size.tiny, textcolor = color.white)
+    p1buy = line.new(x1=bar_index, y1=compraEntrada, x2=bar_index+5, y2=compraEntrada, color=color.rgb(82, 255, 122), width=1)
+    p2buy = line.new(x1=bar_index, y1=compraStopLoss, x2=bar_index+5, y2=compraStopLoss,color=color.red, width=1, style = line.style_solid)
+    p4buy = line.new(x1=bar_index, y1=compraTakeProfit_1, x2=bar_index+5, y2=compraTakeProfit_1, color=color.rgb(82, 255, 122, 37), width=1, style = line.style_solid)  
+    p3buy = line.new(x1=bar_index, y1=compraTakeBE, x2=bar_index+5, y2=compraTakeBE, color=color.rgb(82, 241, 255), width=1, style = line.style_solid)
+    
+    linefill.new(p1buy,p4buy, color=color.rgb(151, 255, 82, 88) )
+    linefill.new(p1buy,p2buy, color=color.rgb(255, 82, 82, 82) )
+
+    strategy.entry("long", strategy.long ) // enter long by market if current open great then previous high
+    strategy.close("long")
+
+
+////////////

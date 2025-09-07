@@ -1,0 +1,62 @@
+//@version=5
+
+indicator("Hawkeyes Oscillator [FREE]")
+
+// user inputs
+
+type = input.string('Smoothed RSI', 'Oscillator Mode⠀⠀⠀⠀', ['Smoothed RSI', 'TVR', 'Wave'],
+     group='⠀⠀⠀⠀⠀-------Hawkeye Oscillator V.1.0-------', inline='a')
+disp = input.bool(true, '', group='⠀⠀⠀⠀⠀-------Hawkeye Oscillator V.1.0-------',
+     inline='a')
+
+length = input.int(14, 'Length', group='⠀⠀⠀⠀⠀-------Hawkeye Oscillator V.1.0-------', inline='b')
+smoothing = input.int(9, 'Smoothing', group='⠀⠀⠀⠀⠀-------Hawkeye Oscillator V.1.0-------',
+     inline='b')
+
+activate = input.bool(false, 'Show OB & OS Levels?', group='advanced settings')
+ob = input.int(75, 'Overbought⠀⠀⠀', group='advanced settings')
+os = input.int(30, 'Oversold⠀⠀⠀⠀⠀', group='advanced settings')
+
+// smoothed
+
+rsi = (ta.rsi(ta.wma(close, smoothing), length) / 100) * 100
+wavesi = (ta.rsi(ta.wma(close, smoothing), length) / 120 ) * 150 - 50
+
+em = ta.ema(rsi, 7 * 2 - 1)
+sm = ta.sma(rsi, 11 * 2 - 1)
+
+ema = plot(type == 'Smoothed RSI' ? ta.ema(rsi, 7 * 2 - 1) : na, transp=100, editable=false)
+sma = plot(type == 'Smoothed RSI' ? ta.sma(rsi, 11 * 2 - 1) : na, transp=100, editable=false)
+
+// filler
+
+fill(sma, ema, color= em > sm ? color.new(#089981, 60) : color.new(#ff1000, 60),
+     title='Smoothed RSI Fill')
+
+// ob & os levels
+
+hline(activate ? ob : na, title='OverBought', color=color.gray, linestyle=hline.style_dashed)
+hline(activate ? os : na, title='OverSold', color=color.gray, linestyle=hline.style_dashed)
+
+// tvr mode
+
+plot(type == 'TVR' ? ta.sma(rsi, length) : na, 'TVR Colors', em > sm ?
+     color.new(#089981, 20) : color.new(#ff1000, 20))
+
+// wave mode
+
+wave = plot(type == 'Wave' ? ta.ema(rsi, length) : na, 'Wave Colors', rsi > 50 ?
+     color.new(#089981, 100) : color.new(#ff1000, 100))
+sWave = plot(type == 'Wave' ? ta.ema(rsi, length) : na, 'Wave Colors 2', rsi > 50 ?
+     color.new(#089981, 80) : color.new(#ff1000, 80))
+
+hline(type == 'Wave' ? 50 : na, 'Mid Point', color=color.new(#ffffff, 100), linestyle=
+     hline.style_solid, editable=false)
+
+rsis = plot(type == 'Wave' ? rsi : na, 'RSI', color=color.gray)
+
+mid = plot(50, transp=100, editable=false)
+
+fill(wave, mid, color= rsi > 50 ? color.new(#089981, 75) : color.new(#ff1000, 75))
+fill(rsis, plot(ob, transp=100), color = rsi > ob ? color.new(#089981, 85) : na)
+fill(rsis, plot(os, transp=100), color= rsi < os ? color.new(#ff1000, 85) : na)

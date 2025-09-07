@@ -1,0 +1,34 @@
+//@version=5
+
+//Credit to LazyBearTy for some of his CVI code\\
+
+indicator('MAGICFLAKES', shorttitle='MAGICFLAKES', overlay=true)
+lengthTy = input(50)
+ValC = ta.sma(hl2, lengthTy)
+
+bullTy = input(-1.0, title='Bull')
+bearTy = input(1.0, title='Bear')
+volTy = ta.sma(ta.atr(lengthTy), lengthTy)
+//filter=sma(cvi, 400)
+// os2=input(-1.5, title="Oversold 2")
+// ob2=input(1.5, title="Overbought 2")
+
+
+cvi = (close - ValC) / (volTy * math.sqrt(lengthTy))
+
+//plot(bullTy, color=green)
+//plot(bearTy, color=red)
+
+// plot(os2, color=green, style=3)
+// plot(ob2, color=red, style=3)
+cb = cvi <= bullTy ? color.green : cvi >= bearTy ? color.red : cvi > bullTy ? color.blue : cvi < bearTy ? color.blue : na
+bullTy1 = cvi <= bullTy
+bearTy1 = cvi >= bearTy
+bullTy2 = bullTy1[1] and not bullTy1
+bearTy2 = bearTy1[1] and not bearTy1
+plotshape(bullTy2, style=shape.diamond, location=location.belowbar, color=color.new(color.lime, 0), size=size.small)
+plotshape(bearTy2, style=shape.diamond, location=location.abovebar, color=color.new(color.red, 0), size=size.small)
+//plotchar(bearTy1 ? cb : na)
+//plot(cvi, color=cb, style=histogram, linewidth=2)
+//plot(filter, color=red, linewidth=2)
+

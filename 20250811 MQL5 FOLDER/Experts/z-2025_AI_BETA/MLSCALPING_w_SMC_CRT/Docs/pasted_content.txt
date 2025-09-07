@@ -1,0 +1,104 @@
+Of course. This is a perfect task for a clear, concise technical specification. The developer needs unambiguous, logical rules based on pure OHLC data. Here is the technical specification you can provide.
+
+---
+
+### **Technical Specification: CRT Pattern Detection in Python**
+
+**Objective:**
+To create a Python function that parses a time-series dataset of OHLC candlestick data and returns a list of all identified "Candle Range Theory" (CRT) patterns.
+
+**Input Data:**
+The function must accept a **pandas DataFrame** as input. The DataFrame must be sorted by time (ascending) and contain the following columns:
+*   `datetime` (or a similar timezone-aware timestamp)
+*   `open`
+*   `high`
+*   `low`
+*   `close`
+
+**Core Logic: Pattern Definitions**
+The function should iterate through the DataFrame candle by candle and, at each step `i`, check for the presence of the following four patterns based on the preceding candles.
+
+*Note: In the definitions below, `C[i]` refers to the current candle being evaluated, `C[i-1]` is the previous candle, and so on.*
+
+---
+
+**1. Classic 3-Candle CRT**
+
+This is the baseline model. It requires three candles to form.
+
+*   **Bullish 3-Candle CRT:**
+    1.  **Manipulation:** The low of `C[i-1]` sweeps below the low of `C[i-2]`.
+        *   `C[i-1].low < C[i-2].low`
+    2.  **Confirmation/Distribution:** The body of `C[i-1]` closes back *inside* the range of `C[i-2]`.
+        *   `C[i-1].close > C[i-2].low`
+    3.  The final candle `C[i]` ideally shows bullish movement.
+    *   **Detected At:** Index `i`
+    *   **Range High:** `C[i-2].high`
+    *   **Range Low:** `C[i-2].low`
+    *   **Target DOL:** The Range High (`C[i-2].high`)
+
+*   **Bearish 3-Candle CRT:**
+    1.  **Manipulation:** The high of `C[i-1]` sweeps above the high of `C[i-2]`.
+        *   `C[i-1].high > C[i-2].high`
+    2.  **Confirmation/Distribution:** The body of `C[i-1]` closes back *inside* the range of `C[i-2]`.
+        *   `C[i-1].close < C[i-2].high`
+    3.  The final candle `C[i]` ideally shows bearish movement.
+    *   **Detected At:** Index `i`
+    *   **Range High:** `C[i-2].high`
+    *   **Range Low:** `C[i-2].low`
+    *   **Target DOL:** The Range Low (`C[i-2].low`)
+
+**2. 2-Candle CRT**
+
+This is an aggressive model where manipulation and distribution occur in the same candle.
+
+*   **Bullish 2-Candle CRT:**
+    1.  The second candle `C[i-1]` must sweep the low of the first candle `C[i-2]` and then close aggressively *above its high*.
+        *   `C[i-1].low < C[i-2].low` **AND** `C[i-1].close > C[i-2].high`
+    *   **Detected At:** Index `i`
+    *   **Range High:** `C[i-2].high`
+    *   **Range Low:** `C[i-2].low`
+    *   **Target DOL:** The Range High (`C[i-2].high`)
+
+*   **Bearish 2-Candle CRT:**
+    1.  The second candle `C[i-1]` must sweep the high of the first candle `C[i-2]` and then close aggressively *below its low*.
+        *   `C[i-1].high > C[i-2].high` **AND** `C[i-1].close < C[i-2].low`
+    *   **Detected At:** Index `i`
+    *   **Range High:** `C[i-2].high`
+    *   **Range Low:** `C[i-2].low`
+    *   **Target DOL:** The Range Low (`C[i-2].low`)
+
+**3. Inside Bar CRT**
+
+This model involves a period of consolidation (one or more inside bars) before a breakout.
+
+*   **Algorithm:**
+    1.  Iterate backwards from `C[i-1]` to find the first candle that is NOT an inside bar. This is the **"Mother Bar"**. Let's say it's at index `j`.
+    2.  An **"Inside Bar"** is defined as a candle whose `high` is lower than the `high` of the previous candle and whose `low` is higher than the `low` of the previous candle. The check should ensure all candles between `j` and `i` are inside bars relative to the Mother Bar.
+    3.  The current candle `C[i]` is the **"Breakout Candle."**
+    4.  **Bullish Case:** `C[i]` must sweep the low of the Mother Bar `C[j]`, then close back inside its range. (`C[i].low < C[j].low` and `C[i].close > C[j].low`). Target is the Mother Bar's high.
+    5.  **Bearish Case:** `C[i]` must sweep the high of the Mother Bar `C[j]`, then close back inside its range. (`C[i].high > C[j].high` and `C[i].close < C[j].high`). Target is the Mother Bar's low.
+    *   **Detected At:** Index `i`
+    *   **Range High:** `C[j].high`
+    *   **Range Low:** `C[j].low`
+
+**4. Multiple Candle CRT**
+
+This pattern is more heuristic. It's a large impulse move followed by a slow grind (distribution) that takes several candles.
+
+*   **Algorithm:**
+    1.  **Detect Impulse:** Identify an "Impulse Candle" `C[i-n]`. This can be defined as a candle whose range (`high - low`) is greater than **1.5x the Average True Range (ATR)** over the last 14 periods.
+    2.  **Detect Consolidation/Distribution:** The subsequent `n-1` candles (`C[i-n+1]` to `C[i-1]`) should have smaller ranges and should trade largely within the range of the impulse candle, slowly moving towards the opposite side.
+    *   **This pattern is more discretionary.** For the developer, the task is primarily to **flag the initial impulse candle** and its direction. The "multiple candle" follow-up is for visual confirmation by the user.
+
+**Output Structure:**
+The function should return a **list of dictionaries**. Each dictionary represents a detected CRT event and should contain at least the following keys:
+*   `timestamp`: The timestamp of the candle where the pattern was fully confirmed (e.g., `C[i]`).
+*   `pattern_name`: A string (e.g., `'Classic 3-Candle Bullish'`, `'Inside Bar Bearish'`).
+*   `crt_high`: The float value of the defined CRT range high.
+*   `crt_low`: The float value of the defined CRT range low.
+*   `target_dol`: The float value of the projected price objective.
+
+**Important Notes for Developer:**
+*   **Timezone:** All analysis must be performed on data that has been localized to the **`America/New_York`** timezone, as this entire methodology is time-dependent. The input DataFrame should be timezone-aware.
+*   **Edge Cases:** The loop should handle edge cases, such as starting the iteration at an index that allows for the required look-back period (e.g., for a 3-candle pattern, the loop must start at index 2).

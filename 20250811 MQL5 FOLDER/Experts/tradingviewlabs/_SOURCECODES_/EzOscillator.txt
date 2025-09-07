@@ -1,0 +1,31 @@
+//@version=5
+//
+indicator(title='EzOscillator')
+n1 = input(10, 'Channel Length')
+n2 = input(21, 'Average Length')
+obLevel1 = input(60, 'Over Bought Level 1')
+obLevel2 = input(53, 'Over Bought Level 2')
+osLevel1 = input(-60, 'Over Sold Level 1')
+osLevel2 = input(-53, 'Over Sold Level 2')
+
+ap = hlc3
+esa = ta.ema(ap, n1)
+d = ta.ema(math.abs(ap - esa), n1)
+ci = (ap - esa) / (0.015 * d)
+tci = ta.ema(ci, n2)
+
+wt1 = tci
+wt2 = ta.sma(wt1, 4)
+
+ob1  = plot(obLevel1, color=#e91e6301)
+os1 = plot(osLevel1, color=#00dbff01)
+ob2 = plot(obLevel2, color=#e91e6301)
+os2 = plot(osLevel2, color=#00dbff01)
+
+p1 = plot(wt1, color=#00dbff01)
+p2 = plot(wt2, color=#e91e6301)
+plot(wt1 - wt2, color=wt2 - wt1 > 0 ? #e91e6380 : #00dbff80, style=plot.style_columns)
+
+fill(p1,p2,color = wt2 - wt1 > 0 ? #e91e6380: #00dbff80)
+fill(ob1,ob2,color = #e91e6350)
+fill(os1,os2,color = #00dbff50)

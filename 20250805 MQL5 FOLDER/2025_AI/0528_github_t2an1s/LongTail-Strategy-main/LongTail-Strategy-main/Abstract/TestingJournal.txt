@@ -1,0 +1,4 @@
+
+Slippage- Unable to place tp/sl.
+    - should retry but thats not enough
+    - should send order with tp/sl
