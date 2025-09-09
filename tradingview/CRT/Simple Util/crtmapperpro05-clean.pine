@@ -1,0 +1,1016 @@
+//@version=5
+// Name: CRT Mapper Complete - Professional Trading System with Turtle Soup
+// Version: 3.0 COMPLETE STANDALONE
+// This is the COMPLETE standalone version combining CRT + Turtle Soup + Smart Money
+indicator("CRT Mapper Complete v3.0", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=100)
+
+// ═══════════════════════════════════════════════════════════════════════
+// SECTION 1: CONSTANTS & ENUMS
+// ═══════════════════════════════════════════════════════════════════════
+
+// Pattern States
+var int STATE_IDLE = 0
+var int STATE_RANGE = 1
+var int STATE_MANIPULATION = 2
+var int STATE_DISTRIBUTION = 3
+var int STATE_SEEKING_ENTRY = 4
+
+// Trade Bias
+var int BIAS_NEUTRAL = 0
+var int BIAS_BULLISH = 1
+var int BIAS_BEARISH = -1
+var int BIAS_BOTH = 2
+
+// Entry Signals
+var int ENTRY_NONE = 0
+var int ENTRY_LONG = 1
+var int ENTRY_SHORT = -1
+
+// ═══════════════════════════════════════════════════════════════════════
+// SECTION 2: USER INPUTS - CRT SETTINGS
+// ═══════════════════════════════════════════════════════════════════════
+
+// Time Settings
+timeGroup = "⏰ CRT Time Configuration"
+startHourSAST = input.int(3, "Range Start Hour (SAST)", minval=0, maxval=23, group=timeGroup, tooltip="Start hour for range candle in SAST (UTC+2)")
+sessionLength = input.int(8, "Session Length (hours)", minval=4, maxval=24, group=timeGroup)
+useWeekendFilter = input.bool(true, "Skip Weekends", group=timeGroup)
+
+// Visual Settings
+visualGroup = "🎨 Visual Settings"
+showRangeBox = input.bool(true, "Show Range Box", group=visualGroup)
+showZones = input.bool(true, "Show Supply/Demand Zones", group=visualGroup)
+showLabels = input.bool(true, "Show Labels", group=visualGroup)
+showMidpoint = input.bool(true, "Show Midpoint (TP1)", group=visualGroup)
+showEntrySignals = input.bool(true, "Show Entry Signals", group=visualGroup)
+
+// Colors
+colorGroup = "🎨 Color Scheme"
+rangeColor = input.color(color.new(#2962FF, 80), "Range Box", group=colorGroup)
+supplyColor = input.color(color.new(#FF1744, 80), "Supply Zone", group=colorGroup)
+demandColor = input.color(color.new(#00E676, 80), "Demand Zone", group=colorGroup)
+bullishColor = input.color(color.new(#00E676, 0), "Bullish Signal", group=colorGroup)
+bearishColor = input.color(color.new(#FF1744, 0), "Bearish Signal", group=colorGroup)
+neutralColor = input.color(color.new(#9C27B0, 0), "Neutral Signal", group=colorGroup)
+textColor = input.color(color.white, "Text Color", group=colorGroup)
+
+// Entry Settings
+entryGroup = "📊 Entry Configuration"
+useMarketStructure = input.bool(true, "Use Market Structure", group=entryGroup)
+useVolumeConfirm = input.bool(true, "Volume Confirmation", group=entryGroup)
+minRejectionWick = input.float(0.5, "Min Rejection Wick %", minval=0.1, maxval=2.0, group=entryGroup)
+entryBuffer = input.float(0.1, "Entry Buffer (ATR multiplier)", minval=0, maxval=1, group=entryGroup)
+
+// Risk Management
+riskGroup = "⚠️ Risk Management"
+showRiskReward = input.bool(true, "Show Risk/Reward", group=riskGroup)
+defaultRR = input.float(2.0, "Default R:R Ratio", minval=1, maxval=10, group=riskGroup)
+atrPeriod = input.int(14, "ATR Period", minval=1, group=riskGroup)
+stopLossATR = input.float(1.5, "Stop Loss (ATR)", minval=0.5, maxval=5, group=riskGroup)
+
+// Alert Settings
+alertGroup = "🔔 Alert Configuration"
+enableAlerts = input.bool(true, "Enable Alerts", group=alertGroup)
+alertOnRange = input.bool(true, "Alert on Range Formation", group=alertGroup)
+alertOnManip = input.bool(true, "Alert on Manipulation", group=alertGroup)
+alertOnEntry = input.bool(true, "Alert on Entry Signal", group=alertGroup)
+alertOnTurtle = input.bool(true, "Alert on Turtle Soup", group=alertGroup)
+
+// Performance Settings
+perfGroup = "⚡ Performance"
+historyDays = input.int(10, "History Window (days)", minval=1, maxval=30, group=perfGroup)
+maxPatterns = input.int(20, "Max Patterns to Track", minval=5, maxval=50, group=perfGroup)
+showDebug = input.bool(false, "Show Debug Info", group=perfGroup)
+showStats = input.bool(true, "Show Statistics Table", group=perfGroup)
+
+// ═══════════════════════════════════════════════════════════════════════
+// SECTION 3: TURTLE SOUP INPUTS
+// ═══════════════════════════════════════════════════════════════════════
+
+// Turtle Soup Settings
+turtleGroup = "🐢 Turtle Soup Configuration"
+enableTurtleSoup = input.bool(true, "Enable Turtle Soup Detection", group=turtleGroup)
+turtleLookback = input.int(20, "Lookback Period (bars)", minval=10, maxval=50, group=turtleGroup)
+minBreakDistance = input.float(0.1, "Min Break Distance (ATR)", minval=0.05, maxval=0.5, step=0.05, group=turtleGroup)
+maxBreakDistance = input.float(2.0, "Max Break Distance (ATR)", minval=0.5, maxval=5.0, step=0.5, group=turtleGroup)
+turtleConfirmBars = input.int(3, "Confirmation Bars", minval=1, maxval=5, group=turtleGroup)
+showTurtleLabels = input.bool(true, "Show Turtle Soup Labels", group=turtleGroup)
+showTurtleBox = input.bool(true, "Show Turtle Soup Box", group=turtleGroup)
+
+// Advanced Turtle Settings
+advTurtleGroup = "🐢 Advanced Turtle Settings"
+use15mDetection = input.bool(true, "Force 15m Detection", group=advTurtleGroup, tooltip="Always use 15m data for Turtle Soup regardless of chart timeframe")
+requireVolumeSpike = input.bool(true, "Require Volume Spike", group=advTurtleGroup)
+volumeSpikeMultiplier = input.float(1.3, "Volume Spike Multiplier", minval=1.1, maxval=3.0, group=advTurtleGroup)
+requireMomentum = input.bool(true, "Require Momentum Shift", group=advTurtleGroup)
+turtleRiskReward = input.float(3.0, "Turtle Soup R:R Target", minval=1.0, maxval=10.0, group=advTurtleGroup)
+minConfluenceScore = input.float(3.0, "Min Confluence Score", minval=1.0, maxval=5.0, group=advTurtleGroup)
+
+// Turtle Soup Colors
+turtleColorGroup = "🎨 Turtle Soup Colors"
+bullishTurtleColor = input.color(color.new(#00E676, 80), "Bullish Turtle Soup", group=turtleColorGroup)
+bearishTurtleColor = input.color(color.new(#FF1744, 80), "Bearish Turtle Soup", group=turtleColorGroup)
+turtleBoxColor = input.color(color.new(#2196F3, 90), "Turtle Box", group=turtleColorGroup)
+
+// ═══════════════════════════════════════════════════════════════════════
+// SECTION 4: SMART MONEY INPUTS
+// ═══════════════════════════════════════════════════════════════════════
+
+advancedGroup = "🚀 Smart Money Concepts"
+useSmartMoney = input.bool(true, "Smart Money Concepts", group=advancedGroup)
+useLiquidity = input.bool(true, "Liquidity Levels", group=advancedGroup)
+useImbalance = input.bool(true, "Imbalance/FVG Detection", group=advancedGroup)
+useSessionHighLow = input.bool(true, "Session High/Low Tracking", group=advancedGroup)
+
+// ═══════════════════════════════════════════════════════════════════════
+// SECTION 5: TYPE DEFINITIONS
+// ═══════════════════════════════════════════════════════════════════════
+
+// Turtle Soup Type
+type TurtleSoup
+    float breakLevel
+    float fakeBreakExtreme
+    float entryLevel
+    float stopLoss
+    float target1
+    float target2
+    int startBar
+    int confirmBar
+    bool isBullish
+    bool isConfirmed
+    bool isActive
+    float volumeRatio
+    string patternType
+    float confluenceScore
+
+// Order Block Type
+type OrderBlock
+    float top
+    float bottom
+    int startBar
+    int endBar
+    bool isBullish
+    float volume
+    bool mitigated
+
+// Fair Value Gap Type
+type FVG
+    float top
+    float bottom
+    int startBar
+    bool isBullish
+    bool filled
+
+// Trade Stats Type
+type TradeStats
+    int totalPatterns
+    int successfulTrades
+    int failedTrades
+    float winRate
+    float avgRR
+    int turtlePatterns
+    int turtleSuccess
+
+// ═══════════════════════════════════════════════════════════════════════
+// SECTION 6: VARIABLES INITIALIZATION
+// ═══════════════════════════════════════════════════════════════════════
+
+// Time calculations
+var int startHourUTC = (startHourSAST - 2 + 24) % 24
+var int endHourUTC = (startHourUTC + 4) % 24
+var int sessionEndUTC = (startHourUTC + sessionLength) % 24
+
+// CRT Pattern tracking
+var float rangeHigh = na
+var float rangeLow = na
+var float rangeMid = na
+var int patternState = STATE_IDLE
+var int tradeBias = BIAS_NEUTRAL
+var int currentEntry = ENTRY_NONE
+var int rangeStartBar = na
+var float entryPrice = na
+var float stopLoss = na
+var float takeProfit1 = na
+var float takeProfit2 = na
+var bool crtRangeActive = false
+
+// Pattern storage arrays
+var array<int> patternBars = array.new<int>()
+var array<float> patternHighs = array.new<float>()
+var array<float> patternLows = array.new<float>()
+var array<int> patternBias = array.new<int>()
+var array<int> patternTimes = array.new<int>()
+
+// Visual elements
+var box rangeBox = na
+var line highLine = na
+var line lowLine = na
+var line midLine = na
+var array<box> zoneBoxes = array.new<box>()
+
+// Turtle Soup variables
+var array<TurtleSoup> activeTurtles = array.new<TurtleSoup>()
+var array<TurtleSoup> historicalTurtles = array.new<TurtleSoup>()
+var TurtleSoup currentTurtle = na
+var bool turtleSetupActive = false
+var int turtleSetupBar = na
+
+// Smart Money variables
+var array<OrderBlock> orderBlocks = array.new<OrderBlock>()
+var array<FVG> fairValueGaps = array.new<FVG>()
+var array<float> liquidityPools = array.new<float>()
+var array<int> liquidityTypes = array.new<int>()
+
+// Statistics
+var TradeStats stats = TradeStats.new(0, 0, 0, 0, 0, 0, 0)
+
+// Multi-timeframe variables
+var bool mtfActive = false
+var float mtfHigh = na
+var float mtfLow = na
+var int mtfStartBar = na
+
+// ═══════════════════════════════════════════════════════════════════════
+// SECTION 7: UTILITY FUNCTIONS
+// ═══════════════════════════════════════════════════════════════════════
+
+// Calculate ATR
+atr = ta.atr(atrPeriod)
+
+// Check if weekend
+isWeekend() =>
+    dayofweek == dayofweek.saturday or dayofweek == dayofweek.sunday
+
+// Check if in session
+isInSession() =>
+    if useWeekendFilter and isWeekend()
+        false
+    else
+        currentHour = hour(time, "UTC")
+        if startHourUTC < endHourUTC
+            currentHour >= startHourUTC and currentHour < endHourUTC
+        else
+            currentHour >= startHourUTC or currentHour < endHourUTC
+
+// Check session start
+isSessionStart() =>
+    currentHour = hour(time, "UTC")
+    prevHour = hour(time[1], "UTC")
+    sessionStarted = (currentHour == startHourUTC and prevHour != startHourUTC)
+    if useWeekendFilter
+        sessionStarted and not isWeekend()
+    else
+        sessionStarted
+
+// Calculate rejection percentage
+getRejectionPercent(isUpper) =>
+    if isUpper
+        high != low ? (high - close) / (high - low) * 100 : 0
+    else
+        high != low ? (close - low) / (high - low) * 100 : 0
+
+// Volume confirmation
+hasVolumeConfirmation() =>
+    if not useVolumeConfirm
+        true
+    else
+        volume > ta.sma(volume, 20) * 1.2
+
+// Market structure check
+checkMarketStructure(isBullish) =>
+    if not useMarketStructure
+        true
+    else if isBullish
+        close > ta.highest(high[1], 5)
+    else
+        close < ta.lowest(low[1], 5)
+
+// ═══════════════════════════════════════════════════════════════════════
+// SECTION 8: DRAWING FUNCTIONS
+// ═══════════════════════════════════════════════════════════════════════
+
+// Draw range box
+drawRangeBox(startBar, h, l, extend) =>
+    if showRangeBox
+        endBar = startBar + extend
+        box.new(startBar, h, endBar, l, border_color=color.new(color.gray, 50), 
+                bgcolor=rangeColor, border_width=1)
+
+// Draw zone
+drawZone(startBar, h, l, isBullish, extend) =>
+    if showZones
+        endBar = startBar + extend
+        zoneColor = isBullish ? demandColor : supplyColor
+        zoneBox = box.new(startBar, h, endBar, l, border_color=color.new(color.gray, 70), 
+                         bgcolor=zoneColor, border_width=1)
+        array.push(zoneBoxes, zoneBox)
+        if array.size(zoneBoxes) > 10
+            box.delete(array.shift(zoneBoxes))
+
+// Draw entry signal
+drawEntrySignal(x, y, isLong, entryText) =>
+    if showEntrySignals
+        signalColor = isLong ? bullishColor : bearishColor
+        style = isLong ? label.style_label_up : label.style_label_down
+        offset = isLong ? -atr * 0.5 : atr * 0.5
+        label.new(x, y + offset, entryText, color=signalColor, textcolor=textColor, 
+                 style=style, size=size.small)
+
+// ═══════════════════════════════════════════════════════════════════════
+// SECTION 9: TURTLE SOUP FUNCTIONS
+// ═══════════════════════════════════════════════════════════════════════
+
+// Find previous extreme
+findPreviousExtreme(isHigh, lookback) =>
+    extreme = isHigh ? ta.highest(high, lookback) : ta.lowest(low, lookback)
+    extremeBar = isHigh ? ta.highestbars(high, lookback) : ta.lowestbars(low, lookback)
+    [extreme, extremeBar]
+
+// Check breakout
+checkBreakout(lookback) =>
+    [prevHigh, prevHighBar] = findPreviousExtreme(true, lookback)
+    [prevLow, prevLowBar] = findPreviousExtreme(false, lookback)
+    
+    bullishBreak = low < prevLow and close > prevLow
+    bearishBreak = high > prevHigh and close < prevHigh
+    
+    breakDistance = 0.0
+    if bullishBreak
+        breakDistance := (prevLow - low) / atr
+    else if bearishBreak
+        breakDistance := (high - prevHigh) / atr
+    
+    validDistance = breakDistance >= minBreakDistance and breakDistance <= maxBreakDistance
+    
+    [bullishBreak and validDistance, bearishBreak and validDistance, prevLow, prevHigh, breakDistance]
+
+// Check volume for Turtle
+checkTurtleVolume() =>
+    avgVolume = ta.sma(volume, 20)
+    volumeRatio = volume / avgVolume
+    
+    if requireVolumeSpike
+        volumeRatio >= volumeSpikeMultiplier
+    else
+        true
+
+// Check momentum
+checkMomentumShift(isBullish) =>
+    rsi = ta.rsi(close, 14)
+    [macdLine, signalLine, _] = ta.macd(close, 12, 26, 9)
+    
+    if not requireMomentum
+        true
+    else if isBullish
+        rsi < 70 and macdLine > macdLine[1]
+    else
+        rsi > 30 and macdLine < macdLine[1]
+
+// Calculate Turtle confluence
+calculateTurtleConfluence(turtle) =>
+    score = 0.0
+    
+    if not na(turtle) and crtRangeActive
+        // CRT alignment
+        if (turtle.isBullish and tradeBias == BIAS_BULLISH) or (not turtle.isBullish and tradeBias == BIAS_BEARISH)
+            score += 2.0
+        
+        // Near CRT levels
+        if turtle.isBullish
+            if math.abs(turtle.entryLevel - rangeLow) < atr * 0.5
+                score += 1.5
+        else
+            if math.abs(turtle.entryLevel - rangeHigh) < atr * 0.5
+                score += 1.5
+        
+        // Volume confirmation
+        if turtle.volumeRatio > 1.5
+            score += 0.5
+        
+        // Smart Money alignment
+        if array.size(orderBlocks) > 0
+            score += 0.5
+        
+        // FVG present
+        if array.size(fairValueGaps) > 0
+            score += 0.5
+    
+    score
+
+// Detect Turtle Soup
+detectTurtleSoup() =>
+    if not enableTurtleSoup or not crtRangeActive
+        false
+    
+    [bullishSetup, bearishSetup, prevLow, prevHigh, breakDist] = checkBreakout(turtleLookback)
+    
+    if bullishSetup and checkTurtleVolume() and checkMomentumShift(true)
+        turtle = TurtleSoup.new()
+        turtle.breakLevel := prevLow
+        turtle.fakeBreakExtreme := low
+        turtle.entryLevel := prevLow + (atr * 0.1)
+        turtle.stopLoss := low - (atr * 0.5)
+        turtle.target1 := rangeMid
+        turtle.target2 := rangeHigh
+        turtle.startBar := bar_index
+        turtle.isBullish := true
+        turtle.isConfirmed := false
+        turtle.isActive := true
+        turtle.volumeRatio := volume / ta.sma(volume, 20)
+        turtle.patternType := "CLASSIC"
+        turtle.confluenceScore := calculateTurtleConfluence(turtle)
+        
+        currentTurtle := turtle
+        turtleSetupActive := true
+        turtleSetupBar := bar_index
+        true
+        
+    else if bearishSetup and checkTurtleVolume() and checkMomentumShift(false)
+        turtle = TurtleSoup.new()
+        turtle.breakLevel := prevHigh
+        turtle.fakeBreakExtreme := high
+        turtle.entryLevel := prevHigh - (atr * 0.1)
+        turtle.stopLoss := high + (atr * 0.5)
+        turtle.target1 := rangeMid
+        turtle.target2 := rangeLow
+        turtle.startBar := bar_index
+        turtle.isBullish := false
+        turtle.isConfirmed := false
+        turtle.isActive := true
+        turtle.volumeRatio := volume / ta.sma(volume, 20)
+        turtle.patternType := "CLASSIC"
+        turtle.confluenceScore := calculateTurtleConfluence(turtle)
+        
+        currentTurtle := turtle
+        turtleSetupActive := true
+        turtleSetupBar := bar_index
+        true
+    else
+        false
+
+// Confirm Turtle Soup
+confirmTurtleSoup() =>
+    if turtleSetupActive and not na(currentTurtle)
+        barsElapsed = bar_index - turtleSetupBar
+        
+        if barsElapsed <= turtleConfirmBars
+            if currentTurtle.isBullish
+                if close > currentTurtle.breakLevel and close > close[1]
+                    currentTurtle.isConfirmed := true
+                    currentTurtle.confirmBar := bar_index
+                    array.push(activeTurtles, currentTurtle)
+                    stats.totalPatterns += 1
+    
+    else if patternState == STATE_RANGE
+        // Manipulation candle analysis
+        bearishRejection = high > rangeHigh and close < rangeHigh and getRejectionPercent(true) > minRejectionWick
+        bullishRejection = low < rangeLow and close > rangeLow and getRejectionPercent(false) > minRejectionWick
+        
+        if bearishRejection and bullishRejection
+            tradeBias := BIAS_BOTH
+            drawZone(bar_index, rangeHigh, rangeLow, false, 5)
+        else if bearishRejection
+            tradeBias := BIAS_BEARISH
+            drawZone(bar_index, rangeHigh, rangeHigh - (rangeHigh - rangeLow) * 0.25, false, 5)
+        else if bullishRejection
+            tradeBias := BIAS_BULLISH
+            drawZone(bar_index, rangeLow + (rangeHigh - rangeLow) * 0.25, rangeLow, true, 5)
+        
+        patternState := STATE_MANIPULATION
+        
+        if array.size(patternBias) > 0
+            array.set(patternBias, array.size(patternBias) - 1, tradeBias)
+        
+        if enableAlerts and alertOnManip and tradeBias != BIAS_NEUTRAL
+            biasText = tradeBias == BIAS_BULLISH ? "Bullish" : tradeBias == BIAS_BEARISH ? "Bearish" : "Both"
+            alert("CRT Manipulation: " + biasText, alert.freq_once_per_bar)
+    
+    else if patternState == STATE_MANIPULATION
+        // Distribution candle
+        patternState := STATE_SEEKING_ENTRY
+        
+        if tradeBias == BIAS_BULLISH
+            drawEntrySignal(bar_index, low, true, "🔼")
+        else if tradeBias == BIAS_BEARISH
+            drawEntrySignal(bar_index, high, false, "🔽")
+        else if tradeBias == BIAS_BOTH
+            label.new(bar_index, close, "⚠", color=neutralColor, textcolor=textColor,
+                     style=label.style_circle, size=size.small)
+
+// Lower timeframe logic
+else if timeframe.period != "240"
+    // Multi-timeframe session tracking
+    if isSessionStart()
+        mtfActive := true
+        mtfHigh := high
+        mtfLow := low
+        mtfStartBar := bar_index
+        crtRangeActive := true
+        rangeHigh := high
+        rangeLow := low
+        rangeMid := (high + low) / 2
+        rangeStartBar := bar_index
+        patternState := STATE_RANGE
+    
+    // Update MTF highs/lows
+    if mtfActive and isInSession()
+        mtfHigh := math.max(mtfHigh, high)
+        mtfLow := math.min(mtfLow, low)
+        rangeHigh := mtfHigh
+        rangeLow := mtfLow
+        rangeMid := (mtfHigh + mtfLow) / 2
+    
+    // Session end
+    sessionJustEnded = mtfActive and not isInSession() and isInSession()[1]
+    if sessionJustEnded
+        mtfActive := false
+        patternState := STATE_SEEKING_ENTRY
+        
+        // Determine bias based on price action
+        if close > rangeMid
+            tradeBias := BIAS_BULLISH
+        else if close < rangeMid
+            tradeBias := BIAS_BEARISH
+        else
+            tradeBias := BIAS_NEUTRAL
+        
+        // Draw CRT levels
+        tfSeconds = timeframe.in_seconds(timeframe.period)
+        barsToExtend = math.round((sessionLength * 3600) / tfSeconds)
+        extendToBar = mtfStartBar + barsToExtend
+        
+        line.new(mtfStartBar, mtfHigh, extendToBar, mtfHigh, color=color.black, width=2)
+        line.new(mtfStartBar, mtfLow, extendToBar, mtfLow, color=color.black, width=2)
+        
+        if showMidpoint
+            line.new(mtfStartBar, rangeMid, extendToBar, rangeMid, color=color.gray,
+                    style=line.style_dotted, width=1)
+            label.new(extendToBar, rangeMid, "TP1", color=color.gray, textcolor=textColor,
+                     style=label.style_label_left, size=size.tiny)
+        
+        if showLabels
+            label.new(extendToBar, mtfHigh, "CRT-H", color=color.black, textcolor=textColor,
+                     style=label.style_label_left, size=size.tiny)
+            label.new(extendToBar, mtfLow, "CRT-L", color=color.black, textcolor=textColor,
+                     style=label.style_label_left, size=size.tiny)
+        
+        stats.totalPatterns += 1
+
+// ═══════════════════════════════════════════════════════════════════════
+// SECTION 12: ENTRY SIGNAL GENERATION
+// ═══════════════════════════════════════════════════════════════════════
+
+// CRT-based entry signals
+if patternState == STATE_SEEKING_ENTRY and crtRangeActive and not na(rangeHigh) and not na(rangeLow)
+    // Long entry conditions
+    longCondition = tradeBias == BIAS_BULLISH and 
+                   close > rangeLow and 
+                   low <= rangeLow + atr * entryBuffer and
+                   hasVolumeConfirmation() and
+                   checkMarketStructure(true)
+    
+    // Short entry conditions
+    shortCondition = tradeBias == BIAS_BEARISH and 
+                    close < rangeHigh and 
+                    high >= rangeHigh - atr * entryBuffer and
+                    hasVolumeConfirmation() and
+                    checkMarketStructure(false)
+    
+    if longCondition and currentEntry == ENTRY_NONE
+        currentEntry := ENTRY_LONG
+        entryPrice := close
+        stopLoss := rangeLow - atr * stopLossATR
+        takeProfit1 := rangeMid
+        takeProfit2 := rangeHigh
+        
+        drawEntrySignal(bar_index, low, true, "LONG\n" + str.tostring(entryPrice, "#.##"))
+        
+        if showRiskReward
+            line.new(bar_index, stopLoss, bar_index + 10, stopLoss, color=bearishColor,
+                    style=line.style_dashed, width=1)
+            line.new(bar_index, takeProfit1, bar_index + 10, takeProfit1, color=bullishColor,
+                    style=line.style_dashed, width=1)
+            line.new(bar_index, takeProfit2, bar_index + 10, takeProfit2, color=bullishColor,
+                    style=line.style_dotted, width=1)
+        
+        if enableAlerts and alertOnEntry
+            alert("CRT Long Entry: " + str.tostring(entryPrice), alert.freq_once_per_bar)
+        
+        stats.successfulTrades += 1
+    
+    else if shortCondition and currentEntry == ENTRY_NONE
+        currentEntry := ENTRY_SHORT
+        entryPrice := close
+        stopLoss := rangeHigh + atr * stopLossATR
+        takeProfit1 := rangeMid
+        takeProfit2 := rangeLow
+        
+        drawEntrySignal(bar_index, high, false, "SHORT\n" + str.tostring(entryPrice, "#.##"))
+        
+        if showRiskReward
+            line.new(bar_index, stopLoss, bar_index + 10, stopLoss, color=bearishColor,
+                    style=line.style_dashed, width=1)
+            line.new(bar_index, takeProfit1, bar_index + 10, takeProfit1, color=bullishColor,
+                    style=line.style_dashed, width=1)
+            line.new(bar_index, takeProfit2, bar_index + 10, takeProfit2, color=bullishColor,
+                    style=line.style_dotted, width=1)
+        
+        if enableAlerts and alertOnEntry
+            alert("CRT Short Entry: " + str.tostring(entryPrice), alert.freq_once_per_bar)
+        
+        stats.successfulTrades += 1
+
+// ═══════════════════════════════════════════════════════════════════════
+// SECTION 13: TURTLE SOUP EXECUTION
+// ═══════════════════════════════════════════════════════════════════════
+
+// Detect and manage Turtle Soup patterns
+if crtRangeActive and enableTurtleSoup
+    // Use 15m data if configured
+    turtleDetected = false
+    
+    if use15mDetection and timeframe.period != "15"
+        // Request 15m data
+        [turtle15m, turtleActive15m] = request.security(syminfo.tickerid, "15", 
+            [detectTurtleSoup(), turtleSetupActive], lookahead=barmerge.lookahead_off)
+        turtleDetected := turtle15m
+    else
+        turtleDetected := detectTurtleSoup()
+    
+    // Confirm Turtle pattern
+    if turtleSetupActive
+        confirmed = confirmTurtleSoup()
+        if confirmed and not na(currentTurtle)
+            // Check confluence score
+            if currentTurtle.confluenceScore >= minConfluenceScore
+                drawTurtleSoup(currentTurtle)
+                
+                // Generate alert
+                if enableAlerts and alertOnTurtle
+                    direction = currentTurtle.isBullish ? "BULLISH" : "BEARISH"
+                    alertMsg = "🐢 TURTLE SOUP " + direction + "\n" +
+                              "Entry: " + str.tostring(currentTurtle.entryLevel, "#.##") + "\n" +
+                              "Stop: " + str.tostring(currentTurtle.stopLoss, "#.##") + "\n" +
+                              "Score: " + str.tostring(currentTurtle.confluenceScore, "#.#")
+                    alert(alertMsg, alert.freq_once_per_bar)
+                
+                stats.turtleSuccess += 1
+            else
+                // Low confluence - skip
+                turtleSetupActive := false
+                currentTurtle := na
+
+// Manage active Turtle trades
+if array.size(activeTurtles) > 0
+    for i = array.size(activeTurtles) - 1 to 0
+        turtle = array.get(activeTurtles, i)
+        
+        // Check targets and stops
+        if turtle.isBullish
+            if high >= turtle.target2 or low <= turtle.stopLoss
+                turtle.isActive := false
+                array.remove(activeTurtles, i)
+                array.push(historicalTurtles, turtle)
+                
+                if high >= turtle.target2
+                    stats.turtleSuccess += 1
+        else
+            if low <= turtle.target2 or high >= turtle.stopLoss
+                turtle.isActive := false
+                array.remove(activeTurtles, i)
+                array.push(historicalTurtles, turtle)
+                
+                if low <= turtle.target2
+                    stats.turtleSuccess += 1
+        
+        // Clean old patterns
+        if bar_index - turtle.startBar > 50
+            turtle.isActive := false
+            array.remove(activeTurtles, i)
+
+// Limit historical array
+while array.size(historicalTurtles) > 30
+    array.shift(historicalTurtles)
+
+// ═══════════════════════════════════════════════════════════════════════
+// SECTION 14: SMART MONEY EXECUTION
+// ═══════════════════════════════════════════════════════════════════════
+
+// Execute Smart Money detection
+if useSmartMoney
+    detectOrderBlock()
+    detectLiquidityPools()
+
+if useImbalance
+    detectFVG()
+
+// ═══════════════════════════════════════════════════════════════════════
+// SECTION 15: STATISTICS AND DISPLAY
+// ═══════════════════════════════════════════════════════════════════════
+
+// Calculate statistics
+totalTrades = stats.successfulTrades + stats.failedTrades
+winRate = totalTrades > 0 ? (stats.successfulTrades / totalTrades) * 100 : 0
+turtleWinRate = stats.turtlePatterns > 0 ? (stats.turtleSuccess / stats.turtlePatterns) * 100 : 0
+
+// Display statistics table
+if showStats and barstate.islast
+    var table statsTable = table.new(position.top_right, 2, 12,
+                                     bgcolor=color.new(color.black, 85),
+                                     border_color=color.gray, border_width=1)
+    
+    // Header
+    table.cell(statsTable, 0, 0, "CRT + Turtle", text_color=color.white, bgcolor=color.new(color.blue, 50))
+    table.cell(statsTable, 1, 0, "Stats", text_color=color.white, bgcolor=color.new(color.blue, 50))
+    
+    // CRT Stats
+    table.cell(statsTable, 0, 1, "═══════", text_color=color.gray)
+    table.cell(statsTable, 1, 1, "═══════", text_color=color.gray)
+    
+    table.cell(statsTable, 0, 2, "CRT Patterns", text_color=color.white)
+    table.cell(statsTable, 1, 2, str.tostring(stats.totalPatterns), text_color=color.white)
+    
+    table.cell(statsTable, 0, 3, "Current State", text_color=color.white)
+    stateText = patternState == STATE_IDLE ? "Idle" :
+                patternState == STATE_RANGE ? "Range" :
+                patternState == STATE_MANIPULATION ? "Manip" :
+                patternState == STATE_SEEKING_ENTRY ? "Entry" : "Dist"
+    table.cell(statsTable, 1, 3, stateText, text_color=color.yellow)
+    
+    table.cell(statsTable, 0, 4, "Bias", text_color=color.white)
+    biasText = tradeBias == BIAS_BULLISH ? "Bull" :
+               tradeBias == BIAS_BEARISH ? "Bear" :
+               tradeBias == BIAS_BOTH ? "Both" : "None"
+    biasColor = tradeBias == BIAS_BULLISH ? color.green :
+                tradeBias == BIAS_BEARISH ? color.red : color.gray
+    table.cell(statsTable, 1, 4, biasText, text_color=biasColor)
+    
+    // Turtle Stats
+    table.cell(statsTable, 0, 5, "═══════", text_color=color.gray)
+    table.cell(statsTable, 1, 5, "═══════", text_color=color.gray)
+    
+    table.cell(statsTable, 0, 6, "🐢 Patterns", text_color=color.white)
+    table.cell(statsTable, 1, 6, str.tostring(stats.turtlePatterns), text_color=color.white)
+    
+    table.cell(statsTable, 0, 7, "🐢 Active", text_color=color.white)
+    table.cell(statsTable, 1, 7, str.tostring(array.size(activeTurtles)), text_color=color.yellow)
+    
+    table.cell(statsTable, 0, 8, "🐢 Win Rate", text_color=color.white)
+    table.cell(statsTable, 1, 8, str.tostring(turtleWinRate, "#.#") + "%",
+              text_color=turtleWinRate > 60 ? color.green : color.orange)
+    
+    // Overall Stats
+    table.cell(statsTable, 0, 9, "═══════", text_color=color.gray)
+    table.cell(statsTable, 1, 9, "═══════", text_color=color.gray)
+    
+    table.cell(statsTable, 0, 10, "Total Trades", text_color=color.white)
+    table.cell(statsTable, 1, 10, str.tostring(totalTrades), text_color=color.white)
+    
+    table.cell(statsTable, 0, 11, "Win Rate", text_color=color.white)
+    table.cell(statsTable, 1, 11, str.tostring(winRate, "#.#") + "%",
+              text_color=winRate > 50 ? color.green : color.red)
+
+// Display current Turtle setup info
+if not na(currentTurtle) and turtleSetupActive and barstate.islast
+    setupText = (currentTurtle.isBullish ? "🟢 " : "🔴 ") + "TURTLE SETUP\n" +
+               "Entry: " + str.tostring(currentTurtle.entryLevel, "#.##") + "\n" +
+               "Stop: " + str.tostring(currentTurtle.stopLoss, "#.##") + "\n" +
+               "TP1: " + str.tostring(currentTurtle.target1, "#.##") + "\n" +
+               "TP2: " + str.tostring(currentTurtle.target2, "#.##") + "\n" +
+               "Score: " + str.tostring(currentTurtle.confluenceScore, "#.#") + "/5"
+    
+    label.new(bar_index + 5, close, setupText,
+             color=currentTurtle.isBullish ? color.green : color.red,
+             textcolor=color.white, style=label.style_label_left, size=size.normal)
+
+// ═══════════════════════════════════════════════════════════════════════
+// SECTION 16: DEBUG INFORMATION
+// ═══════════════════════════════════════════════════════════════════════
+
+if showDebug and barstate.islast
+    debugText = "DEBUG INFO\n" +
+               "═══════════\n" +
+               "TF: " + timeframe.period + "\n" +
+               "UTC: " + str.tostring(hour(time, "UTC")) + ":" + str.tostring(minute(time, "UTC")) + "\n" +
+               "State: " + stateText + "\n" +
+               "CRT Active: " + str.tostring(crtRangeActive) + "\n" +
+               "Range H: " + str.tostring(rangeHigh, "#.##") + "\n" +
+               "Range L: " + str.tostring(rangeLow, "#.##") + "\n" +
+               "Turtle Active: " + str.tostring(turtleSetupActive) + "\n" +
+               "OBs: " + str.tostring(array.size(orderBlocks)) + "\n" +
+               "FVGs: " + str.tostring(array.size(fairValueGaps)) + "\n" +
+               "Liquidity: " + str.tostring(array.size(liquidityPools))
+    
+    label.new(bar_index - 20, high + atr * 4, debugText,
+             color=color.new(color.black, 20), textcolor=color.white,
+             style=label.style_label_center, size=size.small)
+
+// ═══════════════════════════════════════════════════════════════════════
+// SECTION 17: PLOTTING
+// ═══════════════════════════════════════════════════════════════════════
+
+// Plot CRT levels
+plot(crtRangeActive ? rangeHigh : na, "CRT High", color=color.new(color.gray, 50), linewidth=2, style=plot.style_circles)
+plot(crtRangeActive ? rangeLow : na, "CRT Low", color=color.new(color.gray, 50), linewidth=2, style=plot.style_circles)
+plot(crtRangeActive and showMidpoint ? rangeMid : na, "CRT Mid", color=color.new(color.gray, 70), linewidth=1, style=plot.style_cross)
+
+// Background coloring for pattern state
+bgcolor(patternState == STATE_RANGE ? color.new(color.blue, 95) : na, title="Range State")
+bgcolor(patternState == STATE_SEEKING_ENTRY ? color.new(color.green, 97) : na, title="Seeking Entry")
+
+// Highlight Turtle Soup zones
+bgcolor(turtleSetupActive and not na(currentTurtle) and currentTurtle.confluenceScore >= minConfluenceScore ? 
+        color.new(color.purple, 95) : na, title="Turtle Zone")
+
+// ═══════════════════════════════════════════════════════════════════════
+// END OF COMPLETE STANDALONE CODE
+// ═══════════════════════════════════════════════════════════════════════.turtlePatterns += 1
+                    true
+                else
+                    false
+            else
+                if close < currentTurtle.breakLevel and close < close[1]
+                    currentTurtle.isConfirmed := true
+                    currentTurtle.confirmBar := bar_index
+                    array.push(activeTurtles, currentTurtle)
+                    stats.turtlePatterns += 1
+                    true
+                else
+                    false
+        else
+            turtleSetupActive := false
+            currentTurtle := na
+            false
+    else
+        false
+
+// Draw Turtle Soup
+drawTurtleSoup(turtle) =>
+    if not na(turtle) and showTurtleBox
+        boxColor = turtle.isBullish ? bullishTurtleColor : bearishTurtleColor
+        box.new(turtle.startBar, turtle.fakeBreakExtreme, turtle.confirmBar, turtle.breakLevel,
+                border_color=color.new(color.white, 70), bgcolor=boxColor, border_width=1)
+    
+    if not na(turtle) and showTurtleLabels
+        line.new(turtle.confirmBar, turtle.entryLevel, turtle.confirmBar + 20, turtle.entryLevel,
+                color=turtle.isBullish ? color.green : color.red, style=line.style_solid, width=2)
+        
+        line.new(turtle.confirmBar, turtle.stopLoss, turtle.confirmBar + 20, turtle.stopLoss,
+                color=color.red, style=line.style_dashed, width=1)
+        
+        patternText = "🐢 " + turtle.patternType + "\n" +
+                     "Score: " + str.tostring(turtle.confluenceScore, "#.#")
+        
+        label.new(turtle.confirmBar, turtle.entryLevel, patternText,
+                 color=turtle.isBullish ? color.green : color.red,
+                 textcolor=color.white, style=label.style_label_center, size=size.small)
+
+// ═══════════════════════════════════════════════════════════════════════
+// SECTION 10: SMART MONEY FUNCTIONS
+// ═══════════════════════════════════════════════════════════════════════
+
+// Detect Order Blocks
+detectOrderBlock() =>
+    if useSmartMoney
+        // Bullish Order Block
+        if close > open and close[1] < open[1] and close > high[1]
+            ob = OrderBlock.new()
+            ob.top := high[1]
+            ob.bottom := low[1]
+            ob.startBar := bar_index - 1
+            ob.endBar := bar_index + 50
+            ob.isBullish := true
+            ob.volume := volume[1]
+            ob.mitigated := false
+            array.push(orderBlocks, ob)
+            
+            if array.size(orderBlocks) > 20
+                array.shift(orderBlocks)
+        
+        // Bearish Order Block
+        if close < open and close[1] > open[1] and close < low[1]
+            ob = OrderBlock.new()
+            ob.top := high[1]
+            ob.bottom := low[1]
+            ob.startBar := bar_index - 1
+            ob.endBar := bar_index + 50
+            ob.isBullish := false
+            ob.volume := volume[1]
+            ob.mitigated := false
+            array.push(orderBlocks, ob)
+            
+            if array.size(orderBlocks) > 20
+                array.shift(orderBlocks)
+
+// Detect Liquidity
+detectLiquidityPools() =>
+    if useLiquidity
+        // Buy Side Liquidity
+        isSwingHigh = high[2] < high[1] and high[1] > high
+        if isSwingHigh
+            array.push(liquidityPools, high[1])
+            array.push(liquidityTypes, 1)
+            
+            if showLabels
+                line.new(bar_index - 1, high[1], bar_index + 20, high[1],
+                        color=color.new(color.red, 70), style=line.style_dotted, width=1)
+        
+        // Sell Side Liquidity
+        isSwingLow = low[2] > low[1] and low[1] < low
+        if isSwingLow
+            array.push(liquidityPools, low[1])
+            array.push(liquidityTypes, -1)
+            
+            if showLabels
+                line.new(bar_index - 1, low[1], bar_index + 20, low[1],
+                        color=color.new(color.green, 70), style=line.style_dotted, width=1)
+        
+        while array.size(liquidityPools) > 10
+            array.shift(liquidityPools)
+            array.shift(liquidityTypes)
+
+// Detect FVG
+detectFVG() =>
+    if useImbalance
+        // Bullish FVG
+        gap_up = low > high[2] and close > open
+        if gap_up
+            fvg = FVG.new()
+            fvg.top := low
+            fvg.bottom := high[2]
+            fvg.startBar := bar_index - 1
+            fvg.isBullish := true
+            fvg.filled := false
+            array.push(fairValueGaps, fvg)
+            
+            box.new(bar_index - 2, fvg.top, bar_index + 10, fvg.bottom,
+                   border_color=color.new(color.green, 80),
+                   bgcolor=color.new(color.green, 90), border_width=1)
+        
+        // Bearish FVG
+        gap_down = high < low[2] and close < open
+        if gap_down
+            fvg = FVG.new()
+            fvg.top := low[2]
+            fvg.bottom := high
+            fvg.startBar := bar_index - 1
+            fvg.isBullish := false
+            fvg.filled := false
+            array.push(fairValueGaps, fvg)
+            
+            box.new(bar_index - 2, fvg.top, bar_index + 10, fvg.bottom,
+                   border_color=color.new(color.red, 80),
+                   bgcolor=color.new(color.red, 90), border_width=1)
+        
+        if array.size(fairValueGaps) > 15
+            array.shift(fairValueGaps)
+
+// ═══════════════════════════════════════════════════════════════════════
+// SECTION 11: MAIN CRT LOGIC
+// ═══════════════════════════════════════════════════════════════════════
+
+// 4H timeframe logic
+if timeframe.period == "240"
+    if isSessionStart()
+        // New range formation
+        rangeHigh := high
+        rangeLow := low
+        rangeMid := (high + low) / 2
+        rangeStartBar := bar_index
+        patternState := STATE_RANGE
+        tradeBias := BIAS_NEUTRAL
+        currentEntry := ENTRY_NONE
+        crtRangeActive := true
+        
+        // Store pattern
+        array.push(patternBars, bar_index)
+        array.push(patternHighs, high)
+        array.push(patternLows, low)
+        array.push(patternBias, BIAS_NEUTRAL)
+        array.push(patternTimes, time)
+        
+        // Draw range
+        if not na(rangeBox)
+            box.delete(rangeBox)
+        rangeBox := drawRangeBox(bar_index, high, low, 3)
+        
+        // Draw lines
+        if not na(highLine)
+            line.delete(highLine)
+        if not na(lowLine)
+            line.delete(lowLine)
+        if not na(midLine)
+            line.delete(midLine)
+            
+        highLine := line.new(bar_index, high, bar_index + 10, high, color=color.gray, width=2)
+        lowLine := line.new(bar_index, low, bar_index + 10, low, color=color.gray, width=2)
+        
+        if showMidpoint
+            midLine := line.new(bar_index, rangeMid, bar_index + 10, rangeMid,
+                              color=color.gray, style=line.style_dotted, width=1)
+        
+        // Alert
+        if enableAlerts and alertOnRange
+            alert("CRT Range: " + str.tostring(rangeLow) + " - " + str.tostring(rangeHigh), alert.freq_once_per_bar)
+        
+        stats
