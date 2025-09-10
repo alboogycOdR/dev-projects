@@ -1,0 +1,99 @@
+//@version=5
+indicator("CRT + Turtle Soup SCANNER", overlay = false, max_lines_count = 0, max_labels_count = 0, max_boxes_count = 0)
+
+//┌──────────────────────────────────────────────────────────────┐
+//│ 1.  USER CONSTANTS – match the main indicator                │
+//└──────────────────────────────────────────────────────────────┘
+startHourSAST      = input.int(3,  "CRT range-start SAST (UTC+2)")
+sessionLen         = input.int(8,  "CRT session length (hours)", minval = 4, maxval = 24)
+turtleLookback     = input.int(20, "Turtle look-back (bars)")
+minBreakATR        = input.float(0.1, "Min break distance (ATR)")
+maxBreakATR        = input.float(2.0, "Max break distance (ATR)")
+turtleConfBars     = input.int(3,  "Turtle confirmation bars")
+minConfluence      = input.float(3.0, "Min confluence score for alert")
+use15mTurtle       = input.bool(true, "Force 15-min Turtle detection")
+atrLen             = input.int(14, "ATR length")
+
+//┌──────────────────────────────────────────────────────────────┐
+//│ 2.  TIME HELPERS                                             │
+//└──────────────────────────────────────────────────────────────┘
+startHourUTC = (startHourSAST - 2 + 24) % 24
+endHourUTC   = (startHourUTC + sessionLen) % 24
+
+inSession(h) =>
+    wrap = startHourUTC > endHourUTC
+    wrap ? (h >= startHourUTC or h < endHourUTC) : (h >= startHourUTC and h < endHourUTC)
+isWeekend      = dayofweek == dayofweek.saturday or dayofweek == dayofweek.sunday
+validSession   = not isWeekend and inSession(hour(time, "UTC"))
+
+sessionStart   = validSession and not validSession[1]
+
+//┌──────────────────────────────────────────────────────────────┐
+//│ 3.  CRT RANGE TRACKING                                       │
+//└──────────────────────────────────────────────────────────────┘
+var float rHi = na, var float rLo = na, var float rMid = na
+if sessionStart
+    rHi   := high
+    rLo   := low
+    rMid  := (rHi + rLo) / 2
+else if validSession
+    rHi  := math.max(rHi, high)
+    rLo  := math.min(rLo, low)
+    rMid := (rHi + rLo) / 2
+
+crtBias = validSession ? close > rMid ? 1 : close < rMid ? -1 : 0 : 0
+
+//┌──────────────────────────────────────────────────────────────┐
+//│ 4.  TURTLE SOUP CORE (15 m or current TF)                  │
+//└──────────────────────────────────────────────────────────────┘
+atr = ta.atr(atrLen)
+
+// --- primitive turtle detection (no objects) ---
+turtleCore() =>
+    prevHi = ta.highest(high, turtleLookback)[1]
+    prevLo = ta.lowest(low,  turtleLookback)[1]
+    bull   = low < prevLo and close > prevLo and ((prevLo - low) / atr >= minBreakATR and (prevLo - low) / atr <= maxBreakATR)
+    bear   = high > prevHi and close < prevHi and ((high - prevHi) / atr >= minBreakATR and (high - prevHi) / atr <= maxBreakATR)
+    [bull, bear, prevLo, prevHi]
+
+[bullTurtle, bearTurtle, tLo, tHi] = use15mTurtle ?
+     request.security(syminfo.tickerid, "15", turtleCore(), lookahead = barmerge.lookahead_off) :
+     turtleCore()
+
+// --- confirmation ---
+var bool bullConf = na, var bool bearConf = na
+if bullTurtle
+    bullConf := true
+else if bearTurtle
+    bearConf := true
+else
+    bullConf := bullConf and (barssince(bullTurtle) <= turtleConfBars and close > close[1])
+    bearConf := bearConf and (barssince(bearTurtle) <= turtleConfBars and close < close[1])
+
+//┌──────────────────────────────────────────────────────────────┐
+//│ 5.  CONFLUENCE SCORING                                       │
+//└──────────────────────────────────────────────────────────────┘
+scoreVol = volume > ta.sma(volume, 20) * 1.5 ? 1.0 : 0.0
+scoreBias = (bullConf and crtBias == 1) or (bearConf and crtBias == -1) ? 2.0 : 0.0
+scoreOB = 0.0   // simplified – could add order-block check here
+scoreFVG = 0.0  // simplified – could add FVG check here
+totalScore = scoreBias + scoreVol + scoreOB + scoreFVG
+
+//┌──────────────────────────────────────────────────────────────┐
+//│ 6.  ALERT FIRE                                               │
+//└──────────────────────────────────────────────────────────────┐
+alertLong  = bullConf and totalScore >= minConfluence
+alertShort = bearConf and totalScore >= minConfluence
+
+if alertLong
+    alert("CRT+TURTLE LONG: " + syminfo.ticker + "  Entry≈" + str.tostring(tLo, "#.#####") +
+          "  SL≈" + str.tostring(tLo - atr * 0.5, "#.#####") + "  Score=" + str.tostring(totalScore, "#.#"), alert.freq_once_per_bar_close)
+if alertShort
+    alert("CRT+TURTLE SHORT: " + syminfo.ticker + "  Entry≈" + str.tostring(tHi, "#.#####") +
+          "  SL≈" + str.tostring(tHi + atr * 0.5, "#.#####") + "  Score=" + str.tostring(totalScore, "#.#"), alert.freq_once_per_bar_close)
+
+//┌──────────────────────────────────────────────────────────────┐
+//│ 7.  PLOT SCANNER OUTPUT (optional visual)                   │
+//└──────────────────────────────────────────────────────────────┘
+plotshape(alertLong,  title = "Long",  location = location.bottom, color = color.lime,  style = shape.triangleup,   size = size.tiny)
+plotshape(alertShort, title = "Short", location = location.top,    color = color.red,   style = shape.triangledown, size = size.tiny)
