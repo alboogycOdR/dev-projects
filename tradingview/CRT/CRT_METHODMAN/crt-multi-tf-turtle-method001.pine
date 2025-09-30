@@ -1,0 +1,264 @@
+//@version=5
+indicator("Range Rejection Trading Indicator", overlay=true, max_labels_count=500, max_lines_count=500)
+
+// ==========================================
+// 1. INPUT DECLARATIONS
+// ==========================================
+startHour = input.int(8, "Session Start Hour", minval=0, maxval=23)
+startMinute = input.int(0, "Session Start Minute", minval=0, maxval=59)
+sessionDuration = input.int(6, "Session Duration (Hours)", minval=1, maxval=12)
+showDebugInfo = input.bool(false, "Show Debug Information")
+
+// ==========================================
+// 2. VARIABLE INITIALIZATION
+// ==========================================
+// Persistent variables for session management
+var float rangeHigh = na
+var float rangeLow = na
+var bool rangeEstablished = false
+var bool signalGenerated = false
+var bool invalidSession = false
+
+// Candle A tracking
+var float candleA_High = na
+var float candleA_Low = na
+var string candleA_Type = "NONE"
+var int candleA_BarIndex = 0
+
+// Candle B tracking
+var bool candleB_Confirmed = false
+var int candleB_BarIndex = 0
+
+// Line objects
+var line rangeHighLine = na
+var line rangeLowLine = na
+
+// Session timing variables
+var int sessionStartTime = 0
+var int sessionEndTime = 0
+var bool inSession = false
+
+// ==========================================
+// 3. SESSION DETECTION LOGIC
+// ==========================================
+// Create timestamp for session start (SAST timezone UTC+2)
+currentYear = year(time, "GMT+2")
+currentMonth = month(time, "GMT+2")
+currentDay = dayofmonth(time, "GMT+2")
+sessionStartTime := timestamp("GMT+2", currentYear, currentMonth, currentDay, startHour, startMinute, 0)
+sessionEndTime := sessionStartTime + (sessionDuration * 60 * 60 * 1000)
+
+// Check if we're in the active session
+currentTime = time
+inSession := currentTime >= sessionStartTime and currentTime < sessionEndTime
+
+// Detect new session start
+bool newSession = ta.change(dayofweek(time, "GMT+2")) != 0 or (currentTime >= sessionStartTime and currentTime[1] < sessionStartTime)
+
+// ==========================================
+// 4. RANGE CALCULATION (1-minute precision)
+// ==========================================
+// Calculate range at session start
+if newSession
+    // Reset all session variables
+    rangeEstablished := false
+    signalGenerated := false
+    invalidSession := false
+    candleA_Type := "NONE"
+    candleA_High := na
+    candleA_Low := na
+    candleA_BarIndex := 0
+    candleB_Confirmed := false
+    candleB_BarIndex := 0
+    
+    // Delete previous lines
+    if not na(rangeHighLine)
+        line.delete(rangeHighLine)
+    if not na(rangeLowLine)
+        line.delete(rangeLowLine)
+    
+    // Calculate the 4-hour lookback window BEFORE session start
+    lookbackStart = sessionStartTime - (4 * 60 * 60 * 1000)  // 4 hours before session start
+    lookbackEnd = sessionStartTime  // Session start time
+    
+    // Request 1-minute data and calculate range for the specific time window
+    [highVal, lowVal] = request.security(syminfo.tickerid, "1", 
+        [ta.highest(high[1], 240), ta.lowest(low[1], 240)], 
+        lookahead=barmerge.lookahead_on)
+    
+    if not na(highVal) and not na(lowVal)
+        rangeHigh := highVal
+        rangeLow := lowVal
+        rangeEstablished := true
+        
+        // Create new range lines
+        rangeHighLine := line.new(bar_index, rangeHigh, bar_index + 1, rangeHigh, 
+            color=color.blue, width=2, extend=extend.right)
+        rangeLowLine := line.new(bar_index, rangeLow, bar_index + 1, rangeLow, 
+            color=color.red, width=2, extend=extend.right)
+        
+        // Add labels to lines
+        label.new(bar_index, rangeHigh, "Range High", 
+            color=color.blue, textcolor=color.white, style=label.style_label_left, size=size.small)
+        label.new(bar_index, rangeLow, "Range Low", 
+            color=color.red, textcolor=color.white, style=label.style_label_left, size=size.small)
+
+// Update line positions during session
+if inSession and rangeEstablished and not na(rangeHighLine) and not na(rangeLowLine)
+    line.set_x2(rangeHighLine, bar_index)
+    line.set_x2(rangeLowLine, bar_index)
+
+// Remove lines at session end
+if not inSession and rangeEstablished
+    if not na(rangeHighLine)
+        line.set_extend(rangeHighLine, extend.none)
+    if not na(rangeLowLine)
+        line.set_extend(rangeLowLine, extend.none)
+
+// ==========================================
+// 5. CANDLE A DETECTION (Initial Rejection)
+// ==========================================
+if inSession and rangeEstablished and not signalGenerated and not invalidSession and candleA_Type == "NONE"
+    // Check for SELL pattern (Range High rejection)
+    sellRejection = high > rangeHigh and close < rangeHigh and close > rangeLow
+    
+    // Check for BUY pattern (Range Low rejection)
+    buyRejection = low < rangeLow and close > rangeLow and close < rangeHigh
+    
+    // Handle simultaneous rejection
+    if sellRejection and buyRejection
+        invalidSession := true
+        label.new(bar_index, high, "INVALID", 
+            color=color.gray, textcolor=color.white, style=label.style_label_down, size=size.small)
+    
+    // Record Candle A for SELL
+    else if sellRejection
+        candleA_High := high
+        candleA_Low := low
+        candleA_Type := "SELL"
+        candleA_BarIndex := bar_index
+    
+    // Record Candle A for BUY
+    else if buyRejection
+        candleA_High := high
+        candleA_Low := low
+        candleA_Type := "BUY"
+        candleA_BarIndex := bar_index
+
+// ==========================================
+// 6. CANDLE B CONFIRMATION
+// ==========================================
+if inSession and rangeEstablished and not signalGenerated and not invalidSession and candleA_Type != "NONE" and not candleB_Confirmed
+    // For SELL confirmation
+    if candleA_Type == "SELL"
+        sellConfirmation = high > candleA_High and close < candleA_High and 
+            close >= candleA_Low and close <= candleA_High
+        
+        if sellConfirmation
+            candleB_Confirmed := true
+            candleB_BarIndex := bar_index
+    
+    // For BUY confirmation
+    else if candleA_Type == "BUY"
+        buyConfirmation = low < candleA_Low and close > candleA_Low and 
+            close <= candleA_High and close >= candleA_Low
+        
+        if buyConfirmation
+            candleB_Confirmed := true
+            candleB_BarIndex := bar_index
+
+// ==========================================
+// 7. SIGNAL GENERATION (Candle C)
+// ==========================================
+// Generate signal at the open of Candle C (bar after Candle B)
+generateSellSignal = candleB_Confirmed and candleA_Type == "SELL" and bar_index == candleB_BarIndex + 1 and not signalGenerated
+generateBuySignal = candleB_Confirmed and candleA_Type == "BUY" and bar_index == candleB_BarIndex + 1 and not signalGenerated
+
+if generateSellSignal
+    signalGenerated := true
+    label.new(bar_index, high, "SELL", 
+        color=color.new(color.red, 20), textcolor=color.white, 
+        style=label.style_label_down, size=size.normal)
+    alert("SELL Signal Generated - Range High Rejection Pattern Complete", alert.freq_once_per_bar)
+
+if generateBuySignal
+    signalGenerated := true
+    label.new(bar_index, low, "BUY", 
+        color=color.new(color.green, 20), textcolor=color.white, 
+        style=label.style_label_up, size=size.normal)
+    alert("BUY Signal Generated - Range Low Rejection Pattern Complete", alert.freq_once_per_bar)
+
+// ==========================================
+// 8. PLOTTING & VISUAL FEEDBACK
+// ==========================================
+// Plot range levels as background reference (optional)
+plot(rangeEstablished ? rangeHigh : na, title="Range High", color=color.new(color.blue, 80), linewidth=1, style=plot.style_linebr)
+plot(rangeEstablished ? rangeLow : na, title="Range Low", color=color.new(color.red, 80), linewidth=1, style=plot.style_linebr)
+
+// Background color for session
+bgcolor(inSession ? color.new(color.gray, 95) : na, title="Session Active")
+
+// Global plotshape calls (must be at global scope)
+plotshape(inSession and rangeEstablished and not signalGenerated and not invalidSession and candleA_Type == "SELL" and bar_index == candleA_BarIndex, 
+    title="Candle A - Sell", style=shape.triangledown, location=location.abovebar, 
+    color=color.orange, size=size.small)
+
+plotshape(inSession and rangeEstablished and not signalGenerated and not invalidSession and candleA_Type == "BUY" and bar_index == candleA_BarIndex, 
+    title="Candle A - Buy", style=shape.triangleup, location=location.belowbar, 
+    color=color.orange, size=size.small)
+
+plotshape(inSession and rangeEstablished and not signalGenerated and not invalidSession and candleA_Type == "SELL" and candleB_Confirmed and bar_index == candleB_BarIndex, 
+    title="Candle B - Sell Confirmation", style=shape.diamond, location=location.abovebar, 
+    color=color.purple, size=size.small)
+
+plotshape(inSession and rangeEstablished and not signalGenerated and not invalidSession and candleA_Type == "BUY" and candleB_Confirmed and bar_index == candleB_BarIndex, 
+    title="Candle B - Buy Confirmation", style=shape.diamond, location=location.belowbar, 
+    color=color.purple, size=size.small)
+
+// ==========================================
+// 9. DEBUG INFORMATION
+// ==========================================
+if showDebugInfo
+    var table debugTable = table.new(position.top_right, 2, 8, bgcolor=color.new(color.black, 80))
+    
+    if barstate.islast
+        table.cell(debugTable, 0, 0, "Status:", text_color=color.white, text_size=size.small)
+        table.cell(debugTable, 1, 0, inSession ? "In Session" : "Out of Session", text_color=color.white, text_size=size.small)
+        
+        table.cell(debugTable, 0, 1, "Range High:", text_color=color.white, text_size=size.small)
+        table.cell(debugTable, 1, 1, str.tostring(rangeHigh, "#.####"), text_color=color.white, text_size=size.small)
+        
+        table.cell(debugTable, 0, 2, "Range Low:", text_color=color.white, text_size=size.small)
+        table.cell(debugTable, 1, 2, str.tostring(rangeLow, "#.####"), text_color=color.white, text_size=size.small)
+        
+        table.cell(debugTable, 0, 3, "Candle A Type:", text_color=color.white, text_size=size.small)
+        table.cell(debugTable, 1, 3, candleA_Type, text_color=color.white, text_size=size.small)
+        
+        table.cell(debugTable, 0, 4, "Candle B Confirmed:", text_color=color.white, text_size=size.small)
+        table.cell(debugTable, 1, 4, str.tostring(candleB_Confirmed), text_color=color.white, text_size=size.small)
+        
+        table.cell(debugTable, 0, 5, "Signal Generated:", text_color=color.white, text_size=size.small)
+        table.cell(debugTable, 1, 5, str.tostring(signalGenerated), text_color=color.white, text_size=size.small)
+        
+        table.cell(debugTable, 0, 6, "Invalid Session:", text_color=color.white, text_size=size.small)
+        table.cell(debugTable, 1, 6, str.tostring(invalidSession), text_color=color.white, text_size=size.small)
+        
+        table.cell(debugTable, 0, 7, "Session End:", text_color=color.white, text_size=size.small)
+        table.cell(debugTable, 1, 7, str.format_time(sessionEndTime, "HH:mm", "GMT+2"), text_color=color.white, text_size=size.small)
+
+// ==========================================
+// 10. ALERT CONDITIONS
+// ==========================================
+alertcondition(generateSellSignal, title="Sell Signal", message="SELL Signal Generated - Range High Rejection Pattern Complete")
+alertcondition(generateBuySignal, title="Buy Signal", message="BUY Signal Generated - Range Low Rejection Pattern Complete")
+
+// ==========================================
+// Version History:
+// v1.1 - Fixed plotshape scope issues
+// v1.0 - Initial implementation with complete range rejection logic
+// - Session management with SAST timezone (UTC+2)
+// - 1-minute data precision for range calculation
+// - Two-candle confirmation pattern
+// - Visual markers and alerts
+// - Edge case handling for simultaneous rejections
+// ==========================================

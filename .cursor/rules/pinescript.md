@@ -403,6 +403,58 @@ plotshape(condition, "Marker", shape.circle,
     location.abovebar, color.blue)  // Simple visual marker
 ```
 
+## Multiline Statement Conversion Rules
+
+### 28. Single-Line Function Calls
+**CRITICAL RULE**: Always convert multiline function calls to single-line format for Pine Script v5 compatibility:
+
+- ✅ **CORRECT**: All parameters on one line
+- ❌ **WRONG**: Parameters spread across multiple lines
+
+```pinescript
+// ✅ CORRECT - Single line format
+label.new(bar_index, price, "Signal", color=color.blue, textcolor=color.white, style=label.style_label_up, size=size.normal)
+plotshape(condition, "Marker", shape.triangleup, location.abovebar, color=color.green, size=size.small)
+line.new(x1, y1, x2, y2, color=color.red, width=2, extend=extend.right)
+box.new(left, top, right, bottom, border_color=color.blue, bgcolor=color.new(color.blue, 90))
+
+// ❌ WRONG - Multiline format (causes compilation errors)
+label.new(bar_index, price, "Signal", 
+    color=color.blue, textcolor=color.white, 
+    style=label.style_label_up, size=size.normal)
+plotshape(condition, "Marker", shape.triangleup, 
+    location.abovebar, color=color.green, size=size.small)
+```
+
+### 29. Functions Requiring Single-Line Format
+**RULE**: These functions MUST be on single lines:
+- `label.new()`
+- `plotshape()`
+- `line.new()`
+- `box.new()`
+- `request.security()`
+- `alertcondition()`
+- `strategy.entry()`
+- `strategy.exit()`
+- Any function with multiple parameters
+
+### 30. Multiline Condition Handling
+**RULE**: For complex conditions, use single-line format or break into variables:
+
+```pinescript
+// ✅ CORRECT - Single line condition
+sellConfirmation = high > candleA_High and close < candleA_High and close >= candleA_Low and close <= candleA_High
+
+// ✅ CORRECT - Break into variables for readability
+condition1 = high > candleA_High and close < candleA_High
+condition2 = close >= candleA_Low and close <= candleA_High
+sellConfirmation = condition1 and condition2
+
+// ❌ WRONG - Multiline condition
+sellConfirmation = high > candleA_High and close < candleA_High and 
+    close >= candleA_Low and close <= candleA_High
+```
+
 ## Quick Reference Checklist
 
 Before submitting Pine Script code:
@@ -419,3 +471,6 @@ Before submitting Pine Script code:
 - [ ] Session detection uses proper pattern
 - [ ] Price-anchored objects use `label.new()` with `yloc=yloc.price`
 - [ ] No variable declarations inside conditional blocks or loops
+- [ ] All function calls (`label.new()`, `plotshape()`, `line.new()`, `box.new()`, etc.) are single-line format
+- [ ] No multiline conditions or function parameters
+- [ ] Complex conditions broken into variables for readability if needed

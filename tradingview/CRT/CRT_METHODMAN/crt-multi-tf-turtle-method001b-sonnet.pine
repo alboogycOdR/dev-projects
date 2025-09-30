@@ -1,0 +1,348 @@
+//@version=5
+indicator("CRT Multi-TF Turtle Method 001b - Sonnet", overlay=true, max_labels_count=50, max_lines_count=50, dynamic_requests=true)
+//sonnet
+//https://claude.ai/chat/83592ce7-8416-4d76-be4b-7d0b3a945359
+//29-09-2025
+// ============================================
+// INPUT PARAMETERS
+// ============================================
+
+sessionStartInput = input.time(1704088800000, "Session Start Time (SAST)", tooltip="Time when range calculation begins (UTC+2)")
+
+sessionDurationHours = input.int(6, "Session Duration (Hours)", minval=1, maxval=12, tooltip="How many hours to monitor for rejection patterns")
+
+showHistoricSessions = input.bool(true, "Show Historic Sessions", tooltip="Display trendlines and signals from previous sessions")
+
+// ============================================
+// CONSTANTS
+// ============================================
+
+var float LOOKBACK_HOURS = 4.0
+var int LOOKBACK_MINUTES = 240  // 4 hours in minutes
+var string TIMEZONE = "UTC+2"
+
+// ============================================
+// STATE VARIABLES (Persistent across bars)
+// ============================================
+
+// Session tracking
+var int currentSessionDay = 0
+var bool sessionActive = false
+var int sessionStartTime = 0
+var int sessionEndTime = 0
+
+// Range values
+var float rangeHigh = na
+var float rangeLow = na
+var bool rangeEstablished = false
+
+// Range tracking (accumulate during 04:00-08:00 SAST)
+var float tempRangeHigh = na
+var float tempRangeLow = na
+var bool rangeTrackingActive = false
+
+// Candle A tracking
+var float candleA_High = na
+var float candleA_Low = na
+var string candleA_Type = na  // "SELL", "BUY", or na
+var int candleA_Index = na
+var bool candleA_Detected = false
+
+// Candle B tracking
+var bool candleB_Confirmed = false
+var int candleB_Index = na
+
+// Signal tracking
+var bool signalGenerated = false
+var bool invalidSession = false
+var string signalType = na  // "SELL" or "BUY"
+
+// ============================================
+// TIME FUNCTIONS
+// ============================================
+
+
+// Get current time in SAST
+getCurrentTime() =>
+    timestamp(TIMEZONE, year, month, dayofmonth, hour, minute)
+
+// Get session start time for today
+getSessionStartTime() =>
+    timestamp(TIMEZONE, year, month, dayofmonth, 8, 0)  // Fixed to use 08:00 SAST
+
+// Check if we're at session start
+isSessionStart() =>
+    // Get current hour and minute in SAST
+    currentHour = hour(time, TIMEZONE)
+    currentMinute = minute(time, TIMEZONE)
+    currentDay = dayofmonth(time, TIMEZONE)
+    
+    // Check if it's 08:00 SAST and a new day
+    isTimeMatch = currentHour == 8 and currentMinute == 0
+    isNewDay = currentDay != currentSessionDay
+    
+    isTimeMatch and isNewDay and not sessionActive
+
+// Check if we're within session duration
+isWithinSession() =>
+    if not sessionActive
+        false
+    else
+        currentTime = getCurrentTime()
+        currentTime >= sessionStartTime and currentTime < sessionEndTime
+
+// ============================================
+// SESSION MANAGEMENT
+// ============================================
+
+// Detect new session and reset
+if isSessionStart()
+    // Reset all session variables
+    currentSessionDay := dayofmonth(time, TIMEZONE)
+    sessionActive := true
+    sessionStartTime := getCurrentTime()
+    sessionEndTime := sessionStartTime + (sessionDurationHours * 60 * 60 * 1000)
+    
+    // Debug: Mark session start
+    debugText = "SESSION START\n" + str.tostring(time, "yyyy-MM-dd HH:mm") + "\nSAST: " + str.tostring(hour(time, TIMEZONE)) + ":" + str.tostring(minute(time, TIMEZONE))
+    label.new(bar_index, high, debugText, style=label.style_label_down, color=color.new(color.yellow, 20), textcolor=color.white, size=size.small)
+    
+    // Reset range
+    rangeEstablished := false
+    rangeHigh := na
+    rangeLow := na
+    
+    // Reset candle tracking
+    candleA_High := na
+    candleA_Low := na
+    candleA_Type := na
+    candleA_Index := na
+    candleA_Detected := false
+    
+    candleB_Confirmed := false
+    candleB_Index := na
+    
+    // Reset signal tracking
+    signalGenerated := false
+    invalidSession := false
+    signalType := na
+
+// Check if session has ended
+if sessionActive and not isWithinSession()
+    sessionActive := false
+
+// ============================================
+// RANGE TRACKING (During 04:00-08:00 SAST)
+// ============================================
+
+// Check if we're in the range tracking period (04:00-08:00 SAST)
+currentHour = hour(time, TIMEZONE)
+currentDay = dayofmonth(time, TIMEZONE)
+
+// Start tracking range at 04:00 SAST
+if currentHour == 4 and minute(time, TIMEZONE) == 0 and currentDay != currentSessionDay
+    rangeTrackingActive := true
+    tempRangeHigh := high
+    tempRangeLow := low
+
+// Accumulate high/low during 04:00-08:00 SAST period
+if rangeTrackingActive and currentHour >= 4 and currentHour < 8
+    tempRangeHigh := math.max(na(tempRangeHigh) ? high : tempRangeHigh, high)
+    tempRangeLow := math.min(na(tempRangeLow) ? low : tempRangeLow, low)
+
+// ============================================
+// RANGE CALCULATION (At Session Start: 08:00 SAST)
+// ============================================
+
+if sessionActive and not rangeEstablished
+    // At session start (08:00 SAST), use the accumulated range from 04:00-08:00 SAST
+    rangeHigh := tempRangeHigh
+    rangeLow := tempRangeLow
+    rangeEstablished := true
+    rangeTrackingActive := false
+    
+    // Debug: Mark range established with time info
+    debugText = "RANGE ESTABLISHED\n" + str.tostring(time, "yyyy-MM-dd HH:mm") + "\n4h: 04:00-08:00 SAST"
+    label.new(bar_index, high, debugText, style=label.style_label_down, color=color.new(color.blue, 20), textcolor=color.white, size=size.small)
+
+// ============================================
+// CANDLE A DETECTION (Initial Rejection)
+// ============================================
+
+if sessionActive and rangeEstablished and not candleA_Detected and not signalGenerated and not invalidSession
+    // Check for Range High rejection (potential SELL)
+    highRejection = high > rangeHigh and close < rangeHigh and close > rangeLow
+    
+    // Check for Range Low rejection (potential BUY)
+    lowRejection = low < rangeLow and close > rangeLow and close < rangeHigh
+    
+    // Handle simultaneous rejection (INVALID SESSION)
+    if highRejection and lowRejection
+        invalidSession := true
+        candleA_Detected := false
+        
+    // Handle Range High rejection only
+    else if highRejection
+        candleA_High := high
+        candleA_Low := low
+        candleA_Type := "SELL"
+        candleA_Index := bar_index
+        candleA_Detected := true
+        
+    // Handle Range Low rejection only
+    else if lowRejection
+        candleA_High := high
+        candleA_Low := low
+        candleA_Type := "BUY"
+        candleA_Index := bar_index
+        candleA_Detected := true
+
+// ============================================
+// CANDLE B DETECTION (Confirmation)
+// ============================================
+
+if sessionActive and candleA_Detected and not candleB_Confirmed and not signalGenerated and not invalidSession
+    
+    // SELL Confirmation: wick goes above Candle A high, closes below and within Candle A range
+    if candleA_Type == "SELL"
+        sellConfirmation = high > candleA_High and 
+                          close < candleA_High and 
+                          close >= candleA_Low and 
+                          close <= candleA_High
+        
+        if sellConfirmation
+            candleB_Confirmed := true
+            candleB_Index := bar_index
+            signalType := "SELL"
+    
+    // BUY Confirmation: wick goes below Candle A low, closes above and within Candle A range
+    else if candleA_Type == "BUY"
+        buyConfirmation = low < candleA_Low and 
+                         close > candleA_Low and 
+                         close <= candleA_High and 
+                         close >= candleA_Low
+        
+        if buyConfirmation
+            candleB_Confirmed := true
+            candleB_Index := bar_index
+            signalType := "BUY"
+
+// ============================================
+// SIGNAL GENERATION (Candle C)
+// ============================================
+
+var bool signalThisBar = false
+signalThisBar := false
+
+if sessionActive and candleB_Confirmed and not signalGenerated and not invalidSession
+    // Signal triggers at the open of the bar after Candle B
+    if bar_index == candleB_Index + 1
+        signalGenerated := true
+        signalThisBar := true
+
+// ============================================
+// PLOTTING - RANGE LINES
+// ============================================
+
+// Variables to store trendlines
+var line rangeHighLine = na
+var line rangeLowLine = na
+
+// Create trendlines when range is established
+if sessionActive and rangeEstablished and na(rangeHighLine)
+    // Calculate session end time in bars
+    sessionEndBar = bar_index + (sessionDurationHours * 60) // Assuming 1-minute timeframe
+    
+    // Draw horizontal trendlines from session start to session end
+    rangeHighLine := line.new(bar_index, rangeHigh, sessionEndBar, rangeHigh, color=color.new(color.blue, 0), width=2, style=line.style_solid)
+    rangeLowLine := line.new(bar_index, rangeLow, sessionEndBar, rangeLow, color=color.new(color.red, 0), width=2, style=line.style_solid)
+
+// Clean up trendlines when session ends or historic sessions disabled
+if (not sessionActive and not na(rangeHighLine)) or (not showHistoricSessions and not sessionActive and not na(rangeHighLine))
+    line.delete(rangeHighLine)
+    line.delete(rangeLowLine)
+    rangeHighLine := na
+    rangeLowLine := na
+
+// ============================================
+// PLOTTING - CANDLE MARKERS
+// ============================================
+
+// Candle A markers (Initial Rejection)
+plotshape(showHistoricSessions and candleA_Detected and bar_index == candleA_Index and candleA_Type == "SELL", "Candle A - Sell Rejection", shape.triangledown, location.abovebar, color.new(color.orange, 0), size=size.small)
+
+plotshape(showHistoricSessions and candleA_Detected and bar_index == candleA_Index and candleA_Type == "BUY", "Candle A - Buy Rejection", shape.triangleup, location.belowbar, color.new(color.orange, 0), size=size.small)
+
+// Candle B markers (Confirmation)
+plotshape(showHistoricSessions and candleB_Confirmed and bar_index == candleB_Index and signalType == "SELL", "Candle B - Sell Confirmation", shape.diamond, location.abovebar, color.new(color.purple, 0), size=size.small)
+
+plotshape(showHistoricSessions and candleB_Confirmed and bar_index == candleB_Index and signalType == "BUY", "Candle B - Buy Confirmation", shape.diamond, location.belowbar, color.new(color.purple, 0), size=size.small)
+
+// ============================================
+// PLOTTING - SIGNAL LABELS
+// ============================================
+
+// SELL Signal Label
+if showHistoricSessions and signalThisBar and signalType == "SELL"
+    label.new(bar_index, high, "SELL", style=label.style_label_down, color=color.new(color.red, 20), textcolor=color.white, size=size.normal)
+
+// BUY Signal Label
+if showHistoricSessions and signalThisBar and signalType == "BUY"
+    label.new(bar_index, low, "BUY", style=label.style_label_up, color=color.new(color.green, 20), textcolor=color.white, size=size.normal)
+
+// Invalid Session marker
+if showHistoricSessions and invalidSession and bar_index == candleA_Index
+    label.new(bar_index, high, "INVALID SESSION", style=label.style_label_down, color=color.new(color.gray, 20), textcolor=color.white, size=size.small, tooltip="Both Range High and Low rejected simultaneously")
+
+// ============================================
+// ALERTS
+// ============================================
+
+// SELL Alert
+alertcondition(signalThisBar and signalType == "SELL", "SELL Signal", "SELL Signal Generated - Range High Rejection Pattern Complete")
+
+// BUY Alert
+alertcondition(signalThisBar and signalType == "BUY", "BUY Signal", "BUY Signal Generated - Range Low Rejection Pattern Complete")
+
+// ============================================
+// DEBUG INFO (Optional - can be removed)
+// ============================================
+
+// Display current state in a table for debugging
+var table debugTable = table.new(position.top_right, 2, 10, border_width=1)
+
+if barstate.islast and sessionActive
+    table.cell(debugTable, 0, 0, "Status", bgcolor=color.new(color.gray, 80))
+    table.cell(debugTable, 1, 0, sessionActive ? "Active" : "Inactive", bgcolor=color.new(color.gray, 90))
+    
+    table.cell(debugTable, 0, 1, "Range Calc", bgcolor=color.new(color.gray, 80))
+    table.cell(debugTable, 1, 1, "1-Min Data (240 bars)", bgcolor=color.new(color.gray, 90))
+    
+    table.cell(debugTable, 0, 2, "Range High", bgcolor=color.new(color.gray, 80))
+    table.cell(debugTable, 1, 2, str.tostring(rangeHigh, format.mintick), bgcolor=color.new(color.blue, 90))
+    
+    table.cell(debugTable, 0, 3, "Range Low", bgcolor=color.new(color.gray, 80))
+    table.cell(debugTable, 1, 3, str.tostring(rangeLow, format.mintick), bgcolor=color.new(color.red, 90))
+    
+    table.cell(debugTable, 0, 4, "Candle A", bgcolor=color.new(color.gray, 80))
+    table.cell(debugTable, 1, 4, candleA_Detected ? candleA_Type : "Not Detected", bgcolor=color.new(color.orange, 90))
+    
+    table.cell(debugTable, 0, 5, "Candle B", bgcolor=color.new(color.gray, 80))
+    table.cell(debugTable, 1, 5, candleB_Confirmed ? "Confirmed" : "Waiting", bgcolor=color.new(color.purple, 90))
+    
+    table.cell(debugTable, 0, 6, "Signal", bgcolor=color.new(color.gray, 80))
+    table.cell(debugTable, 1, 6, signalGenerated ? signalType : "None", bgcolor=signalType == "SELL" ? color.new(color.red, 90) : signalType == "BUY" ? color.new(color.green, 90) : color.new(color.gray, 90))
+    
+    table.cell(debugTable, 0, 7, "Invalid", bgcolor=color.new(color.gray, 80))
+    table.cell(debugTable, 1, 7, invalidSession ? "YES" : "NO", bgcolor=color.new(color.gray, 90))
+    
+    table.cell(debugTable, 0, 8, "Time Left", bgcolor=color.new(color.gray, 80))
+    timeLeft = sessionEndTime - getCurrentTime()
+    hoursLeft = math.floor(timeLeft / (60 * 60 * 1000))
+    minutesLeft = math.floor((timeLeft % (60 * 60 * 1000)) / (60 * 1000))
+    table.cell(debugTable, 1, 8, str.tostring(hoursLeft) + "h " + str.tostring(minutesLeft) + "m", bgcolor=color.new(color.gray, 90))
+    
+    table.cell(debugTable, 0, 9, "Debug Time", bgcolor=color.new(color.gray, 80))
+    currentTime = getCurrentTime()
+    sessionStart = getSessionStartTime()
+    table.cell(debugTable, 1, 9, str.tostring(currentTime) + " vs " + str.tostring(sessionStart), bgcolor=color.new(color.gray, 90))
