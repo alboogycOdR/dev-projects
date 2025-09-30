@@ -2,7 +2,7 @@
 // Name: CRT Mapper Complete - Professional Trading System with Turtle Soup
 // Version: 3.0 COMPLETE STANDALONE
 // This is the COMPLETE standalone version combining CRT + Turtle Soup + Smart Money
-indicator("CRT Mapper Complete v3.0 with TURTLES", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=100, dynamic_requests=true)  // Required for conditional request.security calls
+indicator("CRT Mapper Complete v3.0 with TURTLES", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=100)
 
 // ═══════════════════════════════════════════════════════════════════════
 // SECTION 1: CONSTANTS & ENUMS
@@ -60,8 +60,8 @@ manipulationTrendlineColor = input.color(color.new(#FF5722, 0), "Manipulation Tr
 entryGroup = "📊 Entry Configuration"
 useMarketStructure = input.bool(true, "Use Market Structure", group=entryGroup)
 useVolumeConfirm = input.bool(true, "Volume Confirmation", group=entryGroup)
-minRejectionWick = input.float(0.3, "Min Rejection Wick %", minval=0.1, maxval=2.0, group=entryGroup)
-entryBuffer = input.float(0.05, "Entry Buffer (ATR multiplier)", minval=0, maxval=1, group=entryGroup)
+minRejectionWick = input.float(0.5, "Min Rejection Wick %", minval=0.1, maxval=2.0, group=entryGroup)
+entryBuffer = input.float(0.1, "Entry Buffer (ATR multiplier)", minval=0, maxval=1, group=entryGroup)
 
 // Risk Management
 riskGroup = "⚠️ Risk Management"
@@ -92,10 +92,10 @@ showStats = input.bool(true, "Show Statistics Table", group=perfGroup)
 // Turtle Soup Settings
 turtleGroup = "🐢 Turtle Soup Configuration"
 enableTurtleSoup = input.bool(true, "Enable Turtle Soup Detection", group=turtleGroup)
-turtleLookback = input.int(15, "Lookback Period (bars)", minval=10, maxval=50, group=turtleGroup)
-minBreakDistance = input.float(0.05, "Min Break Distance (ATR)", minval=0.05, maxval=0.5, step=0.05, group=turtleGroup)
+turtleLookback = input.int(20, "Lookback Period (bars)", minval=10, maxval=50, group=turtleGroup)
+minBreakDistance = input.float(0.1, "Min Break Distance (ATR)", minval=0.05, maxval=0.5, step=0.05, group=turtleGroup)
 maxBreakDistance = input.float(2.0, "Max Break Distance (ATR)", minval=0.5, maxval=5.0, step=0.5, group=turtleGroup)
-turtleConfirmBars = input.int(2, "Confirmation Bars", minval=1, maxval=5, group=turtleGroup)
+turtleConfirmBars = input.int(3, "Confirmation Bars", minval=1, maxval=5, group=turtleGroup)
 showTurtleLabels = input.bool(true, "Show Turtle Soup Labels", group=turtleGroup)
 showTurtleBox = input.bool(true, "Show Turtle Soup Box", group=turtleGroup)
 
@@ -384,18 +384,7 @@ drawEntrySignal(x, y, isLong, entryText) =>
 drawTurtleSoup(turtle) =>
     if not na(turtle) and showTurtleBox
         boxColor = turtle.isBullish ? bullishTurtleColor : bearishTurtleColor
-        
-        // Ensure proper vertical range for the box
-        boxTop = math.max(turtle.fakeBreakExtreme, turtle.breakLevel)
-        boxBottom = math.min(turtle.fakeBreakExtreme, turtle.breakLevel)
-        
-        // Add minimum height to avoid thin lines
-        minHeight = atr * 0.1
-        if math.abs(boxTop - boxBottom) < minHeight
-            boxTop := boxTop + minHeight * 0.5
-            boxBottom := boxBottom - minHeight * 0.5
-        
-        box.new(turtle.startBar, boxTop, turtle.confirmBar, boxBottom, border_color=color.new(color.white, 70), bgcolor=boxColor, border_width=1)
+        box.new(turtle.startBar, turtle.fakeBreakExtreme, turtle.confirmBar, turtle.breakLevel, border_color=color.new(color.white, 70), bgcolor=boxColor, border_width=1)
 
     if not na(turtle) and showTurtleLabels
         line.new(turtle.confirmBar, turtle.entryLevel, turtle.confirmBar + 20, turtle.entryLevel, color=turtle.isBullish ? color.green : color.red, style=line.style_solid, width=2)
@@ -625,38 +614,9 @@ detectTurtleSoup_primitives() =>
     prevHigh = ta.highest(high, turtleLookback)[1]
     prevLow = ta.lowest(low, turtleLookback)[1]
 
-    // PROPER TURTLE SOUP LOGIC: Only detect AFTER sweep + rejection
-    // 1. First: Price sweeps the previous high/low (false breakout)
-    // 2. Then: Price rejects back into the range (close beyond the broken level)
-    // 3. Only then: Start monitoring for entry opportunities
-    
-    // Bullish Turtle Soup: sweep low then close back above prevLow
-    bullishSetup = low < prevLow and close > prevLow
-    
-    // Bearish Turtle Soup: sweep high then close back below prevHigh  
-    bearishSetup = high > prevHigh and close < prevHigh
-    
-    // Enhanced double top/bottom detection
-    doubleTopDetected = false
-    doubleBottomDetected = false
-    
-    // Check for double top (two rejections of previous high)
-    if bearishSetup
-        rejectionCount = 1  // Current bar is already one rejection
-        for i = 1 to 5
-            if high[i] > prevHigh and close[i] < prevHigh
-                rejectionCount += 1
-        if rejectionCount >= 2
-            doubleTopDetected := true
-    
-    // Check for double bottom (two rejections of previous low)
-    if bullishSetup
-        rejectionCount = 1  // Current bar is already one rejection
-        for i = 1 to 5
-            if low[i] < prevLow and close[i] > prevLow
-                rejectionCount += 1
-        if rejectionCount >= 2
-            doubleBottomDetected := true
+    // Detect potential Turtle Soup patterns
+    bullishSetup = low < prevLow
+    bearishSetup = high > prevHigh
     
     // Default return values (no pattern)
     isDetected = false
@@ -675,7 +635,7 @@ detectTurtleSoup_primitives() =>
         // Bullish Turtle Soup detected, set primitive values
         isDetected := true
         isBullish := true
-        patternType := doubleBottomDetected ? "Double Bottom 🐢" : "Bullish 🐢"
+        patternType := "Bullish 🐢"
         setupBar := bar_index
         breakLevel := prevLow
         fakeBreakExtreme := low
@@ -691,15 +651,11 @@ detectTurtleSoup_primitives() =>
         tempTurtle.stopLoss := stopLoss
         confluenceScore := calculateTurtleConfluence(tempTurtle)
         
-        // Increase confluence score for double bottom
-        if doubleBottomDetected
-            confluenceScore := confluenceScore + 1.5
-        
     else if bearishSetup and checkTurtleVolume() and checkMomentumShift(false)
         // Bearish Turtle Soup detected, set primitive values
         isDetected := true
         isBullish := false
-        patternType := doubleTopDetected ? "Double Top 🐢" : "Bearish 🐢"
+        patternType := "Bearish 🐢"
         setupBar := bar_index
         breakLevel := prevHigh
         fakeBreakExtreme := high
@@ -714,10 +670,6 @@ detectTurtleSoup_primitives() =>
         tempTurtle.entryLevel := entryLevel
         tempTurtle.stopLoss := stopLoss
         confluenceScore := calculateTurtleConfluence(tempTurtle)
-        
-        // Increase confluence score for double top
-        if doubleTopDetected
-            confluenceScore := confluenceScore + 1.5
 
     [isDetected, isBullish, patternType, setupBar, breakLevel, fakeBreakExtreme, entryLevel, stopLoss, target1, target2, confluenceScore]
 
@@ -937,9 +889,8 @@ redrawHistoricalPatterns(tf_in_seconds, lastDrawValue) =>
                                 // Draw manipulation trendline
                                 line.new(manipulationBar, pHigh + (pHigh - pLow) * 0.1, manipulationBar, pLow - (pHigh - pLow) * 0.1, color=color.new(manipulationTrendlineColor, lineOpacity), style=line.style_dashed, width=1)
 
-                                // Add manipulation label only for historical patterns (not current)
-                                if not isCurrentPattern
-                                    label.new(manipulationBar, pHigh + (pHigh - pLow) * 0.05, "manipulation\nzone", color=color.new(manipulationTrendlineColor, labelOpacity), textcolor=textColor, style=label.style_label_down, size=size.tiny)
+                                // Add manipulation label
+                                label.new(manipulationBar, pHigh + (pHigh - pLow) * 0.05, "manipulation\nzone", color=color.new(manipulationTrendlineColor, labelOpacity), textcolor=textColor, style=label.style_label_down, size=size.tiny)
 
                     // Draw bias indicator for historical patterns (skip current active pattern for bias)
                     if pBar != rangeStartBar
@@ -951,13 +902,9 @@ redrawHistoricalPatterns(tf_in_seconds, lastDrawValue) =>
 
     newLastDraw
 
-if barstate.islast and barstate.isconfirmed
-    // Clear all previous drawings first to prevent duplicates
+if barstate.islast
     cleanOldPatterns()
-    
-    // Only redraw if we haven't already drawn for this bar
-    if bar_index != lastDrawnBar
-        lastDrawnBar := redrawHistoricalPatterns(timeframe.in_seconds(timeframe.period), lastDrawnBar)
+    lastDrawnBar := redrawHistoricalPatterns(timeframe.in_seconds(timeframe.period), lastDrawnBar)
 
 // ═══════════════════════════════════════════════════════════════════════
 // SECTION 12: ENTRY SIGNAL GENERATION
@@ -1013,18 +960,15 @@ if patternState == STATE_SEEKING_ENTRY and crtRangeActive and not na(rangeHigh) 
         
         stats.successfulTrades += 1
 
+// Pre-fetch 15m data unconditionally to satisfy static request requirements
+[isDetected_15m, isBullish_15m, pType_15m, sBar_15m, bLevel_15m, fbe_15m, entry_15m, sl_15m, tp1_15m, tp2_15m, score_15m] = request.security(syminfo.tickerid, "15", detectTurtleSoup_primitives(), lookahead=barmerge.lookahead_off)
+
 // ═══════════════════════════════════════════════════════════════════════
 // SECTION 13: TURTLE SOUP EXECUTION
 // ═══════════════════════════════════════════════════════════════════════
 
-// Detect and manage Turtle Soup patterns - ONLY AFTER CRT RANGE IS ESTABLISHED
-// CRITICAL: Turtle Soup detection must wait until:
-// 1. CRT range is active (crtRangeActive = true)
-// 2. Range high and low values are established (not na)
-// 3. Turtle Soup is enabled
-if crtRangeActive and enableTurtleSoup and not na(rangeHigh) and not na(rangeLow)
-    // Pre-fetch 15m data only when CRT range is active and established
-    [isDetected_15m, isBullish_15m, pType_15m, sBar_15m, bLevel_15m, fbe_15m, entry_15m, sl_15m, tp1_15m, tp2_15m, score_15m] = request.security(syminfo.tickerid, "15", detectTurtleSoup_primitives(), lookahead=barmerge.lookahead_off)
+// Detect and manage Turtle Soup patterns
+if crtRangeActive and enableTurtleSoup
     // Use 15m data if configured
     turtleDetected = false
     
@@ -1032,8 +976,7 @@ if crtRangeActive and enableTurtleSoup and not na(rangeHigh) and not na(rangeLow
     if use15mDetection and timeframe.period != "15"
         // Use the pre-fetched 15m data
         turtleDetected := isDetected_15m
-        if turtleDetected and not na(isBullish_15m) and not turtleSetupActive
-            // Only create new setup if no active setup exists
+        if turtleDetected and not na(isBullish_15m)
             // Reconstruct the TurtleSoup object from the primitive types
             TurtleSoup turtleObj15m = TurtleSoup.new()
             turtleObj15m.isBullish := isBullish_15m
@@ -1055,8 +998,7 @@ if crtRangeActive and enableTurtleSoup and not na(rangeHigh) and not na(rangeLow
         [isDetected, isBullish, pType, sBar, bLevel, fbe, entry, sl, tp1, tp2, score] = detectTurtleSoup_primitives()
 
         turtleDetected := isDetected
-        if turtleDetected and not na(isBullish) and not turtleSetupActive
-            // Only create new setup if no active setup exists
+        if turtleDetected and not na(isBullish)
             // Reconstruct the TurtleSoup object from the primitive types
             TurtleSoup detectedTurtle = TurtleSoup.new()
             detectedTurtle.isBullish := isBullish
@@ -1080,6 +1022,8 @@ if crtRangeActive and enableTurtleSoup and not na(rangeHigh) and not na(rangeLow
         if confirmed and not na(currentTurtle)
             // Check confluence score
             if currentTurtle.confluenceScore >= minConfluenceScore
+                drawTurtleSoup(currentTurtle)
+                
                 // Generate alert
                 if enableAlerts and alertOnTurtle
                     direction = currentTurtle.isBullish ? "BULLISH" : "BEARISH"
@@ -1089,9 +1033,7 @@ if crtRangeActive and enableTurtleSoup and not na(rangeHigh) and not na(rangeLow
                               "Score: " + str.tostring(currentTurtle.confluenceScore, "#.#")
                     alert(alertMsg, alert.freq_once_per_bar)
                 
-                // Reset setup after confirmation to allow new setups
-                turtleSetupActive := false
-                currentTurtle := na
+                stats.turtleSuccess += 1
             else
                 // Low confluence - skip
                 turtleSetupActive := false
@@ -1104,10 +1046,6 @@ if array.size(activeTurtles) > 0
             continue
             
         TurtleSoup turtle = array.get(activeTurtles, i)
-        
-        // Draw the Turtle Soup box for active trades
-        if turtle.isActive
-            drawTurtleSoup(turtle)
         
         // Check targets and stops
         if turtle.isBullish
