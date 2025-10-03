@@ -1607,16 +1607,17 @@ if extendRight and (showWednesdays or showWednesdayOpen)
             if i < array.size(wednesdayOpenLabels)
                 array.get(wednesdayOpenLabels, i).set_x(time_close + (wednesdayLabelOffset + 50) * bar_width_ms)
 
-    // Update midnight lines to extend to current time
-    if extendRight and showMidnightLevelsInput
-        if array.size(midnightHighLines) > 0
-            for i = 0 to array.size(midnightHighLines) - 1
-                if i < array.size(midnightHighLines)
-                    array.get(midnightHighLines, i).set_x2(time_close + 50 * bar_width_ms)
-        if array.size(midnightLowLines) > 0
-            for i = 0 to array.size(midnightLowLines) - 1
-                if i < array.size(midnightLowLines)
-                    array.get(midnightLowLines, i).set_x2(time_close + 50 * bar_width_ms)
+// Update midnight lines to extend to current time
+if extendRight and showMidnightLevelsInput
+    bar_width_ms = time - nz(time[1], time)
+    if array.size(midnightHighLines) > 0
+        for i = 0 to array.size(midnightHighLines) - 1
+            if i < array.size(midnightHighLines)
+                array.get(midnightHighLines, i).set_x2(time_close + 50 * bar_width_ms)
+    if array.size(midnightLowLines) > 0
+        for i = 0 to array.size(midnightLowLines) - 1
+            if i < array.size(midnightLowLines)
+                array.get(midnightLowLines, i).set_x2(time_close + 50 * bar_width_ms)
 
 // ───── PLAYBOOK MODE LOGIC ────────────────────────────────────────────────────
 if enablePlaybookMode
