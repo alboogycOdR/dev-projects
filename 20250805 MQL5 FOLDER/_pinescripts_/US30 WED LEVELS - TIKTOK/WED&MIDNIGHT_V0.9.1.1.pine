@@ -1,6 +1,7 @@
+
 // ┌─────────────────────────────────────────────────────────────────────────────┐
 // │  WED, MIDNIGHT & NY PREMARKET DST System v0.9 – Complete with All Market   │
-// │  Session Levels, Economic Events & Wick-Reaction Alerts                    │
+// │  Session Levels, Economic Events & Wick-Reaction Alerts (Corrected)        │
 // │  © 2024 – Free to use & modify (Enhanced by AI)                           │
 // └─────────────────────────────────────────────────────────────────────────────┘
 // ───── DESCRIPTION ─────────────────────────────────────────────────────────────────
@@ -50,7 +51,7 @@
 //
 // 9. Gold Trading Optimization:
 //    - London Gold Fix Morning (10:30 EST / 15:30 UTC+2) - TIER 1
-//    - London Gold Fix Afternoon (15:00 EST / 20:00 UTC+2) - TIER 1  
+//    - London Gold Fix Afternoon (15:00 EST / 20:00 UTC+2) - TIER 1
 //    - Asian Physical Open (20:00 EST / 02:00 UTC+2) - TIER 2
 //    - Enhanced visibility with gold-themed colors and priority line widths
 //
@@ -318,6 +319,9 @@ DAYOFWED        = 4 // 1=Sun, 2=Mon, 3=Tue, 4=Wed, 5=Thu, 6=Fri, 7=Sat
 DAYOFFRI        = 6 // Friday
 MS_IN_DAY       = 24 * 60 * 60 * 1000
 
+// ───── ALERT COOLDOWN ────────────────────────────────────────────────────────
+var int lastAlertTime = 0
+
 // ───── HELPER FUNCTIONS ──────────────────────────────────────────────────────
 f_size_str_to_const(size_str) =>
     switch size_str
@@ -343,6 +347,39 @@ getMarkerStyle(string style) =>
         "Triangle Up"   => label.style_triangleup
         "Triangle Down" => label.style_triangledown
         => label.style_circle
+
+// ───── COMMON VARIABLES ──────────────────────────────────────────────────────
+actualMarkerSize = f_size_str_to_const(interactionMarkerSize)
+actualMarkerStyle = getMarkerStyle(interactionMarkerStyle)
+
+// ───── HELPER FUNCTIONS ──────────────────────────────────────────────────────
+f_checkAndAlert(levelPrice, levelName, interactionColor, min_oc, max_oc) =>
+    sent = false
+    // Condition: Price wick touches the level but the candle body does not contain it.
+    if (high >= levelPrice and low <= levelPrice) and (levelPrice > max_oc or levelPrice < min_oc)
+        if showWickInteractions
+            label.new(time, levelPrice, "", xloc=xloc.bar_time, yloc=yloc.price, style=actualMarkerStyle, color=interactionColor, size=actualMarkerSize)
+        
+        // Check if cooldown has passed
+        if timenow - lastAlertTime >= alertCooldown * 1000
+            sent := true // Mark that an alert is being sent for this check
+            msg = str.format("WICK TOUCH – {0} ({1})", levelName, syminfo.ticker)
+            if sendEmail 
+                alert(msg, alert.freq_once_per_bar)
+            if sendPush 
+                alert(msg, alert.freq_once_per_bar)
+    sent
+
+processLevels(levelArray, name, highColor, lowColor, min_oc, max_oc) => 
+    alertSent = false
+    if array.size(levelArray) > 0
+        for i = 0 to array.size(levelArray) - 1
+            levelData = array.get(levelArray, i)
+            if f_checkAndAlert(levelData.high, name + " HIGH", highColor, min_oc, max_oc)
+                alertSent := true
+            if f_checkAndAlert(levelData.low, name + " LOW", lowColor, min_oc, max_oc)
+                alertSent := true
+    alertSent // Return true if an alert was triggered, false otherwise
 
 // ───── DATA STRUCTURES ───────────────────────────────────────────────────────
 type midnightLevel
@@ -499,13 +536,8 @@ var array<label> wednesdayOpenLabels = array.new<label>()
 
 // ───── COMMON VARIABLES ──────────────────────────────────────────────────────
 actualLabelSize = f_size_str_to_const(labelSize)
-actualMarkerSize = f_size_str_to_const(interactionMarkerSize)
-actualMarkerStyle = getMarkerStyle(interactionMarkerStyle)
 actualMidnightLabelSize = f_size_str_to_const(midnightLabelSizeInput)
 actualNYPreMarketLabelSize = f_size_str_to_const(nyPreMarketLabelSizeInput)
-
-// ───── ALERT COOLDOWN ────────────────────────────────────────────────────────
-var int lastAlertTime = 0
 
 // ───── WEDNESDAY LOGIC ───────────────────────────────────────────────────────
 f_getTargetTime(int ts) =>
@@ -600,8 +632,8 @@ if isNewDataPoint
         bar_width_ms = time - nz(time[1], time)
         x2_time = extendRight ? time_close + 50 * bar_width_ms : dayTimestamp + MS_IN_DAY - 1
 
-        array.push(midnightHighLines, line.new(dayTimestamp, h_req, x2_time, h_req, xloc=xloc.bar_time))
-        array.push(midnightLowLines, line.new(dayTimestamp, l_req, x2_time, l_req, xloc=xloc.bar_time))
+        array.push(midnightHighLines, line.new(dayTimestamp, h_req, x2_time, h_req, xloc=xloc.bar_time, color=midnightHighColorInput, width=globalLineWidth, style=getStyle(midnightHighStyleInput)))
+        array.push(midnightLowLines, line.new(dayTimestamp, l_req, x2_time, l_req, xloc=xloc.bar_time, color=midnightLowColorInput, width=globalLineWidth, style=getStyle(midnightLowStyleInput)))
         
         if labelText
             dateString = str.format_time(dayTimestamp, "yyyy.MM.dd", TARGET_TIMEZONE)
@@ -954,323 +986,109 @@ if isNewQuadData
     while array.size(quadWitchLevels) > fridayLookbackDaysInput
         array.shift(quadWitchLevels)
 
-// ───── WICK-REACTION ALERT ENGINE ────────────────────────────────────────────
+// ───── WICK-REACTION ALERT ENGINE (REFACTORED) ─────────────────────────────────
 if barstate.isconfirmed
     min_oc = math.min(open, close)
     max_oc = math.max(open, close)
-    canSend = timenow - lastAlertTime >= alertCooldown * 1000
-    sent = false
+    alertSentInThisBar = false
+
+    // Process levels inline (functions cannot be defined inside conditional blocks)
 
     // Wednesday lines
-    if array.size(eventTimes) > 0
+    if showWednesdays and array.size(eventTimes) > 0
         for i = 0 to array.size(eventTimes) - 1
             w = array.get(wedRank, i)
             show = switch w
-                1 => showW1
-                2 => showW2
-                3 => showW3
-                4 => showW4
-                5 => showW5
+                1 => showW1, 
+                2 => showW2, 
+                3 => showW3, 
+                4 => showW4, 
+                5 => showW5 
                 => false
-            if not show
-                continue
-            h = array.get(hiPrice, i)
-            l = array.get(loPrice, i)
-            o = array.get(opPrice, i)
-            dStr = array.get(dateLbl, i)
-
-            if showWednesdays and (high >= h and low <= h) and (h > max_oc or h < min_oc)
+            if show
+                h = array.get(hiPrice, i), l = array.get(loPrice, i), o = array.get(opPrice, i), dStr = array.get(dateLbl, i)
                 hiCol = switch w
-                    1 => hiC1
-                    2 => hiC2
-                    3 => hiC3
-                    4 => hiC4
-                    5 => hiC5
+                    1 => hiC1, 
+                    2 => hiC2, 
+                    3 => hiC3, 
+                    4 => hiC4, 
+                    5 => hiC5 
                     => na
-                if showWickInteractions
-                    label.new(time, h, "", xloc=xloc.bar_time, yloc=yloc.price, style=actualMarkerStyle, color=hiCol, size=actualMarkerSize)
-                if canSend
-                    sent := true, msg = str.format("WICK TOUCH – {0} Wednesday HIGH ({1})", dStr, syminfo.ticker)
-                    if sendEmail 
-                        alert(msg, alert.freq_once_per_bar)
-                    if sendPush 
-                        alert(msg, alert.freq_once_per_bar)
-
-            if showWednesdays and (high >= l and low <= l) and (l > max_oc or l < min_oc)
                 loCol = switch w
-                    1 => loC1
-                    2 => loC2
-                    3 => loC3
-                    4 => loC4
-                    5 => loC5
+                    1 => loC1, 
+                    2 => loC2, 
+                    3 => loC3, 
+                    4 => loC4, 
+                    5 => loC5 
                     => na
-                if showWickInteractions
-                    label.new(time, l, "", xloc=xloc.bar_time, yloc=yloc.price, style=actualMarkerStyle, color=loCol, size=actualMarkerSize)
-                if canSend
-                    sent := true, msg = str.format("WICK TOUCH – {0} Wednesday LOW ({1})", dStr, syminfo.ticker)
-                    if sendEmail 
-                        alert(msg, alert.freq_once_per_bar)
-                    if sendPush 
-                        alert(msg, alert.freq_once_per_bar)
-
-            if showWednesdayOpen and (high >= o and low <= o) and (o > max_oc or o < min_oc)
                 opCol = switch w
-                    1 => opC1
-                    2 => opC2
-                    3 => opC3
-                    4 => opC4
-                    5 => opC5
+                    1 => opC1, 
+                    2 => opC2, 
+                    3 => opC3, 
+                    4 => opC4, 
+                    5 => opC5 
                     => na
-                if showWickInteractions
-                    label.new(time, o, "", xloc=xloc.bar_time, yloc=yloc.price, style=actualMarkerStyle, color=opCol, size=actualMarkerSize)
-                if canSend
-                    sent := true, msg = str.format("WICK TOUCH – {0} Wednesday OPEN ({1})", dStr, syminfo.ticker)
-                    if sendEmail 
-                        alert(msg, alert.freq_once_per_bar)
-                    if sendPush 
-                        alert(msg, alert.freq_once_per_bar)
 
-    // Midnight lines
-    if array.size(midnightLevels) > 0 and showMidnightLevelsInput
-        for i = 0 to array.size(midnightLevels) - 1
-            levelData = array.get(midnightLevels, i)
-            h = levelData.high, l = levelData.low
-            if canSend and high >= h and low <= h and (h > max_oc or h < min_oc)
-                sent := true, msg = "WICK TOUCH – Midnight HIGH (" + syminfo.ticker + ")"
-                if sendEmail 
-                    alert(msg, alert.freq_once_per_bar)
-                if sendPush 
-                    alert(msg, alert.freq_once_per_bar)
-            if canSend and high >= l and low <= l and (l > max_oc or l < min_oc)
-                sent := true, msg = "WICK TOUCH – Midnight LOW (" + syminfo.ticker + ")"
-                if sendEmail 
-                    alert(msg, alert.freq_once_per_bar)
-                if sendPush 
-                    alert(msg, alert.freq_once_per_bar)
+                if f_checkAndAlert(h, dStr + " Wednesday HIGH", hiCol, min_oc, max_oc)
+                    alertSentInThisBar := true
+                if f_checkAndAlert(l, dStr + " Wednesday LOW", loCol, min_oc, max_oc)
+                    alertSentInThisBar := true
+                if showWednesdayOpen and f_checkAndAlert(o, dStr + " Wednesday OPEN", opCol, min_oc, max_oc)
+                    alertSentInThisBar := true
 
+    // Midnight levels
+    if showMidnightLevelsInput
+        if processLevels(midnightLevels, "Midnight", midnightHighColorInput, midnightLowColorInput, min_oc, max_oc)
+            alertSentInThisBar := true
     // NY PreMarket lines
-    if array.size(nyPreMarketLevels) > 0 and showNYPreMarketLevelsInput
-        for i = 0 to array.size(nyPreMarketLevels) - 1
-            levelData = array.get(nyPreMarketLevels, i)
-            h = levelData.high, l = levelData.low
-            if canSend and high >= h and low <= h and (h > max_oc or h < min_oc)
-                sent := true, msg = "WICK TOUCH – NY PreMarket HIGH (" + syminfo.ticker + ")"
-                if sendEmail 
-                    alert(msg, alert.freq_once_per_bar)
-                if sendPush 
-                    alert(msg, alert.freq_once_per_bar)
-            if canSend and high >= l and low <= l and (l > max_oc or l < min_oc)
-                sent := true, msg = "WICK TOUCH – NY PreMarket LOW (" + syminfo.ticker + ")"
-                if sendEmail 
-                    alert(msg, alert.freq_once_per_bar)
-                if sendPush 
-                    alert(msg, alert.freq_once_per_bar)
+    if showNYPreMarketLevelsInput
+        if processLevels(nyPreMarketLevels, "NY PreMarket", nyPreMarketHighColorInput, nyPreMarketLowColorInput, min_oc, max_oc)
+            alertSentInThisBar := true
 
     // Daily Session Levels
     if showDailySessions
-        // Tokyo Open
-        if showTokyoOpen and array.size(tokyoLevels) > 0
-            for i = 0 to array.size(tokyoLevels) - 1
-                levelData = array.get(tokyoLevels, i)
-                h = levelData.high, l = levelData.low
-                if canSend and high >= h and low <= h and (h > max_oc or h < min_oc)
-                    sent := true, msg = "WICK TOUCH – Tokyo Open HIGH (" + syminfo.ticker + ")"
-                    if sendEmail 
-                        alert(msg, alert.freq_once_per_bar)
-                    if sendPush 
-                        alert(msg, alert.freq_once_per_bar)
-                if canSend and high >= l and low <= l and (l > max_oc or l < min_oc)
-                    sent := true, msg = "WICK TOUCH – Tokyo Open LOW (" + syminfo.ticker + ")"
-                    if sendEmail 
-                        alert(msg, alert.freq_once_per_bar)
-                    if sendPush 
-                        alert(msg, alert.freq_once_per_bar)
-
-        // London Pre-Open
-        if showLondonPreOpen and array.size(londonPreLevels) > 0
-            for i = 0 to array.size(londonPreLevels) - 1
-                levelData = array.get(londonPreLevels, i)
-                h = levelData.high, l = levelData.low
-                if canSend and high >= h and low <= h and (h > max_oc or h < min_oc)
-                    sent := true, msg = "WICK TOUCH – London Pre-Open HIGH (" + syminfo.ticker + ")"
-                    if sendEmail 
-                        alert(msg, alert.freq_once_per_bar)
-                    if sendPush 
-                        alert(msg, alert.freq_once_per_bar)
-                if canSend and high >= l and low <= l and (l > max_oc or l < min_oc)
-                    sent := true, msg = "WICK TOUCH – London Pre-Open LOW (" + syminfo.ticker + ")"
-                    if sendEmail 
-                        alert(msg, alert.freq_once_per_bar)
-                    if sendPush 
-                        alert(msg, alert.freq_once_per_bar)
-
-        // London Morning Fix
-        if showLondonMorningFix and array.size(londonMornLevels) > 0
-            for i = 0 to array.size(londonMornLevels) - 1
-                levelData = array.get(londonMornLevels, i)
-                h = levelData.high, l = levelData.low
-                if canSend and high >= h and low <= h and (h > max_oc or h < min_oc)
-                    sent := true, msg = "WICK TOUCH – London Morning Fix HIGH (" + syminfo.ticker + ")"
-                    if sendEmail 
-                        alert(msg, alert.freq_once_per_bar)
-                    if sendPush 
-                        alert(msg, alert.freq_once_per_bar)
-                if canSend and high >= l and low <= l and (l > max_oc or l < min_oc)
-                    sent := true, msg = "WICK TOUCH – London Morning Fix LOW (" + syminfo.ticker + ")"
-                    if sendEmail 
-                        alert(msg, alert.freq_once_per_bar)
-                    if sendPush 
-                        alert(msg, alert.freq_once_per_bar)
-
-        // London Afternoon Fix
-        if showLondonAfternoonFix and array.size(londonAftLevels) > 0
-            for i = 0 to array.size(londonAftLevels) - 1
-                levelData = array.get(londonAftLevels, i)
-                h = levelData.high, l = levelData.low
-                if canSend and high >= h and low <= h and (h > max_oc or h < min_oc)
-                    sent := true, msg = "WICK TOUCH – London Afternoon Fix HIGH (" + syminfo.ticker + ")"
-                    if sendEmail 
-                        alert(msg, alert.freq_once_per_bar)
-                    if sendPush 
-                        alert(msg, alert.freq_once_per_bar)
-                if canSend and high >= l and low <= l and (l > max_oc or l < min_oc)
-                    sent := true, msg = "WICK TOUCH – London Afternoon Fix LOW (" + syminfo.ticker + ")"
-                    if sendEmail 
-                        alert(msg, alert.freq_once_per_bar)
-                    if sendPush 
-                        alert(msg, alert.freq_once_per_bar)
-
-        // NYSE Close
-        if showNYSEClose and array.size(nyseLevels) > 0
-            for i = 0 to array.size(nyseLevels) - 1
-                levelData = array.get(nyseLevels, i)
-                h = levelData.high, l = levelData.low
-                if canSend and high >= h and low <= h and (h > max_oc or h < min_oc)
-                    sent := true, msg = "WICK TOUCH – NYSE Close HIGH (" + syminfo.ticker + ")"
-                    if sendEmail 
-                        alert(msg, alert.freq_once_per_bar)
-                    if sendPush 
-                        alert(msg, alert.freq_once_per_bar)
-                if canSend and high >= l and low <= l and (l > max_oc or l < min_oc)
-                    sent := true, msg = "WICK TOUCH – NYSE Close LOW (" + syminfo.ticker + ")"
-                    if sendEmail 
-                        alert(msg, alert.freq_once_per_bar)
-                    if sendPush 
-                        alert(msg, alert.freq_once_per_bar)
-
-        // CME Settlement
-        if showCMESettlement and array.size(cmeLevels) > 0
-            for i = 0 to array.size(cmeLevels) - 1
-                levelData = array.get(cmeLevels, i)
-                h = levelData.high, l = levelData.low
-                if canSend and high >= h and low <= h and (h > max_oc or h < min_oc)
-                    sent := true, msg = "WICK TOUCH – CME Settlement HIGH (" + syminfo.ticker + ")"
-                    if sendEmail 
-                        alert(msg, alert.freq_once_per_bar)
-                    if sendPush 
-                        alert(msg, alert.freq_once_per_bar)
-                if canSend and high >= l and low <= l and (l > max_oc or l < min_oc)
-                    sent := true, msg = "WICK TOUCH – CME Settlement LOW (" + syminfo.ticker + ")"
-                    if sendEmail 
-                        alert(msg, alert.freq_once_per_bar)
-                    if sendPush 
-                        alert(msg, alert.freq_once_per_bar)
-
-        // Globex Roll
-        if showGlobexRoll and array.size(globexLevels) > 0
-            for i = 0 to array.size(globexLevels) - 1
-                levelData = array.get(globexLevels, i)
-                h = levelData.high, l = levelData.low
-                if canSend and high >= h and low <= h and (h > max_oc or h < min_oc)
-                    sent := true, msg = "WICK TOUCH – Globex Roll HIGH (" + syminfo.ticker + ")"
-                    if sendEmail 
-                        alert(msg, alert.freq_once_per_bar)
-                    if sendPush 
-                        alert(msg, alert.freq_once_per_bar)
-                if canSend and high >= l and low <= l and (l > max_oc or l < min_oc)
-                    sent := true, msg = "WICK TOUCH – Globex Roll LOW (" + syminfo.ticker + ")"
-                    if sendEmail 
-                        alert(msg, alert.freq_once_per_bar)
-                    if sendPush 
-                        alert(msg, alert.freq_once_per_bar)
+        if showTokyoOpen
+            if processLevels(tokyoLevels, "Tokyo Open", tokyoHighColor, tokyoLowColor, min_oc, max_oc)
+                alertSentInThisBar := true
+        if showLondonPreOpen
+            if processLevels(londonPreLevels, "London Pre-Open", londonPreHighColor, londonPreLowColor, min_oc, max_oc)
+                alertSentInThisBar := true
+        if showLondonMorningFix
+            if processLevels(londonMornLevels, "London Morning Fix", londonMornHighColor, londonMornLowColor, min_oc, max_oc)
+                alertSentInThisBar := true
+        if showLondonAfternoonFix
+            if processLevels(londonAftLevels, "London Afternoon Fix", londonAftHighColor, londonAftLowColor, min_oc, max_oc)
+                alertSentInThisBar := true
+        if showNYSEClose
+            if processLevels(nyseLevels, "NYSE Close", nyseHighColor, nyseLowColor, min_oc, max_oc)
+                alertSentInThisBar := true
+        if showCMESettlement
+            if processLevels(cmeLevels, "CME Settlement", cmeHighColor, cmeLowColor, min_oc, max_oc)
+                alertSentInThisBar := true
+        if showGlobexRoll
+            if processLevels(globexLevels, "Globex Roll", globexHighColor, globexLowColor, min_oc, max_oc)
+                alertSentInThisBar := true
 
     // Wednesday Events
     if showWednesdayEvents
-        // EIA Oil Inventory
-        if showEIAOil and array.size(eiaLevels) > 0
-            for i = 0 to array.size(eiaLevels) - 1
-                levelData = array.get(eiaLevels, i)
-                h = levelData.high, l = levelData.low
-                if canSend and high >= h and low <= h and (h > max_oc or h < min_oc)
-                    sent := true, msg = "WICK TOUCH – EIA Oil Inventory HIGH (" + syminfo.ticker + ")"
-                    if sendEmail 
-                        alert(msg, alert.freq_once_per_bar)
-                    if sendPush 
-                        alert(msg, alert.freq_once_per_bar)
-                if canSend and high >= l and low <= l and (l > max_oc or l < min_oc)
-                    sent := true, msg = "WICK TOUCH – EIA Oil Inventory LOW (" + syminfo.ticker + ")"
-                    if sendEmail 
-                        alert(msg, alert.freq_once_per_bar)
-                    if sendPush 
-                        alert(msg, alert.freq_once_per_bar)
-
-        // FOMC Announcements
-        if showFOMC and array.size(fomcLevels) > 0
-            for i = 0 to array.size(fomcLevels) - 1
-                levelData = array.get(fomcLevels, i)
-                h = levelData.high, l = levelData.low
-                if canSend and high >= h and low <= h and (h > max_oc or h < min_oc)
-                    sent := true, msg = "WICK TOUCH – FOMC Announcement HIGH (" + syminfo.ticker + ")"
-                    if sendEmail 
-                        alert(msg, alert.freq_once_per_bar)
-                    if sendPush 
-                        alert(msg, alert.freq_once_per_bar)
-                if canSend and high >= l and low <= l and (l > max_oc or l < min_oc)
-                    sent := true, msg = "WICK TOUCH – FOMC Announcement LOW (" + syminfo.ticker + ")"
-                    if sendEmail 
-                        alert(msg, alert.freq_once_per_bar)
-                    if sendPush 
-                        alert(msg, alert.freq_once_per_bar)
+        if showEIAOil
+            if processLevels(eiaLevels, "EIA Oil Inventory", eiaHighColor, eiaLowColor, min_oc, max_oc)
+                alertSentInThisBar := true
+        if showFOMC
+            if processLevels(fomcLevels, "FOMC Announcement", fomcHighColor, fomcLowColor, min_oc, max_oc)
+                alertSentInThisBar := true
 
     // Friday Events
     if showFridayEvents
-        // Non-Farm Payrolls
-        if showNFP and array.size(nfpLevels) > 0
-            for i = 0 to array.size(nfpLevels) - 1
-                levelData = array.get(nfpLevels, i)
-                h = levelData.high, l = levelData.low
-                if canSend and high >= h and low <= h and (h > max_oc or h < min_oc)
-                    sent := true, msg = "WICK TOUCH – NFP HIGH (" + syminfo.ticker + ")"
-                    if sendEmail 
-                        alert(msg, alert.freq_once_per_bar)
-                    if sendPush 
-                        alert(msg, alert.freq_once_per_bar)
-                if canSend and high >= l and low <= l and (l > max_oc or l < min_oc)
-                    sent := true, msg = "WICK TOUCH – NFP LOW (" + syminfo.ticker + ")"
-                    if sendEmail 
-                        alert(msg, alert.freq_once_per_bar)
-                    if sendPush 
-                        alert(msg, alert.freq_once_per_bar)
+        if showNFP
+            if processLevels(nfpLevels, "NFP", nfpHighColor, nfpLowColor, min_oc, max_oc)
+                alertSentInThisBar := true
+        if showQuadWitch
+            if processLevels(quadWitchLevels, "Quad Witch", quadHighColor, quadLowColor, min_oc, max_oc)
+                alertSentInThisBar := true
 
-        // Quadruple-Witch Settlement
-        if showQuadWitch and array.size(quadWitchLevels) > 0
-            for i = 0 to array.size(quadWitchLevels) - 1
-                levelData = array.get(quadWitchLevels, i)
-                h = levelData.high, l = levelData.low
-                if canSend and high >= h and low <= h and (h > max_oc or h < min_oc)
-                    sent := true, msg = "WICK TOUCH – Quad Witch HIGH (" + syminfo.ticker + ")"
-                    if sendEmail 
-                        alert(msg, alert.freq_once_per_bar)
-                    if sendPush 
-                        alert(msg, alert.freq_once_per_bar)
-                if canSend and high >= l and low <= l and (l > max_oc or l < min_oc)
-                    sent := true, msg = "WICK TOUCH – Quad Witch LOW (" + syminfo.ticker + ")"
-                    if sendEmail 
-                        alert(msg, alert.freq_once_per_bar)
-                    if sendPush 
-                        alert(msg, alert.freq_once_per_bar)
-
-    if sent
+    // Update the master cooldown timer ONCE if any alert was sent in this bar
+    if alertSentInThisBar
         lastAlertTime := timenow
 
 // ───── EXECUTION & DRAWING ───────────────────────────────────────────────────
@@ -1767,7 +1585,7 @@ if barstate.islast
                     label_x_position = extendRight ? t + 50 * bar_width_ms : x2_time
                     
                     array.push(institutionalRebalHighLabels, label.new(label_x_position, h, highLabelText, xloc=xloc.bar_time, color=color(na), textcolor=instRebalHighLabelColor, style=label.style_label_right, size=f_size_str_to_const(instRebalLabelSize), textalign=text.align_right))
-                    array.push(institutionalRebalLowLabels, label.new(label_x_position, l, lowLabelText, xloc=xloc.bar_time, color=color(na), textcolor=instRebalLowLabelColor, style=label.style_label_right, size=f_size_str_to_const(instRebalLabelSize), textalign=text.align_right))
+                    array.push(institutionalRebalLowLabels, label.new(label_x_position, l, lowLabelText, xloc=xloc.bar_time, color=color(na), textcolor=instRebalLowColor, style=label.style_label_right, size=f_size_str_to_const(instRebalLabelSize), textalign=text.align_right))
 
 if extendRight and (showWednesdays or showWednesdayOpen)
     bar_width_ms = time - nz(time[1], time)
@@ -2253,12 +2071,12 @@ if enablePlaybookMode
                 if high >= levelPrice + liquidityGrabThreshold and close < levelPrice
                     if canSend
                         lastAlertTime := time
-                        var string grabAlert = "🎯 LIQUIDITY GRAB DETECTED - " + levelTier + " Level Rejected"
-                        var string msg = grabAlert + " - " + str.tostring(levelPrice, format.mintick) + " - " + syminfo.ticker
+                        string grabAlert = "🎯 LIQUIDITY GRAB DETECTED - " + levelTier + " Level Rejected"
+                        string grabMsg = grabAlert + " - " + str.tostring(levelPrice, format.mintick) + " - " + syminfo.ticker
                         if sendEmail 
-                            alert(msg, alert.freq_once_per_bar)
+                            alert(grabMsg, alert.freq_once_per_bar)
                         if sendPush 
-                            alert(msg, alert.freq_once_per_bar)
+                            alert(grabMsg, alert.freq_once_per_bar)
                     
                     // Visual liquidity grab indicator
                     label.new(time, high, "LIQUIDITY GRAB", xloc=xloc.bar_time, yloc=yloc.abovebar, 
@@ -2269,14 +2087,15 @@ if enablePlaybookMode
                 if low <= levelPrice - liquidityGrabThreshold and close > levelPrice
                     if canSend
                         lastAlertTime := time
-                        var string grabAlert = "🎯 LIQUIDITY GRAB DETECTED - " + levelTier + " Level Rejected"
-                        var string msg = grabAlert + " - " + str.tostring(levelPrice, format.mintick) + " - " + syminfo.ticker
+                        string grabAlert = "🎯 LIQUIDITY GRAB DETECTED - " + levelTier + " Level Rejected"
+                        string grabMsg = grabAlert + " - " + str.tostring(levelPrice, format.mintick) + " - " + syminfo.ticker
                         if sendEmail 
-                            alert(msg, alert.freq_once_per_bar)
+                            alert(grabMsg, alert.freq_once_per_bar)
                         if sendPush 
-                            alert(msg, alert.freq_once_per_bar)
+                            alert(grabMsg, alert.freq_once_per_bar)
                     
                     // Visual liquidity grab indicator
                     label.new(time, low, "LIQUIDITY GRAB", xloc=xloc.bar_time, yloc=yloc.belowbar, 
                              color=color(na), textcolor=color.orange, style=label.style_label_up, 
                              size=size.normal, textalign=text.align_center)
+ 
