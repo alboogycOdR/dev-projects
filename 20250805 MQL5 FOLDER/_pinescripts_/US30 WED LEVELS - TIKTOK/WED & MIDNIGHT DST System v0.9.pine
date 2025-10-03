@@ -216,6 +216,35 @@ fomcHighColor = input.color(color.new(color.red, 50), "High Color", inline="fomc
 fomcLowColor = input.color(color.new(color.red, 50), "Low Color", inline="fomc_colors")
 fomcWidth = input.int(1, "Line Width", minval=1, maxval=4, inline="fomc_colors")
 
+// ───── US DATA RELEASE LEVELS ────────────────────────────────────────────────
+GROUP_US_DATA = "US Data Release Levels"
+showUSDataLevels = input.bool(false, "Show US Data Release Levels", group=GROUP_US_DATA, tooltip="Master switch for US data release levels")
+usDataLookbackDaysInput = input.int(14, "Lookback (Days)", group=GROUP_US_DATA, minval=1, tooltip="Number of past days to show US data levels")
+
+// US Data Release (08:30 EST / 14:30 UTC+2) - CRITICAL GOLD LEVEL
+showUSDataRelease = input.bool(false, "US Data Release (08:30 EST)", group=GROUP_US_DATA, inline="us_data")
+usDataHighColor = input.color(color.new(color.red, 50), "High Color", group=GROUP_US_DATA, inline="us_data")
+usDataLowColor = input.color(color.new(color.blue, 50), "Low Color", group=GROUP_US_DATA, inline="us_data")
+usDataHighLabelColor = input.color(color.new(color.red, 0), "High Label Color", group=GROUP_US_DATA)
+usDataLowLabelColor = input.color(color.new(color.blue, 0), "Low Label Color", group=GROUP_US_DATA)
+usDataLabelSize = input.string("Normal", "Label Text Size", group=GROUP_US_DATA, options=["Tiny","Small","Normal","Large","Huge"])
+
+// NYSE Open (09:30 EST / 15:30 UTC+2)
+showNYSEOpen = input.bool(false, "NYSE Open (09:30 EST)", group=GROUP_US_DATA, inline="nyse_open")
+nyseOpenHighColor = input.color(color.new(color.green, 50), "High Color", group=GROUP_US_DATA, inline="nyse_open")
+nyseOpenLowColor = input.color(color.new(color.orange, 50), "Low Color", group=GROUP_US_DATA, inline="nyse_open")
+nyseOpenHighLabelColor = input.color(color.new(color.green, 0), "High Label Color", group=GROUP_US_DATA)
+nyseOpenLowLabelColor = input.color(color.new(color.orange, 0), "Low Label Color", group=GROUP_US_DATA)
+nyseOpenLabelSize = input.string("Normal", "Label Text Size", group=GROUP_US_DATA, options=["Tiny","Small","Normal","Large","Huge"])
+
+// Institutional Rebalancing (10:00 EST / 16:00 UTC+2)
+showInstitutionalRebal = input.bool(false, "Institutional Rebalancing (10:00 EST)", group=GROUP_US_DATA, inline="inst_rebal")
+instRebalHighColor = input.color(color.new(color.purple, 50), "High Color", group=GROUP_US_DATA, inline="inst_rebal")
+instRebalLowColor = input.color(color.new(color.yellow, 50), "Low Color", group=GROUP_US_DATA, inline="inst_rebal")
+instRebalHighLabelColor = input.color(color.new(color.purple, 0), "High Label Color", group=GROUP_US_DATA)
+instRebalLowLabelColor = input.color(color.new(color.yellow, 0), "Low Label Color", group=GROUP_US_DATA)
+instRebalLabelSize = input.string("Normal", "Label Text Size", group=GROUP_US_DATA, options=["Tiny","Small","Normal","Large","Huge"])
+
 // ───── FRIDAY ECONOMIC EVENTS ──────────────────────────────────────────────
 GROUP_FRIDAY_EVENTS = "Friday Economic Events"
 showFridayEvents = input.bool(false, "Show Friday Events", group=GROUP_FRIDAY_EVENTS, tooltip="Master switch for Friday-specific economic events")
@@ -271,6 +300,17 @@ playbookLevelHierarchy = input.bool(true, "Show Level Hierarchy", group=GROUP_PL
 // Gold Fix Priority Settings
 showGoldFixPriority = input.bool(true, "Gold Fix Priority Mode", group=GROUP_PLAYBOOK, tooltip="Enhanced visibility for gold fix levels")
 goldFixAlertPriority = input.bool(true, "Gold Fix Alert Priority", group=GROUP_PLAYBOOK, tooltip="Immediate alerts for gold fix level touches")
+
+// DXY Confluence Settings
+enableDXYConfluence = input.bool(false, "Enable DXY Confluence", group=GROUP_PLAYBOOK, tooltip="Use DXY correlation for bias confirmation")
+dxySymbol = input.symbol("DXY", "DXY Symbol", group=GROUP_PLAYBOOK, tooltip="Dollar Index symbol for correlation analysis")
+dxyCorrelationThreshold = input.float(0.7, "DXY Correlation Threshold", group=GROUP_PLAYBOOK, minval=0.1, maxval=1.0, tooltip="Minimum correlation strength for confluence alerts")
+dxyLookbackPeriod = input.int(20, "DXY Lookback Period", group=GROUP_PLAYBOOK, minval=5, maxval=50, tooltip="Number of bars to analyze DXY correlation")
+
+// Advanced Alert Settings
+enableDataReleaseAlerts = input.bool(true, "Data Release Alerts", group=GROUP_PLAYBOOK, tooltip="Special alerts for US data release times")
+enableDXYConfluenceAlerts = input.bool(true, "DXY Confluence Alerts", group=GROUP_PLAYBOOK, tooltip="Alerts when DXY confirms bias direction")
+enableLiquidityGrabAlerts = input.bool(true, "Liquidity Grab Alerts", group=GROUP_PLAYBOOK, tooltip="Alerts for liquidity grab scenarios")
 
 // ───── CONSTANTS ─────────────────────────────────────────────────────────────
 TARGET_TIMEZONE = "UTC+2"
@@ -374,6 +414,11 @@ var array<dailySessionLevel> nyseLevels = array.new<dailySessionLevel>()
 var array<dailySessionLevel> cmeLevels = array.new<dailySessionLevel>()
 var array<dailySessionLevel> globexLevels = array.new<dailySessionLevel>()
 
+// US Data Release Levels Storage
+var array<dailySessionLevel> usDataReleaseLevels = array.new<dailySessionLevel>()
+var array<dailySessionLevel> nyseOpenLevels = array.new<dailySessionLevel>()
+var array<dailySessionLevel> institutionalRebalLevels = array.new<dailySessionLevel>()
+
 // Daily Session Lines and Labels Storage
 var array<line> tokyoHighLines = array.new<line>()
 var array<line> tokyoLowLines = array.new<line>()
@@ -419,6 +464,22 @@ var array<line> globexHighLines = array.new<line>()
 var array<line> globexLowLines = array.new<line>()
 var array<label> globexHighLabels = array.new<label>()
 var array<label> globexLowLabels = array.new<label>()
+
+// US Data Release Lines and Labels Storage
+var array<line> usDataReleaseHighLines = array.new<line>()
+var array<line> usDataReleaseLowLines = array.new<line>()
+var array<label> usDataReleaseHighLabels = array.new<label>()
+var array<label> usDataReleaseLowLabels = array.new<label>()
+
+var array<line> nyseOpenHighLines = array.new<line>()
+var array<line> nyseOpenLowLines = array.new<line>()
+var array<label> nyseOpenHighLabels = array.new<label>()
+var array<label> nyseOpenLowLabels = array.new<label>()
+
+var array<line> institutionalRebalHighLines = array.new<line>()
+var array<line> institutionalRebalLowLines = array.new<line>()
+var array<label> institutionalRebalHighLabels = array.new<label>()
+var array<label> institutionalRebalLowLabels = array.new<label>()
 
 // Wednesday Event Levels Storage
 var array<wednesdayEventLevel> eiaLevels = array.new<wednesdayEventLevel>()
@@ -764,6 +825,60 @@ if isNewGlobexData
     
     while array.size(globexLevels) > dailyLookbackDaysInput
         array.shift(globexLevels)
+
+// US Data Release (08:30 EST / 14:30 UTC+2) - CRITICAL GOLD LEVEL
+varip float usDataReleaseHigh_15m = na
+varip float usDataReleaseLow_15m = na
+isUSDataReleaseCandle = timeframe.isintraday and timeframe.multiplier == 15 and hour(time, TARGET_TIMEZONE) == 14 and minute(time, TARGET_TIMEZONE) == 30
+if isUSDataReleaseCandle and barstate.isconfirmed
+    usDataReleaseHigh_15m := high
+    usDataReleaseLow_15m := low
+
+[us_data_h_req, us_data_l_req] = request.security(syminfo.tickerid, "15", [usDataReleaseHigh_15m[1], usDataReleaseLow_15m[1]], lookahead=barmerge.lookahead_off)
+isNewUSDataReleaseData = not na(us_data_h_req) and (array.size(usDataReleaseLevels) > 0 ? us_data_h_req != array.last(usDataReleaseLevels).high : true)
+
+if isNewUSDataReleaseData
+    usDataReleaseTimestamp = timestamp(TARGET_TIMEZONE, year(time_close, TARGET_TIMEZONE), month(time_close, TARGET_TIMEZONE), dayofmonth(time_close, TARGET_TIMEZONE), 14, 30)
+    array.push(usDataReleaseLevels, dailySessionLevel.new(us_data_h_req, us_data_l_req, usDataReleaseTimestamp, "US Data Release"))
+    
+    while array.size(usDataReleaseLevels) > usDataLookbackDaysInput
+        array.shift(usDataReleaseLevels)
+
+// NYSE Open (09:30 EST / 15:30 UTC+2)
+varip float nyseOpenHigh_15m = na
+varip float nyseOpenLow_15m = na
+isNYSEOpenCandle = timeframe.isintraday and timeframe.multiplier == 15 and hour(time, TARGET_TIMEZONE) == 15 and minute(time, TARGET_TIMEZONE) == 30
+if isNYSEOpenCandle and barstate.isconfirmed
+    nyseOpenHigh_15m := high
+    nyseOpenLow_15m := low
+
+[nyse_open_h_req, nyse_open_l_req] = request.security(syminfo.tickerid, "15", [nyseOpenHigh_15m[1], nyseOpenLow_15m[1]], lookahead=barmerge.lookahead_off)
+isNewNYSEOpenData = not na(nyse_open_h_req) and (array.size(nyseOpenLevels) > 0 ? nyse_open_h_req != array.last(nyseOpenLevels).high : true)
+
+if isNewNYSEOpenData
+    nyseOpenTimestamp = timestamp(TARGET_TIMEZONE, year(time_close, TARGET_TIMEZONE), month(time_close, TARGET_TIMEZONE), dayofmonth(time_close, TARGET_TIMEZONE), 15, 30)
+    array.push(nyseOpenLevels, dailySessionLevel.new(nyse_open_h_req, nyse_open_l_req, nyseOpenTimestamp, "NYSE Open"))
+    
+    while array.size(nyseOpenLevels) > usDataLookbackDaysInput
+        array.shift(nyseOpenLevels)
+
+// Institutional Rebalancing (10:00 EST / 16:00 UTC+2)
+varip float institutionalRebalHigh_15m = na
+varip float institutionalRebalLow_15m = na
+isInstitutionalRebalCandle = timeframe.isintraday and timeframe.multiplier == 15 and hour(time, TARGET_TIMEZONE) == 16 and minute(time, TARGET_TIMEZONE) == 0
+if isInstitutionalRebalCandle and barstate.isconfirmed
+    institutionalRebalHigh_15m := high
+    institutionalRebalLow_15m := low
+
+[inst_rebal_h_req, inst_rebal_l_req] = request.security(syminfo.tickerid, "15", [institutionalRebalHigh_15m[1], institutionalRebalLow_15m[1]], lookahead=barmerge.lookahead_off)
+isNewInstitutionalRebalData = not na(inst_rebal_h_req) and (array.size(institutionalRebalLevels) > 0 ? inst_rebal_h_req != array.last(institutionalRebalLevels).high : true)
+
+if isNewInstitutionalRebalData
+    institutionalRebalTimestamp = timestamp(TARGET_TIMEZONE, year(time_close, TARGET_TIMEZONE), month(time_close, TARGET_TIMEZONE), dayofmonth(time_close, TARGET_TIMEZONE), 16, 0)
+    array.push(institutionalRebalLevels, dailySessionLevel.new(inst_rebal_h_req, inst_rebal_l_req, institutionalRebalTimestamp, "Institutional Rebalancing"))
+    
+    while array.size(institutionalRebalLevels) > usDataLookbackDaysInput
+        array.shift(institutionalRebalLevels)
 
 // ───── WEDNESDAY ECONOMIC EVENTS LOGIC ──────────────────────────────────────
 // EIA Oil Inventory (10:30 EST / 16:30 UTC+2)
@@ -1588,6 +1703,72 @@ if barstate.islast
                     array.push(globexHighLabels, label.new(label_x_position, h, highLabelText, xloc=xloc.bar_time, color=color(na), textcolor=globexHighColor, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
                     array.push(globexLowLabels, label.new(label_x_position, l, lowLabelText, xloc=xloc.bar_time, color=color(na), textcolor=globexLowColor, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
 
+        // US Data Release Levels (08:30 EST / 14:30 UTC+2) - CRITICAL GOLD LEVEL
+        if showUSDataRelease and array.size(usDataReleaseLevels) > 0
+            for i = 0 to array.size(usDataReleaseLevels) - 1
+                levelData = array.get(usDataReleaseLevels, i)
+                h = levelData.high
+                l = levelData.low
+                t = levelData.barTime
+                sessionName = levelData.sessionName
+                
+                x2_time = extendRight ? time_close + 50 * bar_width_ms : t + MS_IN_DAY - 1
+                
+                array.push(usDataReleaseHighLines, line.new(t, h, x2_time, h, xloc=xloc.bar_time, color=usDataHighColor, width=globalLineWidth))
+                array.push(usDataReleaseLowLines, line.new(t, l, x2_time, l, xloc=xloc.bar_time, color=usDataLowColor, width=globalLineWidth))
+                
+                if labelText
+                    highLabelText = str.format("{0} High {1}", sessionName, str.tostring(h, format.mintick))
+                    lowLabelText = str.format("{0} Low {1}", sessionName, str.tostring(l, format.mintick))
+                    label_x_position = extendRight ? t + 50 * bar_width_ms : x2_time
+                    
+                    array.push(usDataReleaseHighLabels, label.new(label_x_position, h, highLabelText, xloc=xloc.bar_time, color=color(na), textcolor=usDataHighLabelColor, style=label.style_label_right, size=f_size_str_to_const(usDataLabelSize), textalign=text.align_right))
+                    array.push(usDataReleaseLowLabels, label.new(label_x_position, l, lowLabelText, xloc=xloc.bar_time, color=color(na), textcolor=usDataLowLabelColor, style=label.style_label_right, size=f_size_str_to_const(usDataLabelSize), textalign=text.align_right))
+
+        // NYSE Open Levels (09:30 EST / 15:30 UTC+2)
+        if showNYSEOpen and array.size(nyseOpenLevels) > 0
+            for i = 0 to array.size(nyseOpenLevels) - 1
+                levelData = array.get(nyseOpenLevels, i)
+                h = levelData.high
+                l = levelData.low
+                t = levelData.barTime
+                sessionName = levelData.sessionName
+                
+                x2_time = extendRight ? time_close + 50 * bar_width_ms : t + MS_IN_DAY - 1
+                
+                array.push(nyseOpenHighLines, line.new(t, h, x2_time, h, xloc=xloc.bar_time, color=nyseOpenHighColor, width=globalLineWidth))
+                array.push(nyseOpenLowLines, line.new(t, l, x2_time, l, xloc=xloc.bar_time, color=nyseOpenLowColor, width=globalLineWidth))
+                
+                if labelText
+                    highLabelText = str.format("{0} High {1}", sessionName, str.tostring(h, format.mintick))
+                    lowLabelText = str.format("{0} Low {1}", sessionName, str.tostring(l, format.mintick))
+                    label_x_position = extendRight ? t + 50 * bar_width_ms : x2_time
+                    
+                    array.push(nyseOpenHighLabels, label.new(label_x_position, h, highLabelText, xloc=xloc.bar_time, color=color(na), textcolor=nyseOpenHighLabelColor, style=label.style_label_right, size=f_size_str_to_const(nyseOpenLabelSize), textalign=text.align_right))
+                    array.push(nyseOpenLowLabels, label.new(label_x_position, l, lowLabelText, xloc=xloc.bar_time, color=color(na), textcolor=nyseOpenLowLabelColor, style=label.style_label_right, size=f_size_str_to_const(nyseOpenLabelSize), textalign=text.align_right))
+
+        // Institutional Rebalancing Levels (10:00 EST / 16:00 UTC+2)
+        if showInstitutionalRebal and array.size(institutionalRebalLevels) > 0
+            for i = 0 to array.size(institutionalRebalLevels) - 1
+                levelData = array.get(institutionalRebalLevels, i)
+                h = levelData.high
+                l = levelData.low
+                t = levelData.barTime
+                sessionName = levelData.sessionName
+                
+                x2_time = extendRight ? time_close + 50 * bar_width_ms : t + MS_IN_DAY - 1
+                
+                array.push(institutionalRebalHighLines, line.new(t, h, x2_time, h, xloc=xloc.bar_time, color=instRebalHighColor, width=globalLineWidth))
+                array.push(institutionalRebalLowLines, line.new(t, l, x2_time, l, xloc=xloc.bar_time, color=instRebalLowColor, width=globalLineWidth))
+                
+                if labelText
+                    highLabelText = str.format("{0} High {1}", sessionName, str.tostring(h, format.mintick))
+                    lowLabelText = str.format("{0} Low {1}", sessionName, str.tostring(l, format.mintick))
+                    label_x_position = extendRight ? t + 50 * bar_width_ms : x2_time
+                    
+                    array.push(institutionalRebalHighLabels, label.new(label_x_position, h, highLabelText, xloc=xloc.bar_time, color=color(na), textcolor=instRebalHighLabelColor, style=label.style_label_right, size=f_size_str_to_const(instRebalLabelSize), textalign=text.align_right))
+                    array.push(institutionalRebalLowLabels, label.new(label_x_position, l, lowLabelText, xloc=xloc.bar_time, color=color(na), textcolor=instRebalLowLabelColor, style=label.style_label_right, size=f_size_str_to_const(instRebalLabelSize), textalign=text.align_right))
+
 if extendRight and (showWednesdays or showWednesdayOpen)
     bar_width_ms = time - nz(time[1], time)
     if array.size(wednesdayHighLines) > 0
@@ -1722,11 +1903,77 @@ if extendRight and showDailySessions
         for i = 0 to array.size(globexLowLines) - 1
             if i < array.size(globexLowLines)
                 array.get(globexLowLines, i).set_x2(time_close + 50 * bar_width_ms)
+    
+    // US Data Release Lines (08:30 EST / 14:30 UTC+2) - CRITICAL GOLD LEVEL
+    if array.size(usDataReleaseHighLines) > 0
+        for i = 0 to array.size(usDataReleaseHighLines) - 1
+            if i < array.size(usDataReleaseHighLines)
+                array.get(usDataReleaseHighLines, i).set_x2(time_close + 50 * bar_width_ms)
+    if array.size(usDataReleaseLowLines) > 0
+        for i = 0 to array.size(usDataReleaseLowLines) - 1
+            if i < array.size(usDataReleaseLowLines)
+                array.get(usDataReleaseLowLines, i).set_x2(time_close + 50 * bar_width_ms)
+    
+    // NYSE Open Lines (09:30 EST / 15:30 UTC+2)
+    if array.size(nyseOpenHighLines) > 0
+        for i = 0 to array.size(nyseOpenHighLines) - 1
+            if i < array.size(nyseOpenHighLines)
+                array.get(nyseOpenHighLines, i).set_x2(time_close + 50 * bar_width_ms)
+    if array.size(nyseOpenLowLines) > 0
+        for i = 0 to array.size(nyseOpenLowLines) - 1
+            if i < array.size(nyseOpenLowLines)
+                array.get(nyseOpenLowLines, i).set_x2(time_close + 50 * bar_width_ms)
+    
+    // Institutional Rebalancing Lines (10:00 EST / 16:00 UTC+2)
+    if array.size(institutionalRebalHighLines) > 0
+        for i = 0 to array.size(institutionalRebalHighLines) - 1
+            if i < array.size(institutionalRebalHighLines)
+                array.get(institutionalRebalHighLines, i).set_x2(time_close + 50 * bar_width_ms)
+    if array.size(institutionalRebalLowLines) > 0
+        for i = 0 to array.size(institutionalRebalLowLines) - 1
+            if i < array.size(institutionalRebalLowLines)
+                array.get(institutionalRebalLowLines, i).set_x2(time_close + 50 * bar_width_ms)
 
 // ───── PLAYBOOK MODE LOGIC ────────────────────────────────────────────────────
 if enablePlaybookMode
     // Alert cooldown logic (using existing lastAlertTime from main alert system)
     canSend = (time - lastAlertTime) >= (alertCooldown * 1000)
+    
+    // DXY Confluence Analysis
+    var float dxyCorrelation = 0.0
+    var string dxyBias = ""
+    var bool dxyConfluenceAlert = false
+    
+    if enableDXYConfluence
+        // Fetch DXY data for correlation analysis
+        dxyClose = request.security(dxySymbol, timeframe.period, close, lookahead=barmerge.lookahead_off)
+        dxyHigh = request.security(dxySymbol, timeframe.period, high, lookahead=barmerge.lookahead_off)
+        dxyLow = request.security(dxySymbol, timeframe.period, low, lookahead=barmerge.lookahead_off)
+        
+        // Calculate correlation over lookback period
+        if not na(dxyClose) and not na(close)
+            correlationSum = 0.0
+            validBars = 0
+            
+            for i = 1 to math.min(dxyLookbackPeriod, bar_index)
+                if i < bar_index
+                    goldChange = (close[i] - close[i+1]) / close[i+1]
+                    dxyChange = (dxyClose[i] - dxyClose[i+1]) / dxyClose[i+1]
+                    
+                    if not na(goldChange) and not na(dxyChange) and dxyChange != 0
+                        correlationSum += (goldChange * dxyChange) / (math.abs(goldChange) * math.abs(dxyChange))
+                        validBars += 1
+            
+            if validBars > 0
+                dxyCorrelation := correlationSum / validBars
+                
+                // Determine DXY bias
+                if dxyCorrelation < -dxyCorrelationThreshold
+                    dxyBias := "INVERSE"  // DXY up = Gold down
+                else if dxyCorrelation > dxyCorrelationThreshold
+                    dxyBias := "POSITIVE"  // DXY up = Gold up
+                else
+                    dxyBias := "NEUTRAL"
     
     // Session Strategy Detection
     currentHour = hour(time, TARGET_TIMEZONE)

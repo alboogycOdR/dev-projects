@@ -42,9 +42,50 @@ for i = 0 to 2
     f_process(array.get(symbols, i), i)  // Will fail!
 ```
 
+## KEYLEVEL LABEL POSITIONING RULES - CONSISTENT RIGHT-END PLACEMENT
+
+### 3. Label Positioning Standards
+**CRITICAL RULE**: All keylevel labels MUST be positioned at the right end of their horizontal lines with consistent styling.
+
+**Required Label Properties:**
+- `style=label.style_label_right` - Positions label to the right of the point
+- `textalign=text.align_right` - Right-aligns text within the label
+- `label_x_position` calculation for proper offset positioning
+
+**Label Position Calculation:**
+```pinescript
+// ✅ CORRECT - Standard label positioning for all keylevels
+label_x_position = extendRight ? startTime + 50 * bar_width_ms : x2_time
+
+// Create labels with consistent positioning
+array.push(highLabels, label.new(label_x_position, price, labelText, 
+    xloc=xloc.bar_time, 
+    color=color(na), 
+    style=label.style_label_right, 
+    size=labelSize, 
+    textalign=text.align_right))
+```
+
+**Label Update Logic for Extending Lines:**
+```pinescript
+// ✅ CORRECT - Update label positions when lines extend
+if extendRight and showLevels
+    bar_width_ms = time - nz(time[1], time)
+    if array.size(highLabels) > 0
+        for i = 0 to array.size(highLabels) - 1
+            if i < array.size(highLabels)
+                array.get(highLabels, i).set_x(time_close + 50 * bar_width_ms)
+```
+
+**❌ WRONG Patterns to Avoid:**
+- Using `x2_time` directly without offset calculation
+- Using `style=label.style_label_left` for right-end positioning
+- Using `textalign=text.align_left` for right-end positioning
+- Missing label update logic for extending lines
+
 ## VARIABLE DECLARATION RULES - PREVENT UNDECLARED IDENTIFIER ERRORS
 
-### 3. Variable Declaration Requirements
+### 4. Variable Declaration Requirements
 **CRITICAL RULE**: ALL variables must be declared at the top level using `var` before they can be used anywhere in the script.
 
 - ✅ **CORRECT**: Declare all variables at the top level
