@@ -1,0 +1,1739 @@
+// ┌─────────────────────────────────────────────────────────────────────────────┐
+// │  WED, MIDNIGHT & NY PREMARKET DST System v0.9 – Complete with All Market   │
+// │  Session Levels, Economic Events & Wick-Reaction Alerts                    │
+// │  © 2024 – Free to use & modify (Enhanced by AI)                           │
+// └─────────────────────────────────────────────────────────────────────────────┘
+// ───── DESCRIPTION ─────────────────────────────────────────────────────────────────
+//
+// This script identifies and visualizes specific, recurring price levels based on
+// multiple time-based systems including Wednesday SAST, Midnight, NY PreMarket,
+// and comprehensive market session levels for global trading sessions.
+//
+// -----------------------------------------------------------------------------
+// │ KEY FEATURES (Enhanced Version 0.9)                                       │
+// -----------------------------------------------------------------------------
+//
+// 1. Wednesday SAST Lines (14:30 EST):
+//    - Identifies the high, low, and open of the first five Wednesdays of each month.
+//    - Uses request.security() to always fetch data from the 15-minute timeframe.
+//
+// 2. Midnight Levels (18:00 EST):
+//    - Plots the high and low of the 00:00 candle (15-minute timeframe) for each day.
+//
+// 3. NY PreMarket Levels (08:00 EST):
+//    - Plots the high and low of the 14:00 candle (15-minute timeframe) for each day.
+//
+// 4. Daily Market Session Levels:
+//    - Tokyo Open (04:00 EST / 10:00 UTC+2)
+//    - London Pre-Open (07:00 EST / 13:00 UTC+2)
+//    - London Morning Fix (11:00 EST / 17:00 UTC+2)
+//    - London Afternoon Fix (15:00 EST / 21:00 UTC+2)
+//    - NYSE Close (16:00 EST / 22:00 UTC+2)
+//    - CME Settlement (16:30 EST / 22:30 UTC+2)
+//    - Globex Roll (20:00 EST / 02:00 UTC+2)
+//
+// 5. Wednesday-Specific Economic Events:
+//    - EIA Oil Inventory (10:30 EST / 16:30 UTC+2)
+//    - FOMC Announcements (14:00 EST / 20:00 UTC+2)
+//
+// 6. Friday-Specific Economic Events:
+//    - Non-Farm Payrolls (08:30 EST / 14:30 UTC+2)
+//    - Quadruple-Witch Settlement (15:00 EST / 21:00 UTC+2)
+//
+// 7. Wick Interaction Visuals & Alert System:
+//    - Real-time alerts when price wicks touch any active level.
+//    - Visual markers with color-coded system identification.
+//
+// 8. Level Optimization & Performance:
+//    - Dynamic filtering to show only relevant levels above/below current price.
+//    - Full Pine Script v5 compliance with optimized performance.
+//
+// 9. Gold Trading Optimization:
+//    - London Gold Fix Morning (10:30 EST / 15:30 UTC+2) - TIER 1
+//    - London Gold Fix Afternoon (15:00 EST / 20:00 UTC+2) - TIER 1  
+//    - Asian Physical Open (20:00 EST / 02:00 UTC+2) - TIER 2
+//    - Enhanced visibility with gold-themed colors and priority line widths
+//
+// 10. Playbook Mode (Semi-Automated Trading Intelligence):
+//    - Dedicated "Playbook" input section with organized settings
+//    - Session Strategy Detection:
+//      * Asian Session (20:00-02:00 EST): "MEAN REVERSION Strategy" (Purple)
+//      * London Session (02:00-08:00 EST): "BREAKOUT Strategy" (Blue)
+//      * London/NY Overlap (08:00-11:00 EST): "MOMENTUM Strategy" (Green)
+//      * NY Session (11:00-16:00 EST): "RANGE FADE Strategy" (Orange)
+//      * NY Close (16:00-20:00 EST): "CONSOLIDATION" (Gray)
+//    - Level Hierarchy System:
+//      * TIER 1 (Red): London Gold Fix Morning & Afternoon (10:30 & 15:00 EST)
+//      * TIER 2 (Orange): Asian Physical Open & Tokyo Open (20:00 & 04:00 EST)
+//      * TIER 3 (Yellow): Other levels
+//    - Proximity Alert System:
+//      * Automatic Detection: When price approaches within 0.5 points of any level
+//      * Tier-Based Alerts: Different alert messages for Tier 1/2/3 levels
+//      * Visual Indicators: Color-coded labels on chart
+//      * Smart Alerts: Email/Push notifications with level details
+//    - London Fix Special Detection:
+//      * Morning Window: 10:25-10:35 EST
+//      * Afternoon Window: 14:55-15:05 EST
+//      * Special Alerts: "🔥 LONDON FIX WINDOW ACTIVE - Setup C Brackets Ready"
+//      * Visual Warnings: Large red labels during critical windows
+//    - Key Benefits:
+//      * Preserves Existing System: All current keylevel tracking remains unchanged
+//      * Semi-Automation: Automates detection and alerts, keeps decision-making manual
+//      * Playbook Integration: Implements the exact playbook scenarios
+//      * Session Awareness: Knows which strategy to use when
+//      * Level Prioritization: Focuses on most important levels first
+//      * Time-Based Triggers: Special alerts for London Fix windows
+//      * Visual Feedback: Clear chart indicators for all scenarios
+//
+// -----------------------------------------------------------------------------
+//@version=5
+
+indicator(
+     title   = "WED, MIDNIGHT & NY PREMARKET DST System v0.9 (All Market Sessions)",
+     overlay = true,
+     max_lines_count  = 500,
+     max_labels_count = 500,
+     dynamic_requests = true)
+
+
+// ───── WEDNESDAY LINES ───────────────────────────────────────────────────────
+GROUP_WEDNESDAY = "Wednesday SAST Lines (14:30 EST)"
+showWednesdays = input.bool(false, "Show Wednesday High/Low Lines", group=GROUP_WEDNESDAY, tooltip="Master switch to show/hide Wednesday High/Low lines.")
+showWednesdayOpen = input.bool(false, "Show Wednesday Open Line", group=GROUP_WEDNESDAY, tooltip="Toggles the visibility of the Wednesday Open line.")
+
+showW1 = input.bool(false, "Show 1st Wednesday", group=GROUP_WEDNESDAY, inline="W1")
+hiC1 = input.color(color.new(color.red, 0), "High Color", inline="W1_colors", group=GROUP_WEDNESDAY)
+loC1 = input.color(color.new(color.blue, 0), "Low Color", inline="W1_colors", group=GROUP_WEDNESDAY)
+opC1 = input.color(color.new(color.gray, 0), "Open Color", inline="W1_colors", group=GROUP_WEDNESDAY)
+
+showW2 = input.bool(false, "Show 2nd Wednesday", group=GROUP_WEDNESDAY, inline="W2")
+hiC2 = input.color(color.new(color.orange, 0), "High Color", inline="W2_colors", group=GROUP_WEDNESDAY)
+loC2 = input.color(color.new(color.aqua, 0), "Low Color", inline="W2_colors", group=GROUP_WEDNESDAY)
+opC2 = input.color(color.new(color.gray, 0), "Open Color", inline="W2_colors", group=GROUP_WEDNESDAY)
+
+showW3 = input.bool(false, "Show 3rd Wednesday", group=GROUP_WEDNESDAY, inline="W3")
+hiC3 = input.color(color.new(color.green, 0), "High Color", inline="W3_colors", group=GROUP_WEDNESDAY)
+loC3 = input.color(color.new(color.fuchsia, 0), "Low Color", inline="W3_colors", group=GROUP_WEDNESDAY)
+opC3 = input.color(color.new(color.gray, 0), "Open Color", inline="W3_colors", group=GROUP_WEDNESDAY)
+
+showW4 = input.bool(false, "Show 4th Wednesday", group=GROUP_WEDNESDAY, inline="W4")
+hiC4 = input.color(color.new(color.purple, 0), "High Color", inline="W4_colors", group=GROUP_WEDNESDAY)
+loC4 = input.color(color.new(color.lime, 0), "Low Color", inline="W4_colors", group=GROUP_WEDNESDAY)
+opC4 = input.color(color.new(color.gray, 0), "Open Color", inline="W4_colors", group=GROUP_WEDNESDAY)
+
+showW5 = input.bool(false, "Show 5th Wednesday", group=GROUP_WEDNESDAY, inline="W5")
+hiC5 = input.color(color.new(color.gray, 0), "High Color", inline="W5_colors", group=GROUP_WEDNESDAY)
+loC5 = input.color(color.new(color.black, 0), "Low Color", inline="W5_colors", group=GROUP_WEDNESDAY)
+opC5 = input.color(color.new(color.gray, 0), "Open Color", inline="W5_colors", group=GROUP_WEDNESDAY)
+
+// ───── MIDNIGHT LEVELS ───────────────────────────────────────────────────────
+GROUP_MIDNIGHT = "Midnight Levels (18:00 EST)"
+showMidnightLevelsInput = input.bool(true, 'Show Midnight Levels', group=GROUP_MIDNIGHT, tooltip='Shows the high and low of the 00:00 (UTC+2) candle on the 15m timeframe.')
+midnightLookbackDaysInput = input.int(21, 'Lookback (Days)', group=GROUP_MIDNIGHT, minval=1, tooltip='Number of past days to show the midnight levels for.')
+midnightHighColorInput = input.color(color.new(color.orange, 50), 'High Color', group=GROUP_MIDNIGHT, inline='midnight_high')
+midnightHighStyleInput = input.string("Solid", 'High Style', group=GROUP_MIDNIGHT, options=["Solid", "Dashed", "Dotted"], inline='midnight_high')
+midnightLowColorInput = input.color(color.new(color.purple, 50), 'Low Color', group=GROUP_MIDNIGHT, inline='midnight_low')
+midnightLowStyleInput = input.string("Solid", 'Low Style', group=GROUP_MIDNIGHT, options=["Solid", "Dashed", "Dotted"], inline='midnight_low')
+midnightHighLabelColorInput = input.color(color.new(color.orange, 0), 'High Label Color', group=GROUP_MIDNIGHT)
+midnightLowLabelColorInput = input.color(color.new(color.purple, 0), 'Low Label Color', group=GROUP_MIDNIGHT)
+midnightLabelSizeInput = input.string("Tiny", 'Label Text Size', group=GROUP_MIDNIGHT, options=["Tiny","Small","Normal","Large","Huge"])
+
+// ───── NY PREMARKET LEVELS ───────────────────────────────────────────────────
+GROUP_NY_PREMARKET = "NY PreMarket Levels (08:00 EST)"
+showNYPreMarketLevelsInput = input.bool(false, 'Show NY PreMarket Levels', group=GROUP_NY_PREMARKET, tooltip='Shows the high and low of the 14:00 (UTC+2) candle on the 15m timeframe.')
+nyPreMarketLookbackDaysInput = input.int(21, 'Lookback (Days)', group=GROUP_NY_PREMARKET, minval=1, tooltip='Number of past days to show the NY PreMarket levels for.')
+nyPreMarketHighColorInput = input.color(color.new(color.purple, 50), 'High Color', group=GROUP_NY_PREMARKET, inline='ny_high')
+nyPreMarketHighStyleInput = input.string("Solid", 'High Style', group=GROUP_NY_PREMARKET, options=["Solid", "Dashed", "Dotted"], inline='ny_high')
+nyPreMarketLowColorInput = input.color(color.new(color.blue, 50), 'Low Color', group=GROUP_NY_PREMARKET, inline='ny_low')
+nyPreMarketLowStyleInput = input.string("Solid", 'Low Style', group=GROUP_NY_PREMARKET, options=["Solid", "Dashed", "Dotted"], inline='ny_low')
+nyPreMarketHighLabelColorInput = input.color(color.new(color.purple, 0), 'High Label Color', group=GROUP_NY_PREMARKET)
+nyPreMarketLowLabelColorInput = input.color(color.new(color.blue, 0), 'Low Label Color', group=GROUP_NY_PREMARKET)
+nyPreMarketLabelSizeInput = input.string("Tiny", 'Label Text Size', group=GROUP_NY_PREMARKET, options=["Tiny","Small","Normal","Large","Huge"])
+
+// ───── DAILY MARKET SESSION LEVELS ──────────────────────────────────────────
+GROUP_DAILY_SESSIONS = "Daily Market Session Levels"
+showDailySessions = input.bool(false, "Show Daily Session Levels", group=GROUP_DAILY_SESSIONS, tooltip="Master switch for all daily market session levels")
+dailyLookbackDaysInput = input.int(14, "Lookback (Days)", group=GROUP_DAILY_SESSIONS, minval=1, tooltip="Number of past days to show daily session levels")
+
+// ───── ASIAN SESSION ────────────────────────────────────────────────────────
+GROUP_ASIAN_SESSION = "Asian Session"
+showTokyoOpen = input.bool(false, "Tokyo Open (04:00 EST)", group=GROUP_ASIAN_SESSION, tooltip="Tokyo market open levels")
+tokyoHighColor = input.color(color.new(color.yellow, 50), "High Color", group=GROUP_ASIAN_SESSION, inline="tokyo_colors")
+tokyoLowColor = input.color(color.new(color.yellow, 50), "Low Color", group=GROUP_ASIAN_SESSION, inline="tokyo_colors")
+
+showAsianPhysicalOpen = input.bool(false, "Asian Physical Open (20:00 EST)", group=GROUP_ASIAN_SESSION, tooltip="Shanghai Gold Exchange opens - largest physical gold demand globally")
+asianPhysicalHighColor = input.color(color.new(color.orange, 50), "High Color", inline="asian_physical_colors", group=GROUP_ASIAN_SESSION)
+asianPhysicalLowColor = input.color(color.new(color.orange, 50), "Low Color", inline="asian_physical_colors", group=GROUP_ASIAN_SESSION)
+
+// ───── LONDON SESSION ───────────────────────────────────────────────────────
+GROUP_LONDON_SESSION = "London Session"
+showLondonPreOpen = input.bool(false, "London Pre-Open (07:00 EST)", group=GROUP_LONDON_SESSION, tooltip="London pre-market levels")
+londonPreHighColor = input.color(color.new(color.navy, 50), "High Color", group=GROUP_LONDON_SESSION, inline="london_pre_colors")
+londonPreLowColor = input.color(color.new(color.navy, 50), "Low Color", group=GROUP_LONDON_SESSION, inline="london_pre_colors")
+
+showLondonMorningFix = input.bool(false, "London Morning Fix (11:00 EST)", group=GROUP_LONDON_SESSION, tooltip="London morning fix levels")
+londonMornHighColor = input.color(color.new(color.blue, 50), "High Color", group=GROUP_LONDON_SESSION, inline="london_morn_colors")
+londonMornLowColor = input.color(color.new(color.blue, 50), "Low Color", group=GROUP_LONDON_SESSION, inline="london_morn_colors")
+
+showLondonGoldFixMorning = input.bool(false, "London Gold Fix Morning (10:30 EST)", group=GROUP_LONDON_SESSION, tooltip="Most critical gold level - LBMA morning fix")
+londonGoldMornHighColor = input.color(color.new(color.orange, 50), "High Color", inline="gold_morn_colors", group=GROUP_LONDON_SESSION)
+londonGoldMornLowColor = input.color(color.new(color.orange, 50), "Low Color", inline="gold_morn_colors", group=GROUP_LONDON_SESSION)
+
+showLondonAfternoonFix = input.bool(false, "London Gold Fix Afternoon (15:00 EST)", group=GROUP_LONDON_SESSION, tooltip="Most critical gold level - LBMA afternoon fix")
+londonAftHighColor = input.color(color.new(color.orange, 50), "High Color", group=GROUP_LONDON_SESSION, inline="london_aft_colors")
+londonAftLowColor = input.color(color.new(color.orange, 50), "Low Color", group=GROUP_LONDON_SESSION, inline="london_aft_colors")
+
+// ───── NEW YORK SESSION ────────────────────────────────────────────────────
+GROUP_NY_SESSION = "New York Session"
+showNYSEClose = input.bool(false, "NYSE Close (16:00 EST)", group=GROUP_NY_SESSION, tooltip="NYSE market close levels")
+nyseHighColor = input.color(color.new(color.green, 50), "High Color", group=GROUP_NY_SESSION, inline="nyse_colors")
+nyseLowColor = input.color(color.new(color.green, 50), "Low Color", group=GROUP_NY_SESSION, inline="nyse_colors")
+
+showCMESettlement = input.bool(false, "CME Settlement (16:30 EST)", group=GROUP_NY_SESSION, tooltip="CME futures settlement levels")
+cmeHighColor = input.color(color.new(color.maroon, 50), "High Color", group=GROUP_NY_SESSION, inline="cme_colors")
+cmeLowColor = input.color(color.new(color.maroon, 50), "Low Color", group=GROUP_NY_SESSION, inline="cme_colors")
+
+// ───── GLOBEX SESSION ───────────────────────────────────────────────────────
+GROUP_GLOBEX_SESSION = "Globex Session"
+showGlobexRoll = input.bool(false, "Globex Roll (20:00 EST)", group=GROUP_GLOBEX_SESSION, tooltip="Globex futures roll levels")
+globexHighColor = input.color(color.new(color.silver, 50), "High Color", group=GROUP_GLOBEX_SESSION, inline="globex_colors")
+globexLowColor = input.color(color.new(color.silver, 50), "Low Color", group=GROUP_GLOBEX_SESSION, inline="globex_colors")
+
+// ───── WEDNESDAY ECONOMIC EVENTS ────────────────────────────────────────────
+GROUP_WEDNESDAY_EVENTS = "Wednesday Economic Events"
+showWednesdayEvents = input.bool(false, "Show Wednesday Events", group=GROUP_WEDNESDAY_EVENTS, tooltip="Master switch for Wednesday-specific economic events")
+wednesdayLookbackDaysInput = input.int(8, "Lookback (Days)", group=GROUP_WEDNESDAY_EVENTS, minval=1, tooltip="Number of past Wednesdays to show event levels")
+
+// EIA Oil Inventory (10:30 EST / 16:30 UTC+2)
+showEIAOil = input.bool(false, "EIA Oil Inventory (10:30 EST)", group=GROUP_WEDNESDAY_EVENTS, inline="eia")
+eiaHighColor = input.color(color.new(color.orange, 50), "High Color", inline="eia_colors")
+eiaLowColor = input.color(color.new(color.orange, 50), "Low Color", inline="eia_colors")
+eiaWidth = input.int(1, "Line Width", minval=1, maxval=4, inline="eia_colors")
+
+// FOMC Announcements (14:00 EST / 20:00 UTC+2)
+showFOMC = input.bool(false, "FOMC Announcements (14:00 EST)", group=GROUP_WEDNESDAY_EVENTS, inline="fomc")
+fomcHighColor = input.color(color.new(color.red, 50), "High Color", inline="fomc_colors")
+fomcLowColor = input.color(color.new(color.red, 50), "Low Color", inline="fomc_colors")
+fomcWidth = input.int(1, "Line Width", minval=1, maxval=4, inline="fomc_colors")
+
+// ───── FRIDAY ECONOMIC EVENTS ──────────────────────────────────────────────
+GROUP_FRIDAY_EVENTS = "Friday Economic Events"
+showFridayEvents = input.bool(false, "Show Friday Events", group=GROUP_FRIDAY_EVENTS, tooltip="Master switch for Friday-specific economic events")
+fridayLookbackDaysInput = input.int(8, "Lookback (Days)", group=GROUP_FRIDAY_EVENTS, minval=1, tooltip="Number of past Fridays to show event levels")
+
+// Non-Farm Payrolls (08:30 EST / 14:30 UTC+2)
+showNFP = input.bool(false, "Non-Farm Payrolls (08:30 EST)", group=GROUP_FRIDAY_EVENTS, inline="nfp")
+nfpHighColor = input.color(color.new(color.lime, 50), "High Color", inline="nfp_colors")
+nfpLowColor = input.color(color.new(color.lime, 50), "Low Color", inline="nfp_colors")
+nfpWidth = input.int(1, "Line Width", minval=1, maxval=4, inline="nfp_colors")
+
+// Quadruple-Witch Settlement (15:00 EST / 21:00 UTC+2)
+showQuadWitch = input.bool(false, "Quadruple-Witch Settlement (15:00 EST)", group=GROUP_FRIDAY_EVENTS, inline="quad")
+quadHighColor = input.color(color.new(color.fuchsia, 50), "High Color", inline="quad_colors")
+quadLowColor = input.color(color.new(color.fuchsia, 50), "Low Color", inline="quad_colors")
+quadWidth = input.int(1, "Line Width", minval=1, maxval=4, inline="quad_colors")
+
+
+// ───── GENERAL SETTINGS ──────────────────────────────────────────────────────
+GROUP_GENERAL = "General Settings"
+extendRight = input.bool(true, "Extend Lines into Future", group=GROUP_GENERAL)
+labelText   = input.bool(true, "Show Date Labels", group=GROUP_GENERAL)
+labelSize   = input.string("Tiny", "Label Size", options=["Tiny","Small","Normal","Large","Huge"], group=GROUP_GENERAL)
+wednesdayLabelOffset = input.int(5, "Wednesday Label Offset", group=GROUP_GENERAL, tooltip="Number of bars to offset the Wednesday labels to the right.", minval=0)
+
+// Alert Settings
+sendEmail   = input.bool(false,  "Send Email",         group=GROUP_GENERAL)
+sendPush    = input.bool(false,  "Send Push",          group=GROUP_GENERAL)
+alertCooldown = input.int(30,    "Cooldown (sec)", minval=5, group=GROUP_GENERAL,
+                       tooltip="Seconds between duplicate alerts")
+
+// Interaction Visuals
+showWickInteractions = input.bool(true, "Show Wick Interactions", group=GROUP_GENERAL, tooltip="Master switch to show/hide all wick interaction markers.")
+interactionMarkerStyle = input.string("Circle", "Marker Style", options=["Circle", "Square", "Diamond", "Triangle Up", "Triangle Down"], group=GROUP_GENERAL)
+interactionMarkerSize = input.string("Tiny", "Marker Size", options=["Tiny", "Small", "Normal", "Large", "Huge"], group=GROUP_GENERAL)
+
+// Global Line Width
+globalLineWidth = input.int(2, "Global Line Width", group=GROUP_GENERAL, minval=1, maxval=6, tooltip="Controls the width of all keylevel lines")
+
+// ───── LEVEL OPTIMIZATION ────────────────────────────────────────────────────
+GROUP_OPTIMIZATION = "Level Optimization"
+enableLevelFiltering = input.bool(false, "Enable Level Filtering", group=GROUP_OPTIMIZATION, tooltip="Show only X levels above and below current price to reduce chart noise")
+levelsAbovePrice = input.int(3, "Levels Above Price", group=GROUP_OPTIMIZATION, minval=1, maxval=20, tooltip="Number of levels to show above current ASK price")
+levelsBelowPrice = input.int(3, "Levels Below Price", group=GROUP_OPTIMIZATION, minval=1, maxval=20, tooltip="Number of levels to show below current ASK price")
+
+// ───── PLAYBOOK ───────────────────────────────────────────────────────────────
+GROUP_PLAYBOOK = "Playbook"
+enablePlaybookMode = input.bool(false, "Enable Playbook Mode", group=GROUP_PLAYBOOK, tooltip="Activate semi-automated trading playbook for gold institutional levels")
+playbookAlertDistance = input.float(3.0, "Level Proximity Alert (points)", group=GROUP_PLAYBOOK, minval=0.1, maxval=20.0, tooltip="Alert when price approaches levels within this distance. For Gold at $2000+, use 3-5 points")
+playbookSessionStrategy = input.bool(true, "Show Session Strategy", group=GROUP_PLAYBOOK, tooltip="Display current session trading strategy")
+playbookLevelHierarchy = input.bool(true, "Show Level Hierarchy", group=GROUP_PLAYBOOK, tooltip="Display Tier 1/2/3 level classification")
+
+// Gold Fix Priority Settings
+showGoldFixPriority = input.bool(true, "Gold Fix Priority Mode", group=GROUP_PLAYBOOK, tooltip="Enhanced visibility for gold fix levels")
+goldFixAlertPriority = input.bool(true, "Gold Fix Alert Priority", group=GROUP_PLAYBOOK, tooltip="Immediate alerts for gold fix level touches")
+
+// ───── CONSTANTS ─────────────────────────────────────────────────────────────
+TARGET_TIMEZONE = "UTC+2"
+DAYOFWED        = 4 // 1=Sun, 2=Mon, 3=Tue, 4=Wed, 5=Thu, 6=Fri, 7=Sat
+DAYOFFRI        = 6 // Friday
+MS_IN_DAY       = 24 * 60 * 60 * 1000
+
+// ───── HELPER FUNCTIONS ──────────────────────────────────────────────────────
+f_size_str_to_const(size_str) =>
+    switch size_str
+        "Tiny"   => size.tiny
+        "Small"  => size.small
+        "Normal" => size.normal
+        "Large"  => size.large
+        "Huge"   => size.huge
+        => size.auto
+
+getStyle(string style) =>
+    switch style
+        "Solid"  => line.style_solid
+        "Dashed" => line.style_dashed
+        "Dotted" => line.style_dotted
+        => line.style_solid
+      
+getMarkerStyle(string style) =>
+    switch style
+        "Circle"        => label.style_circle
+        "Square"        => label.style_square
+        "Diamond"       => label.style_diamond
+        "Triangle Up"   => label.style_triangleup
+        "Triangle Down" => label.style_triangledown
+        => label.style_circle
+
+// ───── DATA STRUCTURES ───────────────────────────────────────────────────────
+type midnightLevel
+    float high
+    float low
+    int barTime
+
+type nyPreMarketLevel
+    float high
+    float low
+    int barTime
+
+type dailySessionLevel
+    float high
+    float low
+    int barTime
+    string sessionName
+
+type wednesdayEventLevel
+    float high
+    float low
+    int barTime
+    string eventName
+
+type fridayEventLevel
+    float high
+    float low
+    int barTime
+    string eventName
+
+type indexDistance
+    int idx
+    float dist
+
+type wedIndexDistance
+    int idx
+    float dist
+
+// ───── STORAGE ───────────────────────────────────────────────────────────────
+var float[] hiPrice  = array.new_float()
+var float[] loPrice  = array.new_float()
+var float[] opPrice  = array.new_float()
+var int[]   eventTimes = array.new_int()
+var int[]   wedRank  = array.new_int()
+var string[] dateLbl = array.new_string()
+
+// Midnight Levels Storage
+var array<midnightLevel> midnightLevels = array.new<midnightLevel>()
+var array<line> midnightHighLines = array.new<line>()
+var array<line> midnightLowLines = array.new<line>()
+var array<label> midnightHighLabels = array.new<label>()
+var array<label> midnightLowLabels = array.new<label>()
+
+// NY PreMarket Levels Storage
+var array<nyPreMarketLevel> nyPreMarketLevels = array.new<nyPreMarketLevel>()
+var array<line> nyPreMarketHighLines = array.new<line>()
+var array<line> nyPreMarketLowLines = array.new<line>()
+var array<label> nyPreMarketHighLabels = array.new<label>()
+var array<label> nyPreMarketLowLabels = array.new<label>()
+
+// Daily Session Levels Storage
+var array<dailySessionLevel> tokyoLevels = array.new<dailySessionLevel>()
+var array<dailySessionLevel> asianPhysicalLevels = array.new<dailySessionLevel>()
+var array<dailySessionLevel> londonPreLevels = array.new<dailySessionLevel>()
+var array<dailySessionLevel> londonGoldMornLevels = array.new<dailySessionLevel>()
+var array<dailySessionLevel> londonMornLevels = array.new<dailySessionLevel>()
+var array<dailySessionLevel> londonAftLevels = array.new<dailySessionLevel>()
+var array<dailySessionLevel> nyseLevels = array.new<dailySessionLevel>()
+var array<dailySessionLevel> cmeLevels = array.new<dailySessionLevel>()
+var array<dailySessionLevel> globexLevels = array.new<dailySessionLevel>()
+
+// Daily Session Lines and Labels Storage
+var array<line> tokyoHighLines = array.new<line>()
+var array<line> tokyoLowLines = array.new<line>()
+var array<label> tokyoHighLabels = array.new<label>()
+var array<label> tokyoLowLabels = array.new<label>()
+
+var array<line> asianPhysicalHighLines = array.new<line>()
+var array<line> asianPhysicalLowLines = array.new<line>()
+var array<label> asianPhysicalHighLabels = array.new<label>()
+var array<label> asianPhysicalLowLabels = array.new<label>()
+
+var array<line> londonPreHighLines = array.new<line>()
+var array<line> londonPreLowLines = array.new<line>()
+var array<label> londonPreHighLabels = array.new<label>()
+var array<label> londonPreLowLabels = array.new<label>()
+
+var array<line> londonGoldMornHighLines = array.new<line>()
+var array<line> londonGoldMornLowLines = array.new<line>()
+var array<label> londonGoldMornHighLabels = array.new<label>()
+var array<label> londonGoldMornLowLabels = array.new<label>()
+
+var array<line> londonMornHighLines = array.new<line>()
+var array<line> londonMornLowLines = array.new<line>()
+var array<label> londonMornHighLabels = array.new<label>()
+var array<label> londonMornLowLabels = array.new<label>()
+
+var array<line> londonAftHighLines = array.new<line>()
+var array<line> londonAftLowLines = array.new<line>()
+var array<label> londonAftHighLabels = array.new<label>()
+var array<label> londonAftLowLabels = array.new<label>()
+
+var array<line> nyseHighLines = array.new<line>()
+var array<line> nyseLowLines = array.new<line>()
+var array<label> nyseHighLabels = array.new<label>()
+var array<label> nyseLowLabels = array.new<label>()
+
+var array<line> cmeHighLines = array.new<line>()
+var array<line> cmeLowLines = array.new<line>()
+var array<label> cmeHighLabels = array.new<label>()
+var array<label> cmeLowLabels = array.new<label>()
+
+var array<line> globexHighLines = array.new<line>()
+var array<line> globexLowLines = array.new<line>()
+var array<label> globexHighLabels = array.new<label>()
+var array<label> globexLowLabels = array.new<label>()
+
+// Wednesday Event Levels Storage
+var array<wednesdayEventLevel> eiaLevels = array.new<wednesdayEventLevel>()
+var array<wednesdayEventLevel> fomcLevels = array.new<wednesdayEventLevel>()
+
+// Friday Event Levels Storage
+var array<fridayEventLevel> nfpLevels = array.new<fridayEventLevel>()
+var array<fridayEventLevel> quadWitchLevels = array.new<fridayEventLevel>()
+
+// Wednesday Lines Storage
+var array<line> wednesdayHighLines = array.new<line>()
+var array<line> wednesdayLowLines = array.new<line>()
+var array<line> wednesdayOpenLines = array.new<line>()
+var array<label> wednesdayHighLabels = array.new<label>()
+var array<label> wednesdayLowLabels = array.new<label>()
+var array<label> wednesdayOpenLabels = array.new<label>()
+
+// ───── COMMON VARIABLES ──────────────────────────────────────────────────────
+actualLabelSize = f_size_str_to_const(labelSize)
+actualMarkerSize = f_size_str_to_const(interactionMarkerSize)
+actualMarkerStyle = getMarkerStyle(interactionMarkerStyle)
+actualMidnightLabelSize = f_size_str_to_const(midnightLabelSizeInput)
+actualNYPreMarketLabelSize = f_size_str_to_const(nyPreMarketLabelSizeInput)
+
+// ───── ALERT COOLDOWN ────────────────────────────────────────────────────────
+var int lastAlertTime = 0
+
+// ───── WEDNESDAY LOGIC ───────────────────────────────────────────────────────
+f_getTargetTime(int ts) =>
+    _year = year(ts, "UTC")
+    
+    start_dst_day = 8 
+    for i = 0 to 6
+        if dayofweek(timestamp("UTC", _year, 3, 8 + i, 2, 0)) == dayofweek.sunday
+            start_dst_day := 8 + i
+            break
+    start_dst = timestamp("UTC", _year, 3, start_dst_day, 2, 0)
+
+    end_dst_day = 1
+    for i = 0 to 6
+        if dayofweek(timestamp("UTC", _year, 11, 1 + i, 2, 0)) == dayofweek.sunday
+            end_dst_day := 1 + i
+            break
+    end_dst = timestamp("UTC", _year, 11, end_dst_day, 2, 0)
+    
+    _targetHour = (ts >= start_dst and ts < end_dst) ? 19 : 20
+    _targetMin = 30
+    [_targetHour, _targetMin]
+
+varip float wednesdayHigh_15m = na
+varip float wednesdayLow_15m = na
+varip float wednesdayOpen_15m = na
+varip int wednesdayTime_15m = na
+varip int wednesdayCount_15m = na
+
+[targetHour, targetMin] = f_getTargetTime(time)
+isWednesday_15m = timeframe.isintraday and timeframe.multiplier == 15 and dayofweek(time, TARGET_TIMEZONE) == DAYOFWED and hour(time, TARGET_TIMEZONE) == targetHour and minute(time, TARGET_TIMEZONE) == targetMin
+
+if isWednesday_15m and barstate.isconfirmed
+    currentDay = dayofmonth(time, TARGET_TIMEZONE)
+    currentMonth = month(time, TARGET_TIMEZONE)
+    currentYear = year(time, TARGET_TIMEZONE)
+    wedCount = 0
+    for d = 1 to currentDay
+        testTime = timestamp(TARGET_TIMEZONE, currentYear, currentMonth, d, 12, 0)
+        if month(testTime, TARGET_TIMEZONE) == currentMonth and dayofweek(testTime, TARGET_TIMEZONE) == DAYOFWED
+            wedCount += 1
+    if wedCount <= 5
+        wednesdayHigh_15m := high, wednesdayLow_15m := low, wednesdayOpen_15m := open
+        wednesdayTime_15m := time, wednesdayCount_15m := wedCount
+
+[wed_high, wed_low, wed_open, wed_time, wed_count] = request.security(syminfo.tickerid, "15", [wednesdayHigh_15m[1], wednesdayLow_15m[1], wednesdayOpen_15m[1], wednesdayTime_15m[1], wednesdayCount_15m[1]], lookahead=barmerge.lookahead_off)
+
+isNewWednesdayData = not na(wed_high) and not na(wed_count) and (array.size(eventTimes) > 0 ? wed_time != array.last(eventTimes) : true)
+
+if isNewWednesdayData
+    array.push(hiPrice, wed_high), array.push(loPrice, wed_low), array.push(opPrice, wed_open)
+    array.push(eventTimes, wed_time), array.push(wedRank, wed_count)
+    
+    currentDay = dayofmonth(wed_time, TARGET_TIMEZONE)
+    currentMonth = month(wed_time, TARGET_TIMEZONE)
+    
+    string monthStr = switch currentMonth
+        1 => "Jan"
+        2 => "Feb"
+        3 => "Mar"
+        4 => "Apr"
+        5 => "May"
+        6 => "Jun"
+        7 => "Jul"
+        8 => "Aug"
+        9 => "Sep"
+        10 => "Oct"
+        11 => "Nov"
+        => "Dec"
+
+    dateStr = str.format("{0} {1}", currentDay, monthStr)
+    array.push(dateLbl, dateStr)
+
+// ───── REVISED MIDNIGHT LEVEL LOGIC (Non-Repainting & Efficient) ───────────
+varip float midnightHigh_15m = na
+varip float midnightLow_15m = na
+
+isMidnightCandle = timeframe.isintraday and timeframe.multiplier == 15 and hour(time, TARGET_TIMEZONE) == 0 and minute(time, TARGET_TIMEZONE) == 0
+if isMidnightCandle
+    midnightHigh_15m := high
+    midnightLow_15m := low
+
+[h_req, l_req] = request.security(syminfo.tickerid, "15", [midnightHigh_15m[1], midnightLow_15m[1]], lookahead=barmerge.lookahead_off)
+
+isNewDataPoint = not na(h_req) and (array.size(midnightLevels) > 0 ? h_req != array.last(midnightLevels).high : true)
+
+if isNewDataPoint
+    dayTimestamp = timestamp(TARGET_TIMEZONE, year(time_close[1], TARGET_TIMEZONE), month(time_close[1], TARGET_TIMEZONE), dayofmonth(time_close[1], TARGET_TIMEZONE), 0, 0)
+    array.push(midnightLevels, midnightLevel.new(h_req, l_req, dayTimestamp))
+
+    if showMidnightLevelsInput
+        bar_width_ms = time - nz(time[1], time)
+        x2_time = extendRight ? time_close + 50 * bar_width_ms : dayTimestamp + MS_IN_DAY - 1
+
+        array.push(midnightHighLines, line.new(dayTimestamp, h_req, x2_time, h_req, xloc=xloc.bar_time))
+        array.push(midnightLowLines, line.new(dayTimestamp, l_req, x2_time, l_req, xloc=xloc.bar_time))
+        
+        if labelText
+            dateString = str.format_time(dayTimestamp, "yyyy.MM.dd", TARGET_TIMEZONE)
+            highLabelText = str.format("Midnight High {0} {1}", str.tostring(h_req, format.mintick), dateString)
+            lowLabelText  = str.format("Midnight Low {0} {1}", str.tostring(l_req, format.mintick), dateString)
+
+            array.push(midnightHighLabels, label.new(x2_time, h_req, highLabelText, xloc=xloc.bar_time, color=color(na), style=label.style_label_left, size=actualMidnightLabelSize, textalign=text.align_right))
+            array.push(midnightLowLabels, label.new(x2_time, l_req, lowLabelText, xloc=xloc.bar_time, color=color(na), style=label.style_label_left, size=actualMidnightLabelSize, textalign=text.align_right))
+
+    while array.size(midnightLevels) > midnightLookbackDaysInput
+        array.shift(midnightLevels)
+        if array.size(midnightHighLines) > 0
+            line.delete(array.shift(midnightHighLines))
+            line.delete(array.shift(midnightLowLines))
+        if array.size(midnightHighLabels) > 0
+            label.delete(array.shift(midnightHighLabels))
+            label.delete(array.shift(midnightLowLabels))
+
+// ───── NY PREMARKET LEVEL LOGIC (Non-Repainting & Efficient) ───────────────
+varip float nyPreMarketHigh_15m = na
+varip float nyPreMarketLow_15m = na
+
+isNYPreMarketCandle = timeframe.isintraday and timeframe.multiplier == 15 and hour(time, TARGET_TIMEZONE) == 14 and minute(time, TARGET_TIMEZONE) == 0
+if isNYPreMarketCandle
+    nyPreMarketHigh_15m := high
+    nyPreMarketLow_15m := low
+
+[ny_h_req, ny_l_req] = request.security(syminfo.tickerid, "15", [nyPreMarketHigh_15m[1], nyPreMarketLow_15m[1]], lookahead=barmerge.lookahead_off)
+
+isNewNYPreMarketDataPoint = not na(ny_h_req) and (array.size(nyPreMarketLevels) > 0 ? ny_h_req != array.last(nyPreMarketLevels).high : true)
+
+if isNewNYPreMarketDataPoint
+    // Use 14:00 timestamp instead of 00:00 for NY PreMarket levels
+    nyPreMarketTimestamp = timestamp(TARGET_TIMEZONE, year(time_close[1], TARGET_TIMEZONE), month(time_close[1], TARGET_TIMEZONE), dayofmonth(time_close[1], TARGET_TIMEZONE), 14, 0)
+    array.push(nyPreMarketLevels, nyPreMarketLevel.new(ny_h_req, ny_l_req, nyPreMarketTimestamp))
+
+    if showNYPreMarketLevelsInput
+        x2_time = extendRight ? time_close + 50 * (time_close - nz(time_close[1], time_close)) : nyPreMarketTimestamp + MS_IN_DAY - 1
+
+        array.push(nyPreMarketHighLines, line.new(nyPreMarketTimestamp, ny_h_req, x2_time, ny_h_req, xloc=xloc.bar_time))
+        array.push(nyPreMarketLowLines, line.new(nyPreMarketTimestamp, ny_l_req, x2_time, ny_l_req, xloc=xloc.bar_time))
+        
+        if labelText
+            dateString = str.format_time(nyPreMarketTimestamp, "yyyy.MM.dd", TARGET_TIMEZONE)
+            highLabelText = str.format("NY PreMarket High {0} {1}", str.tostring(ny_h_req, format.mintick), dateString)
+            lowLabelText  = str.format("NY PreMarket Low {0} {1}", str.tostring(ny_l_req, format.mintick), dateString)
+
+            array.push(nyPreMarketHighLabels, label.new(x2_time, ny_h_req, highLabelText, xloc=xloc.bar_time, color=color(na), style=label.style_label_left, size=actualNYPreMarketLabelSize, textalign=text.align_right))
+            array.push(nyPreMarketLowLabels, label.new(x2_time, ny_l_req, lowLabelText, xloc=xloc.bar_time, color=color(na), style=label.style_label_left, size=actualNYPreMarketLabelSize, textalign=text.align_right))
+
+    while array.size(nyPreMarketLevels) > nyPreMarketLookbackDaysInput
+        array.shift(nyPreMarketLevels)
+        if array.size(nyPreMarketHighLines) > 0
+            line.delete(array.shift(nyPreMarketHighLines))
+            line.delete(array.shift(nyPreMarketLowLines))
+        if array.size(nyPreMarketHighLabels) > 0
+            label.delete(array.shift(nyPreMarketHighLabels))
+            label.delete(array.shift(nyPreMarketLowLabels))
+
+// ───── DAILY SESSION LEVELS LOGIC ────────────────────────────────────────────
+// Tokyo Open (04:00 EST / 10:00 UTC+2)
+varip float tokyoHigh_15m = na
+varip float tokyoLow_15m = na
+isTokyoCandle = timeframe.isintraday and timeframe.multiplier == 15 and hour(time, TARGET_TIMEZONE) == 10 and minute(time, TARGET_TIMEZONE) == 0
+if isTokyoCandle and barstate.isconfirmed
+    tokyoHigh_15m := high
+    tokyoLow_15m := low
+
+[tokyo_h_req, tokyo_l_req] = request.security(syminfo.tickerid, "15", [tokyoHigh_15m[1], tokyoLow_15m[1]], lookahead=barmerge.lookahead_off)
+isNewTokyoData = not na(tokyo_h_req) and (array.size(tokyoLevels) > 0 ? tokyo_h_req != array.last(tokyoLevels).high : true)
+
+if isNewTokyoData
+    tokyoTimestamp = timestamp(TARGET_TIMEZONE, year(time_close, TARGET_TIMEZONE), month(time_close, TARGET_TIMEZONE), dayofmonth(time_close, TARGET_TIMEZONE), 10, 0)
+    array.push(tokyoLevels, dailySessionLevel.new(tokyo_h_req, tokyo_l_req, tokyoTimestamp, "Tokyo Open"))
+    
+    while array.size(tokyoLevels) > dailyLookbackDaysInput
+        array.shift(tokyoLevels)
+
+// Asian Physical Open (20:00 EST / 02:00 UTC+2)
+varip float asianPhysicalHigh_15m = na
+varip float asianPhysicalLow_15m = na
+isAsianPhysicalCandle = timeframe.isintraday and timeframe.multiplier == 15 and hour(time, TARGET_TIMEZONE) == 2 and minute(time, TARGET_TIMEZONE) == 0
+if isAsianPhysicalCandle and barstate.isconfirmed
+    asianPhysicalHigh_15m := high
+    asianPhysicalLow_15m := low
+
+[asian_physical_h_req, asian_physical_l_req] = request.security(syminfo.tickerid, "15", [asianPhysicalHigh_15m[1], asianPhysicalLow_15m[1]], lookahead=barmerge.lookahead_off)
+isNewAsianPhysicalData = not na(asian_physical_h_req) and (array.size(asianPhysicalLevels) > 0 ? asian_physical_h_req != array.last(asianPhysicalLevels).high : true)
+
+if isNewAsianPhysicalData
+    asianPhysicalTimestamp = timestamp(TARGET_TIMEZONE, year(time_close, TARGET_TIMEZONE), month(time_close, TARGET_TIMEZONE), dayofmonth(time_close, TARGET_TIMEZONE), 2, 0)
+    array.push(asianPhysicalLevels, dailySessionLevel.new(asian_physical_h_req, asian_physical_l_req, asianPhysicalTimestamp, "Asian Physical Open"))
+    
+    while array.size(asianPhysicalLevels) > dailyLookbackDaysInput
+        array.shift(asianPhysicalLevels)
+
+// London Pre-Open (07:00 EST / 13:00 UTC+2)
+varip float londonPreHigh_15m = na
+varip float londonPreLow_15m = na
+isLondonPreCandle = timeframe.isintraday and timeframe.multiplier == 15 and hour(time, TARGET_TIMEZONE) == 13 and minute(time, TARGET_TIMEZONE) == 0
+if isLondonPreCandle and barstate.isconfirmed
+    londonPreHigh_15m := high
+    londonPreLow_15m := low
+
+[london_pre_h_req, london_pre_l_req] = request.security(syminfo.tickerid, "15", [londonPreHigh_15m[1], londonPreLow_15m[1]], lookahead=barmerge.lookahead_off)
+isNewLondonPreData = not na(london_pre_h_req) and (array.size(londonPreLevels) > 0 ? london_pre_h_req != array.last(londonPreLevels).high : true)
+
+if isNewLondonPreData
+    londonPreTimestamp = timestamp(TARGET_TIMEZONE, year(time_close, TARGET_TIMEZONE), month(time_close, TARGET_TIMEZONE), dayofmonth(time_close, TARGET_TIMEZONE), 13, 0)
+    array.push(londonPreLevels, dailySessionLevel.new(london_pre_h_req, london_pre_l_req, londonPreTimestamp, "London Pre-Open"))
+    
+    while array.size(londonPreLevels) > dailyLookbackDaysInput
+        array.shift(londonPreLevels)
+
+// London Gold Fix Morning (10:30 EST / 16:30 UTC+2)
+varip float londonGoldMornHigh_15m = na
+varip float londonGoldMornLow_15m = na
+isLondonGoldMornCandle = timeframe.isintraday and timeframe.multiplier == 15 and hour(time, TARGET_TIMEZONE) == 16 and minute(time, TARGET_TIMEZONE) == 30
+if isLondonGoldMornCandle and barstate.isconfirmed
+    londonGoldMornHigh_15m := high
+    londonGoldMornLow_15m := low
+
+[london_gold_morn_h_req, london_gold_morn_l_req] = request.security(syminfo.tickerid, "15", [londonGoldMornHigh_15m[1], londonGoldMornLow_15m[1]], lookahead=barmerge.lookahead_off)
+isNewLondonGoldMornData = not na(london_gold_morn_h_req) and (array.size(londonGoldMornLevels) > 0 ? london_gold_morn_h_req != array.last(londonGoldMornLevels).high : true)
+
+if isNewLondonGoldMornData
+    londonGoldMornTimestamp = timestamp(TARGET_TIMEZONE, year(time_close, TARGET_TIMEZONE), month(time_close, TARGET_TIMEZONE), dayofmonth(time_close, TARGET_TIMEZONE), 16, 30)
+    array.push(londonGoldMornLevels, dailySessionLevel.new(london_gold_morn_h_req, london_gold_morn_l_req, londonGoldMornTimestamp, "London Gold Fix Morning"))
+    
+    while array.size(londonGoldMornLevels) > dailyLookbackDaysInput
+        array.shift(londonGoldMornLevels)
+
+// London Morning Fix (11:00 EST / 17:00 UTC+2)
+varip float londonMornHigh_15m = na
+varip float londonMornLow_15m = na
+isLondonMornCandle = timeframe.isintraday and timeframe.multiplier == 15 and hour(time, TARGET_TIMEZONE) == 17 and minute(time, TARGET_TIMEZONE) == 0
+if isLondonMornCandle and barstate.isconfirmed
+    londonMornHigh_15m := high
+    londonMornLow_15m := low
+
+[london_morn_h_req, london_morn_l_req] = request.security(syminfo.tickerid, "15", [londonMornHigh_15m[1], londonMornLow_15m[1]], lookahead=barmerge.lookahead_off)
+isNewLondonMornData = not na(london_morn_h_req) and (array.size(londonMornLevels) > 0 ? london_morn_h_req != array.last(londonMornLevels).high : true)
+
+if isNewLondonMornData
+    londonMornTimestamp = timestamp(TARGET_TIMEZONE, year(time_close, TARGET_TIMEZONE), month(time_close, TARGET_TIMEZONE), dayofmonth(time_close, TARGET_TIMEZONE), 17, 0)
+    array.push(londonMornLevels, dailySessionLevel.new(london_morn_h_req, london_morn_l_req, londonMornTimestamp, "London Morning Fix"))
+    
+    while array.size(londonMornLevels) > dailyLookbackDaysInput
+        array.shift(londonMornLevels)
+
+// London Afternoon Fix (15:00 EST / 21:00 UTC+2)
+varip float londonAftHigh_15m = na
+varip float londonAftLow_15m = na
+isLondonAftCandle = timeframe.isintraday and timeframe.multiplier == 15 and hour(time, TARGET_TIMEZONE) == 21 and minute(time, TARGET_TIMEZONE) == 0
+if isLondonAftCandle and barstate.isconfirmed
+    londonAftHigh_15m := high
+    londonAftLow_15m := low
+
+[london_aft_h_req, london_aft_l_req] = request.security(syminfo.tickerid, "15", [londonAftHigh_15m[1], londonAftLow_15m[1]], lookahead=barmerge.lookahead_off)
+isNewLondonAftData = not na(london_aft_h_req) and (array.size(londonAftLevels) > 0 ? london_aft_h_req != array.last(londonAftLevels).high : true)
+
+if isNewLondonAftData
+    londonAftTimestamp = timestamp(TARGET_TIMEZONE, year(time_close, TARGET_TIMEZONE), month(time_close, TARGET_TIMEZONE), dayofmonth(time_close, TARGET_TIMEZONE), 21, 0)
+    array.push(londonAftLevels, dailySessionLevel.new(london_aft_h_req, london_aft_l_req, londonAftTimestamp, "London Afternoon Fix"))
+    
+    while array.size(londonAftLevels) > dailyLookbackDaysInput
+        array.shift(londonAftLevels)
+
+// NYSE Close (16:00 EST / 22:00 UTC+2)
+varip float nyseHigh_15m = na
+varip float nyseLow_15m = na
+isNYSECandle = timeframe.isintraday and timeframe.multiplier == 15 and hour(time, TARGET_TIMEZONE) == 22 and minute(time, TARGET_TIMEZONE) == 0
+if isNYSECandle and barstate.isconfirmed
+    nyseHigh_15m := high
+    nyseLow_15m := low
+
+[nyse_h_req, nyse_l_req] = request.security(syminfo.tickerid, "15", [nyseHigh_15m[1], nyseLow_15m[1]], lookahead=barmerge.lookahead_off)
+isNewNYSEData = not na(nyse_h_req) and (array.size(nyseLevels) > 0 ? nyse_h_req != array.last(nyseLevels).high : true)
+
+if isNewNYSEData
+    nyseTimestamp = timestamp(TARGET_TIMEZONE, year(time_close, TARGET_TIMEZONE), month(time_close, TARGET_TIMEZONE), dayofmonth(time_close, TARGET_TIMEZONE), 22, 0)
+    array.push(nyseLevels, dailySessionLevel.new(nyse_h_req, nyse_l_req, nyseTimestamp, "NYSE Close"))
+    
+    while array.size(nyseLevels) > dailyLookbackDaysInput
+        array.shift(nyseLevels)
+
+// CME Settlement (16:30 EST / 22:30 UTC+2)
+varip float cmeHigh_15m = na
+varip float cmeLow_15m = na
+isCMECandle = timeframe.isintraday and timeframe.multiplier == 15 and hour(time, TARGET_TIMEZONE) == 22 and minute(time, TARGET_TIMEZONE) == 30
+if isCMECandle and barstate.isconfirmed
+    cmeHigh_15m := high
+    cmeLow_15m := low
+
+[cme_h_req, cme_l_req] = request.security(syminfo.tickerid, "15", [cmeHigh_15m[1], cmeLow_15m[1]], lookahead=barmerge.lookahead_off)
+isNewCMEData = not na(cme_h_req) and (array.size(cmeLevels) > 0 ? cme_h_req != array.last(cmeLevels).high : true)
+
+if isNewCMEData
+    cmeTimestamp = timestamp(TARGET_TIMEZONE, year(time_close, TARGET_TIMEZONE), month(time_close, TARGET_TIMEZONE), dayofmonth(time_close, TARGET_TIMEZONE), 22, 30)
+    array.push(cmeLevels, dailySessionLevel.new(cme_h_req, cme_l_req, cmeTimestamp, "CME Settlement"))
+    
+    while array.size(cmeLevels) > dailyLookbackDaysInput
+        array.shift(cmeLevels)
+
+// Globex Roll (20:00 EST / 02:00 UTC+2)
+varip float globexHigh_15m = na
+varip float globexLow_15m = na
+isGlobexCandle = timeframe.isintraday and timeframe.multiplier == 15 and hour(time, TARGET_TIMEZONE) == 2 and minute(time, TARGET_TIMEZONE) == 0
+if isGlobexCandle and barstate.isconfirmed
+    globexHigh_15m := high
+    globexLow_15m := low
+
+[globex_h_req, globex_l_req] = request.security(syminfo.tickerid, "15", [globexHigh_15m[1], globexLow_15m[1]], lookahead=barmerge.lookahead_off)
+isNewGlobexData = not na(globex_h_req) and (array.size(globexLevels) > 0 ? globex_h_req != array.last(globexLevels).high : true)
+
+if isNewGlobexData
+    globexTimestamp = timestamp(TARGET_TIMEZONE, year(time_close, TARGET_TIMEZONE), month(time_close, TARGET_TIMEZONE), dayofmonth(time_close, TARGET_TIMEZONE), 2, 0)
+    array.push(globexLevels, dailySessionLevel.new(globex_h_req, globex_l_req, globexTimestamp, "Globex Roll"))
+    
+    while array.size(globexLevels) > dailyLookbackDaysInput
+        array.shift(globexLevels)
+
+// ───── WEDNESDAY ECONOMIC EVENTS LOGIC ──────────────────────────────────────
+// EIA Oil Inventory (10:30 EST / 16:30 UTC+2)
+varip float eiaHigh_15m = na
+varip float eiaLow_15m = na
+isEIACandle = timeframe.isintraday and timeframe.multiplier == 15 and dayofweek(time, TARGET_TIMEZONE) == DAYOFWED and hour(time, TARGET_TIMEZONE) == 16 and minute(time, TARGET_TIMEZONE) == 30
+if isEIACandle
+    eiaHigh_15m := high
+    eiaLow_15m := low
+
+[eia_h_req, eia_l_req] = request.security(syminfo.tickerid, "15", [eiaHigh_15m[1], eiaLow_15m[1]], lookahead=barmerge.lookahead_off)
+isNewEIAData = not na(eia_h_req) and (array.size(eiaLevels) > 0 ? eia_h_req != array.last(eiaLevels).high : true)
+
+if isNewEIAData
+    eiaTimestamp = timestamp(TARGET_TIMEZONE, year(time_close[1], TARGET_TIMEZONE), month(time_close[1], TARGET_TIMEZONE), dayofmonth(time_close[1], TARGET_TIMEZONE), 16, 30)
+    array.push(eiaLevels, wednesdayEventLevel.new(eia_h_req, eia_l_req, eiaTimestamp, "EIA Oil"))
+    
+    while array.size(eiaLevels) > wednesdayLookbackDaysInput
+        array.shift(eiaLevels)
+
+// FOMC Announcements (14:00 EST / 20:00 UTC+2)
+varip float fomcHigh_15m = na
+varip float fomcLow_15m = na
+isFOMCCandle = timeframe.isintraday and timeframe.multiplier == 15 and dayofweek(time, TARGET_TIMEZONE) == DAYOFWED and hour(time, TARGET_TIMEZONE) == 20 and minute(time, TARGET_TIMEZONE) == 0
+if isFOMCCandle
+    fomcHigh_15m := high
+    fomcLow_15m := low
+
+[fomc_h_req, fomc_l_req] = request.security(syminfo.tickerid, "15", [fomcHigh_15m[1], fomcLow_15m[1]], lookahead=barmerge.lookahead_off)
+isNewFOMCData = not na(fomc_h_req) and (array.size(fomcLevels) > 0 ? fomc_h_req != array.last(fomcLevels).high : true)
+
+if isNewFOMCData
+    fomcTimestamp = timestamp(TARGET_TIMEZONE, year(time_close[1], TARGET_TIMEZONE), month(time_close[1], TARGET_TIMEZONE), dayofmonth(time_close[1], TARGET_TIMEZONE), 20, 0)
+    array.push(fomcLevels, wednesdayEventLevel.new(fomc_h_req, fomc_l_req, fomcTimestamp, "FOMC"))
+    
+    while array.size(fomcLevels) > wednesdayLookbackDaysInput
+        array.shift(fomcLevels)
+
+// ───── FRIDAY ECONOMIC EVENTS LOGIC ────────────────────────────────────────
+// Non-Farm Payrolls (08:30 EST / 14:30 UTC+2)
+varip float nfpHigh_15m = na
+varip float nfpLow_15m = na
+isNFPCandle = timeframe.isintraday and timeframe.multiplier == 15 and dayofweek(time, TARGET_TIMEZONE) == DAYOFFRI and hour(time, TARGET_TIMEZONE) == 14 and minute(time, TARGET_TIMEZONE) == 30
+if isNFPCandle
+    nfpHigh_15m := high
+    nfpLow_15m := low
+
+[nfp_h_req, nfp_l_req] = request.security(syminfo.tickerid, "15", [nfpHigh_15m[1], nfpLow_15m[1]], lookahead=barmerge.lookahead_off)
+isNewNFPData = not na(nfp_h_req) and (array.size(nfpLevels) > 0 ? nfp_h_req != array.last(nfpLevels).high : true)
+
+if isNewNFPData
+    nfpTimestamp = timestamp(TARGET_TIMEZONE, year(time_close[1], TARGET_TIMEZONE), month(time_close[1], TARGET_TIMEZONE), dayofmonth(time_close[1], TARGET_TIMEZONE), 14, 30)
+    array.push(nfpLevels, fridayEventLevel.new(nfp_h_req, nfp_l_req, nfpTimestamp, "NFP"))
+    
+    while array.size(nfpLevels) > fridayLookbackDaysInput
+        array.shift(nfpLevels)
+
+// Quadruple-Witch Settlement (15:00 EST / 21:00 UTC+2)
+varip float quadHigh_15m = na
+varip float quadLow_15m = na
+isQuadCandle = timeframe.isintraday and timeframe.multiplier == 15 and dayofweek(time, TARGET_TIMEZONE) == DAYOFFRI and hour(time, TARGET_TIMEZONE) == 21 and minute(time, TARGET_TIMEZONE) == 0
+if isQuadCandle
+    quadHigh_15m := high
+    quadLow_15m := low
+
+[quad_h_req, quad_l_req] = request.security(syminfo.tickerid, "15", [quadHigh_15m[1], quadLow_15m[1]], lookahead=barmerge.lookahead_off)
+isNewQuadData = not na(quad_h_req) and (array.size(quadWitchLevels) > 0 ? quad_h_req != array.last(quadWitchLevels).high : true)
+
+if isNewQuadData
+    quadTimestamp = timestamp(TARGET_TIMEZONE, year(time_close[1], TARGET_TIMEZONE), month(time_close[1], TARGET_TIMEZONE), dayofmonth(time_close[1], TARGET_TIMEZONE), 21, 0)
+    array.push(quadWitchLevels, fridayEventLevel.new(quad_h_req, quad_l_req, quadTimestamp, "Quad Witch"))
+    
+    while array.size(quadWitchLevels) > fridayLookbackDaysInput
+        array.shift(quadWitchLevels)
+
+// ───── WICK-REACTION ALERT ENGINE ────────────────────────────────────────────
+if barstate.isconfirmed
+    min_oc = math.min(open, close)
+    max_oc = math.max(open, close)
+    canSend = timenow - lastAlertTime >= alertCooldown * 1000
+    sent = false
+
+    // Wednesday lines
+    if array.size(eventTimes) > 0
+        for i = 0 to array.size(eventTimes) - 1
+            w = array.get(wedRank, i)
+            show = switch w
+                1 => showW1
+                2 => showW2
+                3 => showW3
+                4 => showW4
+                5 => showW5
+                => false
+            if not show
+                continue
+            h = array.get(hiPrice, i)
+            l = array.get(loPrice, i)
+            o = array.get(opPrice, i)
+            dStr = array.get(dateLbl, i)
+
+            if showWednesdays and (high >= h and low <= h) and (h > max_oc or h < min_oc)
+                hiCol = switch w
+                    1 => hiC1
+                    2 => hiC2
+                    3 => hiC3
+                    4 => hiC4
+                    5 => hiC5
+                    => na
+                if showWickInteractions
+                    label.new(time, h, "", xloc=xloc.bar_time, yloc=yloc.price, style=actualMarkerStyle, color=hiCol, size=actualMarkerSize)
+                if canSend
+                    sent := true, msg = str.format("WICK TOUCH – {0} Wednesday HIGH ({1})", dStr, syminfo.ticker)
+                    if sendEmail 
+                        alert(msg, alert.freq_once_per_bar)
+                    if sendPush 
+                        alert(msg, alert.freq_once_per_bar)
+
+            if showWednesdays and (high >= l and low <= l) and (l > max_oc or l < min_oc)
+                loCol = switch w
+                    1 => loC1
+                    2 => loC2
+                    3 => loC3
+                    4 => loC4
+                    5 => loC5
+                    => na
+                if showWickInteractions
+                    label.new(time, l, "", xloc=xloc.bar_time, yloc=yloc.price, style=actualMarkerStyle, color=loCol, size=actualMarkerSize)
+                if canSend
+                    sent := true, msg = str.format("WICK TOUCH – {0} Wednesday LOW ({1})", dStr, syminfo.ticker)
+                    if sendEmail 
+                        alert(msg, alert.freq_once_per_bar)
+                    if sendPush 
+                        alert(msg, alert.freq_once_per_bar)
+
+            if showWednesdayOpen and (high >= o and low <= o) and (o > max_oc or o < min_oc)
+                opCol = switch w
+                    1 => opC1
+                    2 => opC2
+                    3 => opC3
+                    4 => opC4
+                    5 => opC5
+                    => na
+                if showWickInteractions
+                    label.new(time, o, "", xloc=xloc.bar_time, yloc=yloc.price, style=actualMarkerStyle, color=opCol, size=actualMarkerSize)
+                if canSend
+                    sent := true, msg = str.format("WICK TOUCH – {0} Wednesday OPEN ({1})", dStr, syminfo.ticker)
+                    if sendEmail 
+                        alert(msg, alert.freq_once_per_bar)
+                    if sendPush 
+                        alert(msg, alert.freq_once_per_bar)
+
+    // Midnight lines
+    if array.size(midnightLevels) > 0 and showMidnightLevelsInput
+        for i = 0 to array.size(midnightLevels) - 1
+            levelData = array.get(midnightLevels, i)
+            h = levelData.high, l = levelData.low
+            if canSend and high >= h and low <= h and (h > max_oc or h < min_oc)
+                sent := true, msg = "WICK TOUCH – Midnight HIGH (" + syminfo.ticker + ")"
+                if sendEmail 
+                    alert(msg, alert.freq_once_per_bar)
+                if sendPush 
+                    alert(msg, alert.freq_once_per_bar)
+            if canSend and high >= l and low <= l and (l > max_oc or l < min_oc)
+                sent := true, msg = "WICK TOUCH – Midnight LOW (" + syminfo.ticker + ")"
+                if sendEmail 
+                    alert(msg, alert.freq_once_per_bar)
+                if sendPush 
+                    alert(msg, alert.freq_once_per_bar)
+
+    // NY PreMarket lines
+    if array.size(nyPreMarketLevels) > 0 and showNYPreMarketLevelsInput
+        for i = 0 to array.size(nyPreMarketLevels) - 1
+            levelData = array.get(nyPreMarketLevels, i)
+            h = levelData.high, l = levelData.low
+            if canSend and high >= h and low <= h and (h > max_oc or h < min_oc)
+                sent := true, msg = "WICK TOUCH – NY PreMarket HIGH (" + syminfo.ticker + ")"
+                if sendEmail 
+                    alert(msg, alert.freq_once_per_bar)
+                if sendPush 
+                    alert(msg, alert.freq_once_per_bar)
+            if canSend and high >= l and low <= l and (l > max_oc or l < min_oc)
+                sent := true, msg = "WICK TOUCH – NY PreMarket LOW (" + syminfo.ticker + ")"
+                if sendEmail 
+                    alert(msg, alert.freq_once_per_bar)
+                if sendPush 
+                    alert(msg, alert.freq_once_per_bar)
+
+    // Daily Session Levels
+    if showDailySessions
+        // Tokyo Open
+        if showTokyoOpen and array.size(tokyoLevels) > 0
+            for i = 0 to array.size(tokyoLevels) - 1
+                levelData = array.get(tokyoLevels, i)
+                h = levelData.high, l = levelData.low
+                if canSend and high >= h and low <= h and (h > max_oc or h < min_oc)
+                    sent := true, msg = "WICK TOUCH – Tokyo Open HIGH (" + syminfo.ticker + ")"
+                    if sendEmail 
+                        alert(msg, alert.freq_once_per_bar)
+                    if sendPush 
+                        alert(msg, alert.freq_once_per_bar)
+                if canSend and high >= l and low <= l and (l > max_oc or l < min_oc)
+                    sent := true, msg = "WICK TOUCH – Tokyo Open LOW (" + syminfo.ticker + ")"
+                    if sendEmail 
+                        alert(msg, alert.freq_once_per_bar)
+                    if sendPush 
+                        alert(msg, alert.freq_once_per_bar)
+
+        // London Pre-Open
+        if showLondonPreOpen and array.size(londonPreLevels) > 0
+            for i = 0 to array.size(londonPreLevels) - 1
+                levelData = array.get(londonPreLevels, i)
+                h = levelData.high, l = levelData.low
+                if canSend and high >= h and low <= h and (h > max_oc or h < min_oc)
+                    sent := true, msg = "WICK TOUCH – London Pre-Open HIGH (" + syminfo.ticker + ")"
+                    if sendEmail 
+                        alert(msg, alert.freq_once_per_bar)
+                    if sendPush 
+                        alert(msg, alert.freq_once_per_bar)
+                if canSend and high >= l and low <= l and (l > max_oc or l < min_oc)
+                    sent := true, msg = "WICK TOUCH – London Pre-Open LOW (" + syminfo.ticker + ")"
+                    if sendEmail 
+                        alert(msg, alert.freq_once_per_bar)
+                    if sendPush 
+                        alert(msg, alert.freq_once_per_bar)
+
+        // London Morning Fix
+        if showLondonMorningFix and array.size(londonMornLevels) > 0
+            for i = 0 to array.size(londonMornLevels) - 1
+                levelData = array.get(londonMornLevels, i)
+                h = levelData.high, l = levelData.low
+                if canSend and high >= h and low <= h and (h > max_oc or h < min_oc)
+                    sent := true, msg = "WICK TOUCH – London Morning Fix HIGH (" + syminfo.ticker + ")"
+                    if sendEmail 
+                        alert(msg, alert.freq_once_per_bar)
+                    if sendPush 
+                        alert(msg, alert.freq_once_per_bar)
+                if canSend and high >= l and low <= l and (l > max_oc or l < min_oc)
+                    sent := true, msg = "WICK TOUCH – London Morning Fix LOW (" + syminfo.ticker + ")"
+                    if sendEmail 
+                        alert(msg, alert.freq_once_per_bar)
+                    if sendPush 
+                        alert(msg, alert.freq_once_per_bar)
+
+        // London Afternoon Fix
+        if showLondonAfternoonFix and array.size(londonAftLevels) > 0
+            for i = 0 to array.size(londonAftLevels) - 1
+                levelData = array.get(londonAftLevels, i)
+                h = levelData.high, l = levelData.low
+                if canSend and high >= h and low <= h and (h > max_oc or h < min_oc)
+                    sent := true, msg = "WICK TOUCH – London Afternoon Fix HIGH (" + syminfo.ticker + ")"
+                    if sendEmail 
+                        alert(msg, alert.freq_once_per_bar)
+                    if sendPush 
+                        alert(msg, alert.freq_once_per_bar)
+                if canSend and high >= l and low <= l and (l > max_oc or l < min_oc)
+                    sent := true, msg = "WICK TOUCH – London Afternoon Fix LOW (" + syminfo.ticker + ")"
+                    if sendEmail 
+                        alert(msg, alert.freq_once_per_bar)
+                    if sendPush 
+                        alert(msg, alert.freq_once_per_bar)
+
+        // NYSE Close
+        if showNYSEClose and array.size(nyseLevels) > 0
+            for i = 0 to array.size(nyseLevels) - 1
+                levelData = array.get(nyseLevels, i)
+                h = levelData.high, l = levelData.low
+                if canSend and high >= h and low <= h and (h > max_oc or h < min_oc)
+                    sent := true, msg = "WICK TOUCH – NYSE Close HIGH (" + syminfo.ticker + ")"
+                    if sendEmail 
+                        alert(msg, alert.freq_once_per_bar)
+                    if sendPush 
+                        alert(msg, alert.freq_once_per_bar)
+                if canSend and high >= l and low <= l and (l > max_oc or l < min_oc)
+                    sent := true, msg = "WICK TOUCH – NYSE Close LOW (" + syminfo.ticker + ")"
+                    if sendEmail 
+                        alert(msg, alert.freq_once_per_bar)
+                    if sendPush 
+                        alert(msg, alert.freq_once_per_bar)
+
+        // CME Settlement
+        if showCMESettlement and array.size(cmeLevels) > 0
+            for i = 0 to array.size(cmeLevels) - 1
+                levelData = array.get(cmeLevels, i)
+                h = levelData.high, l = levelData.low
+                if canSend and high >= h and low <= h and (h > max_oc or h < min_oc)
+                    sent := true, msg = "WICK TOUCH – CME Settlement HIGH (" + syminfo.ticker + ")"
+                    if sendEmail 
+                        alert(msg, alert.freq_once_per_bar)
+                    if sendPush 
+                        alert(msg, alert.freq_once_per_bar)
+                if canSend and high >= l and low <= l and (l > max_oc or l < min_oc)
+                    sent := true, msg = "WICK TOUCH – CME Settlement LOW (" + syminfo.ticker + ")"
+                    if sendEmail 
+                        alert(msg, alert.freq_once_per_bar)
+                    if sendPush 
+                        alert(msg, alert.freq_once_per_bar)
+
+        // Globex Roll
+        if showGlobexRoll and array.size(globexLevels) > 0
+            for i = 0 to array.size(globexLevels) - 1
+                levelData = array.get(globexLevels, i)
+                h = levelData.high, l = levelData.low
+                if canSend and high >= h and low <= h and (h > max_oc or h < min_oc)
+                    sent := true, msg = "WICK TOUCH – Globex Roll HIGH (" + syminfo.ticker + ")"
+                    if sendEmail 
+                        alert(msg, alert.freq_once_per_bar)
+                    if sendPush 
+                        alert(msg, alert.freq_once_per_bar)
+                if canSend and high >= l and low <= l and (l > max_oc or l < min_oc)
+                    sent := true, msg = "WICK TOUCH – Globex Roll LOW (" + syminfo.ticker + ")"
+                    if sendEmail 
+                        alert(msg, alert.freq_once_per_bar)
+                    if sendPush 
+                        alert(msg, alert.freq_once_per_bar)
+
+    // Wednesday Events
+    if showWednesdayEvents
+        // EIA Oil Inventory
+        if showEIAOil and array.size(eiaLevels) > 0
+            for i = 0 to array.size(eiaLevels) - 1
+                levelData = array.get(eiaLevels, i)
+                h = levelData.high, l = levelData.low
+                if canSend and high >= h and low <= h and (h > max_oc or h < min_oc)
+                    sent := true, msg = "WICK TOUCH – EIA Oil Inventory HIGH (" + syminfo.ticker + ")"
+                    if sendEmail 
+                        alert(msg, alert.freq_once_per_bar)
+                    if sendPush 
+                        alert(msg, alert.freq_once_per_bar)
+                if canSend and high >= l and low <= l and (l > max_oc or l < min_oc)
+                    sent := true, msg = "WICK TOUCH – EIA Oil Inventory LOW (" + syminfo.ticker + ")"
+                    if sendEmail 
+                        alert(msg, alert.freq_once_per_bar)
+                    if sendPush 
+                        alert(msg, alert.freq_once_per_bar)
+
+        // FOMC Announcements
+        if showFOMC and array.size(fomcLevels) > 0
+            for i = 0 to array.size(fomcLevels) - 1
+                levelData = array.get(fomcLevels, i)
+                h = levelData.high, l = levelData.low
+                if canSend and high >= h and low <= h and (h > max_oc or h < min_oc)
+                    sent := true, msg = "WICK TOUCH – FOMC Announcement HIGH (" + syminfo.ticker + ")"
+                    if sendEmail 
+                        alert(msg, alert.freq_once_per_bar)
+                    if sendPush 
+                        alert(msg, alert.freq_once_per_bar)
+                if canSend and high >= l and low <= l and (l > max_oc or l < min_oc)
+                    sent := true, msg = "WICK TOUCH – FOMC Announcement LOW (" + syminfo.ticker + ")"
+                    if sendEmail 
+                        alert(msg, alert.freq_once_per_bar)
+                    if sendPush 
+                        alert(msg, alert.freq_once_per_bar)
+
+    // Friday Events
+    if showFridayEvents
+        // Non-Farm Payrolls
+        if showNFP and array.size(nfpLevels) > 0
+            for i = 0 to array.size(nfpLevels) - 1
+                levelData = array.get(nfpLevels, i)
+                h = levelData.high, l = levelData.low
+                if canSend and high >= h and low <= h and (h > max_oc or h < min_oc)
+                    sent := true, msg = "WICK TOUCH – NFP HIGH (" + syminfo.ticker + ")"
+                    if sendEmail 
+                        alert(msg, alert.freq_once_per_bar)
+                    if sendPush 
+                        alert(msg, alert.freq_once_per_bar)
+                if canSend and high >= l and low <= l and (l > max_oc or l < min_oc)
+                    sent := true, msg = "WICK TOUCH – NFP LOW (" + syminfo.ticker + ")"
+                    if sendEmail 
+                        alert(msg, alert.freq_once_per_bar)
+                    if sendPush 
+                        alert(msg, alert.freq_once_per_bar)
+
+        // Quadruple-Witch Settlement
+        if showQuadWitch and array.size(quadWitchLevels) > 0
+            for i = 0 to array.size(quadWitchLevels) - 1
+                levelData = array.get(quadWitchLevels, i)
+                h = levelData.high, l = levelData.low
+                if canSend and high >= h and low <= h and (h > max_oc or h < min_oc)
+                    sent := true, msg = "WICK TOUCH – Quad Witch HIGH (" + syminfo.ticker + ")"
+                    if sendEmail 
+                        alert(msg, alert.freq_once_per_bar)
+                    if sendPush 
+                        alert(msg, alert.freq_once_per_bar)
+                if canSend and high >= l and low <= l and (l > max_oc or l < min_oc)
+                    sent := true, msg = "WICK TOUCH – Quad Witch LOW (" + syminfo.ticker + ")"
+                    if sendEmail 
+                        alert(msg, alert.freq_once_per_bar)
+                    if sendPush 
+                        alert(msg, alert.freq_once_per_bar)
+
+    if sent
+        lastAlertTime := timenow
+
+// ───── EXECUTION & DRAWING ───────────────────────────────────────────────────
+if barstate.islast
+    // --- Cleanup previous drawings ---
+    for id in wednesdayHighLines
+        line.delete(id)
+    for id in wednesdayLowLines
+        line.delete(id)
+    for id in wednesdayOpenLines
+        line.delete(id)
+    for id in wednesdayHighLabels
+        label.delete(id)
+    for id in wednesdayLowLabels
+        label.delete(id)
+    for id in wednesdayOpenLabels
+        label.delete(id)
+
+    array.clear(wednesdayHighLines), array.clear(wednesdayLowLines), array.clear(wednesdayOpenLines)
+    array.clear(wednesdayHighLabels), array.clear(wednesdayLowLabels), array.clear(wednesdayOpenLabels)
+
+    // --- Cleanup Daily Session Lines and Labels ---
+    for id in tokyoHighLines
+        line.delete(id)
+    for id in tokyoLowLines
+        line.delete(id)
+    for id in tokyoHighLabels
+        label.delete(id)
+    for id in tokyoLowLabels
+        label.delete(id)
+
+    for id in londonPreHighLines
+        line.delete(id)
+    for id in londonPreLowLines
+        line.delete(id)
+    for id in londonPreHighLabels
+        label.delete(id)
+    for id in londonPreLowLabels
+        label.delete(id)
+
+    for id in londonMornHighLines
+        line.delete(id)
+    for id in londonMornLowLines
+        line.delete(id)
+    for id in londonMornHighLabels
+        label.delete(id)
+    for id in londonMornLowLabels
+        label.delete(id)
+
+    for id in londonAftHighLines
+        line.delete(id)
+    for id in londonAftLowLines
+        line.delete(id)
+    for id in londonAftHighLabels
+        label.delete(id)
+    for id in londonAftLowLabels
+        label.delete(id)
+
+    for id in nyseHighLines
+        line.delete(id)
+    for id in nyseLowLines
+        line.delete(id)
+    for id in nyseHighLabels
+        label.delete(id)
+    for id in nyseLowLabels
+        label.delete(id)
+
+    for id in cmeHighLines
+        line.delete(id)
+    for id in cmeLowLines
+        line.delete(id)
+    for id in cmeHighLabels
+        label.delete(id)
+    for id in cmeLowLabels
+        label.delete(id)
+
+    for id in globexHighLines
+        line.delete(id)
+    for id in globexLowLines
+        line.delete(id)
+    for id in globexHighLabels
+        label.delete(id)
+    for id in globexLowLabels
+        label.delete(id)
+
+    array.clear(tokyoHighLines), array.clear(tokyoLowLines)
+    array.clear(tokyoHighLabels), array.clear(tokyoLowLabels)
+    array.clear(londonPreHighLines), array.clear(londonPreLowLines)
+    array.clear(londonPreHighLabels), array.clear(londonPreLowLabels)
+    array.clear(londonMornHighLines), array.clear(londonMornLowLines)
+    array.clear(londonMornHighLabels), array.clear(londonMornLowLabels)
+    array.clear(londonAftHighLines), array.clear(londonAftLowLines)
+    array.clear(londonAftHighLabels), array.clear(londonAftLowLabels)
+    array.clear(nyseHighLines), array.clear(nyseLowLines)
+    array.clear(nyseHighLabels), array.clear(nyseLowLabels)
+    array.clear(cmeHighLines), array.clear(cmeLowLines)
+    array.clear(cmeHighLabels), array.clear(cmeLowLabels)
+    array.clear(globexHighLines), array.clear(globexLowLines)
+    array.clear(globexHighLabels), array.clear(globexLowLabels)
+
+    if (showWednesdays or showWednesdayOpen) and array.size(eventTimes) > 0
+        filteredIndices = array.new_int()
+
+        if enableLevelFiltering
+            currentPrice = close
+            
+            // Create array of indices with their minimum distances
+            array<wedIndexDistance> wednesdayDistances = array.new<wedIndexDistance>()
+            
+            for i = 0 to array.size(eventTimes) - 1
+                h = array.get(hiPrice, i)
+                l = array.get(loPrice, i)
+                o = array.get(opPrice, i)
+                minDist = math.min(math.abs(h - currentPrice), math.abs(l - currentPrice), math.abs(o - currentPrice))
+                array.push(wednesdayDistances, wedIndexDistance.new(i, minDist))
+            
+            // Sort by distance using bubble sort
+            n = array.size(wednesdayDistances)
+            for i = 0 to n - 2
+                for j = 0 to n - i - 2
+                    if array.get(wednesdayDistances, j).dist > array.get(wednesdayDistances, j + 1).dist
+                        temp = array.get(wednesdayDistances, j)
+                        array.set(wednesdayDistances, j, array.get(wednesdayDistances, j + 1))
+                        array.set(wednesdayDistances, j + 1, temp)
+            
+            // Separate into above and below
+            aboveIndices = array.new_int()
+            belowIndices = array.new_int()
+            
+            for i = 0 to array.size(wednesdayDistances) - 1
+                item = array.get(wednesdayDistances, i)
+                h = array.get(hiPrice, item.idx)
+                l = array.get(loPrice, item.idx)
+                o = array.get(opPrice, item.idx)
+                if h >= currentPrice or l >= currentPrice or o >= currentPrice
+                    array.push(aboveIndices, item.idx)
+                if h <= currentPrice or l <= currentPrice or o <= currentPrice
+                    array.push(belowIndices, item.idx)
+
+            // Take the required number of levels
+            if array.size(aboveIndices) > 0
+                for i = 0 to math.min(array.size(aboveIndices) - 1, levelsAbovePrice - 1)
+                    array.push(filteredIndices, array.get(aboveIndices, i))
+            
+            if array.size(belowIndices) > 0
+                for i = 0 to math.min(array.size(belowIndices) - 1, levelsBelowPrice - 1)
+                    idx = array.get(belowIndices, i)
+                    if not array.includes(filteredIndices, idx)
+                        array.push(filteredIndices, idx)
+        else
+            for i = 0 to array.size(eventTimes) - 1
+                array.push(filteredIndices, i)
+
+        bar_width_ms = time - nz(time[1], time)
+        for i = 0 to array.size(filteredIndices) - 1
+            originalIndex = array.get(filteredIndices, i)
+            w = array.get(wedRank, originalIndex)
+            show = switch w
+                1 => showW1
+                2 => showW2
+                3 => showW3
+                4 => showW4
+                5 => showW5
+                => false
+            if not show
+                continue
+            h = array.get(hiPrice, originalIndex), l = array.get(loPrice, originalIndex), o = array.get(opPrice, originalIndex)
+            t = array.get(eventTimes, originalIndex), dStr = array.get(dateLbl, originalIndex)
+
+            hiCol = switch w
+                1 => hiC1
+                2 => hiC2
+                3 => hiC3
+                4 => hiC4
+                5 => hiC5
+                => na
+            loCol = switch w
+                1 => loC1
+                2 => loC2
+                3 => loC3
+                4 => loC4
+                5 => loC5
+                => na
+            opCol = switch w
+                1 => opC1
+                2 => opC2
+                3 => opC3
+                4 => opC4
+                5 => opC5
+                => na
+            hiW = switch w
+                1 => globalLineWidth
+                2 => globalLineWidth
+                3 => globalLineWidth
+                4 => globalLineWidth
+                5 => globalLineWidth
+                => na
+            loW = switch w
+                1 => globalLineWidth
+                2 => globalLineWidth
+                3 => globalLineWidth
+                4 => globalLineWidth
+                5 => globalLineWidth
+                => na
+            opW = switch w
+                1 => globalLineWidth
+                2 => globalLineWidth
+                3 => globalLineWidth
+                4 => globalLineWidth
+                5 => globalLineWidth
+                => na
+            
+            x2 = extendRight ? t + 50 * bar_width_ms : t + MS_IN_DAY - 1
+            label_x_position = extendRight ? t + (wednesdayLabelOffset + 50) * bar_width_ms : x2
+            
+            if showWednesdays
+                array.push(wednesdayHighLines, line.new(t, h, x2, h, xloc=xloc.bar_time, color=hiCol, width=hiW))
+                array.push(wednesdayLowLines, line.new(t, l, x2, l, xloc=xloc.bar_time, color=loCol, width=loW))
+            if showWednesdayOpen
+                array.push(wednesdayOpenLines, line.new(t, o, x2, o, xloc=xloc.bar_time, color=opCol, width=opW))
+            
+            if labelText
+                highLabelText = str.format("{0} High {1}", dStr, str.tostring(h, format.mintick))
+                lowLabelText  = str.format("{0} Low {1}", dStr, str.tostring(l, format.mintick))
+                openLabelText = str.format("{0} Open {1}", dStr, str.tostring(o, format.mintick))
+                if showWednesdays
+                    array.push(wednesdayHighLabels, label.new(label_x_position, h, highLabelText, xloc=xloc.bar_time, color=color(na), textcolor=hiCol, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
+                    array.push(wednesdayLowLabels, label.new(label_x_position, l, lowLabelText, xloc=xloc.bar_time, color=color(na), textcolor=loCol, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
+                if showWednesdayOpen
+                    array.push(wednesdayOpenLabels, label.new(label_x_position, o, openLabelText, xloc=xloc.bar_time, color=color(na), textcolor=opCol, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
+
+    // --- Draw Daily Session Levels ---
+    if showDailySessions
+        bar_width_ms = time - nz(time[1], time)
+        // Tokyo Open Levels
+        if showTokyoOpen and array.size(tokyoLevels) > 0
+            for i = 0 to array.size(tokyoLevels) - 1
+                levelData = array.get(tokyoLevels, i)
+                h = levelData.high
+                l = levelData.low
+                t = levelData.barTime
+                sessionName = levelData.sessionName
+                
+                x2_time = extendRight ? time_close + 50 * bar_width_ms : t + MS_IN_DAY - 1
+                
+                array.push(tokyoHighLines, line.new(t, h, x2_time, h, xloc=xloc.bar_time, color=tokyoHighColor, width=globalLineWidth))
+                array.push(tokyoLowLines, line.new(t, l, x2_time, l, xloc=xloc.bar_time, color=tokyoLowColor, width=globalLineWidth))
+                
+                if labelText
+                    highLabelText = str.format("{0} High {1}", sessionName, str.tostring(h, format.mintick))
+                    lowLabelText = str.format("{0} Low {1}", sessionName, str.tostring(l, format.mintick))
+                    label_x_position = extendRight ? t + 50 * bar_width_ms : x2_time
+                    
+                    array.push(tokyoHighLabels, label.new(label_x_position, h, highLabelText, xloc=xloc.bar_time, color=color(na), textcolor=tokyoHighColor, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
+                    array.push(tokyoLowLabels, label.new(label_x_position, l, lowLabelText, xloc=xloc.bar_time, color=color(na), textcolor=tokyoLowColor, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
+
+        // Asian Physical Open Levels
+        if showAsianPhysicalOpen and array.size(asianPhysicalLevels) > 0
+            for i = 0 to array.size(asianPhysicalLevels) - 1
+                levelData = array.get(asianPhysicalLevels, i)
+                h = levelData.high
+                l = levelData.low
+                t = levelData.barTime
+                sessionName = levelData.sessionName
+                
+                x2_time = extendRight ? time_close + 50 * bar_width_ms : t + MS_IN_DAY - 1
+                
+                array.push(asianPhysicalHighLines, line.new(t, h, x2_time, h, xloc=xloc.bar_time, color=asianPhysicalHighColor, width=globalLineWidth))
+                array.push(asianPhysicalLowLines, line.new(t, l, x2_time, l, xloc=xloc.bar_time, color=asianPhysicalLowColor, width=globalLineWidth))
+                
+                if labelText
+                    highLabelText = str.format("{0} High {1}", sessionName, str.tostring(h, format.mintick))
+                    lowLabelText = str.format("{0} Low {1}", sessionName, str.tostring(l, format.mintick))
+                    label_x_position = extendRight ? t + 50 * bar_width_ms : x2_time
+                    
+                    array.push(asianPhysicalHighLabels, label.new(label_x_position, h, highLabelText, xloc=xloc.bar_time, color=color(na), textcolor=asianPhysicalHighColor, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
+                    array.push(asianPhysicalLowLabels, label.new(label_x_position, l, lowLabelText, xloc=xloc.bar_time, color=color(na), textcolor=asianPhysicalLowColor, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
+
+        // London Pre-Open Levels
+        if showLondonPreOpen and array.size(londonPreLevels) > 0
+            for i = 0 to array.size(londonPreLevels) - 1
+                levelData = array.get(londonPreLevels, i)
+                h = levelData.high
+                l = levelData.low
+                t = levelData.barTime
+                sessionName = levelData.sessionName
+                
+                x2_time = extendRight ? time_close + 50 * bar_width_ms : t + MS_IN_DAY - 1
+                
+                array.push(londonPreHighLines, line.new(t, h, x2_time, h, xloc=xloc.bar_time, color=londonPreHighColor, width=globalLineWidth))
+                array.push(londonPreLowLines, line.new(t, l, x2_time, l, xloc=xloc.bar_time, color=londonPreLowColor, width=globalLineWidth))
+                
+                if labelText
+                    highLabelText = str.format("{0} High {1}", sessionName, str.tostring(h, format.mintick))
+                    lowLabelText = str.format("{0} Low {1}", sessionName, str.tostring(l, format.mintick))
+                    label_x_position = extendRight ? t + 50 * bar_width_ms : x2_time
+                    
+                    array.push(londonPreHighLabels, label.new(label_x_position, h, highLabelText, xloc=xloc.bar_time, color=color(na), textcolor=londonPreHighColor, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
+                    array.push(londonPreLowLabels, label.new(label_x_position, l, lowLabelText, xloc=xloc.bar_time, color=color(na), textcolor=londonPreLowColor, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
+
+        // London Gold Fix Morning Levels
+        if showLondonGoldFixMorning and array.size(londonGoldMornLevels) > 0
+            for i = 0 to array.size(londonGoldMornLevels) - 1
+                levelData = array.get(londonGoldMornLevels, i)
+                h = levelData.high
+                l = levelData.low
+                t = levelData.barTime
+                sessionName = levelData.sessionName
+                
+                x2_time = extendRight ? time_close + 50 * bar_width_ms : t + MS_IN_DAY - 1
+                
+                array.push(londonGoldMornHighLines, line.new(t, h, x2_time, h, xloc=xloc.bar_time, color=londonGoldMornHighColor, width=globalLineWidth))
+                array.push(londonGoldMornLowLines, line.new(t, l, x2_time, l, xloc=xloc.bar_time, color=londonGoldMornLowColor, width=globalLineWidth))
+                
+                if labelText
+                    highLabelText = str.format("{0} High {1}", sessionName, str.tostring(h, format.mintick))
+                    lowLabelText = str.format("{0} Low {1}", sessionName, str.tostring(l, format.mintick))
+                    label_x_position = extendRight ? t + 50 * bar_width_ms : x2_time
+                    
+                    array.push(londonGoldMornHighLabels, label.new(label_x_position, h, highLabelText, xloc=xloc.bar_time, color=color(na), textcolor=londonGoldMornHighColor, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
+                    array.push(londonGoldMornLowLabels, label.new(label_x_position, l, lowLabelText, xloc=xloc.bar_time, color=color(na), textcolor=londonGoldMornLowColor, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
+
+        // London Morning Fix Levels
+        if showLondonMorningFix and array.size(londonMornLevels) > 0
+            for i = 0 to array.size(londonMornLevels) - 1
+                levelData = array.get(londonMornLevels, i)
+                h = levelData.high
+                l = levelData.low
+                t = levelData.barTime
+                sessionName = levelData.sessionName
+                
+                x2_time = extendRight ? time_close + 50 * bar_width_ms : t + MS_IN_DAY - 1
+                
+                array.push(londonMornHighLines, line.new(t, h, x2_time, h, xloc=xloc.bar_time, color=londonMornHighColor, width=globalLineWidth))
+                array.push(londonMornLowLines, line.new(t, l, x2_time, l, xloc=xloc.bar_time, color=londonMornLowColor, width=globalLineWidth))
+                
+                if labelText
+                    highLabelText = str.format("{0} High {1}", sessionName, str.tostring(h, format.mintick))
+                    lowLabelText = str.format("{0} Low {1}", sessionName, str.tostring(l, format.mintick))
+                    label_x_position = extendRight ? t + 50 * bar_width_ms : x2_time
+                    
+                    array.push(londonMornHighLabels, label.new(label_x_position, h, highLabelText, xloc=xloc.bar_time, color=color(na), textcolor=londonMornHighColor, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
+                    array.push(londonMornLowLabels, label.new(label_x_position, l, lowLabelText, xloc=xloc.bar_time, color=color(na), textcolor=londonMornLowColor, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
+
+        // London Afternoon Fix Levels
+        if showLondonAfternoonFix and array.size(londonAftLevels) > 0
+            for i = 0 to array.size(londonAftLevels) - 1
+                levelData = array.get(londonAftLevels, i)
+                h = levelData.high
+                l = levelData.low
+                t = levelData.barTime
+                sessionName = levelData.sessionName
+                
+                x2_time = extendRight ? time_close + 50 * bar_width_ms : t + MS_IN_DAY - 1
+                
+                array.push(londonAftHighLines, line.new(t, h, x2_time, h, xloc=xloc.bar_time, color=londonAftHighColor, width=globalLineWidth))
+                array.push(londonAftLowLines, line.new(t, l, x2_time, l, xloc=xloc.bar_time, color=londonAftLowColor, width=globalLineWidth))
+                
+                if labelText
+                    highLabelText = str.format("{0} High {1}", sessionName, str.tostring(h, format.mintick))
+                    lowLabelText = str.format("{0} Low {1}", sessionName, str.tostring(l, format.mintick))
+                    label_x_position = extendRight ? t + 50 * bar_width_ms : x2_time
+                    
+                    array.push(londonAftHighLabels, label.new(label_x_position, h, highLabelText, xloc=xloc.bar_time, color=color(na), textcolor=londonAftHighColor, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
+                    array.push(londonAftLowLabels, label.new(label_x_position, l, lowLabelText, xloc=xloc.bar_time, color=color(na), textcolor=londonAftLowColor, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
+
+        // NYSE Close Levels
+        if showNYSEClose and array.size(nyseLevels) > 0
+            for i = 0 to array.size(nyseLevels) - 1
+                levelData = array.get(nyseLevels, i)
+                h = levelData.high
+                l = levelData.low
+                t = levelData.barTime
+                sessionName = levelData.sessionName
+                
+                x2_time = extendRight ? time_close + 50 * bar_width_ms : t + MS_IN_DAY - 1
+                
+                array.push(nyseHighLines, line.new(t, h, x2_time, h, xloc=xloc.bar_time, color=nyseHighColor, width=globalLineWidth))
+                array.push(nyseLowLines, line.new(t, l, x2_time, l, xloc=xloc.bar_time, color=nyseLowColor, width=globalLineWidth))
+                
+                if labelText
+                    highLabelText = str.format("{0} High {1}", sessionName, str.tostring(h, format.mintick))
+                    lowLabelText = str.format("{0} Low {1}", sessionName, str.tostring(l, format.mintick))
+                    label_x_position = extendRight ? t + 50 * bar_width_ms : x2_time
+                    
+                    array.push(nyseHighLabels, label.new(label_x_position, h, highLabelText, xloc=xloc.bar_time, color=color(na), textcolor=nyseHighColor, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
+                    array.push(nyseLowLabels, label.new(label_x_position, l, lowLabelText, xloc=xloc.bar_time, color=color(na), textcolor=nyseLowColor, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
+
+        // CME Settlement Levels
+        if showCMESettlement and array.size(cmeLevels) > 0
+            for i = 0 to array.size(cmeLevels) - 1
+                levelData = array.get(cmeLevels, i)
+                h = levelData.high
+                l = levelData.low
+                t = levelData.barTime
+                sessionName = levelData.sessionName
+                
+                x2_time = extendRight ? time_close + 50 * bar_width_ms : t + MS_IN_DAY - 1
+                
+                array.push(cmeHighLines, line.new(t, h, x2_time, h, xloc=xloc.bar_time, color=cmeHighColor, width=globalLineWidth))
+                array.push(cmeLowLines, line.new(t, l, x2_time, l, xloc=xloc.bar_time, color=cmeLowColor, width=globalLineWidth))
+                
+                if labelText
+                    highLabelText = str.format("{0} High {1}", sessionName, str.tostring(h, format.mintick))
+                    lowLabelText = str.format("{0} Low {1}", sessionName, str.tostring(l, format.mintick))
+                    label_x_position = extendRight ? t + 50 * bar_width_ms : x2_time
+                    
+                    array.push(cmeHighLabels, label.new(label_x_position, h, highLabelText, xloc=xloc.bar_time, color=color(na), textcolor=cmeHighColor, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
+                    array.push(cmeLowLabels, label.new(label_x_position, l, lowLabelText, xloc=xloc.bar_time, color=color(na), textcolor=cmeLowColor, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
+
+        // Globex Roll Levels
+        if showGlobexRoll and array.size(globexLevels) > 0
+            for i = 0 to array.size(globexLevels) - 1
+                levelData = array.get(globexLevels, i)
+                h = levelData.high
+                l = levelData.low
+                t = levelData.barTime
+                sessionName = levelData.sessionName
+                
+                x2_time = extendRight ? time_close + 50 * bar_width_ms : t + MS_IN_DAY - 1
+                
+                array.push(globexHighLines, line.new(t, h, x2_time, h, xloc=xloc.bar_time, color=globexHighColor, width=globalLineWidth))
+                array.push(globexLowLines, line.new(t, l, x2_time, l, xloc=xloc.bar_time, color=globexLowColor, width=globalLineWidth))
+                
+                if labelText
+                    highLabelText = str.format("{0} High {1}", sessionName, str.tostring(h, format.mintick))
+                    lowLabelText = str.format("{0} Low {1}", sessionName, str.tostring(l, format.mintick))
+                    label_x_position = extendRight ? t + 50 * bar_width_ms : x2_time
+                    
+                    array.push(globexHighLabels, label.new(label_x_position, h, highLabelText, xloc=xloc.bar_time, color=color(na), textcolor=globexHighColor, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
+                    array.push(globexLowLabels, label.new(label_x_position, l, lowLabelText, xloc=xloc.bar_time, color=color(na), textcolor=globexLowColor, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
+
+if extendRight and (showWednesdays or showWednesdayOpen)
+    bar_width_ms = time - nz(time[1], time)
+    if array.size(wednesdayHighLines) > 0
+        for i = 0 to array.size(wednesdayHighLines) - 1
+            if i < array.size(wednesdayHighLines)
+                array.get(wednesdayHighLines, i).set_x2(time_close + 50 * bar_width_ms)
+            if i < array.size(wednesdayHighLabels)
+                array.get(wednesdayHighLabels, i).set_x(time_close + (wednesdayLabelOffset + 50) * bar_width_ms)
+    if array.size(wednesdayLowLines) > 0
+        for i = 0 to array.size(wednesdayLowLines) - 1
+            if i < array.size(wednesdayLowLines)
+                array.get(wednesdayLowLines, i).set_x2(time_close + 50 * bar_width_ms)
+            if i < array.size(wednesdayLowLabels)
+                array.get(wednesdayLowLabels, i).set_x(time_close + (wednesdayLabelOffset + 50) * bar_width_ms)
+    if array.size(wednesdayOpenLines) > 0
+        for i = 0 to array.size(wednesdayOpenLines) - 1
+            if i < array.size(wednesdayOpenLines)
+                array.get(wednesdayOpenLines, i).set_x2(time_close + 50 * bar_width_ms)
+            if i < array.size(wednesdayOpenLabels)
+                array.get(wednesdayOpenLabels, i).set_x(time_close + (wednesdayLabelOffset + 50) * bar_width_ms)
+
+    // Update midnight lines to extend to current time
+    if extendRight and showMidnightLevelsInput
+        if array.size(midnightHighLines) > 0
+            for i = 0 to array.size(midnightHighLines) - 1
+                if i < array.size(midnightHighLines)
+                    array.get(midnightHighLines, i).set_x2(time_close + 50 * bar_width_ms)
+        if array.size(midnightLowLines) > 0
+            for i = 0 to array.size(midnightLowLines) - 1
+                if i < array.size(midnightLowLines)
+                    array.get(midnightLowLines, i).set_x2(time_close + 50 * bar_width_ms)
+
+// ───── PLAYBOOK MODE LOGIC ────────────────────────────────────────────────────
+if enablePlaybookMode
+    // Alert cooldown logic (using existing lastAlertTime from main alert system)
+    canSend = (time - lastAlertTime) >= (alertCooldown * 1000)
+    
+    // Session Strategy Detection
+    currentHour = hour(time, TARGET_TIMEZONE)
+    currentMinute = minute(time, TARGET_TIMEZONE)
+    
+    // Determine current session and strategy
+    var string sessionStrategy = ""
+    var color sessionColor = color.white
+    
+    if currentHour >= 2 and currentHour < 8
+        sessionStrategy := "ASIAN SESSION - MEAN REVERSION Strategy"
+        sessionColor := color.purple
+    else if currentHour >= 8 and currentHour < 14
+        sessionStrategy := "LONDON SESSION - BREAKOUT Strategy"
+        sessionColor := color.blue
+    else if currentHour >= 14 and currentHour < 18
+        sessionStrategy := "LONDON/NY OVERLAP - MOMENTUM Strategy"
+        sessionColor := color.green
+    else if currentHour >= 18 and currentHour < 22
+        sessionStrategy := "NY SESSION - RANGE FADE Strategy"
+        sessionColor := color.orange
+    else if currentHour >= 22 or currentHour < 2
+        sessionStrategy := "NY CLOSE - CONSOLIDATION"
+        sessionColor := color.gray
+    
+    // Display session strategy
+    if playbookSessionStrategy
+        label.new(time, high, sessionStrategy, xloc=xloc.bar_time, yloc=yloc.abovebar, 
+                 color=color(na), textcolor=sessionColor, style=label.style_label_down, 
+                 size=size.normal, textalign=text.align_center)
+    
+    // Level Hierarchy Detection and Proximity Alerts
+    if playbookLevelHierarchy or playbookAlertDistance > 0
+        // Check proximity to all active levels
+        var array<float> allLevels = array.new<float>()
+        var array<string> levelTiers = array.new<string>()
+        
+        // Collect all active levels with their tiers
+        if array.size(tokyoLevels) > 0
+            for i = 0 to array.size(tokyoLevels) - 1
+                levelData = array.get(tokyoLevels, i)
+                array.push(allLevels, levelData.high)
+                array.push(allLevels, levelData.low)
+                array.push(levelTiers, "TIER 2")
+                array.push(levelTiers, "TIER 2")
+        
+        if array.size(asianPhysicalLevels) > 0
+            for i = 0 to array.size(asianPhysicalLevels) - 1
+                levelData = array.get(asianPhysicalLevels, i)
+                array.push(allLevels, levelData.high)
+                array.push(allLevels, levelData.low)
+                array.push(levelTiers, "TIER 2")
+                array.push(levelTiers, "TIER 2")
+        
+        if array.size(londonGoldMornLevels) > 0
+            for i = 0 to array.size(londonGoldMornLevels) - 1
+                levelData = array.get(londonGoldMornLevels, i)
+                array.push(allLevels, levelData.high)
+                array.push(allLevels, levelData.low)
+                array.push(levelTiers, "TIER 1")
+                array.push(levelTiers, "TIER 1")
+        
+        if array.size(londonAftLevels) > 0
+            for i = 0 to array.size(londonAftLevels) - 1
+                levelData = array.get(londonAftLevels, i)
+                array.push(allLevels, levelData.high)
+                array.push(allLevels, levelData.low)
+                array.push(levelTiers, "TIER 1")
+                array.push(levelTiers, "TIER 1")
+        
+        // Check proximity to levels
+        if array.size(allLevels) > 0
+            for i = 0 to array.size(allLevels) - 1
+                var float levelPrice = array.get(allLevels, i)
+                var string levelTier = array.get(levelTiers, i)
+                
+                var float distance = math.abs(close - levelPrice)
+                
+                // Proximity alert
+                if distance <= playbookAlertDistance
+                    var color tierColor = levelTier == "TIER 1" ? color.red : levelTier == "TIER 2" ? color.orange : color.yellow
+                    var string alertText = str.format("🎯 {0} LEVEL APPROACH: {1} (Distance: {2})", levelTier, str.tostring(levelPrice, format.mintick), str.tostring(distance, "#.##"))
+                    
+                    if canSend
+                        lastAlertTime := time
+                        var string msg = alertText + " - " + syminfo.ticker
+                        if sendEmail 
+                            alert(msg, alert.freq_once_per_bar)
+                        if sendPush 
+                            alert(msg, alert.freq_once_per_bar)
+                    
+                    // Visual indicator
+                    label.new(time, levelPrice, levelTier, xloc=xloc.bar_time, yloc=yloc.price, 
+                             color=color(na), textcolor=tierColor, style=label.style_label_left, 
+                             size=size.small, textalign=text.align_left)
+    
+    // London Fix Special Detection (10:25-10:35 EST and 14:55-15:05 EST)
+    // 10:25-10:35 EST = 16:25-16:35 UTC+2, 14:55-15:05 EST = 20:55-21:05 UTC+2
+    var bool isLondonFixWindow = (currentHour == 16 and currentMinute >= 25 and currentMinute <= 35) or 
+                       (currentHour == 20 and currentMinute >= 55) or 
+                       (currentHour == 21 and currentMinute <= 5)
+    
+    if isLondonFixWindow
+        var string londonFixAlert = "🔥 LONDON FIX WINDOW ACTIVE - Setup C Brackets Ready"
+        if canSend
+            lastAlertTime := time
+            var string msg = londonFixAlert + " - " + syminfo.ticker
+            if sendEmail 
+                alert(msg, alert.freq_once_per_bar)
+            if sendPush 
+                alert(msg, alert.freq_once_per_bar)
+        
+        label.new(time, high, "LONDON FIX WINDOW", xloc=xloc.bar_time, yloc=yloc.abovebar, 
+                 color=color(na), textcolor=color.red, style=label.style_label_down, 
+                 size=size.large, textalign=text.align_center)
