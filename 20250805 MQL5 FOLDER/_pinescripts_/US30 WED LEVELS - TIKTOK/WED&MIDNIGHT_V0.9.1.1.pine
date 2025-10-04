@@ -1947,10 +1947,11 @@ if enablePlaybookMode
                         if sendPush 
                             alert(msg, alert.freq_once_per_bar)
                     
-                    // Visual indicator
-                    label.new(time, levelPrice, levelTier, xloc=xloc.bar_time, yloc=yloc.price, 
-                             color=color(na), textcolor=tierColor, style=label.style_label_left, 
-                             size=size.small, textalign=text.align_right)
+                    // Visual indicator (only if Show Level Hierarchy is enabled)
+                    if playbookLevelHierarchy
+                        label.new(time, levelPrice, levelTier, xloc=xloc.bar_time, yloc=yloc.price, 
+                                 color=color(na), textcolor=tierColor, style=label.style_label_left, 
+                                 size=size.small, textalign=text.align_right)
     
     // London Fix Special Detection (10:25-10:35 EST and 14:55-15:05 EST)
     // 10:25-10:35 EST = 16:25-16:35 UTC+2, 14:55-15:05 EST = 20:55-21:05 UTC+2
@@ -1958,7 +1959,7 @@ if enablePlaybookMode
                        (currentHour == 20 and currentMinute >= 55) or 
                        (currentHour == 21 and currentMinute <= 5)
     
-    if isLondonFixWindow
+    if isLondonFixWindow and goldFixAlertPriority
         londonFixAlert = "🔥 LONDON FIX WINDOW ACTIVE - Setup C Brackets Ready"
         if canSend
             lastAlertTime := time
