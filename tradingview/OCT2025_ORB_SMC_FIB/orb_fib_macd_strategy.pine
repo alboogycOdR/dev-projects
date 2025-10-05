@@ -1,0 +1,242 @@
+//@version=5
+strategy("ORB + Fib + MACD Strategy", overlay=true,
+         pyramiding=0, initial_capital=10000, currency=currency.USD,
+         commission_type=strategy.commission.percent, commission_value=0.1,
+         slippage=2)
+
+// Strategy Inputs
+input_openingRangeMinutes = input.int(title="Opening Range Duration (minutes)", defval=30, minval=1)
+input_fibEntryStart = input.float(title="Fibonacci Entry Zone Start", defval=0.50, minval=0.0, maxval=1.0)
+input_fibEntryEnd = input.float(title="Fibonacci Entry Zone End", defval=0.618, minval=0.0, maxval=1.0)
+input_stopLossFibLevel = input.float(title="Stop Loss Fibonacci Level", defval=0.786, minval=0.0, maxval=1.0)
+
+// Take Profit Strategy Selection
+input_tpMethod = input.string(title="Take Profit Method", defval="Session High/Low", options=["Session High/Low", "Fixed Points", "Risk-Reward Ratio", "Range Multiple", "Fibonacci Extensions"])
+input_tpFixedPoints = input.float(title="TP Fixed Points (Pips)", defval=100.0, minval=1.0, group="Take Profit Settings")
+input_tpRiskRewardRatio = input.float(title="TP Risk-Reward Ratio (e.g., 2 for 1:2)", defval=2.0, minval=0.1, group="Take Profit Settings")
+input_tpRangeMultiplier = input.float(title="TP Opening Range Multiplier", defval=1.0, minval=0.1, group="Take Profit Settings")
+input_tpFibExtensionLevel = input.float(title="TP Fibonacci Extension Level", defval=1.272, minval=0.0, group="Take Profit Settings")
+
+// Stop Loss Strategy Selection
+input_slMethod = input.string(title="Stop Loss Method", defval="Fibonacci Level", options=["Fibonacci Level", "Fixed Points", "ATR-Based"])
+input_slFixedPoints = input.float(title="SL Fixed Points (Pips)", defval=50.0, minval=1.0, group="Stop Loss Settings")
+input_slAtrMultiplier = input.float(title="SL ATR Multiplier", defval=1.5, minval=0.1, group="Stop Loss Settings")
+input_slAtrLength = input.int(title="SL ATR Length", defval=14, minval=1, group="Stop Loss Settings")
+
+input_emaFastLength = input.int(title="Fast EMA Length", defval=9, minval=1)
+input_emaSlowLength = input.int(title="Slow EMA Length", defval=21, minval=1)
+
+input_macdFastLength = input.int(title="MACD Fast Length", defval=12, minval=1)
+input_macdSlowLength = input.int(title="MACD Slow Length", defval=26, minval=1)
+input_macdSignalSmoothing = input.int(title="MACD Signal Smoothing", defval=9, minval=1)
+
+// Session and Opening Range Variables
+var float openingRangeHigh = na
+var float openingRangeLow = na
+var bool isOpeningRangeSet = false
+
+// Session high and low for Fibonacci calculation - these need to be reset daily
+var float sessionHigh = na
+var float sessionLow = na
+
+// Breakout Detection flags
+var bool bullishBreakout = false
+var bool bearishBreakout = false
+
+// User-defined session start and end times (e.g., 0930-1600 for equities)
+var string sessSpec = "0930-1600"
+
+// Check if it's a new day (or session start for the purpose of ORB)
+var bool isNewDay = ta.change(time("D", sessSpec))
+
+// Reset variables at the start of a new day/session
+if isNewDay
+    isOpeningRangeSet := false
+    openingRangeHigh := na
+    openingRangeLow := na
+    sessionHigh := high
+    sessionLow := low
+    bullishBreakout := false
+    bearishBreakout := false
+else
+    // Update session high/low throughout the day
+    sessionHigh := math.max(nz(sessionHigh[1], high), high)
+    sessionLow := math.min(nz(sessionLow[1], low), low)
+
+// Opening Range Calculation
+if not isOpeningRangeSet
+    int currentBarMinute = hour(time) * 60 + minute(time)
+    int sessionStartMinute = hour(time("D", sessSpec)) * 60 + minute(time("D", sessSpec))
+    int orEndMinute = sessionStartMinute + input_openingRangeMinutes
+
+    if currentBarMinute >= sessionStartMinute and currentBarMinute < orEndMinute
+        // If within the opening range period, update high/low
+        openingRangeHigh := math.max(nz(openingRangeHigh, high), high)
+        openingRangeLow := math.min(nz(openingRangeLow, low), low)
+    else if currentBarMinute >= orEndMinute and not isOpeningRangeSet
+        // After the opening range period, set the final ORB values
+        isOpeningRangeSet := true
+        // Fallback if ORB was not captured (e.g., due to timeframe gaps or script start mid-range)
+        if na(openingRangeHigh)
+            // If no bars were captured in ORB, use the high/low of the first bar after ORB period
+            openingRangeHigh := high[1]
+            openingRangeLow := low[1]
+
+// Breakout Detection
+if isOpeningRangeSet
+    if not bullishBreakout and close > openingRangeHigh
+        bullishBreakout := true
+    if not bearishBreakout and close < openingRangeLow
+        bearishBreakout := true
+
+// Calculate ATR for ATR-based SL
+float atr = ta.atr(input_slAtrLength)
+
+// Function to calculate Stop Loss price
+float calculateStopLoss(bool isLong, float entryPrice) =>
+    float sl = na
+    if input_slMethod == "Fibonacci Level"
+        sl := isLong ? fib786 : fib786
+    else if input_slMethod == "Fixed Points"
+        sl := isLong ? entryPrice - input_slFixedPoints * syminfo.mintick : entryPrice + input_slFixedPoints * syminfo.mintick
+    else if input_slMethod == "ATR-Based"
+        sl := isLong ? entryPrice - atr * input_slAtrMultiplier : entryPrice + atr * input_slAtrMultiplier
+    sl
+
+// Function to calculate Take Profit price
+float calculateTakeProfit(bool isLong, float entryPrice, float stopLossPrice) =>
+    float tp = na
+    if input_tpMethod == "Session High/Low"
+        tp := isLong ? sessionHigh : sessionLow
+    else if input_tpMethod == "Fixed Points"
+        tp := isLong ? entryPrice + input_tpFixedPoints * syminfo.mintick : entryPrice - input_tpFixedPoints * syminfo.mintick
+    else if input_tpMethod == "Risk-Reward Ratio"
+        float risk = math.abs(entryPrice - stopLossPrice)
+        tp := isLong ? entryPrice + risk * input_tpRiskRewardRatio : entryPrice - risk * input_tpRiskRewardRatio
+    else if input_tpMethod == "Range Multiple"
+        float orSize = openingRangeHigh - openingRangeLow
+        tp := isLong ? entryPrice + orSize * input_tpRangeMultiplier : entryPrice - orSize * input_tpRangeMultiplier
+    else if input_tpMethod == "Fibonacci Extensions"
+        float range = sessionHigh - sessionLow
+        if isLong
+            tp := sessionHigh + range * (input_tpFibExtensionLevel - 1) // Fib Extensions are usually from 100% onwards
+        else
+            tp := sessionLow - range * (input_tpFibExtensionLevel - 1)
+    tp
+
+// Fibonacci Calculation
+var float fib0 = na
+var float fib236 = na
+var float fib382 = na
+var float fib50 = na
+var float fib618 = na
+var float fib786 = na
+var float fib100 = na
+
+if isOpeningRangeSet and (bullishBreakout or bearishBreakout)
+    float range = sessionHigh - sessionLow
+    if bullishBreakout
+        // For long setup, Fibs are drawn from sessionLow to sessionHigh
+        fib0 = sessionLow
+        fib236 = sessionLow + range * 0.236
+        fib382 = sessionLow + range * 0.382
+        fib50 = sessionLow + range * 0.5
+        fib618 = sessionLow + range * 0.618
+        fib786 = sessionLow + range * 0.786
+        fib100 = sessionHigh
+    else if bearishBreakout
+        // For short setup, Fibs are drawn from sessionHigh to sessionLow
+        fib0 = sessionHigh
+        fib236 = sessionHigh - range * 0.236
+        fib382 = sessionHigh - range * 0.382
+        fib50 = sessionHigh - range * 0.5
+        fib618 = sessionHigh - range * 0.618
+        fib786 = sessionHigh - range * 0.786
+        fib100 = sessionLow
+
+// Plot Fibonacci Levels (only if a breakout has occurred and Fibs are calculated)
+plot(isOpeningRangeSet and (bullishBreakout or bearishBreakout) ? fib0 : na, title="Fib 0", color=color.new(color.black, 0), linewidth=1)
+plot(isOpeningRangeSet and (bullishBreakout or bearishBreakout) ? fib236 : na, title="Fib 23.6", color=color.new(color.gray, 0), linewidth=1)
+plot(isOpeningRangeSet and (bullishBreakout or bearishBreakout) ? fib382 : na, title="Fib 38.2", color=color.new(color.yellow, 0), linewidth=1)
+plot(isOpeningRangeSet and (bullishBreakout or bearishBreakout) ? fib50 : na, title="Fib 50", color=color.new(color.orange, 0), linewidth=2)
+plot(isOpeningRangeSet and (bullishBreakout or bearishBreakout) ? fib618 : na, title="Fib 61.8", color=color.new(color.red, 0), linewidth=2)
+plot(isOpeningRangeSet and (bullishBreakout or bearishBreakout) ? fib786 : na, title="Fib 78.6", color=color.new(color.purple, 0), linewidth=1)
+plot(isOpeningRangeSet and (bullishBreakout or bearishBreakout) ? fib100 : na, title="Fib 100", color=color.new(color.black, 0), linewidth=1)
+
+// Plot Opening Range High/Low
+plot(isOpeningRangeSet ? openingRangeHigh : na, title="OR High", color=color.blue, linewidth=2, style=plot.style_linebr)
+plot(isOpeningRangeSet ? openingRangeLow : na, title="OR Low", color=color.blue, linewidth=2, style=plot.style_linebr)
+
+// Indicator Calculations
+// MACD Calculation
+[macdLine, signalLine, hist] = ta.macd(close, input_macdFastLength, input_macdSlowLength, input_macdSignalSmoothing)
+
+// MACD Confirmation Logic
+// For long: MACD line > signal line AND MACD histogram is increasing (curling up)
+// For short: MACD line < signal line AND MACD histogram is decreasing (curling down)
+
+bool macdBullishConfirmation = macdLine > signalLine and hist > hist[1]
+bool macdBearishConfirmation = macdLine < signalLine and hist < hist[1]
+
+// EMA Calculations
+float emaFast = ta.ema(close, input_emaFastLength)
+float emaSlow = ta.ema(close, input_emaSlowLength)
+
+// Entry Conditions
+bool longCondition = false
+bool shortCondition = false
+
+if isOpeningRangeSet and (bullishBreakout or bearishBreakout)
+    if bullishBreakout and macdBullishConfirmation
+        // Check if price retraces into the 50-61.8% Fib zone for a long entry
+        // The low of the current bar must be below or equal to fib50, and high must be above or equal to fib618
+        // This means the candle has touched or passed the 50% level and is still above or at 61.8%
+        if low <= fib50 and high >= fib618
+            longCondition := true
+
+    if bearishBreakout and macdBearishConfirmation
+        // Check if price retraces into the 50-61.8% Fib zone for a short entry
+        // The high of the current bar must be above or equal to fib50, and low must be below or equal to fib618
+        if high >= fib50 and low <= fib618
+            shortCondition := true
+
+// Place limit orders for entry
+if longCondition
+    strategy.entry("Long", strategy.long, limit=fib618, comment="Long Entry") // Enter at 61.8% Fib level
+
+if shortCondition
+    strategy.entry("Short", strategy.short, limit=fib618, comment="Short Entry") // Enter at 61.8% Fib level
+
+// Exit Conditions
+// Calculate dynamic SL and TP for active positions
+float currentSlPrice = na
+float currentTpPrice = na
+
+if strategy.position_size > 0 // If long position is active
+    currentSlPrice := calculateStopLoss(true, strategy.position_avg_price)
+    currentTpPrice := calculateTakeProfit(true, strategy.position_avg_price, currentSlPrice)
+    strategy.exit("Exit Long", from_entry="Long", stop=currentSlPrice, limit=currentTpPrice, comment="Long Exit")
+
+if strategy.position_size < 0 // If short position is active
+    currentSlPrice := calculateStopLoss(false, strategy.position_avg_price)
+    currentTpPrice := calculateTakeProfit(false, strategy.position_avg_price, currentSlPrice)
+    strategy.exit("Exit Short", from_entry="Short", stop=currentSlPrice, limit=currentTpPrice, comment="Short Exit")
+
+// Visuals
+// Plot MACD
+plot(macdLine, title="MACD Line", color=color.blue, display=display.pane)
+plot(signalLine, title="Signal Line", color=color.orange, display=display.pane)
+plot(hist, title="MACD Histogram", color=hist >= 0 ? color.teal : color.red, style=plot.style_columns, display=display.pane)
+
+// Plot EMAs
+plot(emaFast, title="Fast EMA", color=color.green, linewidth=1)
+plot(emaSlow, title="Slow EMA", color=color.purple, linewidth=1)
+
+// Entry Signal Visuals
+plotshape(longCondition, title="Long Entry Signal", location=location.belowbar, color=color.new(color.green, 0), style=shape.triangleup, size=size.small, text="Buy")
+plotshape(shortCondition, title="Short Entry Signal", location=location.abovebar, color=color.new(color.red, 0), style=shape.triangledown, size=size.small, text="Sell")
+
+// Trend Weakness Visuals (Barcolor based on 9-EMA for active trades)
+barcolor(strategy.position_size > 0 and close < emaFast ? color.new(color.red, 90) : na, title="Long Trend Weakness")
+barcolor(strategy.position_size < 0 and close > emaFast ? color.new(color.green, 90) : na, title="Short Trend Weakness")
+

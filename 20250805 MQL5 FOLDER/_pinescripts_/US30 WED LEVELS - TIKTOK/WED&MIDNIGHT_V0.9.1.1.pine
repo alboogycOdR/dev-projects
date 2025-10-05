@@ -135,9 +135,6 @@ midnightHighColorInput = input.color(color.new(color.orange, 50), 'High Color', 
 midnightHighStyleInput = input.string("Solid", 'High Style', group=GROUP_MIDNIGHT, options=["Solid", "Dashed", "Dotted"], inline='midnight_high')
 midnightLowColorInput = input.color(color.new(color.purple, 50), 'Low Color', group=GROUP_MIDNIGHT, inline='midnight_low')
 midnightLowStyleInput = input.string("Solid", 'Low Style', group=GROUP_MIDNIGHT, options=["Solid", "Dashed", "Dotted"], inline='midnight_low')
-midnightHighLabelColorInput = input.color(color.new(color.orange, 0), 'High Label Color', group=GROUP_MIDNIGHT)
-midnightLowLabelColorInput = input.color(color.new(color.purple, 0), 'Low Label Color', group=GROUP_MIDNIGHT)
-midnightLabelSizeInput = input.string("Normal", 'Label Text Size', group=GROUP_MIDNIGHT, options=["Tiny","Small","Normal","Large","Huge"])
 
 // ───── NY PREMARKET LEVELS ───────────────────────────────────────────────────
 GROUP_NY_PREMARKET = "NY PreMarket Levels (08:00 EST)"
@@ -147,9 +144,6 @@ nyPreMarketHighColorInput = input.color(color.new(color.purple, 50), 'High Color
 nyPreMarketHighStyleInput = input.string("Solid", 'High Style', group=GROUP_NY_PREMARKET, options=["Solid", "Dashed", "Dotted"], inline='ny_high')
 nyPreMarketLowColorInput = input.color(color.new(color.blue, 50), 'Low Color', group=GROUP_NY_PREMARKET, inline='ny_low')
 nyPreMarketLowStyleInput = input.string("Solid", 'Low Style', group=GROUP_NY_PREMARKET, options=["Solid", "Dashed", "Dotted"], inline='ny_low')
-nyPreMarketHighLabelColorInput = input.color(color.new(color.purple, 0), 'High Label Color', group=GROUP_NY_PREMARKET)
-nyPreMarketLowLabelColorInput = input.color(color.new(color.blue, 0), 'Low Label Color', group=GROUP_NY_PREMARKET)
-nyPreMarketLabelSizeInput = input.string("Normal", 'Label Text Size', group=GROUP_NY_PREMARKET, options=["Tiny","Small","Normal","Large","Huge"])
 
 // ───── DAILY MARKET SESSION LEVELS ──────────────────────────────────────────
 GROUP_DAILY_SESSIONS = "Daily Market Session Levels"
@@ -226,25 +220,16 @@ usDataLookbackDaysInput = input.int(14, "Lookback (Days)", group=GROUP_US_DATA, 
 showUSDataRelease = input.bool(false, "US Data Release (08:30 EST)", group=GROUP_US_DATA, inline="us_data")
 usDataHighColor = input.color(color.new(color.red, 50), "High Color", group=GROUP_US_DATA, inline="us_data")
 usDataLowColor = input.color(color.new(color.blue, 50), "Low Color", group=GROUP_US_DATA, inline="us_data")
-usDataHighLabelColor = input.color(color.new(color.red, 0), "High Label Color", group=GROUP_US_DATA)
-usDataLowLabelColor = input.color(color.new(color.blue, 0), "Low Label Color", group=GROUP_US_DATA)
-usDataLabelSize = input.string("Normal", "Label Text Size", group=GROUP_US_DATA, options=["Tiny","Small","Normal","Large","Huge"])
 
 // NYSE Open (09:30 EST / 15:30 UTC+2)
 showNYSEOpen = input.bool(false, "NYSE Open (09:30 EST)", group=GROUP_US_DATA, inline="nyse_open")
 nyseOpenHighColor = input.color(color.new(color.green, 50), "High Color", group=GROUP_US_DATA, inline="nyse_open")
 nyseOpenLowColor = input.color(color.new(color.orange, 50), "Low Color", group=GROUP_US_DATA, inline="nyse_open")
-nyseOpenHighLabelColor = input.color(color.new(color.green, 0), "High Label Color", group=GROUP_US_DATA)
-nyseOpenLowLabelColor = input.color(color.new(color.orange, 0), "Low Label Color", group=GROUP_US_DATA)
-nyseOpenLabelSize = input.string("Normal", "Label Text Size", group=GROUP_US_DATA, options=["Tiny","Small","Normal","Large","Huge"])
 
 // Institutional Rebalancing (10:00 EST / 16:00 UTC+2)
 showInstitutionalRebal = input.bool(false, "Institutional Rebalancing (10:00 EST)", group=GROUP_US_DATA, inline="inst_rebal")
 instRebalHighColor = input.color(color.new(color.purple, 50), "High Color", group=GROUP_US_DATA, inline="inst_rebal")
 instRebalLowColor = input.color(color.new(color.yellow, 50), "Low Color", group=GROUP_US_DATA, inline="inst_rebal")
-instRebalHighLabelColor = input.color(color.new(color.purple, 0), "High Label Color", group=GROUP_US_DATA)
-instRebalLowLabelColor = input.color(color.new(color.yellow, 0), "Low Label Color", group=GROUP_US_DATA)
-instRebalLabelSize = input.string("Normal", "Label Text Size", group=GROUP_US_DATA, options=["Tiny","Small","Normal","Large","Huge"])
 
 // ───── FRIDAY ECONOMIC EVENTS ──────────────────────────────────────────────
 GROUP_FRIDAY_EVENTS = "Friday Economic Events"
@@ -266,9 +251,11 @@ quadWidth = input.int(1, "Line Width", minval=1, maxval=4, inline="quad_colors")
 
 // ───── GENERAL SETTINGS ──────────────────────────────────────────────────────
 GROUP_GENERAL = "General Settings"
+globalLineWidth = input.int(2, "Global Line Width", group=GROUP_GENERAL, minval=1, maxval=6, tooltip="Controls the width of all keylevel lines")
 extendRight = input.bool(true, "Extend Lines into Future", group=GROUP_GENERAL)
 labelText   = input.bool(true, "Show Date Labels", group=GROUP_GENERAL)
-labelSize   = input.string("Normal", "Label Size", options=["Tiny","Small","Normal","Large","Huge"], group=GROUP_GENERAL)
+globalLabelSize = input.string("Normal", "Global Label Text Size", options=["Tiny","Small","Normal","Large","Huge"], group=GROUP_GENERAL, tooltip="Controls the text size of all keylevel labels")
+globalLabelColor = input.color(color.black, "Global Label Text Color", group=GROUP_GENERAL, tooltip="Controls the text color of all keylevel labels")
 wednesdayLabelOffset = input.int(5, "Wednesday Label Offset", group=GROUP_GENERAL, tooltip="Number of bars to offset the Wednesday labels to the right.", minval=0)
 
 // Alert Settings
@@ -281,9 +268,6 @@ alertCooldown = input.int(30,    "Cooldown (sec)", minval=5, group=GROUP_GENERAL
 showWickInteractions = input.bool(true, "Show Wick Interactions", group=GROUP_GENERAL, tooltip="Master switch to show/hide all wick interaction markers.")
 interactionMarkerStyle = input.string("Circle", "Marker Style", options=["Circle", "Square", "Diamond", "Triangle Up", "Triangle Down"], group=GROUP_GENERAL)
 interactionMarkerSize = input.string("Tiny", "Marker Size", options=["Tiny", "Small", "Normal", "Large", "Huge"], group=GROUP_GENERAL)
-
-// Global Line Width
-globalLineWidth = input.int(2, "Global Line Width", group=GROUP_GENERAL, minval=1, maxval=6, tooltip="Controls the width of all keylevel lines")
 
 // ───── LEVEL OPTIMIZATION ────────────────────────────────────────────────────
 GROUP_OPTIMIZATION = "Level Optimization"
@@ -535,9 +519,7 @@ var array<label> wednesdayLowLabels = array.new<label>()
 var array<label> wednesdayOpenLabels = array.new<label>()
 
 // ───── COMMON VARIABLES ──────────────────────────────────────────────────────
-actualLabelSize = f_size_str_to_const(labelSize)
-actualMidnightLabelSize = f_size_str_to_const(midnightLabelSizeInput)
-actualNYPreMarketLabelSize = f_size_str_to_const(nyPreMarketLabelSizeInput)
+actualLabelSize = f_size_str_to_const(globalLabelSize)
 
 // ───── WEDNESDAY LOGIC ───────────────────────────────────────────────────────
 f_getTargetTime(int ts) =>
@@ -642,8 +624,8 @@ if isNewDataPoint
 
             label_x_position = extendRight ? dayTimestamp + 50 * bar_width_ms : x2_time
 
-            array.push(midnightHighLabels, label.new(label_x_position, h_req, highLabelText, xloc=xloc.bar_time, color=color(na), style=label.style_label_right, size=actualMidnightLabelSize, textalign=text.align_right))
-            array.push(midnightLowLabels, label.new(label_x_position, l_req, lowLabelText, xloc=xloc.bar_time, color=color(na), style=label.style_label_right, size=actualMidnightLabelSize, textalign=text.align_right))
+            array.push(midnightHighLabels, label.new(label_x_position, h_req, highLabelText, xloc=xloc.bar_time, color=color(na), textcolor=globalLabelColor, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
+            array.push(midnightLowLabels, label.new(label_x_position, l_req, lowLabelText, xloc=xloc.bar_time, color=color(na), textcolor=globalLabelColor, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
 
     while array.size(midnightLevels) > midnightLookbackDaysInput
         array.shift(midnightLevels)
@@ -683,8 +665,8 @@ if isNewNYPreMarketDataPoint
             highLabelText = str.format("NY PreMarket High {0} {1}", str.tostring(ny_h_req, format.mintick), dateString)
             lowLabelText  = str.format("NY PreMarket Low {0} {1}", str.tostring(ny_l_req, format.mintick), dateString)
 
-            array.push(nyPreMarketHighLabels, label.new(x2_time, ny_h_req, highLabelText, xloc=xloc.bar_time, color=color(na), style=label.style_label_left, size=actualNYPreMarketLabelSize, textalign=text.align_left))
-            array.push(nyPreMarketLowLabels, label.new(x2_time, ny_l_req, lowLabelText, xloc=xloc.bar_time, color=color(na), style=label.style_label_left, size=actualNYPreMarketLabelSize, textalign=text.align_left))
+            array.push(nyPreMarketHighLabels, label.new(x2_time, ny_h_req, highLabelText, xloc=xloc.bar_time, color=color(na), textcolor=globalLabelColor, style=label.style_label_left, size=actualLabelSize, textalign=text.align_left))
+            array.push(nyPreMarketLowLabels, label.new(x2_time, ny_l_req, lowLabelText, xloc=xloc.bar_time, color=color(na), textcolor=globalLabelColor, style=label.style_label_left, size=actualLabelSize, textalign=text.align_left))
 
     while array.size(nyPreMarketLevels) > nyPreMarketLookbackDaysInput
         array.shift(nyPreMarketLevels)
@@ -1315,10 +1297,10 @@ if barstate.islast
                 lowLabelText  = str.format("{0} Low {1}", dStr, str.tostring(l, format.mintick))
                 openLabelText = str.format("{0} Open {1}", dStr, str.tostring(o, format.mintick))
                 if showWednesdays
-                    array.push(wednesdayHighLabels, label.new(label_x_position, h, highLabelText, xloc=xloc.bar_time, color=color(na), textcolor=hiCol, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
-                    array.push(wednesdayLowLabels, label.new(label_x_position, l, lowLabelText, xloc=xloc.bar_time, color=color(na), textcolor=loCol, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
+                    array.push(wednesdayHighLabels, label.new(label_x_position, h, highLabelText, xloc=xloc.bar_time, color=color(na), textcolor=globalLabelColor, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
+                    array.push(wednesdayLowLabels, label.new(label_x_position, l, lowLabelText, xloc=xloc.bar_time, color=color(na), textcolor=globalLabelColor, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
                 if showWednesdayOpen
-                    array.push(wednesdayOpenLabels, label.new(label_x_position, o, openLabelText, xloc=xloc.bar_time, color=color(na), textcolor=opCol, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
+                    array.push(wednesdayOpenLabels, label.new(label_x_position, o, openLabelText, xloc=xloc.bar_time, color=color(na), textcolor=globalLabelColor, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
 
     // --- Draw Daily Session Levels ---
     if showDailySessions
@@ -1342,8 +1324,8 @@ if barstate.islast
                     lowLabelText = str.format("{0} Low {1}", sessionName, str.tostring(l, format.mintick))
                     label_x_position = extendRight ? t + 50 * bar_width_ms : x2_time
                     
-                    array.push(tokyoHighLabels, label.new(label_x_position, h, highLabelText, xloc=xloc.bar_time, color=color(na), textcolor=tokyoHighColor, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
-                    array.push(tokyoLowLabels, label.new(label_x_position, l, lowLabelText, xloc=xloc.bar_time, color=color(na), textcolor=tokyoLowColor, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
+                    array.push(tokyoHighLabels, label.new(label_x_position, h, highLabelText, xloc=xloc.bar_time, color=color(na), textcolor=globalLabelColor, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
+                    array.push(tokyoLowLabels, label.new(label_x_position, l, lowLabelText, xloc=xloc.bar_time, color=color(na), textcolor=globalLabelColor, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
 
         // Asian Physical Open Levels
         if showAsianPhysicalOpen and array.size(asianPhysicalLevels) > 0
@@ -1364,8 +1346,8 @@ if barstate.islast
                     lowLabelText = str.format("{0} Low {1}", sessionName, str.tostring(l, format.mintick))
                     label_x_position = extendRight ? t + 50 * bar_width_ms : x2_time
                     
-                    array.push(asianPhysicalHighLabels, label.new(label_x_position, h, highLabelText, xloc=xloc.bar_time, color=color(na), textcolor=asianPhysicalHighColor, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
-                    array.push(asianPhysicalLowLabels, label.new(label_x_position, l, lowLabelText, xloc=xloc.bar_time, color=color(na), textcolor=asianPhysicalLowColor, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
+                    array.push(asianPhysicalHighLabels, label.new(label_x_position, h, highLabelText, xloc=xloc.bar_time, color=color(na), textcolor=globalLabelColor, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
+                    array.push(asianPhysicalLowLabels, label.new(label_x_position, l, lowLabelText, xloc=xloc.bar_time, color=color(na), textcolor=globalLabelColor, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
 
         // London Pre-Open Levels
         if showLondonPreOpen and array.size(londonPreLevels) > 0
@@ -1386,8 +1368,8 @@ if barstate.islast
                     lowLabelText = str.format("{0} Low {1}", sessionName, str.tostring(l, format.mintick))
                     label_x_position = extendRight ? t + 50 * bar_width_ms : x2_time
                     
-                    array.push(londonPreHighLabels, label.new(label_x_position, h, highLabelText, xloc=xloc.bar_time, color=color(na), textcolor=londonPreHighColor, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
-                    array.push(londonPreLowLabels, label.new(label_x_position, l, lowLabelText, xloc=xloc.bar_time, color=color(na), textcolor=londonPreLowColor, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
+                    array.push(londonPreHighLabels, label.new(label_x_position, h, highLabelText, xloc=xloc.bar_time, color=color(na), textcolor=globalLabelColor, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
+                    array.push(londonPreLowLabels, label.new(label_x_position, l, lowLabelText, xloc=xloc.bar_time, color=color(na), textcolor=globalLabelColor, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
 
         // London Gold Fix Morning Levels
         if showLondonGoldFixMorning and array.size(londonGoldMornLevels) > 0
@@ -1408,8 +1390,8 @@ if barstate.islast
                     lowLabelText = str.format("{0} Low {1}", sessionName, str.tostring(l, format.mintick))
                     label_x_position = extendRight ? t + 50 * bar_width_ms : x2_time
                     
-                    array.push(londonGoldMornHighLabels, label.new(label_x_position, h, highLabelText, xloc=xloc.bar_time, color=color(na), textcolor=londonGoldMornHighColor, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
-                    array.push(londonGoldMornLowLabels, label.new(label_x_position, l, lowLabelText, xloc=xloc.bar_time, color=color(na), textcolor=londonGoldMornLowColor, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
+                    array.push(londonGoldMornHighLabels, label.new(label_x_position, h, highLabelText, xloc=xloc.bar_time, color=color(na), textcolor=globalLabelColor, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
+                    array.push(londonGoldMornLowLabels, label.new(label_x_position, l, lowLabelText, xloc=xloc.bar_time, color=color(na), textcolor=globalLabelColor, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
 
         // London Morning Fix Levels
         if showLondonMorningFix and array.size(londonMornLevels) > 0
@@ -1430,8 +1412,8 @@ if barstate.islast
                     lowLabelText = str.format("{0} Low {1}", sessionName, str.tostring(l, format.mintick))
                     label_x_position = extendRight ? t + 50 * bar_width_ms : x2_time
                     
-                    array.push(londonMornHighLabels, label.new(label_x_position, h, highLabelText, xloc=xloc.bar_time, color=color(na), textcolor=londonMornHighColor, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
-                    array.push(londonMornLowLabels, label.new(label_x_position, l, lowLabelText, xloc=xloc.bar_time, color=color(na), textcolor=londonMornLowColor, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
+                    array.push(londonMornHighLabels, label.new(label_x_position, h, highLabelText, xloc=xloc.bar_time, color=color(na), textcolor=globalLabelColor, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
+                    array.push(londonMornLowLabels, label.new(label_x_position, l, lowLabelText, xloc=xloc.bar_time, color=color(na), textcolor=globalLabelColor, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
 
         // London Afternoon Fix Levels
         if showLondonAfternoonFix and array.size(londonAftLevels) > 0
@@ -1452,8 +1434,8 @@ if barstate.islast
                     lowLabelText = str.format("{0} Low {1}", sessionName, str.tostring(l, format.mintick))
                     label_x_position = extendRight ? t + 50 * bar_width_ms : x2_time
                     
-                    array.push(londonAftHighLabels, label.new(label_x_position, h, highLabelText, xloc=xloc.bar_time, color=color(na), textcolor=londonAftHighColor, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
-                    array.push(londonAftLowLabels, label.new(label_x_position, l, lowLabelText, xloc=xloc.bar_time, color=color(na), textcolor=londonAftLowColor, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
+                    array.push(londonAftHighLabels, label.new(label_x_position, h, highLabelText, xloc=xloc.bar_time, color=color(na), textcolor=globalLabelColor, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
+                    array.push(londonAftLowLabels, label.new(label_x_position, l, lowLabelText, xloc=xloc.bar_time, color=color(na), textcolor=globalLabelColor, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
 
         // NYSE Close Levels
         if showNYSEClose and array.size(nyseLevels) > 0
@@ -1474,8 +1456,8 @@ if barstate.islast
                     lowLabelText = str.format("{0} Low {1}", sessionName, str.tostring(l, format.mintick))
                     label_x_position = extendRight ? t + 50 * bar_width_ms : x2_time
                     
-                    array.push(nyseHighLabels, label.new(label_x_position, h, highLabelText, xloc=xloc.bar_time, color=color(na), textcolor=nyseHighColor, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
-                    array.push(nyseLowLabels, label.new(label_x_position, l, lowLabelText, xloc=xloc.bar_time, color=color(na), textcolor=nyseLowColor, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
+                    array.push(nyseHighLabels, label.new(label_x_position, h, highLabelText, xloc=xloc.bar_time, color=color(na), textcolor=globalLabelColor, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
+                    array.push(nyseLowLabels, label.new(label_x_position, l, lowLabelText, xloc=xloc.bar_time, color=color(na), textcolor=globalLabelColor, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
 
         // CME Settlement Levels
         if showCMESettlement and array.size(cmeLevels) > 0
@@ -1496,8 +1478,8 @@ if barstate.islast
                     lowLabelText = str.format("{0} Low {1}", sessionName, str.tostring(l, format.mintick))
                     label_x_position = extendRight ? t + 50 * bar_width_ms : x2_time
                     
-                    array.push(cmeHighLabels, label.new(label_x_position, h, highLabelText, xloc=xloc.bar_time, color=color(na), textcolor=cmeHighColor, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
-                    array.push(cmeLowLabels, label.new(label_x_position, l, lowLabelText, xloc=xloc.bar_time, color=color(na), textcolor=cmeLowColor, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
+                    array.push(cmeHighLabels, label.new(label_x_position, h, highLabelText, xloc=xloc.bar_time, color=color(na), textcolor=globalLabelColor, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
+                    array.push(cmeLowLabels, label.new(label_x_position, l, lowLabelText, xloc=xloc.bar_time, color=color(na), textcolor=globalLabelColor, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
 
         // Globex Roll Levels
         if showGlobexRoll and array.size(globexLevels) > 0
@@ -1518,8 +1500,8 @@ if barstate.islast
                     lowLabelText = str.format("{0} Low {1}", sessionName, str.tostring(l, format.mintick))
                     label_x_position = extendRight ? t + 50 * bar_width_ms : x2_time
                     
-                    array.push(globexHighLabels, label.new(label_x_position, h, highLabelText, xloc=xloc.bar_time, color=color(na), textcolor=globexHighColor, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
-                    array.push(globexLowLabels, label.new(label_x_position, l, lowLabelText, xloc=xloc.bar_time, color=color(na), textcolor=globexLowColor, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
+                    array.push(globexHighLabels, label.new(label_x_position, h, highLabelText, xloc=xloc.bar_time, color=color(na), textcolor=globalLabelColor, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
+                    array.push(globexLowLabels, label.new(label_x_position, l, lowLabelText, xloc=xloc.bar_time, color=color(na), textcolor=globalLabelColor, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
 
         // US Data Release Levels (08:30 EST / 14:30 UTC+2) - CRITICAL GOLD LEVEL
         if showUSDataRelease and array.size(usDataReleaseLevels) > 0
@@ -1540,8 +1522,8 @@ if barstate.islast
                     lowLabelText = str.format("{0} Low {1}", sessionName, str.tostring(l, format.mintick))
                     label_x_position = extendRight ? t + 50 * bar_width_ms : x2_time
                     
-                    array.push(usDataReleaseHighLabels, label.new(label_x_position, h, highLabelText, xloc=xloc.bar_time, color=color(na), textcolor=usDataHighLabelColor, style=label.style_label_right, size=f_size_str_to_const(usDataLabelSize), textalign=text.align_right))
-                    array.push(usDataReleaseLowLabels, label.new(label_x_position, l, lowLabelText, xloc=xloc.bar_time, color=color(na), textcolor=usDataLowLabelColor, style=label.style_label_right, size=f_size_str_to_const(usDataLabelSize), textalign=text.align_right))
+                    array.push(usDataReleaseHighLabels, label.new(label_x_position, h, highLabelText, xloc=xloc.bar_time, color=color(na), textcolor=globalLabelColor, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
+                    array.push(usDataReleaseLowLabels, label.new(label_x_position, l, lowLabelText, xloc=xloc.bar_time, color=color(na), textcolor=globalLabelColor, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
 
         // NYSE Open Levels (09:30 EST / 15:30 UTC+2)
         if showNYSEOpen and array.size(nyseOpenLevels) > 0
@@ -1562,8 +1544,8 @@ if barstate.islast
                     lowLabelText = str.format("{0} Low {1}", sessionName, str.tostring(l, format.mintick))
                     label_x_position = extendRight ? t + 50 * bar_width_ms : x2_time
                     
-                    array.push(nyseOpenHighLabels, label.new(label_x_position, h, highLabelText, xloc=xloc.bar_time, color=color(na), textcolor=nyseOpenHighLabelColor, style=label.style_label_right, size=f_size_str_to_const(nyseOpenLabelSize), textalign=text.align_right))
-                    array.push(nyseOpenLowLabels, label.new(label_x_position, l, lowLabelText, xloc=xloc.bar_time, color=color(na), textcolor=nyseOpenLowLabelColor, style=label.style_label_right, size=f_size_str_to_const(nyseOpenLabelSize), textalign=text.align_right))
+                    array.push(nyseOpenHighLabels, label.new(label_x_position, h, highLabelText, xloc=xloc.bar_time, color=color(na), textcolor=globalLabelColor, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
+                    array.push(nyseOpenLowLabels, label.new(label_x_position, l, lowLabelText, xloc=xloc.bar_time, color=color(na), textcolor=globalLabelColor, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
 
         // Institutional Rebalancing Levels (10:00 EST / 16:00 UTC+2)
         if showInstitutionalRebal and array.size(institutionalRebalLevels) > 0
@@ -1584,8 +1566,8 @@ if barstate.islast
                     lowLabelText = str.format("{0} Low {1}", sessionName, str.tostring(l, format.mintick))
                     label_x_position = extendRight ? t + 50 * bar_width_ms : x2_time
                     
-                    array.push(institutionalRebalHighLabels, label.new(label_x_position, h, highLabelText, xloc=xloc.bar_time, color=color(na), textcolor=instRebalHighLabelColor, style=label.style_label_right, size=f_size_str_to_const(instRebalLabelSize), textalign=text.align_right))
-                    array.push(institutionalRebalLowLabels, label.new(label_x_position, l, lowLabelText, xloc=xloc.bar_time, color=color(na), textcolor=instRebalLowColor, style=label.style_label_right, size=f_size_str_to_const(instRebalLabelSize), textalign=text.align_right))
+                    array.push(institutionalRebalHighLabels, label.new(label_x_position, h, highLabelText, xloc=xloc.bar_time, color=color(na), textcolor=globalLabelColor, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
+                    array.push(institutionalRebalLowLabels, label.new(label_x_position, l, lowLabelText, xloc=xloc.bar_time, color=color(na), textcolor=globalLabelColor, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
 
 if extendRight and (showWednesdays or showWednesdayOpen)
     bar_width_ms = time - nz(time[1], time)
@@ -1637,120 +1619,168 @@ if extendRight and showDailySessions
         for i = 0 to array.size(tokyoHighLines) - 1
             if i < array.size(tokyoHighLines)
                 array.get(tokyoHighLines, i).set_x2(time_close + 50 * bar_width_ms)
+            if labelText and i < array.size(tokyoHighLabels)
+                array.get(tokyoHighLabels, i).set_x(time_close + 50 * bar_width_ms)
     if array.size(tokyoLowLines) > 0
         for i = 0 to array.size(tokyoLowLines) - 1
             if i < array.size(tokyoLowLines)
                 array.get(tokyoLowLines, i).set_x2(time_close + 50 * bar_width_ms)
+            if labelText and i < array.size(tokyoLowLabels)
+                array.get(tokyoLowLabels, i).set_x(time_close + 50 * bar_width_ms)
     
     // Asian Physical Open Lines
     if array.size(asianPhysicalHighLines) > 0
         for i = 0 to array.size(asianPhysicalHighLines) - 1
             if i < array.size(asianPhysicalHighLines)
                 array.get(asianPhysicalHighLines, i).set_x2(time_close + 50 * bar_width_ms)
+            if labelText and i < array.size(asianPhysicalHighLabels)
+                array.get(asianPhysicalHighLabels, i).set_x(time_close + 50 * bar_width_ms)
     if array.size(asianPhysicalLowLines) > 0
         for i = 0 to array.size(asianPhysicalLowLines) - 1
             if i < array.size(asianPhysicalLowLines)
                 array.get(asianPhysicalLowLines, i).set_x2(time_close + 50 * bar_width_ms)
+            if labelText and i < array.size(asianPhysicalLowLabels)
+                array.get(asianPhysicalLowLabels, i).set_x(time_close + 50 * bar_width_ms)
     
     // London Pre-Open Lines
     if array.size(londonPreHighLines) > 0
         for i = 0 to array.size(londonPreHighLines) - 1
             if i < array.size(londonPreHighLines)
                 array.get(londonPreHighLines, i).set_x2(time_close + 50 * bar_width_ms)
+            if labelText and i < array.size(londonPreHighLabels)
+                array.get(londonPreHighLabels, i).set_x(time_close + 50 * bar_width_ms)
     if array.size(londonPreLowLines) > 0
         for i = 0 to array.size(londonPreLowLines) - 1
             if i < array.size(londonPreLowLines)
                 array.get(londonPreLowLines, i).set_x2(time_close + 50 * bar_width_ms)
+            if labelText and i < array.size(londonPreLowLabels)
+                array.get(londonPreLowLabels, i).set_x(time_close + 50 * bar_width_ms)
     
     // London Gold Fix Morning Lines
     if array.size(londonGoldMornHighLines) > 0
         for i = 0 to array.size(londonGoldMornHighLines) - 1
             if i < array.size(londonGoldMornHighLines)
                 array.get(londonGoldMornHighLines, i).set_x2(time_close + 50 * bar_width_ms)
+            if labelText and i < array.size(londonGoldMornHighLabels)
+                array.get(londonGoldMornHighLabels, i).set_x(time_close + 50 * bar_width_ms)
     if array.size(londonGoldMornLowLines) > 0
         for i = 0 to array.size(londonGoldMornLowLines) - 1
             if i < array.size(londonGoldMornLowLines)
                 array.get(londonGoldMornLowLines, i).set_x2(time_close + 50 * bar_width_ms)
+            if labelText and i < array.size(londonGoldMornLowLabels)
+                array.get(londonGoldMornLowLabels, i).set_x(time_close + 50 * bar_width_ms)
     
     // London Morning Fix Lines
     if array.size(londonMornHighLines) > 0
         for i = 0 to array.size(londonMornHighLines) - 1
             if i < array.size(londonMornHighLines)
                 array.get(londonMornHighLines, i).set_x2(time_close + 50 * bar_width_ms)
+            if labelText and i < array.size(londonMornHighLabels)
+                array.get(londonMornHighLabels, i).set_x(time_close + 50 * bar_width_ms)
     if array.size(londonMornLowLines) > 0
         for i = 0 to array.size(londonMornLowLines) - 1
             if i < array.size(londonMornLowLines)
                 array.get(londonMornLowLines, i).set_x2(time_close + 50 * bar_width_ms)
+            if labelText and i < array.size(londonMornLowLabels)
+                array.get(londonMornLowLabels, i).set_x(time_close + 50 * bar_width_ms)
     
     // London Afternoon Fix Lines
     if array.size(londonAftHighLines) > 0
         for i = 0 to array.size(londonAftHighLines) - 1
             if i < array.size(londonAftHighLines)
                 array.get(londonAftHighLines, i).set_x2(time_close + 50 * bar_width_ms)
+            if labelText and i < array.size(londonAftHighLabels)
+                array.get(londonAftHighLabels, i).set_x(time_close + 50 * bar_width_ms)
     if array.size(londonAftLowLines) > 0
         for i = 0 to array.size(londonAftLowLines) - 1
             if i < array.size(londonAftLowLines)
                 array.get(londonAftLowLines, i).set_x2(time_close + 50 * bar_width_ms)
+            if labelText and i < array.size(londonAftLowLabels)
+                array.get(londonAftLowLabels, i).set_x(time_close + 50 * bar_width_ms)
     
     // NYSE Close Lines
     if array.size(nyseHighLines) > 0
         for i = 0 to array.size(nyseHighLines) - 1
             if i < array.size(nyseHighLines)
                 array.get(nyseHighLines, i).set_x2(time_close + 50 * bar_width_ms)
+            if labelText and i < array.size(nyseHighLabels)
+                array.get(nyseHighLabels, i).set_x(time_close + 50 * bar_width_ms)
     if array.size(nyseLowLines) > 0
         for i = 0 to array.size(nyseLowLines) - 1
             if i < array.size(nyseLowLines)
                 array.get(nyseLowLines, i).set_x2(time_close + 50 * bar_width_ms)
+            if labelText and i < array.size(nyseLowLabels)
+                array.get(nyseLowLabels, i).set_x(time_close + 50 * bar_width_ms)
     
     // CME Settlement Lines
     if array.size(cmeHighLines) > 0
         for i = 0 to array.size(cmeHighLines) - 1
             if i < array.size(cmeHighLines)
                 array.get(cmeHighLines, i).set_x2(time_close + 50 * bar_width_ms)
+            if labelText and i < array.size(cmeHighLabels)
+                array.get(cmeHighLabels, i).set_x(time_close + 50 * bar_width_ms)
     if array.size(cmeLowLines) > 0
         for i = 0 to array.size(cmeLowLines) - 1
             if i < array.size(cmeLowLines)
                 array.get(cmeLowLines, i).set_x2(time_close + 50 * bar_width_ms)
+            if labelText and i < array.size(cmeLowLabels)
+                array.get(cmeLowLabels, i).set_x(time_close + 50 * bar_width_ms)
     
     // Globex Roll Lines
     if array.size(globexHighLines) > 0
         for i = 0 to array.size(globexHighLines) - 1
             if i < array.size(globexHighLines)
                 array.get(globexHighLines, i).set_x2(time_close + 50 * bar_width_ms)
+            if labelText and i < array.size(globexHighLabels)
+                array.get(globexHighLabels, i).set_x(time_close + 50 * bar_width_ms)
     if array.size(globexLowLines) > 0
         for i = 0 to array.size(globexLowLines) - 1
             if i < array.size(globexLowLines)
                 array.get(globexLowLines, i).set_x2(time_close + 50 * bar_width_ms)
+            if labelText and i < array.size(globexLowLabels)
+                array.get(globexLowLabels, i).set_x(time_close + 50 * bar_width_ms)
     
     // US Data Release Lines (08:30 EST / 14:30 UTC+2) - CRITICAL GOLD LEVEL
     if array.size(usDataReleaseHighLines) > 0
         for i = 0 to array.size(usDataReleaseHighLines) - 1
             if i < array.size(usDataReleaseHighLines)
                 array.get(usDataReleaseHighLines, i).set_x2(time_close + 50 * bar_width_ms)
+            if labelText and i < array.size(usDataReleaseHighLabels)
+                array.get(usDataReleaseHighLabels, i).set_x(time_close + 50 * bar_width_ms)
     if array.size(usDataReleaseLowLines) > 0
         for i = 0 to array.size(usDataReleaseLowLines) - 1
             if i < array.size(usDataReleaseLowLines)
                 array.get(usDataReleaseLowLines, i).set_x2(time_close + 50 * bar_width_ms)
+            if labelText and i < array.size(usDataReleaseLowLabels)
+                array.get(usDataReleaseLowLabels, i).set_x(time_close + 50 * bar_width_ms)
     
     // NYSE Open Lines (09:30 EST / 15:30 UTC+2)
     if array.size(nyseOpenHighLines) > 0
         for i = 0 to array.size(nyseOpenHighLines) - 1
             if i < array.size(nyseOpenHighLines)
                 array.get(nyseOpenHighLines, i).set_x2(time_close + 50 * bar_width_ms)
+            if labelText and i < array.size(nyseOpenHighLabels)
+                array.get(nyseOpenHighLabels, i).set_x(time_close + 50 * bar_width_ms)
     if array.size(nyseOpenLowLines) > 0
         for i = 0 to array.size(nyseOpenLowLines) - 1
             if i < array.size(nyseOpenLowLines)
                 array.get(nyseOpenLowLines, i).set_x2(time_close + 50 * bar_width_ms)
+            if labelText and i < array.size(nyseOpenLowLabels)
+                array.get(nyseOpenLowLabels, i).set_x(time_close + 50 * bar_width_ms)
     
     // Institutional Rebalancing Lines (10:00 EST / 16:00 UTC+2)
     if array.size(institutionalRebalHighLines) > 0
         for i = 0 to array.size(institutionalRebalHighLines) - 1
             if i < array.size(institutionalRebalHighLines)
                 array.get(institutionalRebalHighLines, i).set_x2(time_close + 50 * bar_width_ms)
+            if labelText and i < array.size(institutionalRebalHighLabels)
+                array.get(institutionalRebalHighLabels, i).set_x(time_close + 50 * bar_width_ms)
     if array.size(institutionalRebalLowLines) > 0
         for i = 0 to array.size(institutionalRebalLowLines) - 1
             if i < array.size(institutionalRebalLowLines)
                 array.get(institutionalRebalLowLines, i).set_x2(time_close + 50 * bar_width_ms)
+            if labelText and i < array.size(institutionalRebalLowLabels)
+                array.get(institutionalRebalLowLabels, i).set_x(time_close + 50 * bar_width_ms)
 
 // ───── PLAYBOOK MODE LOGIC ────────────────────────────────────────────────────
 if enablePlaybookMode

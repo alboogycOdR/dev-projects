@@ -1,0 +1,730 @@
+//@version=5
+indicator("ICT State Machine v3.1 [Configurable Sequential Entry]", overlay=true, max_labels_count=500, max_boxes_count=500)
+
+// ════════════════════════════════════════════════════════════════════════════
+// STATE MACHINE DEFINITIONS
+// ════════════════════════════════════════════════════════════════════════════
+
+// State Constants
+STATE_AWAITING_BIAS = 0
+STATE_AWAITING_MANIPULATION = 1  
+STATE_AWAITING_MACRO = 2
+STATE_AWAITING_SWEEP = 3
+STATE_AWAITING_MSS = 4
+STATE_AWAITING_CISD = 5
+STATE_AWAITING_FVG = 6
+STATE_AWAITING_RETRACEMENT = 7
+STATE_READY_FOR_ENTRY = 8
+STATE_IN_POSITION = 9
+STATE_RESET = -1
+
+// ════════════════════════════════════════════════════════════════════════════
+// INPUTS - STATE CONFIGURATION
+// ════════════════════════════════════════════════════════════════════════════
+
+// State Enable/Disable Controls
+enableAsianRange = input.bool(true, "1. Require Asian Range", group="State Configuration")
+enableManipulation = input.bool(true, "2. Require Manipulation", group="State Configuration")
+enableMacro = input.bool(true, "3. Require Macro Window", group="State Configuration")
+enableSweep = input.bool(true, "4. Require Liquidity Sweep", group="State Configuration")
+enableMSS = input.bool(true, "5. Require Market Structure Shift", group="State Configuration")
+enableCISD = input.bool(true, "6. Require CISD", group="State Configuration")
+enableFVG = input.bool(true, "7. Require Fair Value Gap", group="State Configuration")
+enableRetracement = input.bool(true, "8. Require Retracement to FVG", group="State Configuration")
+
+// Quick Presets
+preset = input.string("Custom", "Quick Presets",     options=["Custom", "Full Sequence (All 8)", "Minimal (Sweep+FVG)", "No CISD/MSS", "Macro+Sweep Only"],     group="State Configuration")
+
+// Display
+showStateFlow = input.bool(true, "Show State Flow Labels", group="Display")
+showStateTable = input.bool(true, "Show State Dashboard", group="Display")
+showEntryZones = input.bool(true, "Show Entry Zones", group="Display")
+showDebugInfo = input.bool(false, "Show Debug Info", group="Display")
+showSkippedStates = input.bool(true, "Show Skipped States", group="Display")
+showHistoricEvents = input.bool(false, "Show Historic Events (Last 7 Days)", group="Display")
+
+// Sessions
+asianSession = input.session("1900-0200", "Asian Session", group="Sessions")
+londonSession = input.session("0200-0700", "London Session", group="Sessions")
+nySession = input.session("0700-1200", "NY Session", group="Sessions")
+
+// Macros
+macro1 = input.session("0850-0910", "NY Pre-Open Macro (8:50-9:10)", group="Macros")
+enableMacro1 = input.bool(true, "└─ Enable Pre-Open Macro", group="Macros")
+macro2 = input.session("0950-1010", "NY Continuation Macro (9:50-10:10)", group="Macros")
+enableMacro2 = input.bool(true, "└─ Enable Continuation Macro", group="Macros")
+macro3 = input.session("1050-1110", "NY Close Macro (10:50-11:10)", group="Macros")
+enableMacro3 = input.bool(true, "└─ Enable Close Macro", group="Macros")
+
+// State Parameters
+minAsianRange = input.float(0.2, "Min Asian Range %", minval=0.1, maxval=1.0, group="State Settings")
+sweepTimeout = input.int(10, "Sweep Timeout (bars after macro)", minval=5, maxval=20, group="State Settings")
+mssTimeout = input.int(5, "MSS Timeout (bars after sweep)", minval=3, maxval=10, group="State Settings")
+cisdMinCandles = input.int(3, "Min CISD Candles", minval=2, maxval=5, group="State Settings")
+fvgMinSize = input.float(0.1, "Min FVG Size (% of ATR)", minval=0.05, maxval=0.5, group="State Settings")
+retracementTimeout = input.int(20, "Retracement Timeout (bars)", minval=10, maxval=50, group="State Settings")
+
+// Risk Management
+riskPercent = input.float(1.0, "Risk Per Trade %", minval=0.1, maxval=5.0, group="Risk")
+accountBalance = input.float(10000, "Account Balance", minval=100, group="Risk")
+
+// ════════════════════════════════════════════════════════════════════════════
+// PRESET MANAGEMENT
+// ════════════════════════════════════════════════════════════════════════════
+
+// Apply presets (these override individual settings)
+reqAsianRange = preset == "Full Sequence (All 8)" ? true :                 preset == "Minimal (Sweep+FVG)" ? false :                preset == "No CISD/MSS" ? true :                preset == "Macro+Sweep Only" ? false : enableAsianRange
+
+reqManipulation = preset == "Full Sequence (All 8)" ? true : preset == "Minimal (Sweep+FVG)" ? false : preset == "No CISD/MSS" ? true : preset == "Macro+Sweep Only" ? false : enableManipulation
+
+reqMacro = preset == "Full Sequence (All 8)" ? true : preset == "Minimal (Sweep+FVG)" ? false : preset == "No CISD/MSS" ? true : preset == "Macro+Sweep Only" ? true : enableMacro
+
+reqSweep = preset == "Full Sequence (All 8)" ? true : preset == "Minimal (Sweep+FVG)" ? true : preset == "No CISD/MSS" ? true : preset == "Macro+Sweep Only" ? true : enableSweep
+
+reqMSS = preset == "Full Sequence (All 8)" ? true :        preset == "Minimal (Sweep+FVG)" ? false :        preset == "No CISD/MSS" ? false :        preset == "Macro+Sweep Only" ? false : enableMSS
+
+reqCISD = preset == "Full Sequence (All 8)" ? true : preset == "Minimal (Sweep+FVG)" ? false : preset == "No CISD/MSS" ? false : preset == "Macro+Sweep Only" ? false : enableCISD
+
+reqFVG = preset == "Full Sequence (All 8)" ? true :        preset == "Minimal (Sweep+FVG)" ? true :        preset == "No CISD/MSS" ? true :        preset == "Macro+Sweep Only" ? false : enableFVG
+
+reqRetracement = preset == "Full Sequence (All 8)" ? true :                preset == "Minimal (Sweep+FVG)" ? false :                preset == "No CISD/MSS" ? true :                preset == "Macro+Sweep Only" ? false : enableRetracement
+
+// ════════════════════════════════════════════════════════════════════════════
+// STATE VARIABLES
+// ════════════════════════════════════════════════════════════════════════════
+
+// Core State Machine
+var int currentState = STATE_AWAITING_BIAS
+var int previousState = STATE_AWAITING_BIAS
+var string biasDirection = "NEUTRAL"
+var bool sequenceComplete = false
+var int stateTimer = 0
+var int barsInState = 0
+var string[] skippedStates = array.new<string>()
+
+// State-Specific Data
+var float asianHigh = na
+var float asianLow = na
+var float asianRange = na
+var float manipulationLevel = na
+var string manipulationType = ""
+var float sweepLevel = na
+var int sweepBarIndex = na
+var float mssLevel = na
+var int mssBarIndex = na
+var bool cisdActive = false
+var int cisdCandles = 0
+var float fvgHigh = na
+var float fvgLow = na
+var float fvgCE = na
+var int fvgBarIndex = na
+var float entryPrice = na
+var float stopLoss = na
+var float takeProfit1 = na
+var float takeProfit2 = na
+
+// Visual Elements
+var box asianBox = na
+var line manipulationLine = na
+var line sweepLine = na
+var line mssLine = na
+var box fvgBox = na
+var label stateLabel = na
+
+// ════════════════════════════════════════════════════════════════════════════
+// HELPER FUNCTIONS
+// ════════════════════════════════════════════════════════════════════════════
+
+// Function to get next enabled state
+getNextState(int fromState) =>
+    nextState = fromState
+    
+    // Define the normal sequence
+    if fromState == STATE_AWAITING_BIAS
+        nextState := reqManipulation ? STATE_AWAITING_MANIPULATION : reqMacro ? STATE_AWAITING_MACRO : reqSweep ? STATE_AWAITING_SWEEP : reqMSS ? STATE_AWAITING_MSS : reqCISD ? STATE_AWAITING_CISD : reqFVG ? STATE_AWAITING_FVG : reqRetracement ? STATE_AWAITING_RETRACEMENT : STATE_READY_FOR_ENTRY
+                    
+    else if fromState == STATE_AWAITING_MANIPULATION
+        nextState := reqMacro ? STATE_AWAITING_MACRO : reqSweep ? STATE_AWAITING_SWEEP : reqMSS ? STATE_AWAITING_MSS : reqCISD ? STATE_AWAITING_CISD : reqFVG ? STATE_AWAITING_FVG : reqRetracement ? STATE_AWAITING_RETRACEMENT : STATE_READY_FOR_ENTRY
+                    
+    else if fromState == STATE_AWAITING_MACRO
+        nextState := reqSweep ? STATE_AWAITING_SWEEP : reqMSS ? STATE_AWAITING_MSS : reqCISD ? STATE_AWAITING_CISD : reqFVG ? STATE_AWAITING_FVG : reqRetracement ? STATE_AWAITING_RETRACEMENT : STATE_READY_FOR_ENTRY
+                    
+    else if fromState == STATE_AWAITING_SWEEP
+        nextState := reqMSS ? STATE_AWAITING_MSS : reqCISD ? STATE_AWAITING_CISD : reqFVG ? STATE_AWAITING_FVG : reqRetracement ? STATE_AWAITING_RETRACEMENT : STATE_READY_FOR_ENTRY
+                    
+    else if fromState == STATE_AWAITING_MSS
+        nextState := reqCISD ? STATE_AWAITING_CISD : reqFVG ? STATE_AWAITING_FVG : reqRetracement ? STATE_AWAITING_RETRACEMENT : STATE_READY_FOR_ENTRY
+                    
+    else if fromState == STATE_AWAITING_CISD
+        nextState := reqFVG ? STATE_AWAITING_FVG : reqRetracement ? STATE_AWAITING_RETRACEMENT : STATE_READY_FOR_ENTRY
+                    
+    else if fromState == STATE_AWAITING_FVG
+        nextState := reqRetracement ? STATE_AWAITING_RETRACEMENT : STATE_READY_FOR_ENTRY
+                    
+    else if fromState == STATE_AWAITING_RETRACEMENT
+        nextState := STATE_READY_FOR_ENTRY
+        
+    else if fromState == STATE_READY_FOR_ENTRY
+        nextState := STATE_IN_POSITION
+    
+    nextState
+
+// Record skipped states for display
+recordSkippedStates(int fromState, int toState) =>
+    if showSkippedStates
+        // List all states between from and to that were skipped
+        if fromState == STATE_AWAITING_BIAS and toState > STATE_AWAITING_MANIPULATION and not reqManipulation
+            array.push(skippedStates, "Manipulation")
+        if toState > STATE_AWAITING_MACRO and not reqMacro
+            array.push(skippedStates, "Macro")
+        if toState > STATE_AWAITING_SWEEP and not reqSweep
+            array.push(skippedStates, "Sweep")
+        if toState > STATE_AWAITING_MSS and not reqMSS
+            array.push(skippedStates, "MSS")
+        if toState > STATE_AWAITING_CISD and not reqCISD
+            array.push(skippedStates, "CISD")
+        if toState > STATE_AWAITING_FVG and not reqFVG
+            array.push(skippedStates, "FVG")
+        if toState > STATE_AWAITING_RETRACEMENT and not reqRetracement
+            array.push(skippedStates, "Retracement")
+
+// Check if visual elements should be displayed (current day or last 7 days if historic enabled)
+shouldShowVisuals() =>
+    sevenDaysAgo = timestamp(year, month, dayofmonth, 0, 0) - 7 * 24 * 60 * 60 * 1000
+    isCurrentDay = dayofmonth == dayofmonth(timenow) and month == month(timenow) and year == year(timenow)
+    isWithinLast7Days = time >= sevenDaysAgo
+    isCurrentDay or (showHistoricEvents and isWithinLast7Days)
+
+// ════════════════════════════════════════════════════════════════════════════
+// SESSION DETECTION (New York Time - EST/EDT)
+// ════════════════════════════════════════════════════════════════════════════
+
+inAsian = not na(time(timeframe.period, asianSession, "America/New_York"))
+inLondon = not na(time(timeframe.period, londonSession, "America/New_York"))
+inNY = not na(time(timeframe.period, nySession, "America/New_York"))
+
+inMacro1 = enableMacro1 and not na(time(timeframe.period, macro1, "America/New_York"))
+inMacro2 = enableMacro2 and not na(time(timeframe.period, macro2, "America/New_York"))
+inMacro3 = enableMacro3 and not na(time(timeframe.period, macro3, "America/New_York"))
+isInMacro = inMacro1 or inMacro2 or inMacro3
+
+getCurrentMacro() =>
+    if inMacro1
+        "Pre-Open"
+    else if inMacro2
+        "Continuation"
+    else if inMacro3
+        "Close"
+    else
+        "None"
+
+// ════════════════════════════════════════════════════════════════════════════
+// STATE MACHINE EXECUTION
+// ════════════════════════════════════════════════════════════════════════════
+
+// Track state changes
+if currentState != previousState
+    barsInState := 0
+    previousState := currentState
+else
+    barsInState += 1
+
+// STATE 1: ASIAN RANGE ESTABLISHMENT
+if currentState == STATE_AWAITING_BIAS
+    if reqAsianRange
+        if inAsian
+            if na(asianHigh) or high > asianHigh
+                asianHigh := high
+            if na(asianLow) or low < asianLow
+                asianLow := low
+            asianRange := asianHigh - asianLow
+            
+        // Asian session complete
+        else if not inAsian and inAsian[1]
+            rangePercent = asianRange / close * 100
+            if rangePercent >= minAsianRange
+                nextState = getNextState(STATE_AWAITING_BIAS)
+                recordSkippedStates(STATE_AWAITING_BIAS, nextState)
+                currentState := nextState
+                if showStateFlow and shouldShowVisuals()
+                    label.new(bar_index, asianHigh, "→ Asian Range Set\nNext: " + str.tostring(nextState), style=label.style_label_down, color=color.blue, size=size.small)
+    else
+        // Skip Asian Range requirement - set default bias
+        biasDirection := "NEUTRAL"
+        nextState = getNextState(STATE_AWAITING_BIAS)
+        currentState := nextState
+        array.push(skippedStates, "Asian Range")
+
+// STATE 2: MANIPULATION DETECTION
+if currentState == STATE_AWAITING_MANIPULATION
+    if inLondon
+        // If Asian Range was skipped, use current session high/low
+        refHigh = reqAsianRange ? asianHigh : ta.highest(high, 50)
+        refLow = reqAsianRange ? asianLow : ta.lowest(low, 50)
+        
+        // Check for manipulation
+        if high > refHigh
+            manipulationLevel := high
+            manipulationType := "UP"
+            biasDirection := "BEARISH"  // Expect opposite in NY
+            nextState = getNextState(STATE_AWAITING_MANIPULATION)
+            currentState := nextState
+            if showStateFlow and shouldShowVisuals()
+                label.new(bar_index, manipulationLevel, "→ Manipulation UP\nBias: BEARISH", style=label.style_label_down, color=color.yellow, size=size.small)
+                        
+        else if low < refLow
+            manipulationLevel := low
+            manipulationType := "DOWN"
+            biasDirection := "BULLISH"  // Expect opposite in NY
+            nextState = getNextState(STATE_AWAITING_MANIPULATION)
+            currentState := nextState
+            if showStateFlow and shouldShowVisuals()
+                label.new(bar_index, manipulationLevel, "→ Manipulation DOWN\nBias: BULLISH", style=label.style_label_up, color=color.yellow, size=size.small)
+
+// STATE 3: MACRO ACTIVATION
+if currentState == STATE_AWAITING_MACRO
+    if inNY and isInMacro
+        nextState = getNextState(STATE_AWAITING_MACRO)
+        currentState := nextState
+        stateTimer := 0
+        if showStateFlow and shouldShowVisuals()
+            label.new(bar_index, high, "→ Macro Active: " + getCurrentMacro(), style=label.style_label_down, color=color.purple, size=size.small)
+    else if not reqMacro
+        // If macro not required, can proceed anytime
+        nextState = getNextState(STATE_AWAITING_MACRO)
+        currentState := nextState
+
+// STATE 4: LIQUIDITY SWEEP
+if currentState == STATE_AWAITING_SWEEP
+    stateTimer += 1
+    
+    // Determine reference levels
+    refLevel = na(manipulationLevel) ? (biasDirection == "BULLISH" ? ta.lowest(low, 20) : ta.highest(high, 20)) : manipulationLevel
+    
+    sweepDetected = false
+    
+    if biasDirection == "BULLISH" or biasDirection == "NEUTRAL"
+        if low < refLevel and close > refLevel
+            sweepLevel := low
+            sweepBarIndex := bar_index
+            sweepDetected := true
+            biasDirection := "BULLISH"  // Confirm bias if was neutral
+            
+    if biasDirection == "BEARISH" or biasDirection == "NEUTRAL"
+        if high > refLevel and close < refLevel
+            sweepLevel := high
+            sweepBarIndex := bar_index
+            sweepDetected := true
+            biasDirection := "BEARISH"  // Confirm bias if was neutral
+    
+    if sweepDetected
+        nextState = getNextState(STATE_AWAITING_SWEEP)
+        currentState := nextState
+        stateTimer := 0
+        if showStateFlow and shouldShowVisuals()
+            label.new(bar_index, sweepLevel, "→ Sweep Detected", style=label.style_label_center, color=color.red, size=size.small)
+    
+    // Timeout check (only if macro is required)
+    else if reqMacro and stateTimer > sweepTimeout
+        currentState := STATE_RESET
+
+// STATE 5: MARKET STRUCTURE SHIFT
+if currentState == STATE_AWAITING_MSS
+    stateTimer += 1
+    
+    mssDetected = false
+    
+    if biasDirection == "BULLISH"
+        recentHigh = ta.highest(high[1], 10)
+        if close > recentHigh
+            mssLevel := recentHigh
+            mssBarIndex := bar_index
+            mssDetected := true
+            
+    else if biasDirection == "BEARISH"
+        recentLow = ta.lowest(low[1], 10)
+        if close < recentLow
+            mssLevel := recentLow
+            mssBarIndex := bar_index
+            mssDetected := true
+    
+    if mssDetected
+        nextState = getNextState(STATE_AWAITING_MSS)
+        currentState := nextState
+        stateTimer := 0
+        if showStateFlow and shouldShowVisuals()
+            label.new(bar_index, mssLevel, "→ MSS Confirmed", style=label.style_label_center, color=color.green, size=size.small)
+    
+    else if stateTimer > mssTimeout
+        currentState := STATE_RESET
+
+// STATE 6: CISD DETECTION - Helper Function
+detectCISD() =>
+    bodies = array.new<float>()
+    allBullish = true
+    allBearish = true
+    
+    for i = 0 to cisdMinCandles - 1
+        body = math.abs(close[i] - open[i])
+        array.push(bodies, body)
+        if close[i] <= open[i]
+            allBullish := false
+        if close[i] >= open[i]
+            allBearish := false
+    
+    avgBody = array.avg(bodies)
+    maxVariance = 0.0
+    
+    for i = 0 to array.size(bodies) - 1
+        bodySize = array.get(bodies, i)
+        variance = math.abs(bodySize - avgBody) / avgBody * 100
+        maxVariance := math.max(maxVariance, variance)
+    
+    isConsistent = maxVariance < 20
+    isAligned = (biasDirection == "BULLISH" and allBullish) or (biasDirection == "BEARISH" and allBearish)
+    
+    isConsistent and isAligned
+
+// STATE 6: CISD Handler
+if currentState == STATE_AWAITING_CISD
+    if detectCISD()
+        cisdActive := true
+        cisdCandles := cisdMinCandles
+        nextState = getNextState(STATE_AWAITING_CISD)
+        currentState := nextState
+        if showStateFlow and shouldShowVisuals()
+            label.new(bar_index, close, "→ CISD Active (" + str.tostring(cisdCandles) + " candles)", style=label.style_label_center, color=color.purple, size=size.small)
+
+// STATE 7: FAIR VALUE GAP
+if currentState == STATE_AWAITING_FVG
+    atr = ta.atr(14)
+    minGap = atr * fvgMinSize / 100
+    
+    fvgDetected = false
+    
+    if biasDirection == "BULLISH" and low > high[2] and (low - high[2]) > minGap
+        fvgHigh := low
+        fvgLow := high[2]
+        fvgCE := (fvgHigh + fvgLow) / 2
+        fvgBarIndex := bar_index
+        fvgDetected := true
+        
+    else if biasDirection == "BEARISH" and high < low[2] and (low[2] - high) > minGap
+        fvgHigh := low[2]
+        fvgLow := high
+        fvgCE := (fvgHigh + fvgLow) / 2
+        fvgBarIndex := bar_index
+        fvgDetected := true
+    
+    if fvgDetected
+        nextState = getNextState(STATE_AWAITING_FVG)
+        currentState := nextState
+        stateTimer := 0
+        if showStateFlow and shouldShowVisuals()
+            label.new(bar_index, fvgCE, "→ FVG Created", style=label.style_label_center, color=color.orange, size=size.small)
+        
+        // Draw FVG box
+        if showEntryZones and shouldShowVisuals()
+            box.delete(fvgBox)
+            fvgBox := box.new(bar_index, fvgHigh, bar_index + 50, fvgLow, bgcolor=biasDirection == "BULLISH" ? color.new(color.green, 90) : color.new(color.red, 90), border_color=biasDirection == "BULLISH" ? color.green : color.red)
+
+// STATE 8: RETRACEMENT
+if currentState == STATE_AWAITING_RETRACEMENT
+    stateTimer += 1
+    
+    // If no FVG was created (because it was disabled), use sweep level
+    entryZoneHigh = reqFVG ? fvgHigh : sweepLevel
+    entryZoneLow = reqFVG ? fvgLow : sweepLevel
+    
+    retracementDetected = false
+    
+    if biasDirection == "BULLISH"
+        if reqFVG
+            if low <= entryZoneHigh and low >= entryZoneLow
+                retracementDetected := true
+        else
+            // Without FVG, just need a pullback
+            if low < high[1]
+                retracementDetected := true
+        entryPrice := close
+            
+    else if biasDirection == "BEARISH"
+        if reqFVG
+            if high >= entryZoneLow and high <= entryZoneHigh
+                retracementDetected := true
+        else
+            // Without FVG, just need a pullback
+            if high > low[1]
+                retracementDetected := true
+        entryPrice := close
+    
+    if retracementDetected
+        currentState := STATE_READY_FOR_ENTRY
+        if showStateFlow and shouldShowVisuals()
+            label.new(bar_index, entryPrice, "→ Retracement Complete", style=label.style_label_center, color=color.blue, size=size.small)
+    
+    else if stateTimer > retracementTimeout
+        currentState := STATE_RESET
+
+// STATE 9: ENTRY EXECUTION
+if currentState == STATE_READY_FOR_ENTRY
+    // Calculate risk levels
+    atr = ta.atr(14)
+    
+    // Determine stop level based on what's available
+    stopRef = not na(sweepLevel) ? sweepLevel : not na(manipulationLevel) ? manipulationLevel : biasDirection == "BULLISH" ? ta.lowest(low, 20) : ta.highest(high, 20)
+    
+    if biasDirection == "BULLISH"
+        stopLoss := stopRef - atr * 0.2
+        stopDistance = entryPrice - stopLoss
+        takeProfit1 := entryPrice + stopDistance * 1.5
+        takeProfit2 := entryPrice + stopDistance * 2.0
+        
+        // Entry signal with configuration info
+        activeStates = ""
+        if reqAsianRange
+            activeStates += "✓Asian "
+        if reqManipulation
+            activeStates += "✓Manip "
+        if reqMacro
+            activeStates += "✓Macro "
+        if reqSweep
+            activeStates += "✓Sweep "
+        if reqMSS
+            activeStates += "✓MSS "
+        if reqCISD
+            activeStates += "✓CISD "
+        if reqFVG
+            activeStates += "✓FVG "
+        if reqRetracement
+            activeStates += "✓Retrace"
+        
+        if shouldShowVisuals()
+            label.new(bar_index, entryPrice, "▲ BUY ENTRY\n" + getCurrentMacro() + "\nConfig: " + activeStates, style=label.style_label_up, color=color.green, textcolor=color.white, size=size.normal)
+        
+    else if biasDirection == "BEARISH"
+        stopLoss := stopRef + atr * 0.2
+        stopDistance = stopLoss - entryPrice
+        takeProfit1 := entryPrice - stopDistance * 1.5
+        takeProfit2 := entryPrice - stopDistance * 2.0
+        
+        // Entry signal with configuration info
+        activeStates = ""
+        if reqAsianRange
+            activeStates += "✓Asian "
+        if reqManipulation
+            activeStates += "✓Manip "
+        if reqMacro
+            activeStates += "✓Macro "
+        if reqSweep
+            activeStates += "✓Sweep "
+        if reqMSS
+            activeStates += "✓MSS "
+        if reqCISD
+            activeStates += "✓CISD "
+        if reqFVG
+            activeStates += "✓FVG "
+        if reqRetracement
+            activeStates += "✓Retrace"
+            
+        if shouldShowVisuals()
+            label.new(bar_index, entryPrice, "▼ SELL ENTRY\n" + getCurrentMacro() + "\nConfig: " + activeStates, style=label.style_label_down, color=color.red, textcolor=color.white, size=size.normal)
+    
+    // Draw risk levels
+    if showEntryZones and shouldShowVisuals()
+        line.new(bar_index, entryPrice, bar_index + 50, entryPrice, color=color.blue, width=2)
+        line.new(bar_index, stopLoss, bar_index + 50, stopLoss, color=color.red, width=2)
+        line.new(bar_index, takeProfit1, bar_index + 50, takeProfit1, color=color.green, width=1)
+        line.new(bar_index, takeProfit2, bar_index + 50, takeProfit2, color=color.green, width=1)
+    
+    currentState := STATE_IN_POSITION
+    sequenceComplete := true
+    
+    alert("ICT Entry | " + biasDirection + " | Entry: " + str.tostring(entryPrice) + " | Config: " + preset, alert.freq_once_per_bar)
+
+// STATE RESET HANDLER
+resetReason = ""
+
+// Check various reset conditions
+if currentState == STATE_AWAITING_SWEEP and reqMacro and stateTimer > sweepTimeout
+    resetReason := "Sweep timeout"
+else if currentState == STATE_AWAITING_MSS and stateTimer > mssTimeout
+    resetReason := "MSS timeout"
+else if currentState == STATE_AWAITING_RETRACEMENT and stateTimer > retracementTimeout
+    resetReason := "Retracement timeout"
+else if reqMacro and not isInMacro and currentState >= STATE_AWAITING_SWEEP and currentState < STATE_IN_POSITION
+    resetReason := "Macro ended"
+else if hour == 19 and minute == 0  // New day reset
+    resetReason := "New trading day"
+
+if resetReason != ""
+    if showDebugInfo and shouldShowVisuals()
+        label.new(bar_index, high, "⟲ RESET: " + resetReason, style=label.style_label_down, color=color.gray, size=size.small)
+    
+    // Reset all state variables
+    currentState := STATE_AWAITING_BIAS
+    biasDirection := "NEUTRAL"
+    asianHigh := na
+    asianLow := na
+    manipulationLevel := na
+    sweepLevel := na
+    mssLevel := na
+    cisdActive := false
+    fvgHigh := na
+    fvgLow := na
+    sequenceComplete := false
+    stateTimer := 0
+    array.clear(skippedStates)
+    
+    // Clean up visual elements
+    box.delete(asianBox)
+    box.delete(fvgBox)
+    line.delete(manipulationLine)
+
+// ════════════════════════════════════════════════════════════════════════════
+// VISUAL STATE INDICATORS
+// ════════════════════════════════════════════════════════════════════════════
+
+// Session backgrounds
+bgcolor(inAsian ? color.new(color.blue, 96) : na, title="Asian Session")
+bgcolor(inLondon ? color.new(color.yellow, 96) : na, title="London Session")
+bgcolor(inNY ? color.new(color.orange, 96) : na, title="NY Session")
+bgcolor(isInMacro ? color.new(color.purple, 92) : na, title="Macro Window")
+
+// Key levels (only show if states are enabled)
+plot(reqAsianRange and not na(asianHigh) ? asianHigh : na, "Asian High", color=color.blue, style=plot.style_linebr)
+plot(reqAsianRange and not na(asianLow) ? asianLow : na, "Asian Low", color=color.blue, style=plot.style_linebr)
+plot(reqManipulation and not na(manipulationLevel) ? manipulationLevel : na, "Manipulation", color=color.purple, style=plot.style_cross)
+plot(reqSweep and not na(sweepLevel) ? sweepLevel : na, "Sweep Level", color=color.red, style=plot.style_circles)
+plot(reqMSS and not na(mssLevel) ? mssLevel : na, "MSS Level", color=color.green, style=plot.style_circles)
+
+// ════════════════════════════════════════════════════════════════════════════
+// STATE DASHBOARD
+// ════════════════════════════════════════════════════════════════════════════
+
+if showStateTable
+    var table stateTable = table.new(position.top_right, 3, 12, frame_color=color.new(color.blue, 30), frame_width=2, border_color=color.new(color.gray, 60), border_width=1)
+    
+    if barstate.islast
+        // Header Row - Dark Blue Background
+        table.cell(stateTable, 0, 0, "🎯 STATE MACHINE", text_color=color.white, bgcolor=color.new(#1E3A5F, 0), text_size=size.normal)
+        table.cell(stateTable, 1, 0, "STATUS", text_color=color.white, bgcolor=color.new(#1E3A5F, 0), text_size=size.normal)
+        table.cell(stateTable, 2, 0, "VALUE", text_color=color.white, bgcolor=color.new(#1E3A5F, 0), text_size=size.normal)
+        
+        // Configuration preset - Slightly lighter background
+        table.cell(stateTable, 0, 1, "CONFIG", text_color=color.new(color.silver, 0), text_size=size.normal, bgcolor=color.new(#2C3E50, 20))
+        table.cell(stateTable, 1, 1, preset, text_color=color.new(color.aqua, 0), text_size=size.normal, bgcolor=color.new(#2C3E50, 20))
+        enabledCount = 0
+        if reqAsianRange
+            enabledCount += 1
+        if reqManipulation
+            enabledCount += 1
+        if reqMacro
+            enabledCount += 1
+        if reqSweep
+            enabledCount += 1
+        if reqMSS
+            enabledCount += 1
+        if reqCISD
+            enabledCount += 1
+        if reqFVG
+            enabledCount += 1
+        if reqRetracement
+            enabledCount += 1
+        stepColor = enabledCount >= 6 ? color.lime : enabledCount >= 4 ? color.yellow : color.orange
+        table.cell(stateTable, 2, 1, str.tostring(enabledCount) + "/8", text_color=stepColor, text_size=size.normal, bgcolor=color.new(#2C3E50, 20))
+        
+        // Current State - Highlight with bright background
+        stateText = switch currentState
+            STATE_AWAITING_BIAS => "1: AWAITING BIAS"
+            STATE_AWAITING_MANIPULATION => "2: MANIP"
+            STATE_AWAITING_MACRO => "3: MACRO"
+            STATE_AWAITING_SWEEP => "4: SWEEP"
+            STATE_AWAITING_MSS => "5: MSS"
+            STATE_AWAITING_CISD => "6: CISD"
+            STATE_AWAITING_FVG => "7: FVG"
+            STATE_AWAITING_RETRACEMENT => "8: RETRACE"
+            STATE_READY_FOR_ENTRY => "✓ READY"
+            STATE_IN_POSITION => "✓ IN POS"
+            => "RESET"
+        
+        stateColorBg = currentState == STATE_READY_FOR_ENTRY ? color.new(color.green, 70) : currentState == STATE_IN_POSITION ? color.new(color.blue, 70) : color.new(#34495E, 30)
+        table.cell(stateTable, 0, 2, "CURRENT STATE", text_color=color.new(color.silver, 0), text_size=size.normal, bgcolor=stateColorBg)
+        table.cell(stateTable, 1, 2, stateText, text_color=color.new(color.white, 0), text_size=size.normal, bgcolor=stateColorBg)
+        table.cell(stateTable, 2, 2, str.tostring(barsInState) + " bars", text_color=color.new(color.silver, 0), text_size=size.normal, bgcolor=stateColorBg)
+        
+        // Bias - Color coded background
+        biasBgColor = biasDirection == "BULLISH" ? color.new(color.green, 80) : biasDirection == "BEARISH" ? color.new(color.red, 80) : color.new(#34495E, 30)
+        table.cell(stateTable, 0, 3, "BIAS", text_color=color.new(color.silver, 0), text_size=size.normal, bgcolor=biasBgColor)
+        biasColor = biasDirection == "BULLISH" ? color.new(color.lime, 0) : biasDirection == "BEARISH" ? color.new(#FF6B6B, 0) : color.silver
+        table.cell(stateTable, 1, 3, biasDirection, text_color=biasColor, text_size=size.normal, bgcolor=biasBgColor)
+        table.cell(stateTable, 2, 3, manipulationType != "" ? manipulationType : "-", text_color=color.new(color.silver, 0), text_size=size.normal, bgcolor=biasBgColor)
+        
+        // State Checkpoints header - Dark separator
+        table.cell(stateTable, 0, 4, "✓ CHECKPOINTS", text_color=color.white, text_size=size.normal, bgcolor=color.new(#1E3A5F, 0))
+        table.cell(stateTable, 1, 4, "Required", text_color=color.white, text_size=size.normal, bgcolor=color.new(#1E3A5F, 0))
+        table.cell(stateTable, 2, 4, "Status", text_color=color.white, text_size=size.normal, bgcolor=color.new(#1E3A5F, 0))
+        
+        // Asian Range
+        asianComplete = not na(asianHigh) and not na(asianLow)
+        rowBg1 = color.new(#2C3E50, 40)
+        table.cell(stateTable, 0, 5, "1. Asian Range", text_color=color.white, text_size=size.normal, bgcolor=rowBg1)
+        reqColor1 = reqAsianRange ? color.new(color.lime, 0) : color.new(#7F8C8D, 0)
+        table.cell(stateTable, 1, 5, reqAsianRange ? "✓" : "—", text_color=reqColor1, text_size=size.large, bgcolor=rowBg1)
+        statusText = reqAsianRange ? (asianComplete ? "✓" : "⏳") : "—"
+        statusColor = reqAsianRange ? (asianComplete ? color.new(color.lime, 0) : color.new(color.orange, 0)) : color.new(#7F8C8D, 0)
+        table.cell(stateTable, 2, 5, statusText, text_color=statusColor, text_size=size.large, bgcolor=rowBg1)
+        
+        // Manipulation
+        manipComplete = manipulationLevel > 0
+        rowBg2 = color.new(#34495E, 40)
+        table.cell(stateTable, 0, 6, "2. Manipulation", text_color=color.white, text_size=size.normal, bgcolor=rowBg2)
+        reqColor2 = reqManipulation ? color.new(color.lime, 0) : color.new(#7F8C8D, 0)
+        table.cell(stateTable, 1, 6, reqManipulation ? "✓" : "—", text_color=reqColor2, text_size=size.large, bgcolor=rowBg2)
+        statusText := reqManipulation ? (manipComplete ? "✓" : "⏳") : "—"
+        statusColor := reqManipulation ? (manipComplete ? color.new(color.lime, 0) : color.new(color.orange, 0)) : color.new(#7F8C8D, 0)
+        table.cell(stateTable, 2, 6, statusText, text_color=statusColor, text_size=size.large, bgcolor=rowBg2)
+        
+        // Macro
+        macroActive = isInMacro
+        table.cell(stateTable, 0, 7, "3. Macro", text_color=color.white, text_size=size.normal, bgcolor=rowBg1)
+        reqColor3 = reqMacro ? color.new(color.lime, 0) : color.new(#7F8C8D, 0)
+        table.cell(stateTable, 1, 7, reqMacro ? "✓" : "—", text_color=reqColor3, text_size=size.large, bgcolor=rowBg1)
+        statusText := reqMacro ? (macroActive ? "✓" : "⏳") : "—"
+        statusColor := reqMacro ? (macroActive ? color.new(color.lime, 0) : color.new(color.orange, 0)) : color.new(#7F8C8D, 0)
+        table.cell(stateTable, 2, 7, statusText, text_color=statusColor, text_size=size.large, bgcolor=rowBg1)
+        
+        // Sweep
+        sweepComplete = not na(sweepLevel)
+        table.cell(stateTable, 0, 8, "4. Sweep", text_color=color.white, text_size=size.normal, bgcolor=rowBg2)
+        reqColor4 = reqSweep ? color.new(color.lime, 0) : color.new(#7F8C8D, 0)
+        table.cell(stateTable, 1, 8, reqSweep ? "✓" : "—", text_color=reqColor4, text_size=size.large, bgcolor=rowBg2)
+        statusText := reqSweep ? (sweepComplete ? "✓" : "⏳") : "—"
+        statusColor := reqSweep ? (sweepComplete ? color.new(color.lime, 0) : color.new(color.orange, 0)) : color.new(#7F8C8D, 0)
+        table.cell(stateTable, 2, 8, statusText, text_color=statusColor, text_size=size.large, bgcolor=rowBg2)
+        
+        // MSS
+        mssComplete = not na(mssLevel)
+        table.cell(stateTable, 0, 9, "5. MSS", text_color=color.white, text_size=size.normal, bgcolor=rowBg1)
+        reqColor5 = reqMSS ? color.new(color.lime, 0) : color.new(#7F8C8D, 0)
+        table.cell(stateTable, 1, 9, reqMSS ? "✓" : "—", text_color=reqColor5, text_size=size.large, bgcolor=rowBg1)
+        statusText := reqMSS ? (mssComplete ? "✓" : "⏳") : "—"
+        statusColor := reqMSS ? (mssComplete ? color.new(color.lime, 0) : color.new(color.orange, 0)) : color.new(#7F8C8D, 0)
+        table.cell(stateTable, 2, 9, statusText, text_color=statusColor, text_size=size.large, bgcolor=rowBg1)
+        
+        // CISD
+        table.cell(stateTable, 0, 10, "6. CISD", text_color=color.white, text_size=size.normal, bgcolor=rowBg2)
+        reqColor6 = reqCISD ? color.new(color.lime, 0) : color.new(#7F8C8D, 0)
+        table.cell(stateTable, 1, 10, reqCISD ? "✓" : "—", text_color=reqColor6, text_size=size.large, bgcolor=rowBg2)
+        statusText := reqCISD ? (cisdActive ? "✓" : "⏳") : "—"
+        statusColor := reqCISD ? (cisdActive ? color.new(color.lime, 0) : color.new(color.orange, 0)) : color.new(#7F8C8D, 0)
+        table.cell(stateTable, 2, 10, statusText, text_color=statusColor, text_size=size.large, bgcolor=rowBg2)
+        
+        // FVG
+        fvgComplete = not na(fvgCE)
+        table.cell(stateTable, 0, 11, "7. FVG", text_color=color.white, text_size=size.normal, bgcolor=rowBg1)
+        reqColor7 = reqFVG ? color.new(color.lime, 0) : color.new(#7F8C8D, 0)
+        table.cell(stateTable, 1, 11, reqFVG ? "✓" : "—", text_color=reqColor7, text_size=size.large, bgcolor=rowBg1)
+        statusText := reqFVG ? (fvgComplete ? "✓" : "⏳") : "—"
+        statusColor := reqFVG ? (fvgComplete ? color.new(color.lime, 0) : color.new(color.orange, 0)) : color.new(#7F8C8D, 0)
+        table.cell(stateTable, 2, 11, statusText, text_color=statusColor, text_size=size.large, bgcolor=rowBg1)
