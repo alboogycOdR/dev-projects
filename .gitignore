@@ -1,0 +1,9 @@
+# Executable files
+*.exe
+
+# MetaTrader compiled files
+*.ex5
+
+# Git LFS
+.git/lfs/
+
