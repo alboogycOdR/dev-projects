@@ -1,0 +1,495 @@
+//@version=5
+indicator("MSG Enhanced Range Breakout System", overlay=true, max_boxes_count=500, max_labels_count=500)
+
+// =====================================================
+// INPUT PARAMETERS - TRADING SETTINGS
+// =====================================================
+grp_trade = "═══ TRADING SETTINGS ═══"
+riskLevel = input.string("Low Risk", title="Risk Level", options=["Low Risk", "Medium Risk", "High Risk", "Very High Risk"], group=grp_trade)
+numberOfOrders = input.int(1, title="Number of Orders (Visual Only)", minval=1, group=grp_trade)
+showSignalArrows = input.bool(true, title="Show Signal Arrows", group=grp_trade)
+showRiskZones = input.bool(true, title="Show Risk Zones", group=grp_trade)
+
+// =====================================================
+// INPUT PARAMETERS - RANGE SETTINGS
+// =====================================================
+grp_range = "═══ MSG RANGE SETTINGS (GMT) ═══"
+rangeStartHour = input.int(23, title="Range Start Hour GMT", minval=0, maxval=23, group=grp_range)
+rangeStartMinute = input.int(0, title="Range Start Minute", minval=0, maxval=59, group=grp_range)
+rangeEndHour = input.int(1, title="Range End Hour GMT", minval=0, maxval=23, group=grp_range)
+rangeEndMinute = input.int(0, title="Range End Minute", minval=0, maxval=59, group=grp_range)
+rangeColorDefault = input.color(color.yellow, title="Range Color (No Breakout)", group=grp_range)
+rangeColorBuy = input.color(color.new(color.green, 0), title="Range Color (Buy Signal)", group=grp_range)
+rangeColorSell = input.color(color.new(color.red, 0), title="Range Color (Sell Signal)", group=grp_range)
+rangeLineWidth = input.int(2, title="Range Line Width", minval=1, maxval=4, group=grp_range)
+breakoutLineWidth = input.int(4, title="Breakout Line Width", minval=1, maxval=5, group=grp_range)
+
+// =====================================================
+// INPUT PARAMETERS - TIMEOUT SETTINGS
+// =====================================================
+grp_timeout = "═══ TIMEOUT SETTINGS ═══"
+hoursAfterRangeForBreakout = input.int(4, title="Hours After Range to Allow Breakout", minval=0, group=grp_timeout)
+showTimeoutLine = input.bool(true, title="Show Timeout Line", group=grp_timeout)
+grayOutExpiredRanges = input.bool(true, title="Gray Out Expired Ranges", group=grp_timeout)
+
+// =====================================================
+// INPUT PARAMETERS - SESSION DISPLAY
+// =====================================================
+grp_sessions = "═══ SESSION DISPLAY ═══"
+showSessions = input.bool(true, title="Show Trading Sessions", group=grp_sessions)
+showAsiaSession = input.bool(true, title="Show Asia Session", group=grp_sessions)
+showLondonSession = input.bool(true, title="Show London Session", group=grp_sessions)
+showNewYorkSession = input.bool(true, title="Show New York Session", group=grp_sessions)
+showSessionLabels = input.bool(true, title="Show Session Labels", group=grp_sessions)
+
+// Session Colors
+asiaColor = input.color(color.new(color.blue, 80), title="Asia Session Color", group=grp_sessions)
+londonColor = input.color(color.new(color.green, 80), title="London Session Color", group=grp_sessions)
+nyColor = input.color(color.new(color.orange, 80), title="New York Session Color", group=grp_sessions)
+
+// Session Times (GMT)
+asiaStartHour = input.int(0, title="Asia Start Hour GMT", minval=0, maxval=23, group=grp_sessions)
+asiaEndHour = input.int(9, title="Asia End Hour GMT", minval=0, maxval=23, group=grp_sessions)
+londonStartHour = input.int(8, title="London Start Hour GMT", minval=0, maxval=23, group=grp_sessions)
+londonEndHour = input.int(17, title="London End Hour GMT", minval=0, maxval=23, group=grp_sessions)
+nyStartHour = input.int(13, title="New York Start Hour GMT", minval=0, maxval=23, group=grp_sessions)
+nyEndHour = input.int(23, title="New York End Hour GMT", minval=0, maxval=23, group=grp_sessions)
+
+// =====================================================
+// INPUT PARAMETERS - VISUAL SETTINGS
+// =====================================================
+grp_visual = "═══ VISUAL SETTINGS ═══"
+showDashboard = input.bool(true, title="Show Dashboard", group=grp_visual)
+dashboardPosition = input.string("Top Right", title="Dashboard Position", options=["Top Right", "Top Left", "Bottom Right", "Bottom Left"], group=grp_visual)
+arrowSize = input.string("Normal", title="Arrow Size", options=["Small", "Normal", "Large"], group=grp_visual)
+
+// =====================================================
+// FUNCTIONS - TIME CONVERSIONS
+// =====================================================
+// Convert hours to milliseconds
+hoursToMs(hours) => hours * 60 * 60 * 1000
+
+// Get GMT time
+getGMTHour() =>
+    utcHour = hour(time, "UTC")
+    utcHour
+
+getGMTMinute() =>
+    utcMinute = minute(time, "UTC")
+    utcMinute
+
+// Check if current time is within a session
+isInSession(startHour, endHour) =>
+    currentHour = getGMTHour()
+    if startHour < endHour
+        currentHour >= startHour and currentHour < endHour
+    else  // Session crosses midnight
+        currentHour >= startHour or currentHour < endHour
+
+// Check if we're in range period
+isInRangePeriod() =>
+    currentHour = getGMTHour()
+    currentMinute = getGMTMinute()
+    
+    rangeStart = rangeStartHour * 60 + rangeStartMinute
+    rangeEnd = rangeEndHour * 60 + rangeEndMinute
+    currentTime = currentHour * 60 + currentMinute
+    
+    if rangeEnd > rangeStart
+        currentTime >= rangeStart and currentTime < rangeEnd
+    else  // Crosses midnight
+        currentTime >= rangeStart or currentTime < rangeEnd
+
+// =====================================================
+// RANGE CALCULATION
+// =====================================================
+var float rangeHigh = na
+var float rangeLow = na
+var bool rangeSet = false
+var bool breakoutTriggered = false
+var int breakoutDirection = 0  // 1 for buy, -1 for sell
+var int rangeStartTime = na
+var int rangeEndTime = na
+var int signalExpiryTime = na
+var bool signalExpired = false
+var box rangeBox = na
+var line timeoutLine = na
+var label rangeLabel = na
+
+// Session tracking variables
+var float asiaHigh = na
+var float asiaLow = na
+var int asiaStart = na
+var float londonHigh = na
+var float londonLow = na
+var int londonStart = na
+var float nyHigh = na
+var float nyLow = na
+var int nyStart = na
+
+// New day detection
+newDay = dayofmonth != dayofmonth[1]
+
+// Reset on new day (but preserve the MSG range box if it was set - only reset when new range period starts)
+if newDay
+    inRangePeriodCheck = isInRangePeriod()
+    // Only reset if we're not in range period AND we don't have a set range from previous day
+    // This preserves the MSG box that was created during 23:00-01:00 period
+    if not inRangePeriodCheck and not rangeSet
+        rangeHigh := na
+        rangeLow := na
+        rangeSet := false
+        breakoutTriggered := false
+        breakoutDirection := 0
+        signalExpired := false
+        rangeStartTime := na
+        rangeEndTime := na
+        signalExpiryTime := na
+        asiaHigh := na
+        asiaLow := na
+        asiaStart := na
+        londonHigh := na
+        londonLow := na
+        londonStart := na
+        nyHigh := na
+        nyLow := na
+        nyStart := na
+        if not na(rangeBox)
+            box.delete(rangeBox)
+        if not na(timeoutLine)
+            line.delete(timeoutLine)
+        if not na(rangeLabel)
+            label.delete(rangeLabel)
+    // If we're starting a new range period, reset the previous range
+    else if inRangePeriodCheck and rangeSet
+        // New range period is starting, so clear the old one
+        rangeHigh := na
+        rangeLow := na
+        rangeSet := false
+        breakoutTriggered := false
+        breakoutDirection := 0
+        signalExpired := false
+        rangeStartTime := na
+        rangeEndTime := na
+        signalExpiryTime := na
+        if not na(rangeBox)
+            box.delete(rangeBox)
+        if not na(timeoutLine)
+            line.delete(timeoutLine)
+        if not na(rangeLabel)
+            label.delete(rangeLabel)
+
+// Check if we're in the range period
+inRangePeriod = isInRangePeriod()
+wasInRangePeriod = isInRangePeriod()[1]
+
+// Reset rangeSet when entering a new range period (to allow new box to be drawn)
+if inRangePeriod and not wasInRangePeriod and rangeSet
+    rangeSet := false
+    breakoutTriggered := false
+    breakoutDirection := 0
+    signalExpired := false
+    rangeHigh := na
+    rangeLow := na
+    rangeStartTime := na
+    rangeEndTime := na
+    signalExpiryTime := na
+    if not na(rangeBox)
+        box.delete(rangeBox)
+    if not na(timeoutLine)
+        line.delete(timeoutLine)
+    if not na(rangeLabel)
+        label.delete(rangeLabel)
+
+// Update range during the period
+if inRangePeriod and not rangeSet
+    if na(rangeHigh) or high > rangeHigh
+        rangeHigh := high
+    if na(rangeLow) or low < rangeLow
+        rangeLow := low
+    
+    // Store range times (approximation)
+    if na(rangeStartTime)
+        rangeStartTime := time
+    
+    // Draw/update range box in real-time during range period
+    if not na(rangeHigh) and not na(rangeLow) and not na(rangeStartTime)
+        if na(rangeBox)
+            rangeBox := box.new(left=rangeStartTime, top=rangeHigh, right=time, bottom=rangeLow, 
+                               border_color=rangeColorDefault, border_width=rangeLineWidth,
+                               bgcolor=color.new(rangeColorDefault, 85), xloc=xloc.bar_time)
+        else
+            box.set_right(rangeBox, time)
+            box.set_top(rangeBox, rangeHigh)
+            box.set_bottom(rangeBox, rangeLow)
+
+// Finalize range when period ends
+wasInRange = isInRangePeriod()[1]
+if wasInRange and not inRangePeriod and not rangeSet and not na(rangeHigh) and not na(rangeLow) and not na(rangeStartTime)
+    rangeSet := true
+    rangeEndTime := time
+    signalExpiryTime := rangeEndTime + hoursToMs(hoursAfterRangeForBreakout)
+    
+    // Finalize the range box (update var box for real-time, create persistent box for historical)
+    if na(rangeBox)
+        rangeBox := box.new(left=rangeStartTime, top=rangeHigh, right=rangeEndTime, bottom=rangeLow, 
+                           border_color=rangeColorDefault, border_width=rangeLineWidth,
+                           bgcolor=color.new(rangeColorDefault, 85), xloc=xloc.bar_time)
+    else
+        box.set_right(rangeBox, rangeEndTime)
+        box.set_top(rangeBox, rangeHigh)
+        box.set_bottom(rangeBox, rangeLow)
+    
+    // Create a persistent box for historical bars (not stored in var, so each range gets its own box)
+    // This ensures historical ranges are visible
+    if barstate.isconfirmed
+        box.new(left=rangeStartTime, top=rangeHigh, right=rangeEndTime, bottom=rangeLow, 
+               border_color=rangeColorDefault, border_width=rangeLineWidth,
+               bgcolor=color.new(rangeColorDefault, 85), xloc=xloc.bar_time)
+    
+    // Add range label
+    if showSessionLabels and na(rangeLabel)
+        rangeLabel := label.new(x=rangeStartTime, y=rangeHigh, text="MSG Range", 
+                               color=color.new(color.white, 100), 
+                               textcolor=rangeColorDefault, 
+                               style=label.style_label_down, size=size.small, xloc=xloc.bar_time)
+    
+    // Draw timeout line if enabled (limit to max 500 bars in future)
+    if showTimeoutLine and hoursAfterRangeForBreakout > 0
+        maxFutureTime = time + (500 * timeframe.in_seconds() * 1000)
+        timeoutTime = math.min(signalExpiryTime, maxFutureTime)
+        timeoutLine := line.new(x1=timeoutTime, y1=rangeHigh, x2=timeoutTime, y2=rangeLow,
+                               color=color.gray, style=line.style_dotted, width=1, xloc=xloc.bar_time)
+
+// Ensure range box persists and is visible after range period ends (on all bars)
+// Update var box for real-time display
+if rangeSet and not na(rangeHigh) and not na(rangeLow) and not na(rangeStartTime) and not na(rangeEndTime)
+    if na(rangeBox)
+        rangeBox := box.new(left=rangeStartTime, top=rangeHigh, right=rangeEndTime, bottom=rangeLow, 
+                           border_color=rangeColorDefault, border_width=rangeLineWidth,
+                           bgcolor=color.new(rangeColorDefault, 85), xloc=xloc.bar_time)
+    else
+        // Ensure box coordinates are correct
+        box.set_left(rangeBox, rangeStartTime)
+        box.set_right(rangeBox, rangeEndTime)
+        box.set_top(rangeBox, rangeHigh)
+        box.set_bottom(rangeBox, rangeLow)
+
+// =====================================================
+// BREAKOUT DETECTION
+// =====================================================
+if rangeSet and not breakoutTriggered and not signalExpired
+    // Check if signal window has expired
+    if time > signalExpiryTime and hoursAfterRangeForBreakout > 0
+        signalExpired := true
+        if grayOutExpiredRanges and not na(rangeBox)
+            box.set_border_color(rangeBox, color.gray)
+            box.set_bgcolor(rangeBox, color.new(color.gray, 95))
+    
+    // Check for breakouts (only if not expired)
+    if not signalExpired
+        // Buy breakout
+        if close > rangeHigh
+            breakoutTriggered := true
+            breakoutDirection := 1
+            if not na(rangeBox)
+                box.set_border_color(rangeBox, rangeColorBuy)
+                box.set_border_width(rangeBox, breakoutLineWidth)
+                box.set_bgcolor(rangeBox, color.new(rangeColorBuy, 90))
+        
+        // Sell breakout
+        else if close < rangeLow
+            breakoutTriggered := true
+            breakoutDirection := -1
+            if not na(rangeBox)
+                box.set_border_color(rangeBox, rangeColorSell)
+                box.set_border_width(rangeBox, breakoutLineWidth)
+                box.set_bgcolor(rangeBox, color.new(rangeColorSell, 90))
+
+// =====================================================
+// SIGNAL ARROWS
+// =====================================================
+// Detect the exact breakout bar for arrows
+buySignal = rangeSet and not signalExpired and not breakoutTriggered[1] and close > rangeHigh
+sellSignal = rangeSet and not signalExpired and not breakoutTriggered[1] and close < rangeLow
+
+// Plot arrows
+if showSignalArrows
+    if buySignal
+        arrowSizeValue = arrowSize == "Small" ? size.small : arrowSize == "Large" ? size.large : size.normal
+        label.new(bar_index, low - (rangeHigh - rangeLow) * 0.1, "▲", 
+                 color=color.new(color.white, 100), textcolor=rangeColorBuy, 
+                 style=label.style_label_up, size=arrowSizeValue)
+    
+    if sellSignal
+        arrowSizeValue = arrowSize == "Small" ? size.small : arrowSize == "Large" ? size.large : size.normal
+        label.new(bar_index, high + (rangeHigh - rangeLow) * 0.1, "▼", 
+                 color=color.new(color.white, 100), textcolor=rangeColorSell, 
+                 style=label.style_label_down, size=arrowSizeValue)
+
+// =====================================================
+// RISK ZONES VISUALIZATION
+// =====================================================
+if showRiskZones and rangeSet and breakoutTriggered and not signalExpired
+    rangeSize = rangeHigh - rangeLow
+    
+    // Calculate 5:00 AM GMT on the day after range ended (limit risk zones to 5 AM)
+    rangeEndYear = year(rangeEndTime)
+    rangeEndMonth = month(rangeEndTime)
+    rangeEndDayOfMonth = dayofmonth(rangeEndTime)
+    // Get 5:00 AM GMT on the day after range ended
+    riskZoneEndTime = timestamp("GMT", rangeEndYear, rangeEndMonth, rangeEndDayOfMonth, 5, 0, 0)
+    // If range ended after 5 AM, use 5 AM of next day
+    if rangeEndTime >= riskZoneEndTime
+        // Next day at 5 AM
+        riskZoneEndTime := timestamp("GMT", rangeEndYear, rangeEndMonth, rangeEndDayOfMonth + 1, 5, 0, 0)
+    
+    // Limit zone end time to 5 AM or current time, whichever is earlier (for real-time updates)
+    // Only draw risk zones if we haven't passed 5 AM yet
+    zoneEndTime = time <= riskZoneEndTime ? math.min(riskZoneEndTime, time) : riskZoneEndTime
+    
+    // Calculate risk zones based on risk level and direction (only if before 5 AM cutoff)
+    if time <= riskZoneEndTime and breakoutDirection == 1  // Buy signal
+        if riskLevel == "Low Risk"
+            // Bottom 15% of range
+            zoneBottom = rangeLow
+            zoneTop = rangeLow + rangeSize * 0.15
+            box.new(left=rangeEndTime, top=zoneTop, right=zoneEndTime, bottom=zoneBottom, 
+                   border_color=color.new(color.green, 50), 
+                   bgcolor=color.new(color.green, 95), xloc=xloc.bar_time)
+        else if riskLevel == "Medium Risk"
+            // Bottom 50% of range
+            zoneBottom = rangeLow
+            zoneTop = rangeLow + rangeSize * 0.5
+            box.new(left=rangeEndTime, top=zoneTop, right=zoneEndTime, bottom=zoneBottom, 
+                   border_color=color.new(color.yellow, 50), 
+                   bgcolor=color.new(color.yellow, 95), xloc=xloc.bar_time)
+    
+    else if time <= riskZoneEndTime and breakoutDirection == -1  // Sell signal
+        if riskLevel == "Low Risk"
+            // Top 15% of range
+            zoneBottom = rangeHigh - rangeSize * 0.15
+            zoneTop = rangeHigh
+            box.new(left=rangeEndTime, top=zoneTop, right=zoneEndTime, bottom=zoneBottom, 
+                   border_color=color.new(color.red, 50), 
+                   bgcolor=color.new(color.red, 95), xloc=xloc.bar_time)
+        else if riskLevel == "Medium Risk"
+            // Top 50% of range
+            zoneBottom = rangeLow + rangeSize * 0.5
+            zoneTop = rangeHigh
+            box.new(left=rangeEndTime, top=zoneTop, right=zoneEndTime, bottom=zoneBottom, 
+                   border_color=color.new(color.orange, 50), 
+                   bgcolor=color.new(color.orange, 95), xloc=xloc.bar_time)
+
+// =====================================================
+// SESSION BOXES
+// =====================================================
+// Asia Session
+if showSessions and showAsiaSession
+    inAsia = isInSession(asiaStartHour, asiaEndHour)
+    wasInAsia = isInSession(asiaStartHour, asiaEndHour)[1]
+    
+    if inAsia
+        if na(asiaStart) or not wasInAsia
+            asiaStart := time
+            asiaHigh := high
+            asiaLow := low
+        else
+            asiaHigh := math.max(asiaHigh, high)
+            asiaLow := math.min(asiaLow, low)
+    
+    if not inAsia and wasInAsia and not na(asiaStart)
+        box.new(left=asiaStart, top=asiaHigh, right=time[1], bottom=asiaLow,
+               border_color=asiaColor, bgcolor=color.new(asiaColor, 95),
+               border_width=1, xloc=xloc.bar_time)
+        if showSessionLabels
+            label.new(x=asiaStart, y=asiaHigh, text="Asia",
+                     color=color.new(color.white, 100), textcolor=color.black,
+                     style=label.style_label_down, size=size.large, xloc=xloc.bar_time)
+
+// London Session
+if showSessions and showLondonSession
+    inLondon = isInSession(londonStartHour, londonEndHour)
+    wasInLondon = isInSession(londonStartHour, londonEndHour)[1]
+    
+    if inLondon
+        if na(londonStart) or not wasInLondon
+            londonStart := time
+            londonHigh := high
+            londonLow := low
+        else
+            londonHigh := math.max(londonHigh, high)
+            londonLow := math.min(londonLow, low)
+    
+    if not inLondon and wasInLondon and not na(londonStart)
+        box.new(left=londonStart, top=londonHigh, right=time[1], bottom=londonLow,
+               border_color=londonColor, bgcolor=color.new(londonColor, 95),
+               border_width=1, xloc=xloc.bar_time)
+        if showSessionLabels
+            label.new(x=londonStart, y=londonHigh, text="London",
+                     color=color.new(color.white, 100), textcolor=color.black,
+                     style=label.style_label_down, size=size.large, xloc=xloc.bar_time)
+
+// New York Session
+if showSessions and showNewYorkSession
+    inNY = isInSession(nyStartHour, nyEndHour)
+    wasInNY = isInSession(nyStartHour, nyEndHour)[1]
+    
+    if inNY
+        if na(nyStart) or not wasInNY
+            nyStart := time
+            nyHigh := high
+            nyLow := low
+        else
+            nyHigh := math.max(nyHigh, high)
+            nyLow := math.min(nyLow, low)
+    
+    if not inNY and wasInNY and not na(nyStart)
+        box.new(left=nyStart, top=nyHigh, right=time[1], bottom=nyLow,
+               border_color=nyColor, bgcolor=color.new(nyColor, 95),
+               border_width=1, xloc=xloc.bar_time)
+        if showSessionLabels
+            label.new(x=nyStart, y=nyHigh, text="New York",
+                     color=color.new(color.white, 100), textcolor=color.black,
+                     style=label.style_label_down, size=size.large, xloc=xloc.bar_time)
+
+// =====================================================
+// DASHBOARD
+// =====================================================
+if showDashboard and barstate.islast
+    // Determine position
+    dashPos = dashboardPosition == "Top Right" ? position.top_right : dashboardPosition == "Top Left" ? position.top_left : dashboardPosition == "Bottom Right" ? position.bottom_right : position.bottom_left
+    
+    // Build dashboard text
+    var dashText = ""
+    dashText := "═══ MSG SYSTEM ═══\n"
+    dashText += "Risk Level: " + riskLevel + "\n"
+    dashText += "Range: " + (rangeSet ? str.tostring(rangeHigh, "#.#####") + " - " + str.tostring(rangeLow, "#.#####") : "Not Set") + "\n"
+    
+    if rangeSet
+        if breakoutTriggered
+            dashText += "Signal: " + (breakoutDirection == 1 ? "BUY ▲" : "SELL ▼") + "\n"
+        else if signalExpired
+            dashText += "Signal: EXPIRED\n"
+        else
+            dashText += "Signal: Waiting...\n"
+            
+        if not signalExpired and hoursAfterRangeForBreakout > 0
+            timeRemaining = (signalExpiryTime - time) / hoursToMs(1)
+            dashText += "Expires in: " + str.tostring(timeRemaining, "#.#") + " hours\n"
+    
+    // Current session
+    currentSession = isInSession(asiaStartHour, asiaEndHour) ? "Asia" : isInSession(londonStartHour, londonEndHour) ? "London" : isInSession(nyStartHour, nyEndHour) ? "New York" : "None"
+    dashText += "Session: " + currentSession
+    
+    // Display table
+    var table infoTable = table.new(dashPos, 1, 1, bgcolor=color.new(color.black, 70),                    frame_color=color.white, frame_width=1)
+    table.cell(infoTable, 0, 0, dashText, text_color=color.white, text_size=size.small,
+              text_halign=text.align_left)
+
+// =====================================================
+// ALERTS
+// =====================================================
+alertcondition(buySignal, title="MSG Buy Signal", message="MSG Range Breakout - BUY Signal Triggered")
+alertcondition(sellSignal, title="MSG Sell Signal", message="MSG Range Breakout - SELL Signal Triggered")
+alertcondition(signalExpired, title="Signal Expired", message="MSG Range Breakout - Signal Window Expired")
