@@ -1,0 +1,769 @@
+//@version=5
+indicator("MSG Enhanced LEGO System", overlay=true, max_boxes_count=500, max_labels_count=500)
+
+// =====================================================
+// VERSION HISTORY
+// =====================================================
+// v2.0 - MSG Enhanced LEGO System
+//   - Added support for 4 independent MSG ranges (MSG1-MSG4)
+//   - Each range can be individually enabled/disabled
+//   - Customizable time periods, names, and colors per range
+//   - Display options: Range, Trendline, Mean, VWAP, Max/Min (Range implemented)
+//   - All ranges process independently and create persistent boxes on historical bars
+//   - Maintains session boxes (Asia, London, New York) from v1.0
+//
+// v1.0 - MSG Enhanced Range Breakout System (msg-t1fx.pine)
+//   - Single MSG range (23:00-01:00 GMT default)
+//   - Range breakout detection with buy/sell signals
+//   - Risk zone visualization
+//   - Session boxes and labels
+//   - Dashboard and alerts
+
+// =====================================================
+// DESCRIPTION
+// =====================================================
+// The MSG Enhanced LEGO System allows you to define up to 4 independent
+// MSG (Market Structure Gap) ranges with customizable time periods.
+// Each range tracks price action during its specified period and displays
+// a colored box on the chart. Ranges can overlap and are processed
+// independently, making it easy to identify multiple key trading periods
+// throughout the day. The system also includes session boxes for major
+// trading sessions (Asia, London, New York) to provide additional market
+// context.
+// =====================================================
+
+// =====================================================
+// INPUT PARAMETERS - SESSION A
+// =====================================================
+grp_session_a = "SESSION A - NY"
+
+sessionAEnabled = input.bool(true, title="", group=grp_session_a, inline="session_a_main")
+sessionAName = "New York" //input.string("New York", title="", group=grp_session_a, inline="session_a_main")
+sessionAStartHour = input.int(13, title="", minval=0, maxval=23, group=grp_session_a, inline="session_a_main")
+sessionAStartMinute = input.int(0, title="", minval=0, maxval=59, group=grp_session_a, inline="session_a_main")
+sessionAEndHour = input.int(22, title="", minval=0, maxval=23, group=grp_session_a, inline="session_a_main")
+sessionAEndMinute = input.int(0, title="", minval=0, maxval=59, group=grp_session_a, inline="session_a_main")
+sessionAColor = input.color(color.orange, title="", group=grp_session_a, inline="session_a_display") //session_a_main
+
+sessionAShowRange = input.bool(true, title="Range", group=grp_session_a, inline="session_a_display")
+sessionAShowTrendline = input.bool(false, title="Trendline", group=grp_session_a, inline="session_a_display")
+sessionAShowMean = input.bool(false, title="Mean", group=grp_session_a, inline="session_a_display")//session_a_display2
+sessionAShowVWAP = input.bool(true, title="VWAP", group=grp_session_a, inline="session_a_display")
+sessionAShowMaxMin = input.bool(true, title="Max/Min", group=grp_session_a, inline="session_a_display")
+
+// =====================================================
+// INPUT PARAMETERS - SESSION B
+// =====================================================
+grp_session_b = "SESSION B - LON"
+
+sessionBEnabled = input.bool(true, title="", group=grp_session_b, inline="session_b_main")
+sessionBName = "London" //input.string("London", title="", group=grp_session_b, inline="session_b_main")
+sessionBStartHour = input.int(8, title="", minval=0, maxval=23, group=grp_session_b, inline="session_b_main")
+sessionBStartMinute = input.int(0, title="", minval=0, maxval=59, group=grp_session_b, inline="session_b_main")
+sessionBEndHour = input.int(17, title="", minval=0, maxval=23, group=grp_session_b, inline="session_b_main")
+sessionBEndMinute = input.int(0, title="", minval=0, maxval=59, group=grp_session_b, inline="session_b_main")
+sessionBColor = input.color(color.blue, title="", group=grp_session_b, inline="session_b_display") //session_b_main
+
+sessionBShowRange = input.bool(true, title="Range", group=grp_session_b, inline="session_b_display")
+sessionBShowTrendline = input.bool(false, title="Trendline", group=grp_session_b, inline="session_b_display")
+sessionBShowMean = input.bool(false, title="Mean", group=grp_session_b, inline="session_b_display")//session_b_display2
+sessionBShowVWAP = input.bool(false, title="VWAP", group=grp_session_b, inline="session_b_display")
+sessionBShowMaxMin = input.bool(false, title="Max/Min", group=grp_session_b, inline="session_b_display")
+
+// =====================================================
+// INPUT PARAMETERS - SESSION C
+// =====================================================
+grp_session_c = "SESSION C - TOK"
+
+sessionCEnabled = input.bool(true, title="", group=grp_session_c, inline="session_c_main")
+sessionCName = "Tokyo" //input.string("Tokyo", title="", group=grp_session_c, inline="session_c_main")
+sessionCStartHour = input.int(0, title="", minval=0, maxval=23, group=grp_session_c, inline="session_c_main")
+sessionCStartMinute = input.int(0, title="", minval=0, maxval=59, group=grp_session_c, inline="session_c_main")
+sessionCEndHour = input.int(9, title="", minval=0, maxval=23, group=grp_session_c, inline="session_c_main")
+sessionCEndMinute = input.int(0, title="", minval=0, maxval=59, group=grp_session_c, inline="session_c_main")
+sessionCColor = input.color(color.fuchsia, title="", group=grp_session_c, inline="session_c_display") //session_c_main
+
+sessionCShowRange = input.bool(true, title="Range", group=grp_session_c, inline="session_c_display")
+sessionCShowTrendline = input.bool(false, title="Trendline", group=grp_session_c, inline="session_c_display")
+sessionCShowMean = input.bool(false, title="Mean", group=grp_session_c, inline="session_c_display")//session_c_display2
+sessionCShowVWAP = input.bool(false, title="VWAP", group=grp_session_c, inline="session_c_display")
+sessionCShowMaxMin = input.bool(false, title="Max/Min", group=grp_session_c, inline="session_c_display")
+
+// =====================================================
+// INPUT PARAMETERS - MSG RANGE 1
+// =====================================================
+grp_msg1 = "MSG RANGE 1"
+
+msg1Enabled = input.bool(false, title="", group=grp_msg1, inline="msg1_main")
+msg1Name = "MSG1" //input.string("MSG1", title="", group=grp_msg1, inline="msg1_main")
+msg1StartHour = input.int(23, title="", minval=0, maxval=23, group=grp_msg1, inline="msg1_main")
+msg1StartMinute = input.int(0, title="", minval=0, maxval=59, group=grp_msg1, inline="msg1_main")
+msg1EndHour = input.int(1, title="", minval=0, maxval=23, group=grp_msg1, inline="msg1_main")
+msg1EndMinute = input.int(0, title="", minval=0, maxval=59, group=grp_msg1, inline="msg1_main")
+msg1Color = input.color(color.yellow, title="", group=grp_msg1, inline="msg1_display") //msg1_main
+
+msg1ShowRange = input.bool(false, title="Range", group=grp_msg1, inline="msg1_display")
+msg1ShowTrendline = input.bool(false, title="Trendline", group=grp_msg1, inline="msg1_display")
+msg1ShowMean = input.bool(false, title="Mean", group=grp_msg1, inline="msg1_display")//msg1_display2
+msg1ShowVWAP = input.bool(false, title="VWAP", group=grp_msg1, inline="msg1_display")
+msg1ShowMaxMin = input.bool(false, title="Max/Min", group=grp_msg1, inline="msg1_display")
+
+// =====================================================
+// INPUT PARAMETERS - MSG RANGE 2
+// =====================================================
+grp_msg2 = "MSG RANGE 2"
+
+msg2Enabled = input.bool(false, title="", group=grp_msg2, inline="msg2_main")
+msg2Name = "MSG2" //input.string("MSG2", title="", group=grp_msg2, inline="msg2_main")
+msg2StartHour = input.int(0, title="", minval=0, maxval=23, group=grp_msg2, inline="msg2_main")
+msg2StartMinute = input.int(0, title="", minval=0, maxval=59, group=grp_msg2, inline="msg2_main")
+msg2EndHour = input.int(8, title="", minval=0, maxval=23, group=grp_msg2, inline="msg2_main")
+msg2EndMinute = input.int(0, title="", minval=0, maxval=59, group=grp_msg2, inline="msg2_main")
+msg2Color = input.color(color.orange, title="", group=grp_msg2, inline="msg2_display") //msg2_main
+
+msg2ShowRange = input.bool(false, title="Range", group=grp_msg2, inline="msg2_display")
+msg2ShowTrendline = input.bool(false, title="Trendline", group=grp_msg2, inline="msg2_display")
+msg2ShowMean = input.bool(false, title="Mean", group=grp_msg2, inline="msg2_display")//msg2_display2
+msg2ShowVWAP = input.bool(false, title="VWAP", group=grp_msg2, inline="msg2_display")
+msg2ShowMaxMin = input.bool(false, title="Max/Min", group=grp_msg2, inline="msg2_display")
+
+// =====================================================
+// INPUT PARAMETERS - MSG RANGE 3
+// =====================================================
+grp_msg3 = "MSG RANGE 3"
+
+msg3Enabled = input.bool(true, title="", group=grp_msg3, inline="msg3_main")
+msg3Name = "MSG3" //input.string("MSG3", title="", group=grp_msg3, inline="msg3_main")
+msg3StartHour = input.int(9, title="", minval=0, maxval=23, group=grp_msg3, inline="msg3_main")
+msg3StartMinute = input.int(0, title="", minval=0, maxval=59, group=grp_msg3, inline="msg3_main")
+msg3EndHour = input.int(13, title="", minval=0, maxval=23, group=grp_msg3, inline="msg3_main")
+msg3EndMinute = input.int(0, title="", minval=0, maxval=59, group=grp_msg3, inline="msg3_main")
+msg3Color = input.color(color.new(color.aqua, 0), title="", group=grp_msg3, inline="msg3_display") //msg3_main
+
+msg3ShowRange = input.bool(true, title="Range", group=grp_msg3, inline="msg3_display")
+msg3ShowTrendline = input.bool(false, title="Trendline", group=grp_msg3, inline="msg3_display")
+msg3ShowMean = input.bool(false, title="Mean", group=grp_msg3, inline="msg3_display")//msg3_display2
+msg3ShowVWAP = input.bool(false, title="VWAP", group=grp_msg3, inline="msg3_display")
+msg3ShowMaxMin = input.bool(false, title="Max/Min", group=grp_msg3, inline="msg3_display")
+
+// =====================================================
+// INPUT PARAMETERS - MSG RANGE 4
+// =====================================================
+grp_msg4 = "MSG RANGE 4"
+
+msg4Enabled = input.bool(false, title="", group=grp_msg4, inline="msg4_main")
+msg4Name = "MSG4" //input.string("MSG4", title="", group=grp_msg4, inline="msg4_main")
+msg4StartHour = input.int(17, title="", minval=0, maxval=23, group=grp_msg4, inline="msg4_main")
+msg4StartMinute = input.int(0, title="", minval=0, maxval=59, group=grp_msg4, inline="msg4_main")
+msg4EndHour = input.int(22, title="", minval=0, maxval=23, group=grp_msg4, inline="msg4_main")
+msg4EndMinute = input.int(0, title="", minval=0, maxval=59, group=grp_msg4, inline="msg4_main")
+msg4Color = input.color(color.purple, title="", group=grp_msg4, inline="msg4_display") //msg4_main
+
+msg4ShowRange = input.bool(false, title="Range", group=grp_msg4, inline="msg4_display")
+msg4ShowTrendline = input.bool(false, title="Trendline", group=grp_msg4, inline="msg4_display")
+msg4ShowMean = input.bool(false, title="Mean", group=grp_msg4, inline="msg4_display")//msg4_display2
+msg4ShowVWAP = input.bool(false, title="VWAP", group=grp_msg4, inline="msg4_display")
+msg4ShowMaxMin = input.bool(false, title="Max/Min", group=grp_msg4, inline="msg4_display")
+
+// =====================================================
+// INPUT PARAMETERS - MSG SIGNAL SETTINGS
+// =====================================================
+grp_signal = "MSG SIGNAL SETTINGS"
+enableBreakoutSignals = input.bool(true, title="Enable Breakout Signals", group=grp_signal)
+showAlerts = input.bool(true, title="Show Alerts", group=grp_signal)
+buySignalColor = input.color(color.green, title="Buy Signal Color", group=grp_signal)
+sellSignalColor = input.color(color.red, title="Sell Signal Color", group=grp_signal)
+signalBorderWidth = input.int(3, title="Signal Border Width", minval=1, maxval=5, group=grp_signal)
+
+// =====================================================
+// INPUT PARAMETERS - ADVANCED SETTINGS
+// =====================================================
+grp_advanced = "ADVANCED SETTINGS"
+riskLevel = input.string("Low Risk", title="Risk Level", options=["Low Risk", "Medium Risk", "High Risk", "Very High Risk"], group=grp_advanced)
+numberOfOrders = input.int(1, title="Number of Orders (Visual Only)", minval=1, group=grp_advanced)
+showSignalArrows = input.bool(true, title="Show Signal Arrows", group=grp_advanced)
+showRiskZones = input.bool(true, title="Show Risk Zones", group=grp_advanced)
+hoursAfterRangeForBreakout = input.int(4, title="Hours After Range to Allow Breakout", minval=0, group=grp_advanced)
+showTimeoutLine = input.bool(true, title="Show Timeout Line", group=grp_advanced)
+grayOutExpiredRanges = input.bool(true, title="Gray Out Expired Ranges", group=grp_advanced)
+showDashboard = input.bool(true, title="Show Dashboard", group=grp_advanced)
+dashboardPosition = input.string("Top Right", title="Dashboard Position", options=["Top Right", "Top Left", "Bottom Right", "Bottom Left"], group=grp_advanced)
+arrowSize = input.string("Normal", title="Arrow Size", options=["Small", "Normal", "Large"], group=grp_advanced)
+rangeLineWidth = input.int(2, title="Range Line Width", minval=1, maxval=4, group=grp_advanced)
+showSessionLabels = input.bool(true, title="Show Session Labels", group=grp_advanced)
+
+// =====================================================
+// FUNCTIONS - TIME CONVERSIONS
+// =====================================================
+// Get GMT time
+getGMTHour() =>
+    utcHour = hour(time, "UTC")
+    utcHour
+
+getGMTMinute() =>
+    utcMinute = minute(time, "UTC")
+    utcMinute
+
+// Check if current time is within a session
+isInSession(startHour, endHour) =>
+    currentHour = getGMTHour()
+    if startHour < endHour
+        currentHour >= startHour and currentHour < endHour
+    else  // Session crosses midnight
+        currentHour >= startHour or currentHour < endHour
+
+// Check if we're in a specific MSG range period
+isInMsgRange(startHour, startMinute, endHour, endMinute) =>
+    currentHour = getGMTHour()
+    currentMinute = getGMTMinute()
+    rangeStart = startHour * 60 + startMinute
+    rangeEnd = endHour * 60 + endMinute
+    currentTime = currentHour * 60 + currentMinute
+    if rangeEnd > rangeStart
+        currentTime >= rangeStart and currentTime < rangeEnd
+    else  // Crosses midnight
+        currentTime >= rangeStart or currentTime < rangeEnd
+
+// =====================================================
+// MSG RANGE TRACKING - Using arrays for multiple ranges
+// =====================================================
+// Arrays to track all MSG ranges
+var array<float> msgRangeHighs = array.new<float>(4, na)
+var array<float> msgRangeLows = array.new<float>(4, na)
+var array<bool> msgRangeSet = array.new<bool>(4, false)
+var array<int> msgRangeStartTimes = array.new<int>(4, na)
+var array<int> msgRangeEndTimes = array.new<int>(4, na)
+var array<box> msgRangeBoxes = array.new<box>(4, na)
+var array<label> msgRangeLabels = array.new<label>(4, na)
+
+// Session tracking variables
+var float asiaHigh = na
+var float asiaLow = na
+var int asiaStart = na
+var float londonHigh = na
+var float londonLow = na
+var int londonStart = na
+var float nyHigh = na
+var float nyLow = na
+var int nyStart = na
+
+// New day detection
+newDay = dayofmonth != dayofmonth[1]
+
+// Reset session variables on new day
+if newDay
+    asiaHigh := na
+    asiaLow := na
+    asiaStart := na
+    londonHigh := na
+    londonLow := na
+    londonStart := na
+    nyHigh := na
+    nyLow := na
+    nyStart := na
+
+// =====================================================
+// MSG RANGE PROCESSING - Process each range independently
+// =====================================================
+
+// MSG Range 1
+if msg1Enabled and msg1ShowRange
+    inRange1 = isInMsgRange(msg1StartHour, msg1StartMinute, msg1EndHour, msg1EndMinute)
+    wasInRange1 = isInMsgRange(msg1StartHour, msg1StartMinute, msg1EndHour, msg1EndMinute)[1]
+    range1High = array.get(msgRangeHighs, 0)
+    range1Low = array.get(msgRangeLows, 0)
+    range1Set = array.get(msgRangeSet, 0)
+    range1StartTime = array.get(msgRangeStartTimes, 0)
+    range1EndTime = array.get(msgRangeEndTimes, 0)
+    range1Box = array.get(msgRangeBoxes, 0)
+    
+    // Reset when entering new range period
+    if inRange1 and not wasInRange1 and range1Set
+        array.set(msgRangeSet, 0, false)
+        array.set(msgRangeHighs, 0, na)
+        array.set(msgRangeLows, 0, na)
+        array.set(msgRangeStartTimes, 0, na)
+        array.set(msgRangeEndTimes, 0, na)
+        if not na(range1Box)
+            box.delete(range1Box)
+            array.set(msgRangeBoxes, 0, na)
+        range1High := na
+        range1Low := na
+        range1StartTime := na
+        range1Box := na
+    
+    // Update range during the period
+    if inRange1 and not range1Set
+        if na(range1High) or high > range1High
+            range1High := high
+        if na(range1Low) or low < range1Low
+            range1Low := low
+        array.set(msgRangeHighs, 0, range1High)
+        array.set(msgRangeLows, 0, range1Low)
+        
+        if na(range1StartTime)
+            range1StartTime := time
+            array.set(msgRangeStartTimes, 0, range1StartTime)
+        
+        // Draw/update range box in real-time during range period
+        if not na(range1High) and not na(range1Low) and not na(range1StartTime)
+            if na(range1Box)
+                range1Box := box.new(left=range1StartTime, top=range1High, right=time, bottom=range1Low, 
+                                   border_color=msg1Color, border_width=rangeLineWidth,
+                                   bgcolor=color.new(msg1Color, 85), xloc=xloc.bar_time)
+                array.set(msgRangeBoxes, 0, range1Box)
+            else
+                box.set_right(range1Box, time)
+                box.set_top(range1Box, range1High)
+                box.set_bottom(range1Box, range1Low)
+    
+    // Finalize range when period ends
+    if wasInRange1 and not inRange1 and not range1Set and not na(range1High) and not na(range1Low) and not na(range1StartTime)
+        array.set(msgRangeSet, 0, true)
+        range1EndTime := time
+        array.set(msgRangeEndTimes, 0, range1EndTime)
+        
+        // Finalize the range box
+        if na(range1Box)
+            range1Box := box.new(left=range1StartTime, top=range1High, right=range1EndTime, bottom=range1Low, 
+                               border_color=msg1Color, border_width=rangeLineWidth,
+                               bgcolor=color.new(msg1Color, 85), xloc=xloc.bar_time)
+            array.set(msgRangeBoxes, 0, range1Box)
+        else
+            box.set_right(range1Box, range1EndTime)
+            box.set_top(range1Box, range1High)
+            box.set_bottom(range1Box, range1Low)
+        
+        // Create persistent box for historical bars
+        if barstate.isconfirmed
+            box.new(left=range1StartTime, top=range1High, right=range1EndTime, bottom=range1Low, 
+                   border_color=msg1Color, border_width=rangeLineWidth,
+                   bgcolor=color.new(msg1Color, 85), xloc=xloc.bar_time)
+        
+        // Add range label
+        if showSessionLabels
+            range1Label = array.get(msgRangeLabels, 0)
+            if na(range1Label)
+                range1Label := label.new(x=range1StartTime, y=range1High, text=msg1Name, 
+                                       color=color.new(color.white, 100), 
+                                       textcolor=color.black, 
+                                       style=label.style_label_down, size=size.large, xloc=xloc.bar_time)
+                array.set(msgRangeLabels, 0, range1Label)
+    
+    // Ensure range box persists after range period ends
+    if range1Set and not na(range1High) and not na(range1Low) and not na(range1StartTime)
+        range1EndTime = array.get(msgRangeEndTimes, 0)
+        if not na(range1EndTime)
+            if na(range1Box)
+                range1Box := box.new(left=range1StartTime, top=range1High, right=range1EndTime, bottom=range1Low, 
+                                   border_color=msg1Color, border_width=rangeLineWidth,
+                                   bgcolor=color.new(msg1Color, 85), xloc=xloc.bar_time)
+                array.set(msgRangeBoxes, 0, range1Box)
+            else
+                box.set_left(range1Box, range1StartTime)
+                box.set_right(range1Box, range1EndTime)
+                box.set_top(range1Box, range1High)
+                box.set_bottom(range1Box, range1Low)
+
+// MSG Range 2
+if msg2Enabled and msg2ShowRange
+    inRange2 = isInMsgRange(msg2StartHour, msg2StartMinute, msg2EndHour, msg2EndMinute)
+    wasInRange2 = isInMsgRange(msg2StartHour, msg2StartMinute, msg2EndHour, msg2EndMinute)[1]
+    range2High = array.get(msgRangeHighs, 1)
+    range2Low = array.get(msgRangeLows, 1)
+    range2Set = array.get(msgRangeSet, 1)
+    range2StartTime = array.get(msgRangeStartTimes, 1)
+    range2EndTime = array.get(msgRangeEndTimes, 1)
+    range2Box = array.get(msgRangeBoxes, 1)
+    
+    // Reset when entering new range period
+    if inRange2 and not wasInRange2 and range2Set
+        array.set(msgRangeSet, 1, false)
+        array.set(msgRangeHighs, 1, na)
+        array.set(msgRangeLows, 1, na)
+        array.set(msgRangeStartTimes, 1, na)
+        array.set(msgRangeEndTimes, 1, na)
+        if not na(range2Box)
+            box.delete(range2Box)
+            array.set(msgRangeBoxes, 1, na)
+        range2High := na
+        range2Low := na
+        range2StartTime := na
+        range2Box := na
+    
+    // Update range during the period
+    if inRange2 and not range2Set
+        if na(range2High) or high > range2High
+            range2High := high
+        if na(range2Low) or low < range2Low
+            range2Low := low
+        array.set(msgRangeHighs, 1, range2High)
+        array.set(msgRangeLows, 1, range2Low)
+        
+        if na(range2StartTime)
+            range2StartTime := time
+            array.set(msgRangeStartTimes, 1, range2StartTime)
+        
+        // Draw/update range box in real-time during range period
+        if not na(range2High) and not na(range2Low) and not na(range2StartTime)
+            if na(range2Box)
+                range2Box := box.new(left=range2StartTime, top=range2High, right=time, bottom=range2Low, 
+                                   border_color=msg2Color, border_width=rangeLineWidth,
+                                   bgcolor=color.new(msg2Color, 85), xloc=xloc.bar_time)
+                array.set(msgRangeBoxes, 1, range2Box)
+            else
+                box.set_right(range2Box, time)
+                box.set_top(range2Box, range2High)
+                box.set_bottom(range2Box, range2Low)
+    
+    // Finalize range when period ends
+    if wasInRange2 and not inRange2 and not range2Set and not na(range2High) and not na(range2Low) and not na(range2StartTime)
+        array.set(msgRangeSet, 1, true)
+        range2EndTime := time
+        array.set(msgRangeEndTimes, 1, range2EndTime)
+        
+        // Finalize the range box
+        if na(range2Box)
+            range2Box := box.new(left=range2StartTime, top=range2High, right=range2EndTime, bottom=range2Low, 
+                               border_color=msg2Color, border_width=rangeLineWidth,
+                               bgcolor=color.new(msg2Color, 85), xloc=xloc.bar_time)
+            array.set(msgRangeBoxes, 1, range2Box)
+        else
+            box.set_right(range2Box, range2EndTime)
+            box.set_top(range2Box, range2High)
+            box.set_bottom(range2Box, range2Low)
+        
+        // Create persistent box for historical bars
+        if barstate.isconfirmed
+            box.new(left=range2StartTime, top=range2High, right=range2EndTime, bottom=range2Low, 
+                   border_color=msg2Color, border_width=rangeLineWidth,
+                   bgcolor=color.new(msg2Color, 85), xloc=xloc.bar_time)
+        
+        // Add range label
+        if showSessionLabels
+            range2Label = array.get(msgRangeLabels, 1)
+            if na(range2Label)
+                range2Label := label.new(x=range2StartTime, y=range2High, text=msg2Name, 
+                                       color=color.new(color.white, 100), 
+                                       textcolor=color.black, 
+                                       style=label.style_label_down, size=size.large, xloc=xloc.bar_time)
+                array.set(msgRangeLabels, 1, range2Label)
+    
+    // Ensure range box persists after range period ends
+    if range2Set and not na(range2High) and not na(range2Low) and not na(range2StartTime)
+        range2EndTime = array.get(msgRangeEndTimes, 1)
+        if not na(range2EndTime)
+            if na(range2Box)
+                range2Box := box.new(left=range2StartTime, top=range2High, right=range2EndTime, bottom=range2Low, 
+                                   border_color=msg2Color, border_width=rangeLineWidth,
+                                   bgcolor=color.new(msg2Color, 85), xloc=xloc.bar_time)
+                array.set(msgRangeBoxes, 1, range2Box)
+            else
+                box.set_left(range2Box, range2StartTime)
+                box.set_right(range2Box, range2EndTime)
+                box.set_top(range2Box, range2High)
+                box.set_bottom(range2Box, range2Low)
+
+// MSG Range 3
+if msg3Enabled and msg3ShowRange
+    inRange3 = isInMsgRange(msg3StartHour, msg3StartMinute, msg3EndHour, msg3EndMinute)
+    wasInRange3 = isInMsgRange(msg3StartHour, msg3StartMinute, msg3EndHour, msg3EndMinute)[1]
+    range3High = array.get(msgRangeHighs, 2)
+    range3Low = array.get(msgRangeLows, 2)
+    range3Set = array.get(msgRangeSet, 2)
+    range3StartTime = array.get(msgRangeStartTimes, 2)
+    range3EndTime = array.get(msgRangeEndTimes, 2)
+    range3Box = array.get(msgRangeBoxes, 2)
+    
+    // Reset when entering new range period
+    if inRange3 and not wasInRange3 and range3Set
+        array.set(msgRangeSet, 2, false)
+        array.set(msgRangeHighs, 2, na)
+        array.set(msgRangeLows, 2, na)
+        array.set(msgRangeStartTimes, 2, na)
+        array.set(msgRangeEndTimes, 2, na)
+        if not na(range3Box)
+            box.delete(range3Box)
+            array.set(msgRangeBoxes, 2, na)
+        range3High := na
+        range3Low := na
+        range3StartTime := na
+        range3Box := na
+    
+    // Update range during the period
+    if inRange3 and not range3Set
+        if na(range3High) or high > range3High
+            range3High := high
+        if na(range3Low) or low < range3Low
+            range3Low := low
+        array.set(msgRangeHighs, 2, range3High)
+        array.set(msgRangeLows, 2, range3Low)
+        
+        if na(range3StartTime)
+            range3StartTime := time
+            array.set(msgRangeStartTimes, 2, range3StartTime)
+        
+        // Draw/update range box in real-time during range period
+        if not na(range3High) and not na(range3Low) and not na(range3StartTime)
+            if na(range3Box)
+                range3Box := box.new(left=range3StartTime, top=range3High, right=time, bottom=range3Low, 
+                                   border_color=msg3Color, border_width=rangeLineWidth,
+                                   bgcolor=color.new(msg3Color, 85), xloc=xloc.bar_time)
+                array.set(msgRangeBoxes, 2, range3Box)
+            else
+                box.set_right(range3Box, time)
+                box.set_top(range3Box, range3High)
+                box.set_bottom(range3Box, range3Low)
+    
+    // Finalize range when period ends
+    if wasInRange3 and not inRange3 and not range3Set and not na(range3High) and not na(range3Low) and not na(range3StartTime)
+        array.set(msgRangeSet, 2, true)
+        range3EndTime := time
+        array.set(msgRangeEndTimes, 2, range3EndTime)
+        
+        // Finalize the range box
+        if na(range3Box)
+            range3Box := box.new(left=range3StartTime, top=range3High, right=range3EndTime, bottom=range3Low, 
+                               border_color=msg3Color, border_width=rangeLineWidth,
+                               bgcolor=color.new(msg3Color, 85), xloc=xloc.bar_time)
+            array.set(msgRangeBoxes, 2, range3Box)
+        else
+            box.set_right(range3Box, range3EndTime)
+            box.set_top(range3Box, range3High)
+            box.set_bottom(range3Box, range3Low)
+        
+        // Create persistent box for historical bars
+        if barstate.isconfirmed
+            box.new(left=range3StartTime, top=range3High, right=range3EndTime, bottom=range3Low, 
+                   border_color=msg3Color, border_width=rangeLineWidth,
+                   bgcolor=color.new(msg3Color, 85), xloc=xloc.bar_time)
+        
+        // Add range label
+        if showSessionLabels
+            range3Label = array.get(msgRangeLabels, 2)
+            if na(range3Label)
+                range3Label := label.new(x=range3StartTime, y=range3High, text=msg3Name, 
+                                       color=color.new(color.white, 100), 
+                                       textcolor=color.black, 
+                                       style=label.style_label_down, size=size.large, xloc=xloc.bar_time)
+                array.set(msgRangeLabels, 2, range3Label)
+    
+    // Ensure range box persists after range period ends
+    if range3Set and not na(range3High) and not na(range3Low) and not na(range3StartTime)
+        range3EndTime = array.get(msgRangeEndTimes, 2)
+        if not na(range3EndTime)
+            if na(range3Box)
+                range3Box := box.new(left=range3StartTime, top=range3High, right=range3EndTime, bottom=range3Low, 
+                                   border_color=msg3Color, border_width=rangeLineWidth,
+                                   bgcolor=color.new(msg3Color, 85), xloc=xloc.bar_time)
+                array.set(msgRangeBoxes, 2, range3Box)
+            else
+                box.set_left(range3Box, range3StartTime)
+                box.set_right(range3Box, range3EndTime)
+                box.set_top(range3Box, range3High)
+                box.set_bottom(range3Box, range3Low)
+
+// MSG Range 4
+if msg4Enabled and msg4ShowRange
+    inRange4 = isInMsgRange(msg4StartHour, msg4StartMinute, msg4EndHour, msg4EndMinute)
+    wasInRange4 = isInMsgRange(msg4StartHour, msg4StartMinute, msg4EndHour, msg4EndMinute)[1]
+    range4High = array.get(msgRangeHighs, 3)
+    range4Low = array.get(msgRangeLows, 3)
+    range4Set = array.get(msgRangeSet, 3)
+    range4StartTime = array.get(msgRangeStartTimes, 3)
+    range4EndTime = array.get(msgRangeEndTimes, 3)
+    range4Box = array.get(msgRangeBoxes, 3)
+    
+    // Reset when entering new range period
+    if inRange4 and not wasInRange4 and range4Set
+        array.set(msgRangeSet, 3, false)
+        array.set(msgRangeHighs, 3, na)
+        array.set(msgRangeLows, 3, na)
+        array.set(msgRangeStartTimes, 3, na)
+        array.set(msgRangeEndTimes, 3, na)
+        if not na(range4Box)
+            box.delete(range4Box)
+            array.set(msgRangeBoxes, 3, na)
+        range4High := na
+        range4Low := na
+        range4StartTime := na
+        range4Box := na
+    
+    // Update range during the period
+    if inRange4 and not range4Set
+        if na(range4High) or high > range4High
+            range4High := high
+        if na(range4Low) or low < range4Low
+            range4Low := low
+        array.set(msgRangeHighs, 3, range4High)
+        array.set(msgRangeLows, 3, range4Low)
+        
+        if na(range4StartTime)
+            range4StartTime := time
+            array.set(msgRangeStartTimes, 3, range4StartTime)
+        
+        // Draw/update range box in real-time during range period
+        if not na(range4High) and not na(range4Low) and not na(range4StartTime)
+            if na(range4Box)
+                range4Box := box.new(left=range4StartTime, top=range4High, right=time, bottom=range4Low, 
+                                   border_color=msg4Color, border_width=rangeLineWidth,
+                                   bgcolor=color.new(msg4Color, 85), xloc=xloc.bar_time)
+                array.set(msgRangeBoxes, 3, range4Box)
+            else
+                box.set_right(range4Box, time)
+                box.set_top(range4Box, range4High)
+                box.set_bottom(range4Box, range4Low)
+    
+    // Finalize range when period ends
+    if wasInRange4 and not inRange4 and not range4Set and not na(range4High) and not na(range4Low) and not na(range4StartTime)
+        array.set(msgRangeSet, 3, true)
+        range4EndTime := time
+        array.set(msgRangeEndTimes, 3, range4EndTime)
+        
+        // Finalize the range box
+        if na(range4Box)
+            range4Box := box.new(left=range4StartTime, top=range4High, right=range4EndTime, bottom=range4Low, 
+                               border_color=msg4Color, border_width=rangeLineWidth,
+                               bgcolor=color.new(msg4Color, 85), xloc=xloc.bar_time)
+            array.set(msgRangeBoxes, 3, range4Box)
+        else
+            box.set_right(range4Box, range4EndTime)
+            box.set_top(range4Box, range4High)
+            box.set_bottom(range4Box, range4Low)
+        
+        // Create persistent box for historical bars
+        if barstate.isconfirmed
+            box.new(left=range4StartTime, top=range4High, right=range4EndTime, bottom=range4Low, 
+                   border_color=msg4Color, border_width=rangeLineWidth,
+                   bgcolor=color.new(msg4Color, 85), xloc=xloc.bar_time)
+        
+        // Add range label
+        if showSessionLabels
+            range4Label = array.get(msgRangeLabels, 3)
+            if na(range4Label)
+                range4Label := label.new(x=range4StartTime, y=range4High, text=msg4Name, 
+                                       color=color.new(color.white, 100), 
+                                       textcolor=color.black, 
+                                       style=label.style_label_down, size=size.large, xloc=xloc.bar_time)
+                array.set(msgRangeLabels, 3, range4Label)
+    
+    // Ensure range box persists after range period ends
+    if range4Set and not na(range4High) and not na(range4Low) and not na(range4StartTime)
+        range4EndTime = array.get(msgRangeEndTimes, 3)
+        if not na(range4EndTime)
+            if na(range4Box)
+                range4Box := box.new(left=range4StartTime, top=range4High, right=range4EndTime, bottom=range4Low, 
+                                   border_color=msg4Color, border_width=rangeLineWidth,
+                                   bgcolor=color.new(msg4Color, 85), xloc=xloc.bar_time)
+                array.set(msgRangeBoxes, 3, range4Box)
+            else
+                box.set_left(range4Box, range4StartTime)
+                box.set_right(range4Box, range4EndTime)
+                box.set_top(range4Box, range4High)
+                box.set_bottom(range4Box, range4Low)
+
+// =====================================================
+// SESSION BOXES
+// =====================================================
+// Session A (New York)
+if sessionAEnabled
+    inSessionA = isInSession(sessionAStartHour, sessionAEndHour)
+    wasInSessionA = isInSession(sessionAStartHour, sessionAEndHour)[1]
+    
+    if inSessionA
+        if na(asiaStart) or not wasInSessionA
+            asiaStart := time
+            asiaHigh := high
+            asiaLow := low
+        else
+            asiaHigh := math.max(asiaHigh, high)
+            asiaLow := math.min(asiaLow, low)
+    
+    if not inSessionA and wasInSessionA and not na(asiaStart)
+        box.new(left=asiaStart, top=asiaHigh, right=time[1], bottom=asiaLow,
+               border_color=sessionAColor, bgcolor=color.new(sessionAColor, 95),
+               border_width=1, xloc=xloc.bar_time)
+        if showSessionLabels
+            label.new(x=asiaStart, y=asiaHigh, text=sessionAName,
+                     color=color.new(color.white, 100), textcolor=color.black,
+                     style=label.style_label_down, size=size.large, xloc=xloc.bar_time)
+
+// Session B (London)
+if sessionBEnabled
+    inSessionB = isInSession(sessionBStartHour, sessionBEndHour)
+    wasInSessionB = isInSession(sessionBStartHour, sessionBEndHour)[1]
+    
+    if inSessionB
+        if na(londonStart) or not wasInSessionB
+            londonStart := time
+            londonHigh := high
+            londonLow := low
+        else
+            londonHigh := math.max(londonHigh, high)
+            londonLow := math.min(londonLow, low)
+    
+    if not inSessionB and wasInSessionB and not na(londonStart)
+        box.new(left=londonStart, top=londonHigh, right=time[1], bottom=londonLow,
+               border_color=sessionBColor, bgcolor=color.new(sessionBColor, 95),
+               border_width=1, xloc=xloc.bar_time)
+        if showSessionLabels
+            label.new(x=londonStart, y=londonHigh, text=sessionBName,
+                     color=color.new(color.white, 100), textcolor=color.black,
+                     style=label.style_label_down, size=size.large, xloc=xloc.bar_time)
+
+// Session C (Tokyo/Asia)
+if sessionCEnabled
+    inSessionC = isInSession(sessionCStartHour, sessionCEndHour)
+    wasInSessionC = isInSession(sessionCStartHour, sessionCEndHour)[1]
+    
+    if inSessionC
+        if na(nyStart) or not wasInSessionC
+            nyStart := time
+            nyHigh := high
+            nyLow := low
+        else
+            nyHigh := math.max(nyHigh, high)
+            nyLow := math.min(nyLow, low)
+    
+    if not inSessionC and wasInSessionC and not na(nyStart)
+        box.new(left=nyStart, top=nyHigh, right=time[1], bottom=nyLow,
+               border_color=sessionCColor, bgcolor=color.new(sessionCColor, 95),
+               border_width=1, xloc=xloc.bar_time)
+        if showSessionLabels
+            label.new(x=nyStart, y=nyHigh, text=sessionCName,
+                     color=color.new(color.white, 100), textcolor=color.black,
+                     style=label.style_label_down, size=size.large, xloc=xloc.bar_time)
+
+// =====================================================
+// DASHBOARD
+// =====================================================
+if showDashboard and barstate.islast
+    // Determine position
+    dashPos = dashboardPosition == "Top Right" ? position.top_right : dashboardPosition == "Top Left" ? position.top_left : dashboardPosition == "Bottom Right" ? position.bottom_right : position.bottom_left
+    
+    // Build dashboard text
+    var dashText = ""
+    dashText := "═══ MSG LEGO SYSTEM ═══\n"
+    dashText += "Risk Level: " + riskLevel + "\n"
+    
+    // Show active ranges
+    activeRanges = 0
+    if msg1Enabled and array.get(msgRangeSet, 0)
+        activeRanges += 1
+    if msg2Enabled and array.get(msgRangeSet, 1)
+        activeRanges += 1
+    if msg3Enabled and array.get(msgRangeSet, 2)
+        activeRanges += 1
+    if msg4Enabled and array.get(msgRangeSet, 3)
+        activeRanges += 1
+    
+    dashText += "Active Ranges: " + str.tostring(activeRanges) + "\n"
+    
+    // Current session
+    currentSession = isInSession(sessionCStartHour, sessionCEndHour) ? sessionCName : isInSession(sessionBStartHour, sessionBEndHour) ? sessionBName : isInSession(sessionAStartHour, sessionAEndHour) ? sessionAName : "None"
+    dashText += "Session: " + currentSession
+    
+    // Display table
+    var table infoTable = table.new(dashPos, 1, 1, bgcolor=color.new(color.black, 70), frame_color=color.white, frame_width=1)
+    table.cell(infoTable, 0, 0, dashText, text_color=color.white, text_size=size.small, text_halign=text.align_left)
+

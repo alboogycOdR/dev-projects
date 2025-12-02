@@ -53,7 +53,7 @@ asiaEndHour = input.int(9, title="Asia End Hour GMT", minval=0, maxval=23, group
 londonStartHour = input.int(8, title="London Start Hour GMT", minval=0, maxval=23, group=grp_sessions)
 londonEndHour = input.int(17, title="London End Hour GMT", minval=0, maxval=23, group=grp_sessions)
 nyStartHour = input.int(13, title="New York Start Hour GMT", minval=0, maxval=23, group=grp_sessions)
-nyEndHour = input.int(23, title="New York End Hour GMT", minval=0, maxval=23, group=grp_sessions)
+nyEndHour = input.int(22, title="New York End Hour GMT", minval=0, maxval=23, group=grp_sessions)
 
 // =====================================================
 // INPUT PARAMETERS - VISUAL SETTINGS
