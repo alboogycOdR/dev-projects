@@ -195,6 +195,9 @@ showSessionLabels = input.bool(true, title="Show Session Labels", group=grp_adva
 // =====================================================
 // FUNCTIONS - TIME CONVERSIONS
 // =====================================================
+// Convert hours to milliseconds
+hoursToMs(hours) => hours * 60 * 60 * 1000
+
 // Get GMT time
 getGMTHour() =>
     utcHour = hour(time, "UTC")
@@ -233,6 +236,10 @@ var array<float> msgRangeLows = array.new<float>(4, na)
 var array<bool> msgRangeSet = array.new<bool>(4, false)
 var array<int> msgRangeStartTimes = array.new<int>(4, na)
 var array<int> msgRangeEndTimes = array.new<int>(4, na)
+var array<int> msgRangeSignalExpiryTimes = array.new<int>(4, na)
+var array<bool> msgRangeBreakoutTriggered = array.new<bool>(4, false)
+var array<int> msgRangeBreakoutDirection = array.new<int>(4, 0)  // 1 for buy, -1 for sell
+var array<bool> msgRangeSignalExpired = array.new<bool>(4, false)
 var array<box> msgRangeBoxes = array.new<box>(4, na)
 var array<label> msgRangeLabels = array.new<label>(4, na)
 
@@ -284,6 +291,10 @@ if msg1Enabled and msg1ShowRange
         array.set(msgRangeLows, 0, na)
         array.set(msgRangeStartTimes, 0, na)
         array.set(msgRangeEndTimes, 0, na)
+        array.set(msgRangeSignalExpiryTimes, 0, na)
+        array.set(msgRangeBreakoutTriggered, 0, false)
+        array.set(msgRangeBreakoutDirection, 0, 0)
+        array.set(msgRangeSignalExpired, 0, false)
         if not na(range1Box)
             box.delete(range1Box)
             array.set(msgRangeBoxes, 0, na)
@@ -322,6 +333,7 @@ if msg1Enabled and msg1ShowRange
         array.set(msgRangeSet, 0, true)
         range1EndTime := time
         array.set(msgRangeEndTimes, 0, range1EndTime)
+        array.set(msgRangeSignalExpiryTimes, 0, range1EndTime + hoursToMs(hoursAfterRangeForBreakout))
         
         // Finalize the range box
         if na(range1Box)
@@ -339,15 +351,24 @@ if msg1Enabled and msg1ShowRange
             box.new(left=range1StartTime, top=range1High, right=range1EndTime, bottom=range1Low, 
                    border_color=msg1Color, border_width=rangeLineWidth,
                    bgcolor=color.new(msg1Color, 85), xloc=xloc.bar_time)
+            
+            // Create persistent label for historical bars
+            if showSessionLabels
+                labelX = range1StartTime + (range1EndTime - range1StartTime) / 2
+                label.new(x=labelX, y=range1High, text=msg1Name, 
+                         color=color.new(color.white, 100), 
+                         textcolor=color.black, 
+                         style=label.style_label_down, size=size.small, xloc=xloc.bar_time)
         
-        // Add range label
+        // Add range label for real-time updates
         if showSessionLabels
             range1Label = array.get(msgRangeLabels, 0)
             if na(range1Label)
-                range1Label := label.new(x=range1StartTime, y=range1High, text=msg1Name, 
+                labelX = range1StartTime + (range1EndTime - range1StartTime) / 2
+                range1Label := label.new(x=labelX, y=range1High, text=msg1Name, 
                                        color=color.new(color.white, 100), 
                                        textcolor=color.black, 
-                                       style=label.style_label_down, size=size.large, xloc=xloc.bar_time)
+                                       style=label.style_label_down, size=size.small, xloc=xloc.bar_time)
                 array.set(msgRangeLabels, 0, range1Label)
     
     // Ensure range box persists after range period ends
@@ -383,6 +404,10 @@ if msg2Enabled and msg2ShowRange
         array.set(msgRangeLows, 1, na)
         array.set(msgRangeStartTimes, 1, na)
         array.set(msgRangeEndTimes, 1, na)
+        array.set(msgRangeSignalExpiryTimes, 1, na)
+        array.set(msgRangeBreakoutTriggered, 1, false)
+        array.set(msgRangeBreakoutDirection, 1, 0)
+        array.set(msgRangeSignalExpired, 1, false)
         if not na(range2Box)
             box.delete(range2Box)
             array.set(msgRangeBoxes, 1, na)
@@ -421,6 +446,7 @@ if msg2Enabled and msg2ShowRange
         array.set(msgRangeSet, 1, true)
         range2EndTime := time
         array.set(msgRangeEndTimes, 1, range2EndTime)
+        array.set(msgRangeSignalExpiryTimes, 1, range2EndTime + hoursToMs(hoursAfterRangeForBreakout))
         
         // Finalize the range box
         if na(range2Box)
@@ -438,15 +464,24 @@ if msg2Enabled and msg2ShowRange
             box.new(left=range2StartTime, top=range2High, right=range2EndTime, bottom=range2Low, 
                    border_color=msg2Color, border_width=rangeLineWidth,
                    bgcolor=color.new(msg2Color, 85), xloc=xloc.bar_time)
+            
+            // Create persistent label for historical bars
+            if showSessionLabels
+                labelX = range2StartTime + (range2EndTime - range2StartTime) / 2
+                label.new(x=labelX, y=range2High, text=msg2Name, 
+                         color=color.new(color.white, 100), 
+                         textcolor=color.black, 
+                         style=label.style_label_down, size=size.small, xloc=xloc.bar_time)
         
-        // Add range label
+        // Add range label for real-time updates
         if showSessionLabels
             range2Label = array.get(msgRangeLabels, 1)
             if na(range2Label)
-                range2Label := label.new(x=range2StartTime, y=range2High, text=msg2Name, 
+                labelX = range2StartTime + (range2EndTime - range2StartTime) / 2
+                range2Label := label.new(x=labelX, y=range2High, text=msg2Name, 
                                        color=color.new(color.white, 100), 
                                        textcolor=color.black, 
-                                       style=label.style_label_down, size=size.large, xloc=xloc.bar_time)
+                                       style=label.style_label_down, size=size.small, xloc=xloc.bar_time)
                 array.set(msgRangeLabels, 1, range2Label)
     
     // Ensure range box persists after range period ends
@@ -482,6 +517,10 @@ if msg3Enabled and msg3ShowRange
         array.set(msgRangeLows, 2, na)
         array.set(msgRangeStartTimes, 2, na)
         array.set(msgRangeEndTimes, 2, na)
+        array.set(msgRangeSignalExpiryTimes, 2, na)
+        array.set(msgRangeBreakoutTriggered, 2, false)
+        array.set(msgRangeBreakoutDirection, 2, 0)
+        array.set(msgRangeSignalExpired, 2, false)
         if not na(range3Box)
             box.delete(range3Box)
             array.set(msgRangeBoxes, 2, na)
@@ -520,6 +559,7 @@ if msg3Enabled and msg3ShowRange
         array.set(msgRangeSet, 2, true)
         range3EndTime := time
         array.set(msgRangeEndTimes, 2, range3EndTime)
+        array.set(msgRangeSignalExpiryTimes, 2, range3EndTime + hoursToMs(hoursAfterRangeForBreakout))
         
         // Finalize the range box
         if na(range3Box)
@@ -537,15 +577,24 @@ if msg3Enabled and msg3ShowRange
             box.new(left=range3StartTime, top=range3High, right=range3EndTime, bottom=range3Low, 
                    border_color=msg3Color, border_width=rangeLineWidth,
                    bgcolor=color.new(msg3Color, 85), xloc=xloc.bar_time)
+            
+            // Create persistent label for historical bars
+            if showSessionLabels
+                labelX = range3StartTime + (range3EndTime - range3StartTime) / 2
+                label.new(x=labelX, y=range3High, text=msg3Name, 
+                         color=color.new(color.white, 100), 
+                         textcolor=color.black, 
+                         style=label.style_label_down, size=size.small, xloc=xloc.bar_time)
         
-        // Add range label
+        // Add range label for real-time updates
         if showSessionLabels
             range3Label = array.get(msgRangeLabels, 2)
             if na(range3Label)
-                range3Label := label.new(x=range3StartTime, y=range3High, text=msg3Name, 
+                labelX = range3StartTime + (range3EndTime - range3StartTime) / 2
+                range3Label := label.new(x=labelX, y=range3High, text=msg3Name, 
                                        color=color.new(color.white, 100), 
                                        textcolor=color.black, 
-                                       style=label.style_label_down, size=size.large, xloc=xloc.bar_time)
+                                       style=label.style_label_down, size=size.small, xloc=xloc.bar_time)
                 array.set(msgRangeLabels, 2, range3Label)
     
     // Ensure range box persists after range period ends
@@ -581,6 +630,10 @@ if msg4Enabled and msg4ShowRange
         array.set(msgRangeLows, 3, na)
         array.set(msgRangeStartTimes, 3, na)
         array.set(msgRangeEndTimes, 3, na)
+        array.set(msgRangeSignalExpiryTimes, 3, na)
+        array.set(msgRangeBreakoutTriggered, 3, false)
+        array.set(msgRangeBreakoutDirection, 3, 0)
+        array.set(msgRangeSignalExpired, 3, false)
         if not na(range4Box)
             box.delete(range4Box)
             array.set(msgRangeBoxes, 3, na)
@@ -619,6 +672,7 @@ if msg4Enabled and msg4ShowRange
         array.set(msgRangeSet, 3, true)
         range4EndTime := time
         array.set(msgRangeEndTimes, 3, range4EndTime)
+        array.set(msgRangeSignalExpiryTimes, 3, range4EndTime + hoursToMs(hoursAfterRangeForBreakout))
         
         // Finalize the range box
         if na(range4Box)
@@ -636,15 +690,24 @@ if msg4Enabled and msg4ShowRange
             box.new(left=range4StartTime, top=range4High, right=range4EndTime, bottom=range4Low, 
                    border_color=msg4Color, border_width=rangeLineWidth,
                    bgcolor=color.new(msg4Color, 85), xloc=xloc.bar_time)
+            
+            // Create persistent label for historical bars
+            if showSessionLabels
+                labelX = range4StartTime + (range4EndTime - range4StartTime) / 2
+                label.new(x=labelX, y=range4High, text=msg4Name, 
+                         color=color.new(color.white, 100), 
+                         textcolor=color.black, 
+                         style=label.style_label_down, size=size.small, xloc=xloc.bar_time)
         
-        // Add range label
+        // Add range label for real-time updates
         if showSessionLabels
             range4Label = array.get(msgRangeLabels, 3)
             if na(range4Label)
-                range4Label := label.new(x=range4StartTime, y=range4High, text=msg4Name, 
+                labelX = range4StartTime + (range4EndTime - range4StartTime) / 2
+                range4Label := label.new(x=labelX, y=range4High, text=msg4Name, 
                                        color=color.new(color.white, 100), 
                                        textcolor=color.black, 
-                                       style=label.style_label_down, size=size.large, xloc=xloc.bar_time)
+                                       style=label.style_label_down, size=size.small, xloc=xloc.bar_time)
                 array.set(msgRangeLabels, 3, range4Label)
     
     // Ensure range box persists after range period ends
@@ -661,6 +724,252 @@ if msg4Enabled and msg4ShowRange
                 box.set_right(range4Box, range4EndTime)
                 box.set_top(range4Box, range4High)
                 box.set_bottom(range4Box, range4Low)
+
+// =====================================================
+// BREAKOUT DETECTION - For all MSG ranges
+// =====================================================
+if enableBreakoutSignals
+    // MSG Range 1 Breakout Detection
+    if msg1Enabled
+        range1Set = array.get(msgRangeSet, 0)
+        range1BreakoutTriggered = array.get(msgRangeBreakoutTriggered, 0)
+        range1SignalExpired = array.get(msgRangeSignalExpired, 0)
+        range1SignalExpiryTime = array.get(msgRangeSignalExpiryTimes, 0)
+        range1High = array.get(msgRangeHighs, 0)
+        range1Low = array.get(msgRangeLows, 0)
+        range1Box = array.get(msgRangeBoxes, 0)
+        
+        if range1Set and not range1BreakoutTriggered and not range1SignalExpired
+            // Check if signal window has expired
+            if not na(range1SignalExpiryTime) and time > range1SignalExpiryTime and hoursAfterRangeForBreakout > 0
+                array.set(msgRangeSignalExpired, 0, true)
+                if not na(range1Box)
+                    box.set_border_color(range1Box, color.gray)
+                    box.set_bgcolor(range1Box, color.new(color.gray, 95))
+            
+            // Check for breakouts (only if not expired)
+            if not array.get(msgRangeSignalExpired, 0)
+                // Buy breakout
+                if not na(range1High) and close > range1High
+                    array.set(msgRangeBreakoutTriggered, 0, true)
+                    array.set(msgRangeBreakoutDirection, 0, 1)
+                    if not na(range1Box)
+                        box.set_border_color(range1Box, buySignalColor)
+                        box.set_border_width(range1Box, signalBorderWidth)
+                        box.set_bgcolor(range1Box, color.new(buySignalColor, 90))
+                
+                // Sell breakout
+                else if not na(range1Low) and close < range1Low
+                    array.set(msgRangeBreakoutTriggered, 0, true)
+                    array.set(msgRangeBreakoutDirection, 0, -1)
+                    if not na(range1Box)
+                        box.set_border_color(range1Box, sellSignalColor)
+                        box.set_border_width(range1Box, signalBorderWidth)
+                        box.set_bgcolor(range1Box, color.new(sellSignalColor, 90))
+    
+    // MSG Range 2 Breakout Detection
+    if msg2Enabled
+        range2Set = array.get(msgRangeSet, 1)
+        range2BreakoutTriggered = array.get(msgRangeBreakoutTriggered, 1)
+        range2SignalExpired = array.get(msgRangeSignalExpired, 1)
+        range2SignalExpiryTime = array.get(msgRangeSignalExpiryTimes, 1)
+        range2High = array.get(msgRangeHighs, 1)
+        range2Low = array.get(msgRangeLows, 1)
+        range2Box = array.get(msgRangeBoxes, 1)
+        
+        if range2Set and not range2BreakoutTriggered and not range2SignalExpired
+            // Check if signal window has expired
+            if not na(range2SignalExpiryTime) and time > range2SignalExpiryTime and hoursAfterRangeForBreakout > 0
+                array.set(msgRangeSignalExpired, 1, true)
+                if not na(range2Box)
+                    box.set_border_color(range2Box, color.gray)
+                    box.set_bgcolor(range2Box, color.new(color.gray, 95))
+            
+            // Check for breakouts (only if not expired)
+            if not array.get(msgRangeSignalExpired, 1)
+                // Buy breakout
+                if not na(range2High) and close > range2High
+                    array.set(msgRangeBreakoutTriggered, 1, true)
+                    array.set(msgRangeBreakoutDirection, 1, 1)
+                    if not na(range2Box)
+                        box.set_border_color(range2Box, buySignalColor)
+                        box.set_border_width(range2Box, signalBorderWidth)
+                        box.set_bgcolor(range2Box, color.new(buySignalColor, 90))
+                
+                // Sell breakout
+                else if not na(range2Low) and close < range2Low
+                    array.set(msgRangeBreakoutTriggered, 1, true)
+                    array.set(msgRangeBreakoutDirection, 1, -1)
+                    if not na(range2Box)
+                        box.set_border_color(range2Box, sellSignalColor)
+                        box.set_border_width(range2Box, signalBorderWidth)
+                        box.set_bgcolor(range2Box, color.new(sellSignalColor, 90))
+    
+    // MSG Range 3 Breakout Detection
+    if msg3Enabled
+        range3Set = array.get(msgRangeSet, 2)
+        range3BreakoutTriggered = array.get(msgRangeBreakoutTriggered, 2)
+        range3SignalExpired = array.get(msgRangeSignalExpired, 2)
+        range3SignalExpiryTime = array.get(msgRangeSignalExpiryTimes, 2)
+        range3High = array.get(msgRangeHighs, 2)
+        range3Low = array.get(msgRangeLows, 2)
+        range3Box = array.get(msgRangeBoxes, 2)
+        
+        if range3Set and not range3BreakoutTriggered and not range3SignalExpired
+            // Check if signal window has expired
+            if not na(range3SignalExpiryTime) and time > range3SignalExpiryTime and hoursAfterRangeForBreakout > 0
+                array.set(msgRangeSignalExpired, 2, true)
+                if not na(range3Box)
+                    box.set_border_color(range3Box, color.gray)
+                    box.set_bgcolor(range3Box, color.new(color.gray, 95))
+            
+            // Check for breakouts (only if not expired)
+            if not array.get(msgRangeSignalExpired, 2)
+                // Buy breakout
+                if not na(range3High) and close > range3High
+                    array.set(msgRangeBreakoutTriggered, 2, true)
+                    array.set(msgRangeBreakoutDirection, 2, 1)
+                    if not na(range3Box)
+                        box.set_border_color(range3Box, buySignalColor)
+                        box.set_border_width(range3Box, signalBorderWidth)
+                        box.set_bgcolor(range3Box, color.new(buySignalColor, 90))
+                
+                // Sell breakout
+                else if not na(range3Low) and close < range3Low
+                    array.set(msgRangeBreakoutTriggered, 2, true)
+                    array.set(msgRangeBreakoutDirection, 2, -1)
+                    if not na(range3Box)
+                        box.set_border_color(range3Box, sellSignalColor)
+                        box.set_border_width(range3Box, signalBorderWidth)
+                        box.set_bgcolor(range3Box, color.new(sellSignalColor, 90))
+    
+    // MSG Range 4 Breakout Detection
+    if msg4Enabled
+        range4Set = array.get(msgRangeSet, 3)
+        range4BreakoutTriggered = array.get(msgRangeBreakoutTriggered, 3)
+        range4SignalExpired = array.get(msgRangeSignalExpired, 3)
+        range4SignalExpiryTime = array.get(msgRangeSignalExpiryTimes, 3)
+        range4High = array.get(msgRangeHighs, 3)
+        range4Low = array.get(msgRangeLows, 3)
+        range4Box = array.get(msgRangeBoxes, 3)
+        
+        if range4Set and not range4BreakoutTriggered and not range4SignalExpired
+            // Check if signal window has expired
+            if not na(range4SignalExpiryTime) and time > range4SignalExpiryTime and hoursAfterRangeForBreakout > 0
+                array.set(msgRangeSignalExpired, 3, true)
+                if not na(range4Box)
+                    box.set_border_color(range4Box, color.gray)
+                    box.set_bgcolor(range4Box, color.new(color.gray, 95))
+            
+            // Check for breakouts (only if not expired)
+            if not array.get(msgRangeSignalExpired, 3)
+                // Buy breakout
+                if not na(range4High) and close > range4High
+                    array.set(msgRangeBreakoutTriggered, 3, true)
+                    array.set(msgRangeBreakoutDirection, 3, 1)
+                    if not na(range4Box)
+                        box.set_border_color(range4Box, buySignalColor)
+                        box.set_border_width(range4Box, signalBorderWidth)
+                        box.set_bgcolor(range4Box, color.new(buySignalColor, 90))
+                
+                // Sell breakout
+                else if not na(range4Low) and close < range4Low
+                    array.set(msgRangeBreakoutTriggered, 3, true)
+                    array.set(msgRangeBreakoutDirection, 3, -1)
+                    if not na(range4Box)
+                        box.set_border_color(range4Box, sellSignalColor)
+                        box.set_border_width(range4Box, signalBorderWidth)
+                        box.set_bgcolor(range4Box, color.new(sellSignalColor, 90))
+
+// =====================================================
+// SIGNAL ARROWS - For all MSG ranges
+// =====================================================
+if enableBreakoutSignals and showSignalArrows
+    arrowSizeValue = arrowSize == "Small" ? size.small : arrowSize == "Large" ? size.large : size.normal
+    
+    // MSG Range 1 Signals
+    if msg1Enabled
+        range1Set = array.get(msgRangeSet, 0)
+        range1SignalExpired = array.get(msgRangeSignalExpired, 0)
+        range1BreakoutTriggeredPrev = array.get(msgRangeBreakoutTriggered, 0)[1]
+        range1High = array.get(msgRangeHighs, 0)
+        range1Low = array.get(msgRangeLows, 0)
+        
+        if range1Set and not range1SignalExpired and not range1BreakoutTriggeredPrev
+            // Buy signal
+            if not na(range1High) and close > range1High
+                label.new(bar_index, low - (range1High - range1Low) * 0.1, "▲", 
+                         color=color.new(color.white, 100), textcolor=buySignalColor, 
+                         style=label.style_label_up, size=arrowSizeValue)
+            
+            // Sell signal
+            else if not na(range1Low) and close < range1Low
+                label.new(bar_index, high + (range1High - range1Low) * 0.1, "▼", 
+                         color=color.new(color.white, 100), textcolor=sellSignalColor, 
+                         style=label.style_label_down, size=arrowSizeValue)
+    
+    // MSG Range 2 Signals
+    if msg2Enabled
+        range2Set = array.get(msgRangeSet, 1)
+        range2SignalExpired = array.get(msgRangeSignalExpired, 1)
+        range2BreakoutTriggeredPrev = array.get(msgRangeBreakoutTriggered, 1)[1]
+        range2High = array.get(msgRangeHighs, 1)
+        range2Low = array.get(msgRangeLows, 1)
+        
+        if range2Set and not range2SignalExpired and not range2BreakoutTriggeredPrev
+            // Buy signal
+            if not na(range2High) and close > range2High
+                label.new(bar_index, low - (range2High - range2Low) * 0.1, "▲", 
+                         color=color.new(color.white, 100), textcolor=buySignalColor, 
+                         style=label.style_label_up, size=arrowSizeValue)
+            
+            // Sell signal
+            else if not na(range2Low) and close < range2Low
+                label.new(bar_index, high + (range2High - range2Low) * 0.1, "▼", 
+                         color=color.new(color.white, 100), textcolor=sellSignalColor, 
+                         style=label.style_label_down, size=arrowSizeValue)
+    
+    // MSG Range 3 Signals
+    if msg3Enabled
+        range3Set = array.get(msgRangeSet, 2)
+        range3SignalExpired = array.get(msgRangeSignalExpired, 2)
+        range3BreakoutTriggeredPrev = array.get(msgRangeBreakoutTriggered, 2)[1]
+        range3High = array.get(msgRangeHighs, 2)
+        range3Low = array.get(msgRangeLows, 2)
+        
+        if range3Set and not range3SignalExpired and not range3BreakoutTriggeredPrev
+            // Buy signal
+            if not na(range3High) and close > range3High
+                label.new(bar_index, low - (range3High - range3Low) * 0.1, "▲", 
+                         color=color.new(color.white, 100), textcolor=buySignalColor, 
+                         style=label.style_label_up, size=arrowSizeValue)
+            
+            // Sell signal
+            else if not na(range3Low) and close < range3Low
+                label.new(bar_index, high + (range3High - range3Low) * 0.1, "▼", 
+                         color=color.new(color.white, 100), textcolor=sellSignalColor, 
+                         style=label.style_label_down, size=arrowSizeValue)
+    
+    // MSG Range 4 Signals
+    if msg4Enabled
+        range4Set = array.get(msgRangeSet, 3)
+        range4SignalExpired = array.get(msgRangeSignalExpired, 3)
+        range4BreakoutTriggeredPrev = array.get(msgRangeBreakoutTriggered, 3)[1]
+        range4High = array.get(msgRangeHighs, 3)
+        range4Low = array.get(msgRangeLows, 3)
+        
+        if range4Set and not range4SignalExpired and not range4BreakoutTriggeredPrev
+            // Buy signal
+            if not na(range4High) and close > range4High
+                label.new(bar_index, low - (range4High - range4Low) * 0.1, "▲", 
+                         color=color.new(color.white, 100), textcolor=buySignalColor, 
+                         style=label.style_label_up, size=arrowSizeValue)
+            
+            // Sell signal
+            else if not na(range4Low) and close < range4Low
+                label.new(bar_index, high + (range4High - range4Low) * 0.1, "▼", 
+                         color=color.new(color.white, 100), textcolor=sellSignalColor, 
+                         style=label.style_label_down, size=arrowSizeValue)
 
 // =====================================================
 // SESSION BOXES
