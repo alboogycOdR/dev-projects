@@ -1,0 +1,1584 @@
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// ║                   SMC SCALPING STATE ENGINE v2.2.1                                   ║
+// ║           Smart Money Concept Scalping Strategy for XAU/USD (1M)                     ║
+// ║                     State Transition Architecture                                     ║
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// 
+// VERSION 2.2.1 - PRECEDENCE FIX:
+//   ✓ [CRITICAL] Fixed BOS/CHoCH parentheses - each condition group now explicitly wrapped
+//   ✓ [CRITICAL] Fixed State1→2 zone logic - requireFVGConfluence now works correctly
+//   ✓ [MEDIUM] Renamed "Spread Filter" to "Range Filter" (clarity: it's candle range, not bid/ask)
+//   ✓ [MEDIUM] Fixed sweptKnownLevel to find NEAREST level, not first match
+//
+// VERSION 2.2 - ROBUSTNESS PATCH:
+//   ✓ [CRITICAL] Fixed BOS/CHoCH logic parentheses grouping
+//   ✓ [CRITICAL] Fixed State1→2 transition logic precedence
+//   ✓ [CRITICAL] Removed lookahead bias in key levels
+//   ✓ [HIGH] Added minimum BOS break distance filter
+//   ✓ [HIGH] Added EMA separation/slope trend strength gate
+//   ✓ [HIGH] Anchored sweeps to known liquidity pools (swings + Asian)
+//   ✓ [HIGH] Added displacement rule for sweep validation
+//   ✓ [HIGH] Added reclaim confirmation requirement
+//   ✓ [MEDIUM] Added internal vs external structure tracking
+//   ✓ [MEDIUM] Added invalidation on adverse OB/FVG penetration
+//   ✓ [MEDIUM] Added lastSweepBar tracking to prevent clustering
+//   ✓ [NEW] Strict ICT vs Statistical mode toggle
+//
+// INHERITED FROM v2.1:
+//   ✓ Range Filter, Adaptive Sweep, Position Sizing, Regime Detection
+//   ✓ Optimization Plots, OB/FVG Ageing, Inverse Mode, Max Orders
+//
+// ═══════════════════════════════════════════════════════════════════════════════════════
+
+//@version=5
+strategy("SMC Scalping State Engine v2.2.1", shorttitle="SMC-SSE v2.2.1", overlay=true, 
+         max_boxes_count=500, max_labels_count=500, max_lines_count=500,
+         initial_capital=10000, default_qty_type=strategy.percent_of_equity, 
+         default_qty_value=1, commission_type=strategy.commission.cash_per_contract,
+         commission_value=0.0, slippage=1, pyramiding=0, max_bars_back=500, dynamic_requests=true)
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// ║                              USER INPUTS                                             ║
+// ═══════════════════════════════════════════════════════════════════════════════════════
+
+string G_GENERAL = "═══ General Settings ═══"
+i_showDashboard     = input.bool(true, "Show State Dashboard", group=G_GENERAL)
+i_showStructure     = input.bool(true, "Show Market Structure", group=G_GENERAL)
+i_showOrderBlocks   = input.bool(true, "Show Order Blocks", group=G_GENERAL)
+i_showFVGs          = input.bool(true, "Show Fair Value Gaps", group=G_GENERAL)
+i_showKeyLevels     = input.bool(true, "Show Key Session Levels", group=G_GENERAL)
+i_showVWAP          = input.bool(true, "Show VWAP & Bands", group=G_GENERAL)
+i_showEMAs          = input.bool(true, "Show EMAs", group=G_GENERAL)
+i_showOptimizePlots = input.bool(false, "Show Optimization Plots", group=G_GENERAL)
+
+string G_DEBUG = "═══ Debug Mode ═══"
+i_debugMode         = input.bool(false, "Enable Debug Mode", group=G_DEBUG, tooltip="Shows detailed condition tracking in Data Window and on chart")
+i_debugLabels       = input.bool(false, "Show Debug Labels on Chart", group=G_DEBUG, tooltip="Shows condition pass/fail labels at key decision points")
+i_debugStateChanges = input.bool(true, "Show State Change Debug", group=G_DEBUG, tooltip="Shows debug info when state transitions occur")
+
+string G_MODE = "═══ Trading Mode ═══"
+i_tradingMode       = input.string("Strict ICT", "Entry Style", options=["Strict ICT", "Statistical"], group=G_MODE, tooltip="Strict ICT: Sweep PDH/PDL/Asian + displacement + FVG return\nStatistical: More signals, lower precision")
+i_requireHTFAlignment = input.bool(false, "Require HTF Alignment (5M)", group=G_MODE)
+i_htfTimeframe      = input.timeframe("5", "HTF Timeframe", group=G_MODE)
+
+string G_STEP1 = "═══ Step 1: Market Structure ═══"
+i_swingLookback     = input.int(5, "External Swing Lookback", minval=2, maxval=20, group=G_STEP1)
+i_internalLookback  = input.int(2, "Internal Swing Lookback", minval=1, maxval=10, group=G_STEP1, tooltip="Smaller lookback for micro-structure tracking")
+i_requireInternalAlign = input.bool(true, "Require Internal + External Alignment", group=G_STEP1, tooltip="CHoCH only valid if internal structure confirms within N bars")
+i_alignmentBars     = input.int(5, "Alignment Window (bars)", minval=1, maxval=20, group=G_STEP1)
+i_bosMinATR         = input.float(0.3, "Min BOS Break Distance (ATR)", minval=0.1, maxval=2.0, step=0.1, group=G_STEP1, tooltip="BOS requires break > X * ATR to filter micro-breaks")
+i_structureSensitivity = input.float(0.5, "OB Formation Sensitivity (ATR)", minval=0.1, maxval=2.0, step=0.1, group=G_STEP1)
+i_maxOrderBlocks    = input.int(5, "Max Active Order Blocks", minval=1, maxval=20, group=G_STEP1)
+i_obMitigationMode  = input.string("Wick", "OB Mitigation Mode", options=["Wick", "Close", "50%"], group=G_STEP1)
+
+string G_STEP2 = "═══ Step 2: Trend Confirmation ═══"
+i_emaFast           = input.int(20, "Fast EMA Period", minval=5, maxval=50, group=G_STEP2)
+i_emaSlow           = input.int(50, "Slow EMA Period", minval=20, maxval=200, group=G_STEP2)
+i_requireEMAStack   = input.bool(true, "Require EMA Stack Alignment", group=G_STEP2)
+i_requirePriceAboveEMA = input.bool(true, "Require Price vs EMA Alignment", group=G_STEP2)
+i_useTrendStrengthGate = input.bool(true, "Use Trend Strength Gate", group=G_STEP2, tooltip="Requires EMA separation and slope to pass Step 2")
+i_emaSepMinATR      = input.float(0.35, "Min EMA Separation (ATR)", minval=0.1, maxval=2.0, step=0.1, group=G_STEP2, tooltip="Lowered from 0.5 to 0.35 for better 1M Gold ranging period compatibility")
+i_emaSlopeCheck     = input.bool(true, "Require EMA Slope Alignment", group=G_STEP2, tooltip="Fast EMA must be rising for longs, falling for shorts")
+i_slopeLookback     = input.int(3, "Slope Lookback Bars", minval=1, maxval=10, group=G_STEP2)
+
+string G_STEP3 = "═══ Step 3: Liquidity Sweep & Entry ═══"
+i_sweepSource       = input.string("Known Pools", "Sweep Anchor", options=["Known Pools", "Lookback Window"], group=G_STEP3, tooltip="Known Pools: Swings + Asian levels\nLookback: Generic recent highs/lows")
+i_liqSweepLookback  = input.int(10, "Lookback Window (if used)", minval=3, maxval=30, group=G_STEP3)
+i_requireDisplacement = input.bool(true, "Require Displacement", group=G_STEP3, tooltip="Sweep candle must show significant range")
+i_displacementATR   = input.float(0.5, "Displacement Size (ATR)", minval=0.2, maxval=2.0, step=0.1, group=G_STEP3)
+i_requireReclaim    = input.bool(true, "Require Price Reclaim", group=G_STEP3, tooltip="Close must reclaim beyond sweep candle midpoint")
+i_preventClustering = input.bool(true, "Prevent Sweep Clustering", group=G_STEP3, tooltip="Only one sweep attempt per direction until reset")
+i_clusterCooldown   = input.int(10, "Cluster Cooldown (bars)", minval=3, maxval=50, group=G_STEP3)
+i_invalidateOnPenetration = input.bool(true, "Invalidate on Adverse Penetration", group=G_STEP3, tooltip="Cancel setup if price closes through OB/FVG against direction")
+i_confirmationType  = input.string("Engulfing", "Entry Confirmation", options=["Engulfing", "Rejection Wick", "Break & Retest", "Any"], group=G_STEP3)
+i_entryTimeoutBars  = input.int(10, "Entry Timeout (bars)", minval=3, maxval=30, group=G_STEP3)
+i_requireFVGConfluence = input.bool(true, "Require FVG Confluence", group=G_STEP3)
+i_requireKeyLevelSweep = input.bool(true, "Require Key Level Sweep (Strict Mode)", group=G_STEP3)
+
+string G_RANGE = "═══ Range Filter ═══"
+i_useRangeFilter    = input.bool(true, "Enable Range Filter", group=G_RANGE, tooltip="Filters by candle range (high-low), NOT bid/ask spread")
+i_maxRangeMult      = input.float(3.0, "Max Range Multiplier", minval=1.0, maxval=10.0, step=0.5, group=G_RANGE)
+i_rangeLookback     = input.int(100, "Range Average Lookback", minval=20, maxval=500, group=G_RANGE)
+i_minRangeTicks     = input.int(5, "Minimum Range (Ticks)", minval=1, maxval=50, group=G_RANGE)
+
+string G_ADAPTIVE = "═══ Adaptive Thresholds ═══"
+i_useAdaptiveSweep  = input.bool(true, "Use Adaptive Sweep Threshold", group=G_ADAPTIVE)
+i_sweepBaseATR      = input.float(0.3, "Base Sweep (ATR)", minval=0.1, maxval=1.0, step=0.1, group=G_ADAPTIVE)
+i_sweepVolMult      = input.float(1.5, "Volatility Multiplier", minval=0.5, maxval=3.0, step=0.25, group=G_ADAPTIVE)
+i_adaptiveSmoothing = input.int(20, "Adaptive Smoothing Period", minval=5, maxval=50, group=G_ADAPTIVE)
+
+string G_SIZING = "═══ Position Sizing ═══"
+i_sizingMode        = input.string("Fixed %", "Position Sizing Mode", options=["Fixed %", "Kelly Criterion", "Volatility Adjusted", "ATR-Based"], group=G_SIZING)
+i_baseRiskPercent   = input.float(1.0, "Base Risk Per Trade (%)", minval=0.1, maxval=5.0, step=0.1, group=G_SIZING)
+i_kellyFraction     = input.float(0.25, "Kelly Fraction", minval=0.1, maxval=0.5, step=0.05, group=G_SIZING)
+i_volTargetPercent  = input.float(1.0, "Volatility Target (%)", minval=0.5, maxval=3.0, step=0.25, group=G_SIZING)
+i_atrRiskMult       = input.float(2.0, "ATR Risk Multiplier", minval=1.0, maxval=5.0, step=0.5, group=G_SIZING)
+
+string G_REGIME = "═══ Regime Detection ═══"
+i_useRegimeFilter   = input.bool(true, "Enable Regime Filter", group=G_REGIME)
+i_adrPeriod         = input.int(14, "ADR Period", minval=5, maxval=30, group=G_REGIME)
+i_adrLowPercentile  = input.float(30.0, "Low Volatility Percentile", minval=10, maxval=50, step=5, group=G_REGIME)
+i_adrHighPercentile = input.float(80.0, "High Volatility Percentile", minval=50, maxval=95, step=5, group=G_REGIME)
+i_regimeMode        = input.string("All Regimes", "Trading Regime", options=["All Regimes", "Normal Only", "High Vol Only", "Low Vol Only"], group=G_REGIME, tooltip="Changed default to 'All Regimes' to avoid blocking trades during volatile periods")
+i_vixProxy          = input.string("None", "VIX Proxy Symbol", options=["None", "TVC:VIX", "CBOE:GVZ"], group=G_REGIME)
+i_vixThreshold      = input.float(20.0, "VIX High Threshold", minval=10, maxval=50, step=2, group=G_REGIME)
+
+string G_AGEING = "═══ OB/FVG Ageing ═══"
+i_useAgeing         = input.bool(true, "Enable Zone Ageing", group=G_AGEING)
+i_ageingStartBars   = input.int(30, "Start Fading After (bars)", minval=10, maxval=100, group=G_AGEING)
+i_ageingFullBars    = input.int(100, "Fully Faded After (bars)", minval=50, maxval=300, group=G_AGEING)
+i_minOpacity        = input.int(95, "Minimum Opacity (%)", minval=80, maxval=98, group=G_AGEING)
+
+string G_INVERSE = "═══ Trend Following Mode ═══"
+i_allowInverseZone  = input.bool(false, "Allow Inverse Zone Trading", group=G_INVERSE)
+i_inverseRequireStrong = input.bool(true, "Require Strong Trend for Inverse", group=G_INVERSE)
+i_strongTrendATR    = input.float(1.5, "Strong Trend Threshold (ATR)", minval=0.5, maxval=3.0, step=0.25, group=G_INVERSE)
+
+string G_MAXORDERS = "═══ Overtrading Protection ═══"
+i_useMaxOrders      = input.bool(true, "Enable Max Orders Per Session", group=G_MAXORDERS)
+i_maxOrdersLondon   = input.int(2, "Max Orders - London KZ", minval=1, maxval=10, group=G_MAXORDERS)
+i_maxOrdersNY       = input.int(2, "Max Orders - NY KZ", minval=1, maxval=10, group=G_MAXORDERS)
+i_maxOrdersOverlap  = input.int(3, "Max Orders - Overlap", minval=1, maxval=10, group=G_MAXORDERS)
+i_maxDailyOrders    = input.int(5, "Max Orders Per Day", minval=1, maxval=20, group=G_MAXORDERS)
+i_maxConsecLosses   = input.int(3, "Stop After Consecutive Losses", minval=1, maxval=10, group=G_MAXORDERS)
+i_cooldownBars      = input.int(5, "Cooldown After Loss (bars)", minval=0, maxval=30, group=G_MAXORDERS)
+
+string G_SESSIONS = "═══ Killzone & Session Settings ═══"
+i_enableLondonKZ    = input.bool(true, "Enable London Killzone", group=G_SESSIONS)
+i_londonStart       = input.int(7, "London KZ Start (Hour UTC)", minval=0, maxval=23, group=G_SESSIONS)
+i_londonEnd         = input.int(10, "London KZ End (Hour UTC)", minval=0, maxval=23, group=G_SESSIONS)
+i_enableNYKZ        = input.bool(true, "Enable New York Killzone", group=G_SESSIONS)
+i_nyStart           = input.int(13, "NY KZ Start (Hour UTC)", minval=0, maxval=23, group=G_SESSIONS)
+i_nyEnd             = input.int(16, "NY KZ End (Hour UTC)", minval=0, maxval=23, group=G_SESSIONS)
+i_enableLondonNYOverlap = input.bool(true, "Enable London-NY Overlap", group=G_SESSIONS)
+i_overlapStart      = input.int(13, "Overlap Start (Hour UTC)", minval=0, maxval=23, group=G_SESSIONS)
+i_overlapEnd        = input.int(16, "Overlap End (Hour UTC)", minval=0, maxval=23, group=G_SESSIONS)
+i_showSessionBG     = input.bool(true, "Show Session Background", group=G_SESSIONS)
+
+string G_ASIAN = "═══ Asian Session (Key Levels) ═══"
+i_asianStart        = input.int(0, "Asian Session Start (Hour UTC)", minval=0, maxval=23, group=G_ASIAN)
+i_asianEnd          = input.int(7, "Asian Session End (Hour UTC)", minval=0, maxval=23, group=G_ASIAN)
+i_showAsianRange    = input.bool(true, "Show Asian Range Box", group=G_ASIAN)
+i_asianRangeColor   = input.color(color.new(#9C27B0, 85), "Asian Range Color", group=G_ASIAN)
+
+string G_FVG = "═══ Fair Value Gaps ═══"
+i_fvgMinSize        = input.float(0.3, "Min FVG Size (ATR)", minval=0.1, maxval=2.0, step=0.1, group=G_FVG)
+i_maxFVGs           = input.int(10, "Max Active FVGs", minval=1, maxval=30, group=G_FVG)
+i_fvgMitigationMode = input.string("50%", "FVG Mitigation Mode", options=["Touch", "50%", "Full"], group=G_FVG)
+i_fvgBullColor      = input.color(color.new(#00BCD4, 80), "Bullish FVG Color", group=G_FVG)
+i_fvgBearColor      = input.color(color.new(#E91E63, 80), "Bearish FVG Color", group=G_FVG)
+
+string G_VWAP = "═══ VWAP Settings ═══"
+i_vwapAnchor        = input.string("Session", "VWAP Anchor", options=["Session", "Daily", "Weekly"], group=G_VWAP)
+i_vwapSD1Mult       = input.float(1.0, "1st Std Dev Multiplier", minval=0.5, maxval=3.0, step=0.25, group=G_VWAP)
+i_vwapSD2Mult       = input.float(2.0, "2nd Std Dev Multiplier", minval=1.0, maxval=4.0, step=0.25, group=G_VWAP)
+i_useVWAPFilter     = input.bool(true, "Use VWAP as Directional Filter", group=G_VWAP)
+i_vwapFilterMode    = input.string("Mean Reversion", "VWAP Filter Mode", options=["Mean Reversion", "Trend Following"], group=G_VWAP)
+i_vwapColor         = input.color(color.new(#FF9800, 0), "VWAP Color", group=G_VWAP)
+i_vwapBandColor     = input.color(color.new(#FF9800, 70), "VWAP Band Color", group=G_VWAP)
+
+string G_LEVELS = "═══ Key Session Levels ═══"
+i_showPDHL          = input.bool(true, "Show Previous Day H/L", group=G_LEVELS)
+i_showPWHL          = input.bool(true, "Show Previous Week H/L", group=G_LEVELS)
+i_showAsianHL       = input.bool(true, "Show Asian Session H/L", group=G_LEVELS)
+i_showMidnight      = input.bool(true, "Show NY Midnight Open", group=G_LEVELS)
+i_pdColor           = input.color(color.new(#2196F3, 30), "Previous Day Color", group=G_LEVELS)
+i_pwColor           = input.color(color.new(#9C27B0, 30), "Previous Week Color", group=G_LEVELS)
+i_asianColor        = input.color(color.new(#FF5722, 30), "Asian Range Color", group=G_LEVELS)
+i_midnightColor     = input.color(color.new(#FFEB3B, 30), "Midnight Open Color", group=G_LEVELS)
+
+string G_CONFLUENCE = "═══ Confluence Scoring ═══"
+i_minConfluenceScore = input.int(4, "Minimum Confluence Score", minval=1, maxval=10, group=G_CONFLUENCE)
+i_obWeight          = input.int(2, "Order Block Weight", minval=0, maxval=5, group=G_CONFLUENCE)
+i_fvgWeight         = input.int(2, "FVG Weight", minval=0, maxval=5, group=G_CONFLUENCE)
+i_vwapWeight        = input.int(1, "VWAP Alignment Weight", minval=0, maxval=5, group=G_CONFLUENCE)
+i_keyLevelWeight    = input.int(2, "Key Level Sweep Weight", minval=0, maxval=5, group=G_CONFLUENCE)
+i_emaWeight         = input.int(1, "EMA Alignment Weight", minval=0, maxval=5, group=G_CONFLUENCE)
+i_regimeWeight      = input.int(1, "Regime Alignment Weight", minval=0, maxval=5, group=G_CONFLUENCE)
+
+string G_RISK = "═══ Risk Management ═══"
+i_minRRR            = input.float(3.0, "Minimum Risk:Reward", minval=1.0, maxval=10.0, step=0.5, group=G_RISK)
+i_tp1Ratio          = input.float(1.0, "TP1 R:R Target", minval=0.5, maxval=5.0, step=0.5, group=G_RISK)
+i_tp2Ratio          = input.float(2.0, "TP2 R:R Target", minval=1.0, maxval=7.0, step=0.5, group=G_RISK)
+i_tp3Ratio          = input.float(3.0, "TP3 R:R Target", minval=1.5, maxval=10.0, step=0.5, group=G_RISK)
+i_tp1Percent        = input.float(50.0, "TP1 Position Close (%)", minval=10, maxval=100, step=10, group=G_RISK)
+i_useKeyLevelTP     = input.bool(true, "Use Key Levels as TP Targets", group=G_RISK)
+
+string G_VISUAL = "═══ Visual Settings ═══"
+i_bullColor         = input.color(color.new(#00E676, 0), "Bullish Color", group=G_VISUAL)
+i_bearColor         = input.color(color.new(#FF5252, 0), "Bearish Color", group=G_VISUAL)
+i_obBullColor       = input.color(color.new(#00E676, 80), "Bullish OB Fill", group=G_VISUAL)
+i_obBearColor       = input.color(color.new(#FF5252, 80), "Bearish OB Fill", group=G_VISUAL)
+i_londonBG          = input.color(color.new(#2196F3, 95), "London Session BG", group=G_VISUAL)
+i_nyBG              = input.color(color.new(#4CAF50, 95), "NY Session BG", group=G_VISUAL)
+i_overlapBG         = input.color(color.new(#FF9800, 92), "Overlap Session BG", group=G_VISUAL)
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// ║                          TYPE DEFINITIONS                                            ║
+// ═══════════════════════════════════════════════════════════════════════════════════════
+
+type StateEngine
+    int    currentState
+    bool   structureValid
+    bool   trendValid  
+    bool   entryReady
+    int    stateChangedBar
+    string direction
+    int    entryTimeoutBar
+    string lastSignal
+    int    confluenceScore
+    bool   setupInvalidated
+    string invalidationReason
+
+type OrderBlock
+    float  top
+    float  bottom
+    int    startBar
+    bool   isBullish
+    bool   mitigated
+    bool   inDiscountPremium
+    box    obBox
+    label  obLabel
+
+type FairValueGap
+    float  top
+    float  bottom
+    int    startBar
+    bool   isBullish
+    bool   mitigated
+    float  midPoint
+    box    fvgBox
+
+type SwingPoint
+    float  price
+    int    barIndex
+    bool   isHigh
+    bool   broken
+
+type KeyLevels
+    float  pdh
+    float  pdl
+    float  pwh
+    float  pwl
+    float  asianHigh
+    float  asianLow
+    float  midnightOpen
+    bool   pdhSwept
+    bool   pdlSwept
+    bool   pwhSwept
+    bool   pwlSwept
+    bool   asianHighSwept
+    bool   asianLowSwept
+
+type VWAPData
+    float  vwap
+    float  upperBand1
+    float  lowerBand1
+    float  upperBand2
+    float  lowerBand2
+    float  variance
+
+type SessionStats
+    int    londonTrades
+    int    nyTrades
+    int    overlapTrades
+    int    dailyTrades
+    int    consecutiveLosses
+    int    lastLossBar
+    float  dailyPnL
+    bool   tradingHalted
+
+type SweepTracker
+    int    lastBullSweepBar
+    int    lastBearSweepBar
+    float  lastBullSweepLevel
+    float  lastBearSweepLevel
+    bool   bullSweepActive
+    bool   bearSweepActive
+
+type InternalStructure
+    float  lastInternalHigh
+    float  lastInternalLow
+    int    lastInternalHighBar
+    int    lastInternalLowBar
+    bool   internalBullish
+    int    lastInternalFlipBar
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// ║                          GLOBAL VARIABLES                                            ║
+// ═══════════════════════════════════════════════════════════════════════════════════════
+
+var StateEngine state = StateEngine.new(0, false, false, false, 0, "NEUTRAL", 0, "NONE", 0, false, "")
+var array<OrderBlock> activeOBs = array.new<OrderBlock>()
+var array<FairValueGap> activeFVGs = array.new<FairValueGap>()
+var array<SwingPoint> swingHighs = array.new<SwingPoint>()
+var array<SwingPoint> swingLows = array.new<SwingPoint>()
+var KeyLevels keyLevels = KeyLevels.new(na, na, na, na, na, na, na, false, false, false, false, false, false)
+var VWAPData vwapData = VWAPData.new(na, na, na, na, na, na)
+var SessionStats sessionStats = SessionStats.new(0, 0, 0, 0, 0, 0, 0.0, false)
+var SweepTracker sweepTracker = SweepTracker.new(0, 0, na, na, false, false)
+var InternalStructure internalStruct = InternalStructure.new(na, na, 0, 0, na, 0)
+
+var float lastSwingHigh = na
+var float lastSwingLow = na
+var bool structureBullish = na
+var string lastBOS_ChoCH = "NONE"
+var float structureHigh = na
+var float structureLow = na
+var float equilibrium = na
+var float asianSessionHigh = na
+var float asianSessionLow = na
+var bool asianSessionActive = false
+var float sumPV = 0.0
+var float sumV = 0.0
+var float sumPV2 = 0.0
+var int vwapBars = 0
+var int totalWins = 0
+var int totalLosses = 0
+var float avgWinR = 0.0
+var float avgLossR = 0.0
+var bool wasBullish = na
+var int lastStructureFlipBar = 0
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// ║                          INDICATOR CALCULATIONS                                      ║
+// ═══════════════════════════════════════════════════════════════════════════════════════
+
+emaFast = ta.ema(close, i_emaFast)
+emaSlow = ta.ema(close, i_emaSlow)
+atr = ta.atr(14)
+currentHour = hour(time, "UTC")
+
+// Session Functions
+isLondonKZ() => i_enableLondonKZ and currentHour >= i_londonStart and currentHour < i_londonEnd
+isNYKZ() => i_enableNYKZ and currentHour >= i_nyStart and currentHour < i_nyEnd
+isLondonNYOverlap() => i_enableLondonNYOverlap and currentHour >= i_overlapStart and currentHour < i_overlapEnd
+isActiveSession() => isLondonKZ() or isNYKZ() or isLondonNYOverlap()
+getCurrentSession() => isLondonNYOverlap() ? "OVERLAP" : isLondonKZ() ? "LONDON" : isNYKZ() ? "NEWYORK" : "INACTIVE"
+isAsianSession() => currentHour >= i_asianStart and currentHour < i_asianEnd
+
+sessionBGColor = i_showSessionBG ? (isLondonNYOverlap() ? i_overlapBG : isLondonKZ() ? i_londonBG : isNYKZ() ? i_nyBG : na) : na
+bgcolor(sessionBGColor, title="Session Background")
+
+// Range Filter (Note: this is candle range, not bid/ask spread)
+currentRange = high - low
+avgRange = ta.sma(currentRange, i_rangeLookback)
+rangeRatio = avgRange > 0 ? currentRange / avgRange : 1.0
+rangeInTicks = currentRange / syminfo.mintick
+rangeFilterPassed() => not i_useRangeFilter or (rangeRatio <= i_maxRangeMult and rangeInTicks >= i_minRangeTicks)
+
+// Adaptive Thresholds
+recentVolatility = ta.sma(ta.tr, i_adaptiveSmoothing)
+historicalVolatility = ta.sma(ta.tr, i_adaptiveSmoothing * 5)
+volatilityRatio = historicalVolatility > 0 ? recentVolatility / historicalVolatility : 1.0
+getAdaptiveSweepThreshold() => i_useAdaptiveSweep ? i_sweepBaseATR * atr * math.max(0.5, math.min(i_sweepVolMult, volatilityRatio)) : i_sweepBaseATR * atr
+adaptiveSweepThreshold = getAdaptiveSweepThreshold()
+
+// Position Sizing
+calculateKellySize() =>
+    if totalWins + totalLosses < 20 or totalWins + totalLosses == 0
+        i_baseRiskPercent
+    else
+        winRate = totalWins / (totalWins + totalLosses)
+        lossRate = 1 - winRate
+        kellyRatio = 0.0
+        if avgLossR > 0 and avgWinR > 0
+            safeAvgLossR = math.max(1e-10, avgLossR)
+            winLossRatio = avgWinR / safeAvgLossR
+            safeWinLossRatio = math.max(1e-10, winLossRatio)
+            kellyRatio := winRate - (lossRate / safeWinLossRatio)
+        else
+            kellyRatio := winRate
+        math.min(math.max(0.1, kellyRatio * i_kellyFraction * 100), i_baseRiskPercent * 2)
+calculateVolatilitySize() =>
+    if close <= 0
+        i_baseRiskPercent
+    else
+        volPercent = atr / close * 100
+        if volPercent <= 0
+            i_baseRiskPercent
+        else
+            math.max(0.25, math.min(i_baseRiskPercent * (i_volTargetPercent / volPercent), i_baseRiskPercent * 2))
+calculateATRSize(stopDistance) =>
+    if stopDistance <= 0 or strategy.equity <= 0
+        i_baseRiskPercent
+    else
+        riskAmount = strategy.equity * (i_baseRiskPercent / 100)
+        positionSize = riskAmount / (stopDistance * i_atrRiskMult)
+        math.max(0.25, (positionSize / strategy.equity) * 100)
+getPositionSize(stopDistance) => switch i_sizingMode
+    "Fixed %" => i_baseRiskPercent
+    "Kelly Criterion" => calculateKellySize()
+    "Volatility Adjusted" => calculateVolatilitySize()
+    "ATR-Based" => calculateATRSize(stopDistance)
+    => i_baseRiskPercent
+
+// Regime Detection
+dailyHigh = request.security(syminfo.tickerid, "D", high)
+dailyLow = request.security(syminfo.tickerid, "D", low)
+dailyRange = dailyHigh - dailyLow
+adrValue = ta.sma(dailyRange, i_adrPeriod)
+var array<float> adrHistory = array.new_float(100, 0)
+if barstate.isconfirmed and not na(dailyRange)
+    array.push(adrHistory, dailyRange)
+    if array.size(adrHistory) > 100
+        array.shift(adrHistory)
+
+getADRPercentile() =>
+    if array.size(adrHistory) < 20
+        50.0
+    else
+        belowCount = 0
+        for i = 0 to array.size(adrHistory) - 1
+            if array.get(adrHistory, i) < dailyRange
+                belowCount += 1
+        (belowCount / array.size(adrHistory)) * 100
+
+getVIXValue() =>
+    if i_vixProxy == "None" or i_vixProxy == ""
+        na
+    else
+        request.security(i_vixProxy, "D", close)
+
+adrPercentile = getADRPercentile()
+vixValue = getVIXValue()
+currentRegime = adrPercentile < i_adrLowPercentile ? "LOW_VOL" : adrPercentile > i_adrHighPercentile or (not na(vixValue) and vixValue > i_vixThreshold) ? "HIGH_VOL" : "NORMAL"
+regimeFilterPassed() =>
+    if not i_useRegimeFilter
+        true
+    else
+        switch i_regimeMode
+    "All Regimes" => true
+    "Normal Only" => currentRegime == "NORMAL"
+    "High Vol Only" => currentRegime == "HIGH_VOL"
+    "Low Vol Only" => currentRegime == "LOW_VOL"
+    => true
+
+// Max Orders Tracking
+newDay = ta.change(dayofweek) != 0
+if newDay
+    sessionStats.londonTrades := 0
+    sessionStats.nyTrades := 0
+    sessionStats.overlapTrades := 0
+    sessionStats.dailyTrades := 0
+    sessionStats.tradingHalted := false
+    sweepTracker.bullSweepActive := false
+    sweepTracker.bearSweepActive := false
+
+if isLondonKZ() and not isLondonKZ()[1]
+    sessionStats.londonTrades := 0
+if isNYKZ() and not isNYKZ()[1]
+    sessionStats.nyTrades := 0
+if isLondonNYOverlap() and not isLondonNYOverlap()[1]
+    sessionStats.overlapTrades := 0
+
+canTradeSession() =>
+    if not i_useMaxOrders
+        true
+    else if sessionStats.tradingHalted or sessionStats.dailyTrades >= i_maxDailyOrders or sessionStats.consecutiveLosses >= i_maxConsecLosses
+        false
+    else if bar_index - sessionStats.lastLossBar < i_cooldownBars and sessionStats.lastLossBar > 0
+        false
+    else
+        switch getCurrentSession()
+            "LONDON" => sessionStats.londonTrades < i_maxOrdersLondon
+            "NEWYORK" => sessionStats.nyTrades < i_maxOrdersNY
+            "OVERLAP" => sessionStats.overlapTrades < i_maxOrdersOverlap
+            => false
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// ║              [CRITICAL FIX] KEY LEVELS - LOOKAHEAD BIAS REMOVED                      ║
+// ═══════════════════════════════════════════════════════════════════════════════════════
+
+[prevDayHigh, prevDayLow] = request.security(syminfo.tickerid, "D", [high[1], low[1]], lookahead=barmerge.lookahead_off)
+[prevWeekHigh, prevWeekLow] = request.security(syminfo.tickerid, "W", [high[1], low[1]], lookahead=barmerge.lookahead_off)
+keyLevels.pdh := prevDayHigh
+keyLevels.pdl := prevDayLow
+keyLevels.pwh := prevWeekHigh
+keyLevels.pwl := prevWeekLow
+
+asianSessionStart = isAsianSession() and not isAsianSession()[1]
+asianSessionEnd = not isAsianSession() and isAsianSession()[1]
+
+if asianSessionStart
+    asianSessionHigh := high
+    asianSessionLow := low
+    asianSessionActive := true
+    keyLevels.pdhSwept := false
+    keyLevels.pdlSwept := false
+    keyLevels.pwhSwept := false
+    keyLevels.pwlSwept := false
+    keyLevels.asianHighSwept := false
+    keyLevels.asianLowSwept := false
+
+if asianSessionActive and isAsianSession()
+    asianSessionHigh := math.max(asianSessionHigh, high)
+    asianSessionLow := math.min(asianSessionLow, low)
+
+if asianSessionEnd
+    asianSessionActive := false
+    keyLevels.asianHigh := asianSessionHigh
+    keyLevels.asianLow := asianSessionLow
+
+if hour(time, "America/New_York") == 0 and minute(time) == 0
+    keyLevels.midnightOpen := open
+
+if not na(keyLevels.pdh) and high > keyLevels.pdh
+    keyLevels.pdhSwept := true
+if not na(keyLevels.pdl) and low < keyLevels.pdl
+    keyLevels.pdlSwept := true
+if not na(keyLevels.pwh) and high > keyLevels.pwh
+    keyLevels.pwhSwept := true
+if not na(keyLevels.pwl) and low < keyLevels.pwl
+    keyLevels.pwlSwept := true
+if not na(keyLevels.asianHigh) and high > keyLevels.asianHigh
+    keyLevels.asianHighSwept := true
+if not na(keyLevels.asianLow) and low < keyLevels.asianLow
+    keyLevels.asianLowSwept := true
+
+keyLevelSweptBullish() => keyLevels.pdlSwept or keyLevels.asianLowSwept or keyLevels.pwlSwept
+keyLevelSweptBearish() => keyLevels.pdhSwept or keyLevels.asianHighSwept or keyLevels.pwhSwept
+
+// VWAP Calculations
+vwapReset = switch i_vwapAnchor
+    "Session" => (isLondonKZ() and not isLondonKZ()[1]) or (isNYKZ() and not isNYKZ()[1])
+    "Daily" => ta.change(dayofweek) != 0
+    "Weekly" => ta.change(weekofyear) != 0
+    => false
+typicalPrice = (high + low + close) / 3
+
+if vwapReset
+    sumPV := typicalPrice * volume
+    sumV := volume
+    sumPV2 := typicalPrice * typicalPrice * volume
+    vwapBars := 1
+else
+    sumPV += typicalPrice * volume
+    sumV += volume
+    sumPV2 += typicalPrice * typicalPrice * volume
+    vwapBars += 1
+
+vwapValue = sumV > 0 ? sumPV / sumV : typicalPrice
+variance = sumV > 0 ? (sumPV2 / sumV) - (vwapValue * vwapValue) : 0
+stdDev = math.sqrt(math.max(0, variance))
+vwapData.vwap := vwapValue
+vwapData.upperBand1 := vwapValue + stdDev * i_vwapSD1Mult
+vwapData.lowerBand1 := vwapValue - stdDev * i_vwapSD1Mult
+vwapData.upperBand2 := vwapValue + stdDev * i_vwapSD2Mult
+vwapData.lowerBand2 := vwapValue - stdDev * i_vwapSD2Mult
+
+isPremiumZone() => not na(equilibrium) and close > equilibrium
+isDiscountZone() => not na(equilibrium) and close < equilibrium
+trendStrength = atr > 0 ? math.abs(close - emaSlow) / atr : 0
+isStrongTrend = trendStrength > i_strongTrendATR
+
+vwapBullishFilter() =>
+    if not i_useVWAPFilter
+        true
+    else if i_vwapFilterMode == "Mean Reversion"
+        close < vwapData.vwap
+    else
+        close > vwapData.vwap
+vwapBearishFilter() =>
+    if not i_useVWAPFilter
+        true
+    else if i_vwapFilterMode == "Mean Reversion"
+        close > vwapData.vwap
+    else
+        close < vwapData.vwap
+
+plot(i_showVWAP ? vwapData.vwap : na, "VWAP", color=i_vwapColor, linewidth=2)
+plot(i_showVWAP ? vwapData.upperBand1 : na, "VWAP +1SD", color=i_vwapBandColor, linewidth=1)
+plot(i_showVWAP ? vwapData.lowerBand1 : na, "VWAP -1SD", color=i_vwapBandColor, linewidth=1)
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// ║              [CRITICAL FIX] STEP 1: MARKET STRUCTURE                                 ║
+// ═══════════════════════════════════════════════════════════════════════════════════════
+
+swingHighDetected = ta.pivothigh(high, i_swingLookback, i_swingLookback)
+swingLowDetected = ta.pivotlow(low, i_swingLookback, i_swingLookback)
+internalSwingHigh = ta.pivothigh(high, i_internalLookback, i_internalLookback)
+internalSwingLow = ta.pivotlow(low, i_internalLookback, i_internalLookback)
+
+if not na(internalSwingHigh)
+    internalStruct.lastInternalHigh := internalSwingHigh
+    internalStruct.lastInternalHighBar := bar_index - i_internalLookback
+if not na(internalSwingLow)
+    internalStruct.lastInternalLow := internalSwingLow
+    internalStruct.lastInternalLowBar := bar_index - i_internalLookback
+
+if not na(internalStruct.lastInternalHigh) and close > internalStruct.lastInternalHigh
+    if internalStruct.internalBullish != true
+        internalStruct.lastInternalFlipBar := bar_index
+    internalStruct.internalBullish := true
+if not na(internalStruct.lastInternalLow) and close < internalStruct.lastInternalLow
+    if internalStruct.internalBullish != false
+        internalStruct.lastInternalFlipBar := bar_index
+    internalStruct.internalBullish := false
+
+if not na(swingHighDetected)
+    array.push(swingHighs, SwingPoint.new(swingHighDetected, bar_index - i_swingLookback, true, false))
+    if array.size(swingHighs) > 50
+        array.shift(swingHighs)
+if not na(swingLowDetected)
+    array.push(swingLows, SwingPoint.new(swingLowDetected, bar_index - i_swingLookback, false, false))
+    if array.size(swingLows) > 50
+        array.shift(swingLows)
+
+getRecentSwingHigh() => array.size(swingHighs) > 0 ? array.get(swingHighs, array.size(swingHighs) - 1).price : float(na)
+getRecentSwingLow() => array.size(swingLows) > 0 ? array.get(swingLows, array.size(swingLows) - 1).price : float(na)
+recentSwingHigh = getRecentSwingHigh()
+recentSwingLow = getRecentSwingLow()
+
+// [CRITICAL FIX v2.2.1] BOS/CHoCH LOGIC - ULTRA-EXPLICIT PARENTHESES
+bullBreakDistance = not na(recentSwingHigh) ? close - recentSwingHigh : 0
+bearBreakDistance = not na(recentSwingLow) ? recentSwingLow - close : 0
+minBreakDistance = atr * i_bosMinATR
+
+internalAlignmentValid(isBullish) => not i_requireInternalAlign or (bar_index - internalStruct.lastInternalFlipBar <= i_alignmentBars and (isBullish ? internalStruct.internalBullish == true : internalStruct.internalBullish == false))
+
+// FIXED v2.2.1: Each condition group explicitly wrapped
+// BOS requires: swing exists AND break occurred AND min distance met AND (first structure OR continuing direction)
+bullishBOS = (not na(recentSwingHigh)) and (close > recentSwingHigh) and (bullBreakDistance >= minBreakDistance) and (na(wasBullish) or (wasBullish == true))
+bearishBOS = (not na(recentSwingLow)) and (close < recentSwingLow) and (bearBreakDistance >= minBreakDistance) and (na(wasBullish) or (wasBullish == false))
+// CHoCH requires: swing exists AND break occurred AND min distance met AND (structure existed AND opposite direction) AND internal alignment
+bullishCHoCH = (not na(recentSwingHigh)) and (close > recentSwingHigh) and (bullBreakDistance >= minBreakDistance) and ((not na(wasBullish)) and (wasBullish == false)) and internalAlignmentValid(true)
+bearishCHoCH = (not na(recentSwingLow)) and (close < recentSwingLow) and (bearBreakDistance >= minBreakDistance) and ((not na(wasBullish)) and (wasBullish == true)) and internalAlignmentValid(false)
+
+if bullishBOS or bullishCHoCH
+    structureBullish := true
+    lastSwingHigh := recentSwingHigh
+    wasBullish := true
+    lastStructureFlipBar := bar_index
+    lastBOS_ChoCH := bullishCHoCH ? "CHOCH_BULL" : "BOS_BULL"
+if bearishBOS or bearishCHoCH
+    structureBullish := false
+    lastSwingLow := recentSwingLow
+    wasBullish := false
+    lastStructureFlipBar := bar_index
+    lastBOS_ChoCH := bearishCHoCH ? "CHOCH_BEAR" : "BOS_BEAR"
+
+if i_showStructure
+    if bullishBOS
+        label.new(bar_index, low, "BOS", color=i_bullColor, textcolor=color.white, style=label.style_label_up, size=size.tiny)
+    if bearishBOS
+        label.new(bar_index, high, "BOS", color=i_bearColor, textcolor=color.white, style=label.style_label_down, size=size.tiny)
+    if bullishCHoCH
+        label.new(bar_index, low, "CHoCH", color=i_bullColor, textcolor=color.white, style=label.style_label_up, size=size.small)
+    if bearishCHoCH
+        label.new(bar_index, high, "CHoCH", color=i_bearColor, textcolor=color.white, style=label.style_label_down, size=size.small)
+
+if not na(recentSwingHigh) and not na(recentSwingLow)
+    structureHigh := math.max(nz(structureHigh, recentSwingHigh), recentSwingHigh)
+    structureLow := math.min(nz(structureLow, recentSwingLow), recentSwingLow)
+    equilibrium := (structureHigh + structureLow) / 2
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// ║                          FVG & OB DETECTION                                          ║
+// ═══════════════════════════════════════════════════════════════════════════════════════
+
+getAgedOpacity(startBar, baseOpacity) =>
+    if not i_useAgeing
+        baseOpacity
+    else if bar_index - startBar < i_ageingStartBars
+        baseOpacity
+    else if bar_index - startBar >= i_ageingFullBars
+        i_minOpacity
+    else
+        ageRange = i_ageingFullBars - i_ageingStartBars
+        if ageRange <= 0
+            baseOpacity
+        else
+            ageProgress = (bar_index - startBar - i_ageingStartBars) / ageRange
+            baseOpacity + int((i_minOpacity - baseOpacity) * ageProgress)
+
+if (low - high[2]) >= atr * i_fvgMinSize and close > open and i_showFVGs
+    array.push(activeFVGs, FairValueGap.new(low, high[2], bar_index - 2, true, false, (low + high[2]) / 2, box.new(bar_index - 2, low, bar_index + 30, high[2], border_color=color.new(i_fvgBullColor, 50), bgcolor=i_fvgBullColor, border_width=1)))
+if (low[2] - high) >= atr * i_fvgMinSize and close < open and i_showFVGs
+    array.push(activeFVGs, FairValueGap.new(low[2], high, bar_index - 2, false, false, (low[2] + high) / 2, box.new(bar_index - 2, low[2], bar_index + 30, high, border_color=color.new(i_fvgBearColor, 50), bgcolor=i_fvgBearColor, border_width=1)))
+
+if array.size(activeFVGs) > 0
+    for i = array.size(activeFVGs) - 1 to 0
+        fvg = array.get(activeFVGs, i)
+        mitigated = fvg.isBullish ? (i_fvgMitigationMode == "Touch" ? low <= fvg.top : i_fvgMitigationMode == "50%" ? low <= fvg.midPoint : low <= fvg.bottom) : (i_fvgMitigationMode == "Touch" ? high >= fvg.bottom : i_fvgMitigationMode == "50%" ? high >= fvg.midPoint : high >= fvg.top)
+        if mitigated
+            box.set_bgcolor(fvg.fvgBox, color.new(color.gray, 95))
+            array.remove(activeFVGs, i)
+        else
+            box.set_right(fvg.fvgBox, bar_index + 10)
+            if i_useAgeing
+                box.set_bgcolor(fvg.fvgBox, color.new(fvg.isBullish ? i_fvgBullColor : i_fvgBearColor, getAgedOpacity(fvg.startBar, 80)))
+
+while array.size(activeFVGs) > i_maxFVGs
+    box.delete(array.shift(activeFVGs).fvgBox)
+
+if close[1] < open[1] and close > high[1] and (close - open) > atr * i_structureSensitivity and (isDiscountZone() or (i_allowInverseZone and i_vwapFilterMode == "Trend Following")) and i_showOrderBlocks
+    array.push(activeOBs, OrderBlock.new(math.max(open[1], close[1]), math.min(open[1], close[1]), bar_index - 1, true, false, true, box.new(bar_index - 1, math.max(open[1], close[1]), bar_index + 50, math.min(open[1], close[1]), border_color=i_bullColor, bgcolor=i_obBullColor, border_width=1), label.new(bar_index - 1, math.min(open[1], close[1]), "Bull OB", color=color.new(i_bullColor, 100), textcolor=i_bullColor, style=label.style_label_up, size=size.tiny)))
+if close[1] > open[1] and close < low[1] and (open - close) > atr * i_structureSensitivity and (isPremiumZone() or (i_allowInverseZone and i_vwapFilterMode == "Trend Following")) and i_showOrderBlocks
+    array.push(activeOBs, OrderBlock.new(math.max(open[1], close[1]), math.min(open[1], close[1]), bar_index - 1, false, false, true, box.new(bar_index - 1, math.max(open[1], close[1]), bar_index + 50, math.min(open[1], close[1]), border_color=i_bearColor, bgcolor=i_obBearColor, border_width=1), label.new(bar_index - 1, math.max(open[1], close[1]), "Bear OB", color=color.new(i_bearColor, 100), textcolor=i_bearColor, style=label.style_label_down, size=size.tiny)))
+
+if array.size(activeOBs) > 0
+    for i = array.size(activeOBs) - 1 to 0
+        ob = array.get(activeOBs, i)
+        mitigated = ob.isBullish ? (i_obMitigationMode == "Wick" ? low < ob.bottom : i_obMitigationMode == "Close" ? close < ob.bottom : low < (ob.top + ob.bottom) / 2) : (i_obMitigationMode == "Wick" ? high > ob.top : i_obMitigationMode == "Close" ? close > ob.top : high > (ob.top + ob.bottom) / 2)
+        if mitigated
+            box.set_bgcolor(ob.obBox, color.new(color.gray, 90))
+            array.remove(activeOBs, i)
+        else
+            box.set_right(ob.obBox, bar_index + 10)
+            if i_useAgeing
+                box.set_bgcolor(ob.obBox, color.new(ob.isBullish ? i_obBullColor : i_obBearColor, getAgedOpacity(ob.startBar, 80)))
+
+while array.size(activeOBs) > i_maxOrderBlocks
+    oldOB = array.shift(activeOBs)
+    box.delete(oldOB.obBox)
+    label.delete(oldOB.obLabel)
+
+priceAtBullishFVG() =>
+    result = false
+    arrSize = array.size(activeFVGs)
+    if arrSize > 0
+        for i = 0 to arrSize - 1
+            if i < array.size(activeFVGs)
+        fvg = array.get(activeFVGs, i)
+        if fvg.isBullish and low <= fvg.top and low >= fvg.bottom
+            result := true
+            break
+    result
+
+priceAtBearishFVG() =>
+    result = false
+    arrSize = array.size(activeFVGs)
+    if arrSize > 0
+        for i = 0 to arrSize - 1
+            if i < array.size(activeFVGs)
+        fvg = array.get(activeFVGs, i)
+        if not fvg.isBullish and high >= fvg.bottom and high <= fvg.top
+            result := true
+            break
+    result
+
+priceAtBullishOB() =>
+    result = false
+    arrSize = array.size(activeOBs)
+    if arrSize > 0
+        for i = 0 to arrSize - 1
+            if i < array.size(activeOBs)
+        ob = array.get(activeOBs, i)
+        if ob.isBullish and low <= ob.top and low >= ob.bottom
+            result := true
+            break
+    result
+
+priceAtBearishOB() =>
+    result = false
+    arrSize = array.size(activeOBs)
+    if arrSize > 0
+        for i = 0 to arrSize - 1
+            if i < array.size(activeOBs)
+        ob = array.get(activeOBs, i)
+        if not ob.isBullish and high >= ob.bottom and high <= ob.top
+            result := true
+            break
+    result
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// ║    [CRITICAL FIX] STEP 2: TREND CONFIRMATION                                         ║
+// ═══════════════════════════════════════════════════════════════════════════════════════
+
+emaBullishStack = emaFast > emaSlow
+emaBearishStack = emaFast < emaSlow
+priceAboveBothEMAs = close > emaFast and close > emaSlow
+priceBelowBothEMAs = close < emaFast and close < emaSlow
+emaSeparation = math.abs(emaFast - emaSlow)
+emaSeparationValid = emaSeparation >= (atr * i_emaSepMinATR)
+emaFastSlope = emaFast - emaFast[i_slopeLookback]
+emaBullishSlope = emaFastSlope > 0
+emaBearishSlope = emaFastSlope < 0
+
+trendStrengthGatePassed(isBullish) => not i_useTrendStrengthGate or (emaSeparationValid and (not i_emaSlopeCheck or (isBullish ? emaBullishSlope : emaBearishSlope)))
+bullishTrendConfirmed() => (not i_requireEMAStack or emaBullishStack) and (not i_requirePriceAboveEMA or priceAboveBothEMAs) and structureBullish == true and vwapBullishFilter() and trendStrengthGatePassed(true)
+bearishTrendConfirmed() => (not i_requireEMAStack or emaBearishStack) and (not i_requirePriceAboveEMA or priceBelowBothEMAs) and structureBullish == false and vwapBearishFilter() and trendStrengthGatePassed(false)
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// ║    [HIGH PRIORITY] STEP 3: LIQUIDITY SWEEP - ANCHORED TO KNOWN POOLS                 ║
+// ═══════════════════════════════════════════════════════════════════════════════════════
+
+getKnownBullishSweepLevels() =>
+    levels = array.new_float()
+    if array.size(swingLows) > 0
+        for i = math.max(0, array.size(swingLows) - 3) to array.size(swingLows) - 1
+            swing = array.get(swingLows, i)
+            if not swing.broken
+                array.push(levels, swing.price)
+    if not na(keyLevels.asianLow) and not keyLevels.asianLowSwept
+        array.push(levels, keyLevels.asianLow)
+    if not na(keyLevels.pdl) and not keyLevels.pdlSwept
+        array.push(levels, keyLevels.pdl)
+    levels
+
+getKnownBearishSweepLevels() =>
+    levels = array.new_float()
+    if array.size(swingHighs) > 0
+        for i = math.max(0, array.size(swingHighs) - 3) to array.size(swingHighs) - 1
+            swing = array.get(swingHighs, i)
+            if not swing.broken
+                array.push(levels, swing.price)
+    if not na(keyLevels.asianHigh) and not keyLevels.asianHighSwept
+        array.push(levels, keyLevels.asianHigh)
+    if not na(keyLevels.pdh) and not keyLevels.pdhSwept
+        array.push(levels, keyLevels.pdh)
+    levels
+
+// FIXED: Find NEAREST swept level, not just first match
+sweptKnownLevel(levels, isBullish) =>
+    swept = false
+    sweptLevel = float(na)
+    nearestDistance = float(na)
+    if array.size(levels) > 0
+    for i = 0 to array.size(levels) - 1
+        level = array.get(levels, i)
+        wasPenetrated = isBullish ? low < level - (adaptiveSweepThreshold * 0.1) : high > level + (adaptiveSweepThreshold * 0.1)
+        if wasPenetrated
+            distance = math.abs(close - level)
+            if na(nearestDistance) or distance < nearestDistance
+                nearestDistance := distance
+                sweptLevel := level
+                swept := true
+    [swept, sweptLevel]
+
+displacementValid(isBullish) =>
+    if not i_requireDisplacement
+        true
+    else
+        candleRange = high - low
+        if candleRange <= 0
+            false
+        else
+            (candleRange >= atr * i_displacementATR) and (isBullish ? (close - low) / candleRange > 0.5 : (high - close) / candleRange > 0.5)
+reclaimValid(sweptLevel, isBullish) => not i_requireReclaim or na(sweptLevel) or (isBullish ? close > sweptLevel : close < sweptLevel)
+canAttemptSweep(isBullish) => not i_preventClustering or (isBullish ? bar_index - sweepTracker.lastBullSweepBar >= i_clusterCooldown or not sweepTracker.bullSweepActive : bar_index - sweepTracker.lastBearSweepBar >= i_clusterCooldown or not sweepTracker.bearSweepActive)
+
+detectBullishLiqSweep() =>
+    if not canAttemptSweep(true)
+        false
+    else
+        swept = false
+        sweptLevel = float(na)
+        if i_sweepSource == "Known Pools" or i_tradingMode == "Strict ICT"
+            [swept, sweptLevel] = sweptKnownLevel(getKnownBullishSweepLevels(), true)
+        else
+            swept := low < ta.lowest(low, i_liqSweepLookback) - (adaptiveSweepThreshold * 0.1)
+            sweptLevel := ta.lowest(low, i_liqSweepLookback)
+        recovered = close > nz(sweptLevel, ta.lowest(low, i_liqSweepLookback))
+        keyLevelOK = not (i_requireKeyLevelSweep and i_tradingMode == "Strict ICT") or keyLevelSweptBullish()
+        validSweep = swept and recovered and displacementValid(true) and reclaimValid(sweptLevel, true) and keyLevelOK
+        if validSweep
+            sweepTracker.lastBullSweepBar := bar_index
+            sweepTracker.lastBullSweepLevel := sweptLevel
+            sweepTracker.bullSweepActive := true
+        validSweep
+
+detectBearishLiqSweep() =>
+    if not canAttemptSweep(false)
+        false
+    else
+        swept = false
+        sweptLevel = float(na)
+        if i_sweepSource == "Known Pools" or i_tradingMode == "Strict ICT"
+            [swept, sweptLevel] = sweptKnownLevel(getKnownBearishSweepLevels(), false)
+        else
+            swept := high > ta.highest(high, i_liqSweepLookback) + (adaptiveSweepThreshold * 0.1)
+            sweptLevel := ta.highest(high, i_liqSweepLookback)
+        recovered = close < nz(sweptLevel, ta.highest(high, i_liqSweepLookback))
+        keyLevelOK = not (i_requireKeyLevelSweep and i_tradingMode == "Strict ICT") or keyLevelSweptBearish()
+        validSweep = swept and recovered and displacementValid(false) and reclaimValid(sweptLevel, false) and keyLevelOK
+        if validSweep
+            sweepTracker.lastBearSweepBar := bar_index
+            sweepTracker.lastBearSweepLevel := sweptLevel
+            sweepTracker.bearSweepActive := true
+        validSweep
+
+// Setup Invalidation
+checkSetupInvalidation() =>
+    invalidated = false
+    reason = ""
+    if i_invalidateOnPenetration and state.currentState >= 2
+        if state.direction == "BULL"
+            if array.size(activeOBs) > 0
+            for i = 0 to array.size(activeOBs) - 1
+                ob = array.get(activeOBs, i)
+                if ob.isBullish and close < ob.bottom
+                    invalidated := true
+                    reason := "Closed below OB"
+                    break
+            if not invalidated and array.size(activeFVGs) > 0
+                for i = 0 to array.size(activeFVGs) - 1
+                    fvg = array.get(activeFVGs, i)
+                    if fvg.isBullish and close < fvg.bottom
+                        invalidated := true
+                        reason := "Closed below FVG"
+                        break
+        else if state.direction == "BEAR"
+            if array.size(activeOBs) > 0
+            for i = 0 to array.size(activeOBs) - 1
+                ob = array.get(activeOBs, i)
+                if not ob.isBullish and close > ob.top
+                    invalidated := true
+                    reason := "Closed above OB"
+                    break
+            if not invalidated and array.size(activeFVGs) > 0
+                for i = 0 to array.size(activeFVGs) - 1
+                    fvg = array.get(activeFVGs, i)
+                    if not fvg.isBullish and close > fvg.top
+                        invalidated := true
+                        reason := "Closed above FVG"
+                        break
+    [invalidated, reason]
+
+// Entry Confirmation
+isBullishEngulfing() => close > open and close[1] < open[1] and close > open[1] and open < close[1]
+isBearishEngulfing() => close < open and close[1] > open[1] and close < open[1] and open > close[1]
+isBullishRejectionWick() => math.min(open, close) - low > math.abs(close - open) * 2 and high - math.max(open, close) < math.abs(close - open) * 0.5
+isBearishRejectionWick() => high - math.max(open, close) > math.abs(close - open) * 2 and math.min(open, close) - low < math.abs(close - open) * 0.5
+bullishEntryConfirmed() => switch i_confirmationType
+    "Engulfing" => isBullishEngulfing()
+    "Rejection Wick" => isBullishRejectionWick()
+    "Break & Retest" => close > high[1] and low <= high[1]
+    "Any" => isBullishEngulfing() or isBullishRejectionWick()
+bearishEntryConfirmed() => switch i_confirmationType
+    "Engulfing" => isBearishEngulfing()
+    "Rejection Wick" => isBearishRejectionWick()
+    "Break & Retest" => close < low[1] and high >= low[1]
+    "Any" => isBearishEngulfing() or isBearishRejectionWick()
+
+// Confluence Scoring
+calculateBullishConfluence() =>
+    score = 0
+    if priceAtBullishOB()
+        score += i_obWeight
+    if priceAtBullishFVG()
+        score += i_fvgWeight
+    if close < vwapData.vwap
+        score += i_vwapWeight
+    if keyLevelSweptBullish()
+        score += i_keyLevelWeight
+    if emaBullishStack and priceAboveBothEMAs
+        score += i_emaWeight
+    if currentRegime == "NORMAL"
+        score += i_regimeWeight
+    score
+
+calculateBearishConfluence() =>
+    score = 0
+    if priceAtBearishOB()
+        score += i_obWeight
+    if priceAtBearishFVG()
+        score += i_fvgWeight
+    if close > vwapData.vwap
+        score += i_vwapWeight
+    if keyLevelSweptBearish()
+        score += i_keyLevelWeight
+    if emaBearishStack and priceBelowBothEMAs
+        score += i_emaWeight
+    if currentRegime == "NORMAL"
+        score += i_regimeWeight
+    score
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// ║              [CRITICAL FIX] STATE TRANSITION ENGINE                                  ║
+// ═══════════════════════════════════════════════════════════════════════════════════════
+
+// Extract sweep detection for debug access
+bullSweepDetected = detectBullishLiqSweep()
+bearSweepDetected = detectBearishLiqSweep()
+
+updateStateEngine() =>
+    inActiveSession = isActiveSession()
+    [invalidated, invalidReason] = checkSetupInvalidation()
+    if invalidated
+        state.setupInvalidated := true
+        state.invalidationReason := invalidReason
+    
+    if not inActiveSession
+        state.currentState := 0
+        state.structureValid := false
+        state.trendValid := false
+        state.entryReady := false
+        state.direction := "NEUTRAL"
+        state.confluenceScore := 0
+        state.setupInvalidated := false
+        state.invalidationReason := ""
+        sweepTracker.bullSweepActive := false
+        sweepTracker.bearSweepActive := false
+    else
+        if state.currentState == 0
+            if bullishBOS or bullishCHoCH
+                state.currentState := 1
+                state.structureValid := true
+                state.direction := "BULL"
+                state.stateChangedBar := bar_index
+                state.lastSignal := bullishCHoCH ? "CHOCH_BULL" : "BOS_BULL"
+                state.setupInvalidated := false
+            else if bearishBOS or bearishCHoCH
+                state.currentState := 1
+                state.structureValid := true
+                state.direction := "BEAR"
+                state.stateChangedBar := bar_index
+                state.lastSignal := bearishCHoCH ? "CHOCH_BEAR" : "BOS_BEAR"
+                state.setupInvalidated := false
+        
+        else if state.currentState == 1
+            if state.direction == "BULL"
+                obCondition = priceAtBullishOB()
+                fvgCondition = not i_requireFVGConfluence or priceAtBullishFVG()
+                // FIXED: Proper parentheses - trend must be confirmed AND (OB or FVG present)
+                if bullishTrendConfirmed() and (obCondition or fvgCondition)
+                    state.currentState := 2
+                    state.trendValid := true
+                    state.stateChangedBar := bar_index
+                    state.entryTimeoutBar := bar_index + i_entryTimeoutBars
+                    state.confluenceScore := calculateBullishConfluence()
+            else if state.direction == "BEAR"
+                obCondition = priceAtBearishOB()
+                fvgCondition = not i_requireFVGConfluence or priceAtBearishFVG()
+                // FIXED: Proper parentheses
+                if bearishTrendConfirmed() and (obCondition or fvgCondition)
+                    state.currentState := 2
+                    state.trendValid := true
+                    state.stateChangedBar := bar_index
+                    state.entryTimeoutBar := bar_index + i_entryTimeoutBars
+                    state.confluenceScore := calculateBearishConfluence()
+            
+            if (state.direction == "BULL" and bearishCHoCH) or (state.direction == "BEAR" and bullishCHoCH)
+                state.currentState := 0
+                state.structureValid := false
+                state.trendValid := false
+                state.direction := "NEUTRAL"
+                state.setupInvalidated := false
+        
+        else if state.currentState == 2
+            if bar_index > state.entryTimeoutBar
+                state.currentState := 1
+                state.trendValid := false
+                state.entryReady := false
+            else if state.setupInvalidated
+                state.currentState := 1
+                state.trendValid := false
+                state.entryReady := false
+                state.setupInvalidated := false
+            else
+                if state.direction == "BULL" and bullSweepDetected
+                    state.currentState := 3
+                    state.entryReady := true
+                    state.stateChangedBar := bar_index
+                    state.confluenceScore := calculateBullishConfluence()
+                else if state.direction == "BEAR" and bearSweepDetected
+                    state.currentState := 3
+                    state.entryReady := true
+                    state.stateChangedBar := bar_index
+                    state.confluenceScore := calculateBearishConfluence()
+            
+            if (state.direction == "BULL" and bearishCHoCH) or (state.direction == "BEAR" and bullishCHoCH)
+                state.currentState := 0
+                state.structureValid := false
+                state.trendValid := false
+                state.entryReady := false
+                state.direction := "NEUTRAL"
+        
+        else if state.currentState == 3
+            if bar_index > state.entryTimeoutBar
+                state.currentState := 1
+                state.trendValid := false
+                state.entryReady := false
+                if state.direction == "BULL"
+                    sweepTracker.bullSweepActive := false
+                else
+                    sweepTracker.bearSweepActive := false
+    true
+
+updateStateEngine()
+
+// Break down conditions for debugging
+longStateOK = state.currentState == 3
+longDirectionOK = state.direction == "BULL"
+longEntryConfirmed = bullishEntryConfirmed()
+longConfluenceOK = state.confluenceScore >= i_minConfluenceScore
+longNoPosition = strategy.position_size == 0
+longSessionOK = isActiveSession()
+longRangeOK = rangeFilterPassed()
+longRegimeOK = regimeFilterPassed()
+longCanTrade = canTradeSession()
+longNotInvalidated = not state.setupInvalidated
+
+shortStateOK = state.currentState == 3
+shortDirectionOK = state.direction == "BEAR"
+shortEntryConfirmed = bearishEntryConfirmed()
+shortConfluenceOK = state.confluenceScore >= i_minConfluenceScore
+shortNoPosition = strategy.position_size == 0
+shortSessionOK = isActiveSession()
+shortRangeOK = rangeFilterPassed()
+shortRegimeOK = regimeFilterPassed()
+shortCanTrade = canTradeSession()
+shortNotInvalidated = not state.setupInvalidated
+
+longCondition = longStateOK and longDirectionOK and longEntryConfirmed and longConfluenceOK and longNoPosition and longSessionOK and longRangeOK and longRegimeOK and longCanTrade and longNotInvalidated
+shortCondition = shortStateOK and shortDirectionOK and shortEntryConfirmed and shortConfluenceOK and shortNoPosition and shortSessionOK and shortRangeOK and shortRegimeOK and shortCanTrade and shortNotInvalidated
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// ║                          DEBUG TRACKING & PLOTS                                       ║
+// ═══════════════════════════════════════════════════════════════════════════════════════
+
+// Debug condition tracking (1 = pass, 0 = fail)
+longDebugState = longStateOK ? 1 : 0
+longDebugDirection = longDirectionOK ? 1 : 0
+longDebugEntry = longEntryConfirmed ? 1 : 0
+longDebugConfluence = longConfluenceOK ? 1 : 0
+longDebugPosition = longNoPosition ? 1 : 0
+longDebugSession = longSessionOK ? 1 : 0
+longDebugRange = longRangeOK ? 1 : 0
+longDebugRegime = longRegimeOK ? 1 : 0
+longDebugCanTrade = longCanTrade ? 1 : 0
+longDebugInvalidated = longNotInvalidated ? 1 : 0
+longDebugTotal = longDebugState + longDebugDirection + longDebugEntry + longDebugConfluence + longDebugPosition + longDebugSession + longDebugRange + longDebugRegime + longDebugCanTrade + longDebugInvalidated
+
+shortDebugState = shortStateOK ? 1 : 0
+shortDebugDirection = shortDirectionOK ? 1 : 0
+shortDebugEntry = shortEntryConfirmed ? 1 : 0
+shortDebugConfluence = shortConfluenceOK ? 1 : 0
+shortDebugPosition = shortNoPosition ? 1 : 0
+shortDebugSession = shortSessionOK ? 1 : 0
+shortDebugRange = shortRangeOK ? 1 : 0
+shortDebugRegime = shortRegimeOK ? 1 : 0
+shortDebugCanTrade = shortCanTrade ? 1 : 0
+shortDebugInvalidated = shortNotInvalidated ? 1 : 0
+shortDebugTotal = shortDebugState + shortDebugDirection + shortDebugEntry + shortDebugConfluence + shortDebugPosition + shortDebugSession + shortDebugRange + shortDebugRegime + shortDebugCanTrade + shortDebugInvalidated
+
+// Debug plots for Data Window
+plot(i_debugMode ? longDebugState : na, "L:State=3", color=color.blue, display=display.data_window)
+plot(i_debugMode ? longDebugDirection : na, "L:Dir=BULL", color=color.blue, display=display.data_window)
+plot(i_debugMode ? longDebugEntry : na, "L:EntryConf", color=color.blue, display=display.data_window)
+plot(i_debugMode ? longDebugConfluence : na, "L:Confluence", color=color.blue, display=display.data_window)
+plot(i_debugMode ? longDebugPosition : na, "L:NoPos", color=color.blue, display=display.data_window)
+plot(i_debugMode ? longDebugSession : na, "L:Session", color=color.blue, display=display.data_window)
+plot(i_debugMode ? longDebugRange : na, "L:Range", color=color.blue, display=display.data_window)
+plot(i_debugMode ? longDebugRegime : na, "L:Regime", color=color.blue, display=display.data_window)
+plot(i_debugMode ? longDebugCanTrade : na, "L:CanTrade", color=color.blue, display=display.data_window)
+plot(i_debugMode ? longDebugInvalidated : na, "L:NotInv", color=color.blue, display=display.data_window)
+plot(i_debugMode ? longDebugTotal : na, "L:Total(10)", color=color.green, display=display.data_window, linewidth=2)
+
+plot(i_debugMode ? shortDebugState : na, "S:State=3", color=color.red, display=display.data_window)
+plot(i_debugMode ? shortDebugDirection : na, "S:Dir=BEAR", color=color.red, display=display.data_window)
+plot(i_debugMode ? shortDebugEntry : na, "S:EntryConf", color=color.red, display=display.data_window)
+plot(i_debugMode ? shortDebugConfluence : na, "S:Confluence", color=color.red, display=display.data_window)
+plot(i_debugMode ? shortDebugPosition : na, "S:NoPos", color=color.red, display=display.data_window)
+plot(i_debugMode ? shortDebugSession : na, "S:Session", color=color.red, display=display.data_window)
+plot(i_debugMode ? shortDebugRange : na, "S:Range", color=color.red, display=display.data_window)
+plot(i_debugMode ? shortDebugRegime : na, "S:Regime", color=color.red, display=display.data_window)
+plot(i_debugMode ? shortDebugCanTrade : na, "S:CanTrade", color=color.red, display=display.data_window)
+plot(i_debugMode ? shortDebugInvalidated : na, "S:NotInv", color=color.red, display=display.data_window)
+plot(i_debugMode ? shortDebugTotal : na, "S:Total(10)", color=color.orange, display=display.data_window, linewidth=2)
+
+// Additional debug plots for state transitions
+plot(i_debugMode ? state.currentState : na, "State", color=color.purple, display=display.data_window)
+plot(i_debugMode ? (state.structureValid ? 1 : 0) : na, "StructValid", color=color.aqua, display=display.data_window)
+plot(i_debugMode ? (state.trendValid ? 1 : 0) : na, "TrendValid", color=color.aqua, display=display.data_window)
+plot(i_debugMode ? (state.entryReady ? 1 : 0) : na, "EntryReady", color=color.aqua, display=display.data_window)
+plot(i_debugMode ? state.confluenceScore : na, "ConfluenceScore", color=color.yellow, display=display.data_window)
+plot(i_debugMode ? (bullSweepDetected ? 1 : 0) : na, "BullSweep", color=color.lime, display=display.data_window)
+plot(i_debugMode ? (bearSweepDetected ? 1 : 0) : na, "BearSweep", color=color.fuchsia, display=display.data_window)
+plot(i_debugMode ? (bullishTrendConfirmed() ? 1 : 0) : na, "BullTrend", color=color.green, display=display.data_window)
+plot(i_debugMode ? (bearishTrendConfirmed() ? 1 : 0) : na, "BearTrend", color=color.maroon, display=display.data_window)
+plot(i_debugMode ? (priceAtBullishOB() ? 1 : 0) : na, "AtBullOB", color=color.blue, display=display.data_window)
+plot(i_debugMode ? (priceAtBearishOB() ? 1 : 0) : na, "AtBearOB", color=color.red, display=display.data_window)
+plot(i_debugMode ? (priceAtBullishFVG() ? 1 : 0) : na, "AtBullFVG", color=color.blue, display=display.data_window)
+plot(i_debugMode ? (priceAtBearishFVG() ? 1 : 0) : na, "AtBearFVG", color=color.red, display=display.data_window)
+
+// Diagnostic: Why no trade? (shows most common blocker)
+getWhyNoTrade() =>
+    if state.currentState != 3
+        if state.currentState == 0
+            1  // Never got structure
+        else if state.currentState == 1
+            2  // Got structure, no trend
+        else if state.currentState == 2
+            3  // Got trend, no sweep
+        else
+            0
+    else if state.direction == "BULL"
+        if not longStateOK
+            4  // State not 3 (shouldn't happen)
+        else if not longDirectionOK
+            5  // Direction not BULL
+        else if not longEntryConfirmed
+            6  // Entry not confirmed
+        else if not longConfluenceOK
+            7  // Confluence too low
+        else if not longNoPosition
+            8  // Already in position
+        else if not longSessionOK
+            9  // Not in active session
+        else if not longRangeOK
+            10  // Range filter failed
+        else if not longRegimeOK
+            11  // Regime filter failed
+        else if not longCanTrade
+            12  // Max orders/cooldown
+        else if not longNotInvalidated
+            13  // Setup invalidated
+        else
+            0  // All passed (should trade)
+    else if state.direction == "BEAR"
+        if not shortStateOK
+            4
+        else if not shortDirectionOK
+            5
+        else if not shortEntryConfirmed
+            6
+        else if not shortConfluenceOK
+            7
+        else if not shortNoPosition
+            8
+        else if not shortSessionOK
+            9
+        else if not shortRangeOK
+            10
+        else if not shortRegimeOK
+            11
+        else if not shortCanTrade
+            12
+        else if not shortNotInvalidated
+            13
+        else
+            0
+    else
+        0
+
+whyNoTrade = getWhyNoTrade()
+plot(i_debugMode ? whyNoTrade : na, "WhyNoTrade", color=color.red, display=display.data_window, linewidth=2)
+// Legend: 0=AllPass, 1=NoStruct, 2=NoTrend, 3=NoSweep, 4=StateErr, 5=DirErr, 6=NoEntry, 7=LowConf, 8=HasPos, 9=NoSession, 10=RangeFail, 11=RegimeFail, 12=Limit, 13=Invalid
+
+// Track state progression
+plot(i_debugMode ? (state.currentState >= 1 ? 1 : 0) : na, "ReachedState1", color=color.blue, display=display.data_window)
+plot(i_debugMode ? (state.currentState >= 2 ? 1 : 0) : na, "ReachedState2", color=color.yellow, display=display.data_window)
+plot(i_debugMode ? (state.currentState >= 3 ? 1 : 0) : na, "ReachedState3", color=color.green, display=display.data_window)
+
+// Track key prerequisites
+plot(i_debugMode ? (bullishBOS or bullishCHoCH ? 1 : 0) : na, "BullBOS/CHoCH", color=color.lime, display=display.data_window)
+plot(i_debugMode ? (bearishBOS or bearishCHoCH ? 1 : 0) : na, "BearBOS/CHoCH", color=color.fuchsia, display=display.data_window)
+plot(i_debugMode ? (bullishTrendConfirmed() ? 1 : 0) : na, "BullTrendOK", color=color.green, display=display.data_window)
+plot(i_debugMode ? (bearishTrendConfirmed() ? 1 : 0) : na, "BearTrendOK", color=color.maroon, display=display.data_window)
+
+// Debug labels on chart for state changes
+if i_debugMode and i_debugStateChanges and barstate.isconfirmed
+    if state.currentState != state.currentState[1]
+        debugText = "State: " + str.tostring(state.currentState[1]) + "→" + str.tostring(state.currentState) + "\nDir: " + state.direction + "\nStruct: " + (state.structureValid ? "✓" : "✗") + "\nTrend: " + (state.trendValid ? "✓" : "✗") + "\nEntry: " + (state.entryReady ? "✓" : "✗")
+        label.new(bar_index, high, debugText, color=state.currentState == 3 ? color.green : state.currentState == 2 ? color.yellow : color.blue, textcolor=color.white, style=label.style_label_down, size=size.tiny)
+
+// Debug labels for condition failures when state is 3
+if i_debugMode and i_debugLabels and state.currentState == 3 and barstate.isconfirmed
+    if state.direction == "BULL" and not longCondition
+        failedConditions = array.new_string()
+        if not longStateOK
+            array.push(failedConditions, "State≠3")
+        if not longDirectionOK
+            array.push(failedConditions, "Dir≠BULL")
+        if not longEntryConfirmed
+            array.push(failedConditions, "NoEntry")
+        if not longConfluenceOK
+            array.push(failedConditions, "Conf<" + str.tostring(i_minConfluenceScore))
+        if not longNoPosition
+            array.push(failedConditions, "HasPos")
+        if not longSessionOK
+            array.push(failedConditions, "NoSession")
+        if not longRangeOK
+            array.push(failedConditions, "Range✗")
+        if not longRegimeOK
+            array.push(failedConditions, "Regime✗")
+        if not longCanTrade
+            array.push(failedConditions, "Limit")
+        if not longNotInvalidated
+            array.push(failedConditions, "Invalid")
+        if array.size(failedConditions) > 0
+            failText = "LONG FAIL:\n"
+            for i = 0 to math.min(array.size(failedConditions) - 1, 4)
+                failText += array.get(failedConditions, i) + "\n"
+            label.new(bar_index, low, failText, color=color.red, textcolor=color.white, style=label.style_label_up, size=size.tiny)
+    
+    if state.direction == "BEAR" and not shortCondition
+        failedConditions = array.new_string()
+        if not shortStateOK
+            array.push(failedConditions, "State≠3")
+        if not shortDirectionOK
+            array.push(failedConditions, "Dir≠BEAR")
+        if not shortEntryConfirmed
+            array.push(failedConditions, "NoEntry")
+        if not shortConfluenceOK
+            array.push(failedConditions, "Conf<" + str.tostring(i_minConfluenceScore))
+        if not shortNoPosition
+            array.push(failedConditions, "HasPos")
+        if not shortSessionOK
+            array.push(failedConditions, "NoSession")
+        if not shortRangeOK
+            array.push(failedConditions, "Range✗")
+        if not shortRegimeOK
+            array.push(failedConditions, "Regime✗")
+        if not shortCanTrade
+            array.push(failedConditions, "Limit")
+        if not shortNotInvalidated
+            array.push(failedConditions, "Invalid")
+        if array.size(failedConditions) > 0
+            failText = "SHORT FAIL:\n"
+            for i = 0 to math.min(array.size(failedConditions) - 1, 4)
+                failText += array.get(failedConditions, i) + "\n"
+            label.new(bar_index, high, failText, color=color.red, textcolor=color.white, style=label.style_label_down, size=size.tiny)
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// ║                           TRADE EXECUTION                                            ║
+// ═══════════════════════════════════════════════════════════════════════════════════════
+
+getNearestKeyLevelAbove() =>
+    levels = array.new_float()
+    if not na(keyLevels.pdh)
+        array.push(levels, keyLevels.pdh)
+    if not na(keyLevels.asianHigh)
+        array.push(levels, keyLevels.asianHigh)
+    if not na(vwapData.upperBand1)
+        array.push(levels, vwapData.upperBand1)
+    nearest = float(na)
+    if array.size(levels) > 0
+    for i = 0 to array.size(levels) - 1
+        lvl = array.get(levels, i)
+        if lvl > close and (na(nearest) or lvl < nearest)
+            nearest := lvl
+    nearest
+
+getNearestKeyLevelBelow() =>
+    levels = array.new_float()
+    if not na(keyLevels.pdl)
+        array.push(levels, keyLevels.pdl)
+    if not na(keyLevels.asianLow)
+        array.push(levels, keyLevels.asianLow)
+    if not na(vwapData.lowerBand1)
+        array.push(levels, vwapData.lowerBand1)
+    nearest = float(na)
+    if array.size(levels) > 0
+    for i = 0 to array.size(levels) - 1
+        lvl = array.get(levels, i)
+        if lvl < close and (na(nearest) or lvl > nearest)
+            nearest := lvl
+    nearest
+
+getRelevantOB(isBullish) =>
+    result = OrderBlock.new(na, na, na, na, na, na, na, na)
+    if array.size(activeOBs) > 0
+    for i = array.size(activeOBs) - 1 to 0
+        ob = array.get(activeOBs, i)
+        if ob.isBullish == isBullish and not ob.mitigated
+            result := ob
+            break
+    result
+
+if longCondition
+    relevantOB = getRelevantOB(true)
+    stopLoss = not na(relevantOB.bottom) ? relevantOB.bottom - (atr * 0.2) : low - atr
+    riskPips = close - stopLoss
+    tp1 = close + (riskPips * i_tp1Ratio)
+    tp2 = close + (riskPips * i_tp2Ratio)
+    tp3 = close + (riskPips * i_tp3Ratio)
+    if i_useKeyLevelTP
+        nearestLevel = getNearestKeyLevelAbove()
+        if not na(nearestLevel) and nearestLevel > tp1 and nearestLevel < tp3
+            tp2 := nearestLevel
+    potentialRR = riskPips > 0 ? (tp3 - close) / riskPips : 0
+    if potentialRR >= i_minRRR
+        posSize = getPositionSize(riskPips)
+        strategy.entry("Long", strategy.long, qty=posSize)
+        strategy.exit("TP1", "Long", limit=tp1, stop=stopLoss, qty_percent=i_tp1Percent)
+        strategy.exit("TP2", "Long", limit=tp2, stop=stopLoss, qty_percent=50)
+        strategy.exit("TP3", "Long", limit=tp3, stop=stopLoss)
+        sessionStats.dailyTrades += 1
+        cs = getCurrentSession()
+        if cs == "LONDON"
+            sessionStats.londonTrades += 1
+        else if cs == "NEWYORK"
+            sessionStats.nyTrades += 1
+        else if cs == "OVERLAP"
+            sessionStats.overlapTrades += 1
+        state.currentState := 0
+        state.structureValid := false
+        state.trendValid := false
+        state.entryReady := false
+        state.confluenceScore := 0
+        sweepTracker.bullSweepActive := false
+
+if shortCondition
+    relevantOB = getRelevantOB(false)
+    stopLoss = not na(relevantOB.top) ? relevantOB.top + (atr * 0.2) : high + atr
+    riskPips = stopLoss - close
+    tp1 = close - (riskPips * i_tp1Ratio)
+    tp2 = close - (riskPips * i_tp2Ratio)
+    tp3 = close - (riskPips * i_tp3Ratio)
+    if i_useKeyLevelTP
+        nearestLevel = getNearestKeyLevelBelow()
+        if not na(nearestLevel) and nearestLevel < tp1 and nearestLevel > tp3
+            tp2 := nearestLevel
+    potentialRR = riskPips > 0 ? (close - tp3) / riskPips : 0
+    if potentialRR >= i_minRRR
+        posSize = getPositionSize(riskPips)
+        strategy.entry("Short", strategy.short, qty=posSize)
+        strategy.exit("TP1", "Short", limit=tp1, stop=stopLoss, qty_percent=i_tp1Percent)
+        strategy.exit("TP2", "Short", limit=tp2, stop=stopLoss, qty_percent=50)
+        strategy.exit("TP3", "Short", limit=tp3, stop=stopLoss)
+        sessionStats.dailyTrades += 1
+        cs = getCurrentSession()
+        if cs == "LONDON"
+            sessionStats.londonTrades += 1
+        else if cs == "NEWYORK"
+            sessionStats.nyTrades += 1
+        else if cs == "OVERLAP"
+            sessionStats.overlapTrades += 1
+        state.currentState := 0
+        state.structureValid := false
+        state.trendValid := false
+        state.entryReady := false
+        state.confluenceScore := 0
+        sweepTracker.bearSweepActive := false
+
+if strategy.closedtrades > 0
+    lastTradeProfit = strategy.closedtrades.profit(strategy.closedtrades - 1)
+    if lastTradeProfit > 0
+        totalWins += 1
+        sessionStats.consecutiveLosses := 0
+    else if lastTradeProfit < 0
+        totalLosses += 1
+        sessionStats.consecutiveLosses += 1
+        sessionStats.lastLossBar := bar_index
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// ║                          VISUALS & DASHBOARD                                         ║
+// ═══════════════════════════════════════════════════════════════════════════════════════
+
+plot(i_showEMAs ? emaFast : na, "Fast EMA", color=color.new(#2196F3, 30), linewidth=1)
+plot(i_showEMAs ? emaSlow : na, "Slow EMA", color=color.new(#FF9800, 30), linewidth=1)
+plotshape(longCondition, "Long Signal", shape.triangleup, location.belowbar, i_bullColor, size=size.small)
+plotshape(shortCondition, "Short Signal", shape.triangledown, location.abovebar, i_bearColor, size=size.small)
+
+// Visual indicator: State=3 but no trade (missed opportunity)
+plotshape(i_debugMode and state.currentState == 3 and not longCondition and not shortCondition and barstate.isconfirmed, "Missed Trade", shape.xcross, location.absolute, color.red, size=size.tiny)
+
+plot(i_showOptimizePlots ? state.confluenceScore : na, "Confluence Score", color=color.blue, display=display.data_window)
+plot(i_showOptimizePlots ? state.currentState : na, "State Machine", color=color.orange, display=display.data_window)
+plot(i_showOptimizePlots ? (currentRegime == "HIGH_VOL" ? 2 : currentRegime == "LOW_VOL" ? 0 : 1) : na, "Regime", color=color.purple, display=display.data_window)
+plot(i_showOptimizePlots ? rangeRatio : na, "Range Ratio", color=color.red, display=display.data_window)
+plot(i_showOptimizePlots and atr > 0 ? emaSeparation / atr : na, "EMA Separation (ATR)", color=color.yellow, display=display.data_window)
+plot(i_showOptimizePlots ? (state.setupInvalidated ? 1 : 0) : na, "Setup Invalidated", color=color.fuchsia, display=display.data_window)
+
+var table dashboard = table.new(position.top_right, 2, i_debugMode ? 29 : 18, bgcolor=color.black, border_width=2, border_color=color.new(#00FF00, 0))
+
+if i_showDashboard and barstate.islast
+    neonGreen = #00FF00
+    neonYellow = #FFFF00
+    stateColor = state.currentState == 0 ? color.new(color.white, 50) : state.currentState == 1 ? neonYellow : state.currentState == 2 ? neonYellow : neonGreen
+    stateName = state.currentState == 0 ? "IDLE" : state.currentState == 1 ? "STRUCTURE" : state.currentState == 2 ? "TREND OK" : "ENTRY READY"
+    dirColor = state.direction == "BULL" ? neonGreen : state.direction == "BEAR" ? neonYellow : color.new(color.white, 50)
+    
+    table.cell(dashboard, 0, 0, "SMC State Engine", text_color=neonGreen, text_size=size.normal, bgcolor=color.black)
+    table.cell(dashboard, 1, 0, "v2.2.1", text_color=neonYellow, text_size=size.small, bgcolor=color.black)
+    table.cell(dashboard, 0, 1, "Mode:", text_color=color.white, text_size=size.small, text_halign=text.align_left, bgcolor=color.black)
+    table.cell(dashboard, 1, 1, i_tradingMode, text_color=neonGreen, text_size=size.small, bgcolor=color.black)
+    table.cell(dashboard, 0, 2, "State:", text_color=color.white, text_size=size.small, text_halign=text.align_left, bgcolor=color.black)
+    table.cell(dashboard, 1, 2, stateName, text_color=stateColor, text_size=size.small, bgcolor=color.black)
+    table.cell(dashboard, 0, 3, "Direction:", text_color=color.white, text_size=size.small, text_halign=text.align_left, bgcolor=color.black)
+    table.cell(dashboard, 1, 3, state.direction, text_color=dirColor, text_size=size.small, bgcolor=color.black)
+    table.cell(dashboard, 0, 4, "Session:", text_color=color.white, text_size=size.small, text_halign=text.align_left, bgcolor=color.black)
+    table.cell(dashboard, 1, 4, getCurrentSession(), text_color=isActiveSession() ? neonGreen : neonYellow, text_size=size.small, bgcolor=color.black)
+    table.cell(dashboard, 0, 5, "Confluence:", text_color=color.white, text_size=size.small, text_halign=text.align_left, bgcolor=color.black)
+    table.cell(dashboard, 1, 5, str.tostring(state.confluenceScore) + "/" + str.tostring(i_minConfluenceScore), text_color=state.confluenceScore >= i_minConfluenceScore ? neonGreen : neonYellow, text_size=size.small, bgcolor=color.black)
+    table.cell(dashboard, 0, 6, "── Filters ──", text_color=neonYellow, text_size=size.small, text_halign=text.align_left, bgcolor=color.black)
+    table.cell(dashboard, 1, 6, "", text_size=size.small, bgcolor=color.black)
+    table.cell(dashboard, 0, 7, "Range:", text_color=color.white, text_size=size.small, text_halign=text.align_left, bgcolor=color.black)
+    table.cell(dashboard, 1, 7, (rangeFilterPassed() ? "✓ " : "✗ ") + str.tostring(rangeRatio, "#.##") + "x", text_color=rangeFilterPassed() ? neonGreen : neonYellow, text_size=size.small, bgcolor=color.black)
+    table.cell(dashboard, 0, 8, "Regime:", text_color=color.white, text_size=size.small, text_halign=text.align_left, bgcolor=color.black)
+    table.cell(dashboard, 1, 8, currentRegime + (regimeFilterPassed() ? " ✓" : " ✗"), text_color=regimeFilterPassed() ? neonGreen : neonYellow, text_size=size.small, bgcolor=color.black)
+    table.cell(dashboard, 0, 9, "EMA Sep:", text_color=color.white, text_size=size.small, text_halign=text.align_left, bgcolor=color.black)
+    table.cell(dashboard, 1, 9, (atr > 0 ? str.tostring(emaSeparation / atr, "#.##") : "N/A") + " ATR" + (emaSeparationValid ? " ✓" : " ✗"), text_color=emaSeparationValid ? neonGreen : neonYellow, text_size=size.small, bgcolor=color.black)
+    table.cell(dashboard, 0, 10, "Can Trade:", text_color=color.white, text_size=size.small, text_halign=text.align_left, bgcolor=color.black)
+    table.cell(dashboard, 1, 10, canTradeSession() ? "✓" : "✗ Limit", text_color=canTradeSession() ? neonGreen : neonYellow, text_size=size.small, bgcolor=color.black)
+    table.cell(dashboard, 0, 11, "Setup:", text_color=color.white, text_size=size.small, text_halign=text.align_left, bgcolor=color.black)
+    table.cell(dashboard, 1, 11, state.setupInvalidated ? "✗ " + state.invalidationReason : "✓ Valid", text_color=state.setupInvalidated ? neonYellow : neonGreen, text_size=size.small, bgcolor=color.black)
+    table.cell(dashboard, 0, 12, "── Steps ──", text_color=neonYellow, text_size=size.small, text_halign=text.align_left, bgcolor=color.black)
+    table.cell(dashboard, 1, 12, "", text_size=size.small, bgcolor=color.black)
+    table.cell(dashboard, 0, 13, "Structure:", text_color=color.white, text_size=size.small, text_halign=text.align_left, bgcolor=color.black)
+    table.cell(dashboard, 1, 13, (state.structureValid ? "✓ " : "○ ") + lastBOS_ChoCH, text_color=state.structureValid ? neonGreen : color.new(color.white, 50), text_size=size.small, bgcolor=color.black)
+    table.cell(dashboard, 0, 14, "Trend:", text_color=color.white, text_size=size.small, text_halign=text.align_left, bgcolor=color.black)
+    table.cell(dashboard, 1, 14, state.trendValid ? "✓" : "○", text_color=state.trendValid ? neonGreen : color.new(color.white, 50), text_size=size.small, bgcolor=color.black)
+    table.cell(dashboard, 0, 15, "Entry:", text_color=color.white, text_size=size.small, text_halign=text.align_left, bgcolor=color.black)
+    table.cell(dashboard, 1, 15, state.entryReady ? "✓" : "○", text_color=state.entryReady ? neonGreen : color.new(color.white, 50), text_size=size.small, bgcolor=color.black)
+    table.cell(dashboard, 0, 16, "Daily Trades:", text_color=color.white, text_size=size.small, text_halign=text.align_left, bgcolor=color.black)
+    table.cell(dashboard, 1, 16, str.tostring(sessionStats.dailyTrades) + "/" + str.tostring(i_maxDailyOrders), text_color=neonYellow, text_size=size.small, bgcolor=color.black)
+    posStatus = strategy.position_size > 0 ? "LONG" : strategy.position_size < 0 ? "SHORT" : "FLAT"
+    posColor = strategy.position_size > 0 ? neonGreen : strategy.position_size < 0 ? neonYellow : color.new(color.white, 50)
+    table.cell(dashboard, 0, 17, "Position:", text_color=color.white, text_size=size.small, text_halign=text.align_left, bgcolor=color.black)
+    table.cell(dashboard, 1, 17, posStatus, text_color=posColor, text_size=size.small, bgcolor=color.black)
+    
+    // Debug section
+    if i_debugMode
+        table.cell(dashboard, 0, 18, "── DEBUG ──", text_color=neonYellow, text_size=size.small, text_halign=text.align_left, bgcolor=color.black)
+        table.cell(dashboard, 1, 18, "", text_size=size.small, bgcolor=color.black)
+        table.cell(dashboard, 0, 19, "LONG Conditions:", text_color=color.white, text_size=size.small, text_halign=text.align_left, bgcolor=color.black)
+        table.cell(dashboard, 1, 19, str.tostring(longDebugTotal) + "/10", text_color=longDebugTotal == 10 ? neonGreen : neonYellow, text_size=size.small, bgcolor=color.black)
+        table.cell(dashboard, 0, 20, "  State=3:", text_color=color.white, text_size=size.small, text_halign=text.align_left, bgcolor=color.black)
+        table.cell(dashboard, 1, 20, longStateOK ? "✓" : "✗", text_color=longStateOK ? neonGreen : neonYellow, text_size=size.small, bgcolor=color.black)
+        table.cell(dashboard, 0, 21, "  Entry Conf:", text_color=color.white, text_size=size.small, text_halign=text.align_left, bgcolor=color.black)
+        table.cell(dashboard, 1, 21, longEntryConfirmed ? "✓" : "✗", text_color=longEntryConfirmed ? neonGreen : neonYellow, text_size=size.small, bgcolor=color.black)
+        table.cell(dashboard, 0, 22, "  Confluence:", text_color=color.white, text_size=size.small, text_halign=text.align_left, bgcolor=color.black)
+        table.cell(dashboard, 1, 22, str.tostring(state.confluenceScore) + "/" + str.tostring(i_minConfluenceScore), text_color=longConfluenceOK ? neonGreen : neonYellow, text_size=size.small, bgcolor=color.black)
+        table.cell(dashboard, 0, 23, "SHORT Conditions:", text_color=color.white, text_size=size.small, text_halign=text.align_left, bgcolor=color.black)
+        table.cell(dashboard, 1, 23, str.tostring(shortDebugTotal) + "/10", text_color=shortDebugTotal == 10 ? neonGreen : neonYellow, text_size=size.small, bgcolor=color.black)
+        table.cell(dashboard, 0, 24, "  State=3:", text_color=color.white, text_size=size.small, text_halign=text.align_left, bgcolor=color.black)
+        table.cell(dashboard, 1, 24, shortStateOK ? "✓" : "✗", text_color=shortStateOK ? neonGreen : neonYellow, text_size=size.small, bgcolor=color.black)
+        table.cell(dashboard, 0, 25, "  Entry Conf:", text_color=color.white, text_size=size.small, text_halign=text.align_left, bgcolor=color.black)
+        table.cell(dashboard, 1, 25, shortEntryConfirmed ? "✓" : "✗", text_color=shortEntryConfirmed ? neonGreen : neonYellow, text_size=size.small, bgcolor=color.black)
+        table.cell(dashboard, 0, 26, "  Confluence:", text_color=color.white, text_size=size.small, text_halign=text.align_left, bgcolor=color.black)
+        table.cell(dashboard, 1, 26, str.tostring(state.confluenceScore) + "/" + str.tostring(i_minConfluenceScore), text_color=shortConfluenceOK ? neonGreen : neonYellow, text_size=size.small, bgcolor=color.black)
+        table.cell(dashboard, 0, 27, "Sweeps:", text_color=color.white, text_size=size.small, text_halign=text.align_left, bgcolor=color.black)
+        table.cell(dashboard, 1, 27, (bullSweepDetected ? "BULL " : "") + (bearSweepDetected ? "BEAR" : ""), text_color=(bullSweepDetected or bearSweepDetected) ? neonGreen : color.new(color.white, 50), text_size=size.small, bgcolor=color.black)
+        
+        // Diagnostic: Current blocker
+        blockerText = switch whyNoTrade
+            0 => "All Pass ✓"
+            1 => "No Structure"
+            2 => "No Trend"
+            3 => "No Sweep"
+            4 => "State Error"
+            5 => "Direction Error"
+            6 => "No Entry"
+            7 => "Low Confluence"
+            8 => "Has Position"
+            9 => "No Session"
+            10 => "Range Filter"
+            11 => "Regime Filter"
+            12 => "Max Orders"
+            13 => "Invalidated"
+            => "Unknown"
+        blockerColor = whyNoTrade == 0 ? neonGreen : whyNoTrade <= 3 ? neonYellow : color.red
+        table.cell(dashboard, 0, 28, "Current Blocker:", text_color=color.white, text_size=size.small, text_halign=text.align_left, bgcolor=color.black)
+        table.cell(dashboard, 1, 28, blockerText, text_color=blockerColor, text_size=size.small, bgcolor=color.black)
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// ║                                 ALERTS                                               ║
+// ═══════════════════════════════════════════════════════════════════════════════════════
+
+alertcondition(state.currentState == 1 and state.currentState[1] == 0, title="State 1: Structure", message="SMC-SSE v2.2.1: Structure identified - {{ticker}}")
+alertcondition(state.currentState == 2 and state.currentState[1] == 1, title="State 2: Trend OK", message="SMC-SSE v2.2.1: Trend confirmed - {{ticker}}")
+alertcondition(state.currentState == 3 and state.currentState[1] == 2, title="State 3: Entry Ready", message="SMC-SSE v2.2.1: Entry ready - {{ticker}}")
+alertcondition(longCondition, title="Long Entry v2.2", message="SMC-SSE v2.2 LONG: {{ticker}} @ {{close}}")
+alertcondition(shortCondition, title="Short Entry v2.2", message="SMC-SSE v2.2 SHORT: {{ticker}} @ {{close}}")
+alertcondition(state.setupInvalidated and not state.setupInvalidated[1], title="Setup Invalidated", message="SMC-SSE v2.2.1: Setup invalidated")
+alertcondition(not rangeFilterPassed(), title="Range Warning", message="SMC-SSE v2.2.1: Range too wide")
+alertcondition(sessionStats.consecutiveLosses >= i_maxConsecLosses, title="Loss Limit Hit", message="SMC-SSE v2.2.1: Max consecutive losses reached")
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// ║                            END OF SCRIPT                                             ║
+// ═══════════════════════════════════════════════════════════════════════════════════════

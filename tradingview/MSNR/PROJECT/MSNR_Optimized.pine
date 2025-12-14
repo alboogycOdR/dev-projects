@@ -1,6 +1,6 @@
 //@version=5
 indicator("MSNR [OPTIMIZED]", shorttitle="MSNR-OPT", overlay=true, max_lines_count=500, max_labels_count=500)
-//https://claude.ai/chat/c165762d-0cba-4f31-ab26-a3fabc1e2508
+
 // ═══════════════════════════════════════════════════════════════════════════
 // INPUT SETTINGS
 // ═══════════════════════════════════════════════════════════════════════════
@@ -207,28 +207,20 @@ htf_is_different = htf_timeframe != timeframe.period and htf_timeframe != ""
 
 // OPTIMIZATION: Single consolidated request.security call
 f_get_htf_pivots() =>
-    [ph, pl] = request.security(syminfo.tickerid, htf_timeframe,      [ta.pivothigh(use_closes_for_av ? close : high, pivot_length, pivot_length),        ta.pivotlow(use_closes_for_av ? close : low, pivot_length, pivot_length)],        lookahead=barmerge.lookahead_off)
+    [ph, pl] = request.security(syminfo.tickerid, htf_timeframe, 
+        [ta.pivothigh(use_closes_for_av ? close : high, pivot_length, pivot_length),
+         ta.pivotlow(use_closes_for_av ? close : low, pivot_length, pivot_length)],
+        lookahead=barmerge.lookahead_off)
     [ph, pl]
 
-f_get_htf_ohlc() =>
-    [h, l, c, o] = request.security(syminfo.tickerid, htf_timeframe, [high, low, close, open], lookahead=barmerge.lookahead_off)
-    [h, l, c, o]
-
-f_get_htf_ohlc_conditional() =>
-    if htf_enabled and htf_is_different
-        f_get_htf_ohlc()
-    else
-        [na, na, na, na]
-
-f_get_htf_pivots_conditional() =>
-    if htf_enabled and htf_is_different
-        f_get_htf_pivots()
-    else
-        [na, na]
-
 // HTF Data (consolidated calls)
-[htf_high, htf_low, htf_close, htf_open] = f_get_htf_ohlc_conditional()
-[htf_pivot_high, htf_pivot_low] = f_get_htf_pivots_conditional()
+[htf_high, htf_low, htf_close, htf_open] = htf_enabled and htf_is_different ? 
+    request.security(syminfo.tickerid, htf_timeframe, 
+        [high, low, close, open], 
+        lookahead=barmerge.lookahead_off) : [na, na, na, na]
+
+[htf_pivot_high, htf_pivot_low] = htf_enabled and htf_is_different ? 
+    f_get_htf_pivots() : [na, na]
 
 // ═══════════════════════════════════════════════════════════════════════════
 // CURRENT TIMEFRAME DETECTION

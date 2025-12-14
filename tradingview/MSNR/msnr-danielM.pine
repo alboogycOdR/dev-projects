@@ -1,0 +1,327 @@
+//@version=5
+indicator("Malaysian SnR [by DanielM]", overlay=true, max_lines_count=200, max_labels_count=500)
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// ►►► USER INPUTS
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+// Bars to look back for peaks/valleys/gaps
+Length = input.int(25, "Bars to Detect A&V Levels", minval=10, tooltip="Number of past bars to analyze for A&V Levels")
+gapsLength = input.int(3, "Bars to Detect Gaps", minval=3, tooltip="Number of past bars to analyze for Gaps")
+
+// Input to hide unfresh levels
+showOnlyFresh = input.bool(false, "Show Only Fresh A&V Levels", tooltip="Hide unfresh levels so only fresh levels are visible on the chart.")
+showGaps = input.bool(false, "Show Gap Levels")
+showOnlyFreshGaps = input.bool(false, "Show Only Fresh Gap Levels", tooltip="Hide unfresh gap levels so only fresh levels are visible on the chart.")
+
+// Maximum number of support and resistance lines to manage
+maxALines = input.int(5, "Max A Lines", minval=4, tooltip="Maximum number of A lines to keep on the chart.")
+maxVLines = input.int(5, "Max V Lines", minval=4, tooltip="Maximum number of V lines to keep on the chart.")
+maxGapLines = input.int(5, "Max Gap Lines", minval=4, tooltip="Maximum number of gap lines to display on the chart.")
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// ►►► CUSTOM ALERT SETTINGS
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+// Create a separate group for alert settings
+alertGroup = "Custom Alerts"
+
+// Four Alert Options
+enableAlertFreshAV     = input.bool(true, "Alert on Fresh A/V Level Touch", group=alertGroup)
+enableAlertUnfreshAV   = input.bool(true, "Alert on Unfresh A/V Levels Touch", group=alertGroup)
+enableAlertFreshGaps   = input.bool(true, "Alert on Fresh Gap Touch", group=alertGroup)
+enableAlertUnfreshGaps = input.bool(true, "Alert on Unfresh Gap Touch", group=alertGroup)
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// ►►► SUPPORT & RESISTANCE DETECTION
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+// Detect resistance and support using pivot functions
+Alevel = ta.pivothigh(close, Length, Length)
+vlevel = ta.pivotlow(close, Length, Length)
+
+// Initialize arrays for storing lines and their states
+var line[] resLines = array.new_line()
+var bool[] resStates = array.new_bool()
+
+var line[] supLines = array.new_line()
+var bool[] supStates = array.new_bool()
+
+// Arrays for gap levels
+var line[] gapLines = array.new_line()
+var float[] gapLevels = array.new_float()
+var bool[] gapFreshStates = array.new_bool()
+var int[] gapCreatedAtBars = array.new_int()
+var color[] gapColors = array.new_color()
+
+// Function to limit the size of a line array and maintain synchronization
+limitLineArraySize(arr, stateArr, maxSize) =>
+    while array.size(arr) > maxSize
+        if array.size(arr) > 0
+            lineToRemove = array.shift(arr)
+            if not na(lineToRemove)
+                line.delete(lineToRemove)
+            array.shift(stateArr)  // Remove corresponding state
+
+// Function to limit the size of the gap line array and maintain synchronization
+limitGapArraySize(arr, levelArr, stateArr, gapCreatedAtBars, colorArr, maxSize) =>
+    while array.size(arr) > maxSize
+        if array.size(arr) > 0
+            lineToRemove = array.shift(arr)
+            if not na(lineToRemove)
+                line.delete(lineToRemove)
+        if array.size(levelArr) > 0
+            array.shift(levelArr)
+        if array.size(stateArr) > 0
+            array.shift(stateArr)
+        if array.size(gapCreatedAtBars) > 0
+            array.shift(gapCreatedAtBars)
+        if array.size(colorArr) > 0
+            array.shift(colorArr)  // Remove corresponding color
+
+// Draw resistance line if detected and bar is confirmed
+if not na(Alevel) and barstate.isconfirmed
+    resPrice = Alevel
+    resBar = bar_index - Length
+    if resBar >= 0
+        resLine = line.new(x1=resBar, y1=resPrice, x2=bar_index, y2=resPrice, color=color.red, width=1, style=line.style_solid, extend=extend.right)
+        array.push(resLines, resLine)
+        array.push(resStates, true)  // Initialize as fresh
+        limitLineArraySize(resLines, resStates, maxALines)
+
+// Draw support line if detected and bar is confirmed
+if not na(vlevel) and barstate.isconfirmed
+    supPrice = vlevel
+    supBar = bar_index - Length
+    if supBar >= 0
+        supLine = line.new(x1=supBar, y1=supPrice, x2=bar_index, y2=supPrice, color=color.green, width=1, style=line.style_solid, extend=extend.right)
+        array.push(supLines, supLine)
+        array.push(supStates, true)  // Initialize as fresh
+        limitLineArraySize(supLines, supStates, maxVLines)
+
+// Function to update line styles and handle interactions
+updateLineStyles(arr, stateArr, isResistance) =>
+    if array.size(arr) > 0 and array.size(stateArr) > 0
+        for i = 0 to array.size(arr) - 1
+            // Retrieve the current line and its state
+            currentLine = array.get(arr, i)
+            linePrice = line.get_y1(currentLine)
+            lineState = array.get(stateArr, i)
+            
+            // Evaluate wick interaction (touch)
+            wickTouched = isResistance ? (high >= linePrice and low < linePrice) : (low <= linePrice and high > linePrice)
+            
+            // Evaluate body interaction (cross)
+            bodyCrossed = isResistance ? ((open < linePrice and close > linePrice) or (open > linePrice and close < linePrice))
+                                     : ((open > linePrice and close < linePrice) or (open < linePrice and close > linePrice))
+            
+            // Handle touch by wick (set to unfresh only if fresh)
+            if wickTouched and lineState
+                array.set(stateArr, i, false)  // Mark as unfresh
+                if showOnlyFresh
+                    line.set_color(currentLine, color.new(isResistance ? color.red : color.green, 100))  // Transparent
+                else
+                    line.set_style(currentLine, line.style_dashed)
+            
+            // Handle cross by body (set to fresh only if crossed by a full body)
+            if bodyCrossed
+                array.set(stateArr, i, true)  // Mark as fresh
+                line.set_style(currentLine, line.style_solid)
+            
+            // Apply color based on freshness
+            finalState = array.get(stateArr, i)
+            if showOnlyFresh
+                if finalState
+                    line.set_color(currentLine, isResistance ? color.red : color.green)
+                else
+                    line.set_color(currentLine, color.new(isResistance ? color.red : color.green, 100))  // Transparent
+            else
+                line.set_color(currentLine, isResistance ? color.red : color.green)
+
+// Function to detect and draw gaps
+detectAndDrawGaps() =>
+    for i = 1 to gapsLength
+        // Ensure we have enough history to analyze
+        if i < bar_index
+            // Conditions for bullish and bearish gaps
+            isBullishGap = (close[i] > open[i] and close[i - 1] > open[i - 1])
+            isBearishGap = (close[i] < open[i] and close[i - 1] < open[i - 1])
+
+            if isBullishGap
+                gapPrice = close[i]  // Gap level is always at the first candle's close price
+                gapBar = bar_index - i
+
+                // Draw the gap line only if the bar is confirmed
+                if barstate.isconfirmed
+                    gapLine = line.new(x1=gapBar, y1=gapPrice, x2=bar_index, y2=gapPrice, color=color.blue, width=1, style=line.style_solid, extend=extend.right)
+                    array.push(gapLines, gapLine)
+                    array.push(gapLevels, gapPrice)
+                    array.push(gapFreshStates, true)  // Mark as fresh
+                    array.push(gapCreatedAtBars, gapBar)  // Store creation bar index
+                    array.push(gapColors, color.blue)  // Store color
+
+            if isBearishGap
+                gapPrice = close[i]  // Gap level is always at the first candle's close price
+                gapBar = bar_index - i
+
+                // Draw the gap line only if the bar is confirmed
+                if barstate.isconfirmed
+                    gapLine = line.new(x1=gapBar, y1=gapPrice, x2=bar_index, y2=gapPrice, color=#b121f3, width=1, style=line.style_solid, extend=extend.right)
+                    array.push(gapLines, gapLine)
+                    array.push(gapLevels, gapPrice)
+                    array.push(gapFreshStates, true)  // Mark as fresh
+                    array.push(gapCreatedAtBars, gapBar)  // Store creation bar index
+                    array.push(gapColors, #b121f3)  // Store color
+
+    // Limit the number of stored gap lines
+    limitGapArraySize(gapLines, gapLevels, gapFreshStates, gapCreatedAtBars, gapColors, maxGapLines)
+
+// Function to update gap freshness
+updateGapFreshness() =>
+    if array.size(gapLevels) > 0
+        for i = 0 to array.size(gapLevels) - 1
+            gapPrice = array.get(gapLevels, i)
+            isFresh = array.get(gapFreshStates, i)
+            gapLine = array.get(gapLines, i)
+            gapColor = array.get(gapColors, i)  // Retrieve stored color
+            createdAtBar = array.get(gapCreatedAtBars, i)
+
+            // Skip updating for the same or immediately following candle
+            if bar_index <= createdAtBar + 1
+                continue
+
+            wickTouched = (low <= gapPrice and high >= gapPrice)
+            bodyCrossed = (open < gapPrice and close > gapPrice) or (open > gapPrice and close < gapPrice)
+
+            if wickTouched and isFresh
+                array.set(gapFreshStates, i, false)
+                line.set_style(gapLine, line.style_dashed)
+
+            if bodyCrossed
+                array.set(gapFreshStates, i, true)
+                line.set_style(gapLine, line.style_solid)
+
+            if showOnlyFreshGaps
+                line.set_color(gapLine, array.get(gapFreshStates, i) ? gapColor : color.new(gapColor, 100))
+            else
+                line.set_color(gapLine, gapColor)
+
+// Detect and draw gaps
+if showGaps
+    detectAndDrawGaps()
+    updateGapFreshness()
+
+// Update Resistance Lines
+updateLineStyles(resLines, resStates, true)
+
+// Update Support Lines
+updateLineStyles(supLines, supStates, false)
+
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// ►►► CUSTOM ALERT CONDITIONS USING alert()
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+// Initialize alert flags
+var bool alertFreshAVTriggered = false
+var bool alertUnfreshAVTriggered = false
+var bool alertFreshGapsTriggered = false
+var bool alertUnfreshGapsTriggered = false
+
+// Reset alert flags at the beginning of each bar
+alertFreshAVTriggered     := false
+alertUnfreshAVTriggered   := false
+alertFreshGapsTriggered   := false
+alertUnfreshGapsTriggered := false
+
+// Helper function to get minimum size between two arrays
+minSize(arr1, arr2) =>
+    math.min(array.size(arr1), array.size(arr2))
+
+// Function to send alerts based on flags
+sendAlerts() =>
+    if alertFreshAVTriggered and enableAlertFreshAV 
+        alert("Price has touched or crossed a Fresh A/V Level at " + str.tostring(close), alert.freq_once_per_bar)
+    if alertUnfreshAVTriggered and enableAlertUnfreshAV
+        alert("Price has touched or crossed an Unfresh A/V Level at " + str.tostring(close), alert.freq_once_per_bar)
+    if alertFreshGapsTriggered and enableAlertFreshGaps
+        alert("Price has touched or crossed a Fresh Gap Level at " + str.tostring(close), alert.freq_once_per_bar)
+    if alertUnfreshGapsTriggered and enableAlertUnfreshGaps 
+        alert("Price has touched or crossed an Unfresh Gap Level at " + str.tostring(close), alert.freq_once_per_bar)
+
+// Check interactions for A/V Lines
+if (enableAlertFreshAV or enableAlertUnfreshAV) and (array.size(resLines) > 0 or array.size(supLines) > 0)
+    // Check Resistance Lines
+    resLoopSize = minSize(resLines, resStates)
+    if resLoopSize > 0
+        for i = 0 to resLoopSize - 1
+            resLine = array.get(resLines, i)
+            resPrice = line.get_y1(resLine)
+            resState = array.get(resStates, i)  // true = fresh, false = unfresh
+
+            // Price Touch Conditions
+            touchUp    = (high >= resPrice and low < resPrice)
+            touchDown  = (low <= resPrice and high > resPrice)
+            touched    = touchUp or touchDown
+
+            // Price Cross Conditions
+            crossUp    = (open < resPrice and close > resPrice)
+            crossDown  = (open > resPrice and close < resPrice)
+            crossed    = crossUp or crossDown
+
+            if (touched or crossed)
+                if resState and enableAlertFreshAV
+                    alertFreshAVTriggered := true
+                if not resState and enableAlertUnfreshAV
+                    alertUnfreshAVTriggered := true
+
+    // Check Support Lines
+    supLoopSize = minSize(supLines, supStates)
+    if supLoopSize > 0
+        for i = 0 to supLoopSize - 1
+            supLine = array.get(supLines, i)
+            supPrice = line.get_y1(supLine)
+            supState = array.get(supStates, i)  // true = fresh, false = unfresh
+
+            // Price Touch Conditions
+            touchUp    = (high >= supPrice and low < supPrice)
+            touchDown  = (low <= supPrice and high > supPrice)
+            touched    = touchUp or touchDown
+
+            // Price Cross Conditions
+            crossUp    = (open < supPrice and close > supPrice)
+            crossDown  = (open > supPrice and close < supPrice)
+            crossed    = crossUp or crossDown
+
+            if (touched or crossed)
+                if supState and enableAlertFreshAV
+                    alertFreshAVTriggered := true
+                if not supState and enableAlertUnfreshAV
+                    alertUnfreshAVTriggered := true
+
+// Check interactions for Gaps
+if (enableAlertFreshGaps or enableAlertUnfreshGaps) and array.size(gapLines) > 0
+    gapLoopSize = minSize(gapLines, gapFreshStates)
+    if gapLoopSize > 0
+        for i = 0 to gapLoopSize - 1
+            gapPrice = array.get(gapLevels, i)
+            gapState = array.get(gapFreshStates, i)  // true = fresh, false = unfresh
+
+            // Price Touch Conditions
+            touchUp    = (high >= gapPrice and low < gapPrice)
+            touchDown  = (low <= gapPrice and high > gapPrice)
+            touched    = touchUp or touchDown
+
+            // Price Cross Conditions
+            crossUp    = (open < gapPrice and close > gapPrice)
+            crossDown  = (open > gapPrice and close < gapPrice)
+            crossed    = crossUp or crossDown
+
+            if (touched or crossed)
+                if gapState and enableAlertFreshGaps
+                    alertFreshGapsTriggered := true
+                if not gapState and enableAlertUnfreshGaps
+                    alertUnfreshGapsTriggered := true
+
+// Send alerts based on the triggered flags
+sendAlerts()

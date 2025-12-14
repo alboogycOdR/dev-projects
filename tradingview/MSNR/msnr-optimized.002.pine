@@ -1,0 +1,591 @@
+//@version=5
+indicator("MSNR [OPTIMIZED]AI", shorttitle="MSNR-OPT-AI", overlay=true, max_lines_count=500, max_labels_count=500)
+//https://claude.ai/chat/c165762d-0cba-4f31-ab26-a3fabc1e2508
+// ═══════════════════════════════════════════════════════════════════════════
+// INPUT SETTINGS
+// ═══════════════════════════════════════════════════════════════════════════
+
+grp_detection = "⚙️ Detection Settings"
+max_av_levels = input.int(5, "Max A/V Levels", minval=1, maxval=20, group=grp_detection)
+max_gap_levels = input.int(3, "Max Gap Levels", minval=1, maxval=10, group=grp_detection)
+max_qm_levels = input.int(4, "Max QM Levels", minval=1, maxval=10, group=grp_detection)
+pivot_length = input.int(5, "Pivot Length", minval=2, maxval=20, group=grp_detection, tooltip="Bars left/right for swing detection. Higher = more significant levels")
+gap_threshold = input.float(0.0001, "Min Gap Size", minval=0.00005, step=0.00005, group=grp_detection)
+touch_tolerance = input.float(0.0002, "Touch Tolerance", minval=0, step=0.00001, group=grp_detection, tooltip="Price distance to count as touch. Lower = more precise")
+use_closes_for_av = input.bool(true, "Use Close Prices for A/V", group=grp_detection, tooltip="Recommended for cleaner line chart levels")
+round_to_number = input.bool(false, "Round Levels to Round Numbers", group=grp_detection, tooltip="Snap levels to round numbers like 3700.00, 3750.00")
+
+grp_level_types = "🎯 Level Types"
+show_av = input.bool(true, "Show A/V Levels", group=grp_level_types, inline="av")
+av_only_resistance = input.bool(false, "Only Resistance", group=grp_level_types, inline="av")
+av_only_support = input.bool(false, "Only Support", group=grp_level_types, inline="av")
+
+show_gaps = input.bool(true, "Show Gap Levels", group=grp_level_types, inline="gap")
+gap_only_resistance = input.bool(false, "Only Resistance", group=grp_level_types, inline="gap")
+gap_only_support = input.bool(false, "Only Support", group=grp_level_types, inline="gap")
+
+show_qm = input.bool(true, "Show QM Levels", group=grp_level_types, inline="qm")
+qm_only_resistance = input.bool(false, "Only Resistance", group=grp_level_types, inline="qm")
+qm_only_support = input.bool(false, "Only Support", group=grp_level_types, inline="qm")
+
+grp_toggle = "👁️ Display Controls"
+show_labels = input.bool(true, "Show Labels", group=grp_toggle, tooltip="Show/hide all level labels")
+show_lines = input.bool(true, "Show Lines", group=grp_toggle, tooltip="Show/hide all level lines")
+extend_lines_left = input.int(0, "Extend Lines Left", minval=0, maxval=500, group=grp_toggle)
+extend_lines_right = input.int(50, "Extend Lines Right", minval=0, maxval=500, group=grp_toggle)
+show_fresh_only = input.bool(false, "Hide Unfresh Levels", group=grp_toggle, tooltip="Only display active fresh levels")
+show_debug_labels = input.bool(false, "Show Debug Labels", group=grp_toggle, tooltip="Display touch/break events")
+min_level_distance = input.float(0.0005, "Min Distance Between Levels", minval=0, step=0.0001, group=grp_toggle, tooltip="Minimum price distance to avoid clustered levels. Higher = fewer overlapping levels")
+
+grp_mtf = "📊 Multi-Timeframe"
+show_ctf_levels = input.bool(true, "Show Current Timeframe Levels", group=grp_mtf, tooltip="Display levels from your current chart timeframe")
+htf_enabled = input.bool(false, "Enable HTF Levels", group=grp_mtf)
+htf_timeframe = input.timeframe("240", "HTF Timeframe", group=grp_mtf, tooltip="Higher timeframe (e.g., 4H, D, W)")
+htf_line_style = input.string("Dashed", "HTF Line Style", options=["Solid", "Dashed", "Dotted"], group=grp_mtf)
+
+grp_style = "🎨 Styling"
+av_fresh_color = input.color(#00ff88, "Fresh A/V", group=grp_style, inline="av")
+av_unfresh_color = input.color(#ff4444, "Unfresh A/V", group=grp_style, inline="av")
+gap_fresh_color = input.color(#3399ff, "Fresh Gap", group=grp_style, inline="col2")
+gap_unfresh_color = input.color(#ff9933, "Unfresh Gap", group=grp_style, inline="col2")
+qm_fresh_color = input.color(#ff00ff, "Fresh QM", group=grp_style, inline="col3")
+qm_unfresh_color = input.color(#ff6600, "Unfresh QM", group=grp_style, inline="col3")
+
+line_width = input.int(2, "Line Width", minval=1, maxval=5, group=grp_style)
+fresh_line_width = input.int(2, "Fresh Line Width", minval=1, maxval=5, group=grp_style, inline="lw1")
+unfresh_line_width = input.int(1, "Unfresh Line Width", minval=1, maxval=5, group=grp_style, inline="lw1")
+
+show_solid = input.bool(true, "Solid Fresh Lines", group=grp_style, inline="st1")
+show_dashed = input.bool(true, "Dashed Unfresh Lines", group=grp_style, inline="st1")
+expired_line_style = input.string("Dotted", "Expired Line Style", options=["Solid", "Dashed", "Dotted"], group=grp_style)
+
+label_size_opt = input.string("small", "Label Size", options=["tiny", "small", "normal", "large"], group=grp_style)
+label_show_price = input.bool(true, "Show Price in Label", group=grp_style, inline="lbl1")
+label_show_timeframe = input.bool(true, "Show Timeframe in Label", group=grp_style, inline="lbl1")
+label_show_touches = input.bool(true, "Show Touch Count in Label", group=grp_style, inline="lbl2")
+label_background = input.bool(false, "Show Label Background", group=grp_style, inline="lbl3")
+label_transparency = input.int(85, "Label BG Transparency", minval=0, maxval=100, group=grp_style, inline="lbl3")
+
+// ═══════════════════════════════════════════════════════════════════════════
+// DATA STRUCTURES
+// ═══════════════════════════════════════════════════════════════════════════
+
+var all_levels = array.new<float>()
+var all_types = array.new<int>()
+var all_fresh = array.new<int>()
+var all_touches = array.new<int>()
+var all_bars = array.new<int>()
+var all_lines = array.new<line>()
+var all_labels = array.new<label>()
+var all_is_resistance = array.new<bool>()
+var all_timeframes = array.new<string>()
+var all_is_htf = array.new<bool>()
+
+// ═══════════════════════════════════════════════════════════════════════════
+// HELPER FUNCTIONS
+// ═══════════════════════════════════════════════════════════════════════════
+
+get_label_size() =>
+    switch label_size_opt
+        "tiny" => size.tiny
+        "small" => size.small
+        "normal" => size.normal
+        "large" => size.large
+        => size.small
+
+// OPTIMIZATION #1: Limit search scope to recent levels (only check last 50)
+level_exists(price) =>
+    exists = false
+    levels_count = array.size(all_levels)
+    if levels_count > 0
+        search_limit = math.min(levels_count - 1, 50)  // Only check last 50 levels
+        for j = search_limit to 0
+            level_price = array.get(all_levels, j)
+            distance = math.abs(level_price - price)
+            if distance <= touch_tolerance or (min_level_distance > 0 and distance <= min_level_distance)
+                exists := true
+                break
+    exists
+
+count_levels_by_type(target_type) =>
+    count = 0
+    types_count = array.size(all_types)
+    if types_count > 0
+        for i = 0 to types_count - 1
+            if array.get(all_types, i) == target_type
+                count += 1
+    count
+
+remove_oldest_level(target_type) =>
+    levels_count = array.size(all_levels)
+    if levels_count > 0
+        oldest_bar = bar_index + 1
+        remove_idx = -1
+        for i = 0 to levels_count - 1
+            if array.get(all_types, i) == target_type and array.get(all_bars, i) < oldest_bar
+                oldest_bar := array.get(all_bars, i)
+                remove_idx := i
+        if remove_idx >= 0
+            if remove_idx < array.size(all_lines)
+                line.delete(array.get(all_lines, remove_idx))
+            if remove_idx < array.size(all_labels)
+                label.delete(array.get(all_labels, remove_idx))
+            array.remove(all_levels, remove_idx)
+            array.remove(all_types, remove_idx)
+            array.remove(all_fresh, remove_idx)
+            array.remove(all_touches, remove_idx)
+            array.remove(all_bars, remove_idx)
+            array.remove(all_lines, remove_idx)
+            array.remove(all_labels, remove_idx)
+            array.remove(all_is_resistance, remove_idx)
+            array.remove(all_timeframes, remove_idx)
+            array.remove(all_is_htf, remove_idx)
+
+get_line_style_for_htf(is_from_htf) =>
+    if not is_from_htf
+        line.style_solid
+    else
+        switch htf_line_style
+            "Solid" => line.style_solid
+            "Dashed" => line.style_dashed
+            "Dotted" => line.style_dotted
+            => line.style_dashed
+
+get_expired_style() =>
+    switch expired_line_style
+        "Solid" => line.style_solid
+        "Dashed" => line.style_dashed
+        "Dotted" => line.style_dotted
+        => line.style_dotted
+
+build_label_text(level_dir, level_type, touches_count, tf_str, price_val) =>
+    lbl_txt = level_dir + level_type
+    if label_show_touches
+        lbl_txt := lbl_txt + " [" + str.tostring(touches_count) + "]"
+    if label_show_timeframe
+        lbl_txt := lbl_txt + " " + tf_str
+    if label_show_price
+        lbl_txt := lbl_txt + " " + str.tostring(price_val, format.mintick)
+    lbl_txt
+
+get_tf_label(from_htf) =>
+    tf = from_htf ? htf_timeframe : timeframe.period
+    if tf == "1"
+        "1m"
+    else if tf == "3"
+        "3m"
+    else if tf == "5"
+        "5m"
+    else if tf == "15"
+        "15m"
+    else if tf == "30"
+        "30m"
+    else if tf == "45"
+        "45m"
+    else if tf == "60"
+        "1H"
+    else if tf == "120"
+        "2H"
+    else if tf == "180"
+        "3H"
+    else if tf == "240"
+        "4H"
+    else if tf == "D" or tf == "1D"
+        "D"
+    else if tf == "W" or tf == "1W"
+        "W"
+    else if tf == "M" or tf == "1M"
+        "M"
+    else
+        tf
+
+// ═══════════════════════════════════════════════════════════════════════════
+// DATA SOURCE - OPTIMIZATION #2: Consolidated HTF requests
+// ═══════════════════════════════════════════════════════════════════════════
+
+htf_is_different = htf_timeframe != timeframe.period and htf_timeframe != ""
+
+// OPTIMIZATION: Single consolidated request.security call
+f_get_htf_pivots() =>
+    [ph, pl] = request.security(syminfo.tickerid, htf_timeframe,      [ta.pivothigh(use_closes_for_av ? close : high, pivot_length, pivot_length),        ta.pivotlow(use_closes_for_av ? close : low, pivot_length, pivot_length)],        lookahead=barmerge.lookahead_off)
+    [ph, pl]
+
+f_get_htf_ohlc() =>
+    [h, l, c, o] = request.security(syminfo.tickerid, htf_timeframe, [high, low, close, open], lookahead=barmerge.lookahead_off)
+    [h, l, c, o]
+
+f_get_htf_ohlc_conditional() =>
+    if htf_enabled and htf_is_different
+        f_get_htf_ohlc()
+    else
+        [na, na, na, na]
+
+f_get_htf_pivots_conditional() =>
+    if htf_enabled and htf_is_different
+        f_get_htf_pivots()
+    else
+        [na, na]
+
+// HTF Data (consolidated calls)
+[htf_high, htf_low, htf_close, htf_open] = f_get_htf_ohlc_conditional()
+[htf_pivot_high, htf_pivot_low] = f_get_htf_pivots_conditional()
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CURRENT TIMEFRAME DETECTION
+// ═══════════════════════════════════════════════════════════════════════════
+
+var float ctf_last_swing_high = na
+var float ctf_last_swing_low = na
+
+ctf_pivot_high = ta.pivothigh(use_closes_for_av ? close : high, pivot_length, pivot_length)
+ctf_pivot_low = ta.pivotlow(use_closes_for_av ? close : low, pivot_length, pivot_length)
+
+ctf_av_level = not na(ctf_pivot_high) ? ctf_pivot_high : (not na(ctf_pivot_low) ? ctf_pivot_low : na)
+ctf_av_is_resist = not na(ctf_pivot_high)
+
+ctf_gap_level = float(na)
+ctf_gap_is_resist = false
+if show_gaps
+    curr_bull = close > open
+    curr_bear = close < open
+    prev_bull = close[1] > open[1]
+    prev_bear = close[1] < open[1]
+    if curr_bull and prev_bull
+        ctf_gap_level := close[1]
+        ctf_gap_is_resist := false
+    else if curr_bear and prev_bear
+        ctf_gap_level := close[1]
+        ctf_gap_is_resist := true
+
+ctf_qm_level = float(na)
+ctf_qm_is_resist = false
+if show_qm
+    if not na(ctf_pivot_low)
+        if na(ctf_last_swing_low) or ctf_pivot_low != ctf_last_swing_low
+            ctf_last_swing_low := ctf_pivot_low
+    if not na(ctf_pivot_high)
+        if na(ctf_last_swing_high) or ctf_pivot_high != ctf_last_swing_high
+            ctf_last_swing_high := ctf_pivot_high
+    if not na(ctf_pivot_low) and not na(ctf_last_swing_high) and not na(ctf_last_swing_low[1])
+        if ctf_pivot_low > ctf_last_swing_low[1] and low < ctf_last_swing_high
+            ctf_qm_level := ctf_pivot_low
+            ctf_qm_is_resist := false
+    if not na(ctf_pivot_high) and not na(ctf_last_swing_low) and not na(ctf_last_swing_high[1])
+        if ctf_pivot_high < ctf_last_swing_high[1] and high > ctf_last_swing_low
+            ctf_qm_level := ctf_pivot_high
+            ctf_qm_is_resist := true
+
+// ═══════════════════════════════════════════════════════════════════════════
+// HIGHER TIMEFRAME DETECTION
+// ═══════════════════════════════════════════════════════════════════════════
+
+var float htf_last_swing_high = na
+var float htf_last_swing_low = na
+
+htf_av_level = not na(htf_pivot_high) ? htf_pivot_high : (not na(htf_pivot_low) ? htf_pivot_low : na)
+htf_av_is_resist = not na(htf_pivot_high)
+
+htf_gap_level = float(na)
+htf_gap_is_resist = false
+if show_gaps and htf_enabled and htf_is_different
+    curr_bull_htf = htf_close > htf_open
+    curr_bear_htf = htf_close < htf_open
+    prev_bull_htf = htf_close[1] > htf_open[1]
+    prev_bear_htf = htf_close[1] < htf_open[1]
+    if curr_bull_htf and prev_bull_htf
+        htf_gap_level := htf_close[1]
+        htf_gap_is_resist := false
+    else if curr_bear_htf and prev_bear_htf
+        htf_gap_level := htf_close[1]
+        htf_gap_is_resist := true
+
+htf_qm_level = float(na)
+htf_qm_is_resist = false
+if show_qm and htf_enabled and htf_is_different
+    if not na(htf_pivot_low)
+        if na(htf_last_swing_low) or htf_pivot_low != htf_last_swing_low
+            htf_last_swing_low := htf_pivot_low
+    if not na(htf_pivot_high)
+        if na(htf_last_swing_high) or htf_pivot_high != htf_last_swing_high
+            htf_last_swing_high := htf_pivot_high
+    if not na(htf_pivot_low) and not na(htf_last_swing_high) and not na(htf_last_swing_low[1])
+        if htf_pivot_low > htf_last_swing_low[1] and htf_low < htf_last_swing_high
+            htf_qm_level := htf_pivot_low
+            htf_qm_is_resist := false
+    if not na(htf_pivot_high) and not na(htf_last_swing_low) and not na(htf_last_swing_high[1])
+        if htf_pivot_high < htf_last_swing_high[1] and htf_high > htf_last_swing_low
+            htf_qm_level := htf_pivot_high
+            htf_qm_is_resist := true
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CREATE LEVELS (unchanged - already efficient)
+// ═══════════════════════════════════════════════════════════════════════════
+
+if show_av and show_ctf_levels and not na(ctf_av_level) and not level_exists(ctf_av_level)
+    if (not av_only_resistance and not av_only_support) or (av_only_resistance and ctf_av_is_resist) or (av_only_support and not ctf_av_is_resist)
+        if count_levels_by_type(0) >= max_av_levels
+            remove_oldest_level(0)
+        pivot_bar = bar_index - pivot_length
+        array.push(all_levels, ctf_av_level)
+        array.push(all_types, 0)
+        array.push(all_fresh, 1)
+        array.push(all_touches, 0)
+        array.push(all_bars, pivot_bar)
+        array.push(all_is_resistance, ctf_av_is_resist)
+        array.push(all_timeframes, get_tf_label(false))
+        array.push(all_is_htf, false)
+        if show_lines
+            l = line.new(pivot_bar - extend_lines_left, ctf_av_level, bar_index + extend_lines_right, ctf_av_level, color=av_fresh_color, width=fresh_line_width, style=line.style_solid, extend=extend.right)
+            array.push(all_lines, l)
+        else
+            array.push(all_lines, line(na))
+        if show_labels
+            label_bg = label_background ? color.new(av_fresh_color, label_transparency) : color.new(color.white, 100)
+            lbl = label.new(pivot_bar, ctf_av_level, text=build_label_text(ctf_av_is_resist ? "R" : "S", "", 0, get_tf_label(false), ctf_av_level), color=label_bg, textcolor=av_fresh_color, size=get_label_size(), style=label.style_label_down)
+            array.push(all_labels, lbl)
+        else
+            array.push(all_labels, label(na))
+
+if show_av and htf_enabled and htf_is_different and not na(htf_av_level) and not level_exists(htf_av_level)
+    if (not av_only_resistance and not av_only_support) or (av_only_resistance and htf_av_is_resist) or (av_only_support and not htf_av_is_resist)
+        if count_levels_by_type(0) >= max_av_levels
+            remove_oldest_level(0)
+        pivot_bar = bar_index - pivot_length
+        array.push(all_levels, htf_av_level)
+        array.push(all_types, 0)
+        array.push(all_fresh, 1)
+        array.push(all_touches, 0)
+        array.push(all_bars, pivot_bar)
+        array.push(all_is_resistance, htf_av_is_resist)
+        array.push(all_timeframes, get_tf_label(true))
+        array.push(all_is_htf, true)
+        if show_lines
+            l = line.new(pivot_bar - extend_lines_left, htf_av_level, bar_index + extend_lines_right, htf_av_level, color=av_fresh_color, width=fresh_line_width, style=get_line_style_for_htf(true), extend=extend.right)
+            array.push(all_lines, l)
+        else
+            array.push(all_lines, line(na))
+        if show_labels
+            label_bg = label_background ? color.new(av_fresh_color, label_transparency) : color.new(color.white, 100)
+            lbl = label.new(pivot_bar, htf_av_level, text=build_label_text(htf_av_is_resist ? "R" : "S", "", 0, get_tf_label(true), htf_av_level), color=label_bg, textcolor=av_fresh_color, size=get_label_size(), style=label.style_label_down)
+            array.push(all_labels, lbl)
+        else
+            array.push(all_labels, label(na))
+
+if show_gaps and show_ctf_levels and not na(ctf_gap_level) and not level_exists(ctf_gap_level)
+    if (not gap_only_resistance and not gap_only_support) or (gap_only_resistance and ctf_gap_is_resist) or (gap_only_support and not ctf_gap_is_resist)
+        if count_levels_by_type(1) >= max_gap_levels
+            remove_oldest_level(1)
+        array.push(all_levels, ctf_gap_level)
+        array.push(all_types, 1)
+        array.push(all_fresh, 1)
+        array.push(all_touches, 0)
+        array.push(all_bars, bar_index)
+        array.push(all_is_resistance, ctf_gap_is_resist)
+        array.push(all_timeframes, get_tf_label(false))
+        array.push(all_is_htf, false)
+        if show_lines
+            l = line.new(bar_index - extend_lines_left, ctf_gap_level, bar_index + extend_lines_right, ctf_gap_level, color=gap_fresh_color, width=fresh_line_width, style=line.style_solid, extend=extend.right)
+            array.push(all_lines, l)
+        else
+            array.push(all_lines, line(na))
+        if show_labels
+            label_bg = label_background ? color.new(gap_fresh_color, label_transparency) : color.new(color.white, 100)
+            lbl = label.new(bar_index, ctf_gap_level, text=build_label_text(ctf_gap_is_resist ? "R" : "S", "-GAP", 0, get_tf_label(false), ctf_gap_level), color=label_bg, textcolor=gap_fresh_color, size=get_label_size(), style=label.style_label_down)
+            array.push(all_labels, lbl)
+        else
+            array.push(all_labels, label(na))
+
+if show_gaps and htf_enabled and htf_is_different and not na(htf_gap_level) and not level_exists(htf_gap_level)
+    if (not gap_only_resistance and not gap_only_support) or (gap_only_resistance and htf_gap_is_resist) or (gap_only_support and not htf_gap_is_resist)
+        if count_levels_by_type(1) >= max_gap_levels
+            remove_oldest_level(1)
+        array.push(all_levels, htf_gap_level)
+        array.push(all_types, 1)
+        array.push(all_fresh, 1)
+        array.push(all_touches, 0)
+        array.push(all_bars, bar_index)
+        array.push(all_is_resistance, htf_gap_is_resist)
+        array.push(all_timeframes, get_tf_label(true))
+        array.push(all_is_htf, true)
+        if show_lines
+            l = line.new(bar_index - extend_lines_left, htf_gap_level, bar_index + extend_lines_right, htf_gap_level, color=gap_fresh_color, width=fresh_line_width, style=get_line_style_for_htf(true), extend=extend.right)
+            array.push(all_lines, l)
+        else
+            array.push(all_lines, line(na))
+        if show_labels
+            label_bg = label_background ? color.new(gap_fresh_color, label_transparency) : color.new(color.white, 100)
+            lbl = label.new(bar_index, htf_gap_level, text=build_label_text(htf_gap_is_resist ? "R" : "S", "-GAP", 0, get_tf_label(true), htf_gap_level), color=label_bg, textcolor=gap_fresh_color, size=get_label_size(), style=label.style_label_down)
+            array.push(all_labels, lbl)
+        else
+            array.push(all_labels, label(na))
+
+if show_qm and show_ctf_levels and not na(ctf_qm_level) and not level_exists(ctf_qm_level)
+    if (not qm_only_resistance and not qm_only_support) or (qm_only_resistance and ctf_qm_is_resist) or (qm_only_support and not ctf_qm_is_resist)
+        if count_levels_by_type(2) >= max_qm_levels
+            remove_oldest_level(2)
+        array.push(all_levels, ctf_qm_level)
+        array.push(all_types, 2)
+        array.push(all_fresh, 1)
+        array.push(all_touches, 0)
+        array.push(all_bars, bar_index)
+        array.push(all_is_resistance, ctf_qm_is_resist)
+        array.push(all_timeframes, get_tf_label(false))
+        array.push(all_is_htf, false)
+        if show_lines
+            l = line.new(bar_index - extend_lines_left, ctf_qm_level, bar_index + extend_lines_right, ctf_qm_level, color=qm_fresh_color, width=fresh_line_width, style=line.style_solid, extend=extend.right)
+            array.push(all_lines, l)
+        else
+            array.push(all_lines, line(na))
+        if show_labels
+            label_bg = label_background ? color.new(qm_fresh_color, label_transparency) : color.new(color.white, 100)
+            lbl = label.new(bar_index, ctf_qm_level, text=build_label_text(ctf_qm_is_resist ? "R" : "S", "-QM", 0, get_tf_label(false), ctf_qm_level), color=label_bg, textcolor=qm_fresh_color, size=get_label_size(), style=label.style_label_down)
+            array.push(all_labels, lbl)
+        else
+            array.push(all_labels, label(na))
+
+if show_qm and htf_enabled and htf_is_different and not na(htf_qm_level) and not level_exists(htf_qm_level)
+    if (not qm_only_resistance and not qm_only_support) or (qm_only_resistance and htf_qm_is_resist) or (qm_only_support and not htf_qm_is_resist)
+        if count_levels_by_type(2) >= max_qm_levels
+            remove_oldest_level(2)
+        array.push(all_levels, htf_qm_level)
+        array.push(all_types, 2)
+        array.push(all_fresh, 1)
+        array.push(all_touches, 0)
+        array.push(all_bars, bar_index)
+        array.push(all_is_resistance, htf_qm_is_resist)
+        array.push(all_timeframes, get_tf_label(true))
+        array.push(all_is_htf, true)
+        if show_lines
+            l = line.new(bar_index - extend_lines_left, htf_qm_level, bar_index + extend_lines_right, htf_qm_level, color=qm_fresh_color, width=fresh_line_width, style=get_line_style_for_htf(true), extend=extend.right)
+            array.push(all_lines, l)
+        else
+            array.push(all_lines, line(na))
+        if show_labels
+            label_bg = label_background ? color.new(qm_fresh_color, label_transparency) : color.new(color.white, 100)
+            lbl = label.new(bar_index, htf_qm_level, text=build_label_text(htf_qm_is_resist ? "R" : "S", "-QM", 0, get_tf_label(true), htf_qm_level), color=label_bg, textcolor=qm_fresh_color, size=get_label_size(), style=label.style_label_down)
+            array.push(all_labels, lbl)
+        else
+            array.push(all_labels, label(na))
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TOUCH/UNFRESH LOGIC - OPTIMIZATION #3: Cache array.get() calls & price range filter
+// ═══════════════════════════════════════════════════════════════════════════
+
+if barstate.isconfirmed
+    levels_count = array.size(all_levels)
+    if levels_count > 0
+        current_high = high
+        current_low = low
+        current_close = close
+        current_open = open
+        
+        for i = levels_count - 1 to 0
+            // OPTIMIZATION: Cache all array lookups at start
+            lvl_price = array.get(all_levels, i)
+            
+            // PRICE RANGE FILTER: Skip if level far from current price
+            if not (current_high >= lvl_price - touch_tolerance and current_low <= lvl_price + touch_tolerance)
+                // Level not in current range - update x2 and continue
+                if i < array.size(all_lines)
+                    ln = array.get(all_lines, i)
+                    if not na(ln)
+                        line.set_x2(ln, bar_index + 20)
+                if i < array.size(all_labels)
+                    lbl = array.get(all_labels, i)
+                    if not na(lbl)
+                        label.set_x(lbl, bar_index + 20)
+                continue
+            
+            // Cache remaining values only for levels in price range
+            is_fresh = array.get(all_fresh, i) == 1
+            touches = array.get(all_touches, i)
+            type_id = array.get(all_types, i)
+            is_resist = array.get(all_is_resistance, i)
+            tf_str = array.get(all_timeframes, i)
+            from_htf = array.get(all_is_htf, i)
+            
+            ln = i < array.size(all_lines) ? array.get(all_lines, i) : line(na)
+            lbl = i < array.size(all_labels) ? array.get(all_labels, i) : label(na)
+            
+            // Reuse cached price values
+            range_overlap = (current_high >= lvl_price - touch_tolerance and current_low <= lvl_price + touch_tolerance)
+            close_cross_up = current_close > lvl_price and current_open <= lvl_price
+            close_cross_down = current_close < lvl_price and current_open >= lvl_price
+            wick_touch = range_overlap and not (close_cross_up or close_cross_down)
+            body_cross = close_cross_up or close_cross_down
+            
+            level_type = type_id == 0 ? "" : (type_id == 1 ? "-GAP" : "-QM")
+            level_dir = is_resist ? "R" : "S"
+            
+            fresh_col = type_id == 1 ? gap_fresh_color : (type_id == 2 ? qm_fresh_color : av_fresh_color)
+            unfresh_col = type_id == 1 ? gap_unfresh_color : (type_id == 2 ? qm_unfresh_color : av_unfresh_color)
+            
+            if wick_touch and is_fresh
+                array.set(all_fresh, i, 0)
+                new_touches = math.min(touches + 1, 2)
+                array.set(all_touches, i, new_touches)
+                if show_lines and not na(ln)
+                    line.set_color(ln, unfresh_col)
+                    line.set_width(ln, unfresh_line_width)
+                    if show_dashed
+                        line.set_style(ln, line.style_dashed)
+                if show_labels and not na(lbl)
+                    label_bg = label_background ? color.new(unfresh_col, label_transparency) : color.new(color.white, 100)
+                    label.set_text(lbl, build_label_text(level_dir, level_type, new_touches, tf_str, lvl_price))
+                    label.set_color(lbl, label_bg)
+                    label.set_textcolor(lbl, unfresh_col)
+                if show_debug_labels
+                    label.new(bar_index, current_high * 1.001, "👆", color=color.yellow, size=size.tiny, style=label.style_label_down)
+            
+            else if body_cross and touches < 2
+                array.set(all_fresh, i, 1)
+                array.set(all_touches, i, 0)
+                if show_lines and not na(ln)
+                    line.set_color(ln, fresh_col)
+                    line.set_width(ln, fresh_line_width)
+                    if show_solid
+                        line.set_style(ln, from_htf ? get_line_style_for_htf(true) : line.style_solid)
+                if show_labels and not na(lbl)
+                    label_bg = label_background ? color.new(fresh_col, label_transparency) : color.new(color.white, 100)
+                    label.set_text(lbl, build_label_text(level_dir, level_type, 0, tf_str, lvl_price))
+                    label.set_color(lbl, label_bg)
+                    label.set_textcolor(lbl, fresh_col)
+                if show_debug_labels
+                    label.new(bar_index, current_low * 0.999, "⚡", color=color.lime, size=size.tiny, style=label.style_label_up)
+            
+            updated_touches = array.get(all_touches, i)
+            updated_fresh = array.get(all_fresh, i) == 1
+            
+            if updated_touches >= 2 and not updated_fresh
+                if not na(ln)
+                    line.set_style(ln, line.style_dotted)
+                    line.set_width(ln, 1)
+                if not na(lbl)
+                    label.set_text(lbl, "❌ " + level_dir + level_type + " [EXP] " + tf_str)
+                if show_fresh_only
+                    if not na(ln)
+                        line.delete(ln)
+                    if not na(lbl)
+                        label.delete(lbl)
+                    array.remove(all_levels, i)
+                    array.remove(all_types, i)
+                    array.remove(all_fresh, i)
+                    array.remove(all_touches, i)
+                    array.remove(all_bars, i)
+                    array.remove(all_lines, i)
+                    array.remove(all_labels, i)
+                    array.remove(all_is_resistance, i)
+                    array.remove(all_timeframes, i)
+                    array.remove(all_is_htf, i)
+                    continue
+            
+            if show_fresh_only and not updated_fresh and updated_touches < 2
+                if not na(ln)
+                    line.set_color(ln, color.new(color.gray, 100))
+                if not na(lbl)
+                    label.set_color(lbl, color.new(color.gray, 100))
+            
+            if not na(ln)
+                line.set_x2(ln, bar_index + 20)
+            if not na(lbl)
+                label.set_x(lbl, bar_index + 20)

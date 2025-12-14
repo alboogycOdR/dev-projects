@@ -1,0 +1,707 @@
+//@version=6
+indicator("Shved Supply and Demand", overlay=true, max_boxes_count=500, max_labels_count=500)
+
+// ═══════════════════════════════════════════════════════════════════
+// INPUT PARAMETERS
+// ═══════════════════════════════════════════════════════════════════
+
+// Back Limit
+backLimit = input.int(500, "Back Limit", minval=100, maxval=1000, tooltip="Lower values improve performance. Recommended: 300-500 for 1m charts, 500-1000 for higher timeframes")
+
+// Zone Settings
+zone_show_weak = input.bool(false, "Show Weak Zones", group="Zone Settings")
+zone_show_untested = input.bool(true, "Show Untested Zones", group="Zone Settings")
+zone_show_turncoat = input.bool(true, "Show Broken Zones", group="Zone Settings")
+zone_fuzzfactor = input.float(0.75, "Zone ATR Factor", minval=0.1, step=0.05, group="Zone Settings")
+zone_merge = input.bool(true, "Zone Merge", group="Zone Settings")
+zone_extend = input.bool(true, "Zone Extend", group="Zone Settings")
+max_zones = input.int(100, "Max Zones", minval=20, maxval=500, tooltip="Maximum number of zones to display. Lower values improve performance.", group="Zone Settings")
+fractal_fast_factor = input.float(3.0, "Fractal Fast Factor", minval=1, step=0.5, group="Zone Settings")
+fractal_slow_factor = input.float(6.0, "Fractal Slow Factor", minval=1, step=0.5, group="Zone Settings")
+
+// Alert Settings
+zone_show_alerts = input.bool(false, "Trigger Alert When Entering Zone", group="Alert Settings")
+
+// Drawing Settings
+zone_solid = input.bool(true, "Fill Zone with Color", group="Drawing Settings")
+zone_linewidth = input.int(1, "Zone Border Width", minval=1, maxval=5, group="Drawing Settings")
+zone_show_info = input.bool(true, "Show Info Labels", group="Drawing Settings")
+sup_name = input.string("Sup", "Support Name", group="Drawing Settings")
+res_name = input.string("Res", "Resistance Name", group="Drawing Settings")
+test_name = input.string("Retests", "Retest Name", group="Drawing Settings")
+text_size_str = input.string("small", "Text Size", options=["tiny", "small", "normal", "large"], group="Drawing Settings")
+getTextSize() => switch text_size_str
+    "tiny" => size.tiny
+    "small" => size.small
+    "normal" => size.normal
+    "large" => size.large
+    => size.small
+text_size = getTextSize()
+
+// Colors
+color_support_weak = input.color(color.new(#2F4F4F, 50), "Weak Support", group="Colors")
+color_support_untested = input.color(color.new(#2E8B57, 50), "Untested Support", group="Colors")
+color_support_verified = input.color(color.new(#008000, 50), "Verified Support", group="Colors")
+color_support_proven = input.color(color.new(#32CD32, 50), "Proven Support", group="Colors")
+color_support_turncoat = input.color(color.new(#6B8E23, 50), "Broken Support", group="Colors")
+color_resist_weak = input.color(color.new(#4B0082, 50), "Weak Resistance", group="Colors")
+color_resist_untested = input.color(color.new(#DA70D6, 50), "Untested Resistance", group="Colors")
+color_resist_verified = input.color(color.new(#DC143C, 50), "Verified Resistance", group="Colors")
+color_resist_proven = input.color(color.new(#FF0000, 50), "Proven Resistance", group="Colors")
+color_resist_turncoat = input.color(color.new(#FF8C00, 50), "Broken Resistance", group="Colors")
+
+// ═══════════════════════════════════════════════════════════════════
+// CONSTANTS
+// ═══════════════════════════════════════════════════════════════════
+
+int ZONE_SUPPORT = 1
+int ZONE_RESIST = 2
+
+int ZONE_WEAK = 0
+int ZONE_TURNCOAT = 1
+int ZONE_UNTESTED = 2
+int ZONE_VERIFIED = 3
+int ZONE_PROVEN = 4
+
+int UP_POINT = 1
+int DN_POINT = -1
+
+// ═══════════════════════════════════════════════════════════════════
+// GLOBAL VARIABLES
+// ═══════════════════════════════════════════════════════════════════
+
+var array<float> zone_hi = array.new_float(0)
+var array<float> zone_lo = array.new_float(0)
+var array<int> zone_start = array.new_int(0)
+var array<int> zone_hits = array.new_int(0)
+var array<int> zone_type = array.new_int(0)
+var array<int> zone_strength = array.new_int(0)
+var array<bool> zone_turn = array.new_bool(0)
+var array<box> zone_boxes = array.new_box(0)
+var array<label> zone_labels = array.new_label(0)
+
+// ═══════════════════════════════════════════════════════════════════
+// FRACTAL DETECTION FUNCTION
+// ═══════════════════════════════════════════════════════════════════
+
+f_isFractal(mode, period, shift) =>
+    // Validate shift is within bounds
+    // shift must be >= period (need bars before) and <= bar_index - period (need bars after)
+    // Also must be <= 10000 (Pine Script history limit)
+    maxHistory = 10000
+    if shift < period or shift > bar_index - period - 1 or shift > maxHistory
+        false
+    else
+        // Pre-check: ensure shift + period doesn't exceed limits
+        if shift + period > maxHistory
+            false
+        else
+            isFractal = true
+            if mode == UP_POINT
+                for i = 1 to period
+                    // Check bounds: shift + i must be <= bar_index and <= maxHistory
+                    // shift - i must be >= 0
+                    futureBar = shift + i
+                    pastBar = shift - i
+                    if futureBar > bar_index or futureBar > maxHistory or pastBar < 0
+                        isFractal := false
+                        break
+                    if high[futureBar] > high[shift] or high[pastBar] >= high[shift]
+                        isFractal := false
+                        break
+            else if mode == DN_POINT
+                for i = 1 to period
+                    // Check bounds: shift + i must be <= bar_index and <= maxHistory
+                    // shift - i must be >= 0
+                    futureBar = shift + i
+                    pastBar = shift - i
+                    if futureBar > bar_index or futureBar > maxHistory or pastBar < 0
+                        isFractal := false
+                        break
+                    if low[futureBar] < low[shift] or low[pastBar] <= low[shift]
+                        isFractal := false
+                        break
+            isFractal
+
+// ═══════════════════════════════════════════════════════════════════
+// CALCULATE FRACTALS
+// ═══════════════════════════════════════════════════════════════════
+
+f_calculateFractals() =>
+    var array<float> fastUpPts = array.new_float(0)
+    var array<float> fastDnPts = array.new_float(0)
+    var array<float> slowUpPts = array.new_float(0)
+    var array<float> slowDnPts = array.new_float(0)
+    
+    array.clear(fastUpPts)
+    array.clear(fastDnPts)
+    array.clear(slowUpPts)
+    array.clear(slowDnPts)
+    
+    P1 = math.round(fractal_fast_factor)
+    P2 = math.round(fractal_slow_factor)
+    maxPeriod = math.max(P1, P2)
+    maxHistory = 10000
+    
+    // Calculate safe limit: need period bars before and after, and can't exceed history
+    limit1 = math.min(bar_index, backLimit)
+    limit2 = bar_index - maxPeriod - 1  // Need maxPeriod bars after shift
+    limit3 = maxHistory - maxPeriod - 1  // Can't exceed history limit
+    limit = math.min(limit1, limit2, limit3)
+    if limit < 0
+        limit := 0
+    
+    for shift = 0 to limit
+        // Fast fractals
+        if f_isFractal(UP_POINT, P1, shift)
+            array.push(fastUpPts, high[shift])
+            array.push(fastDnPts, 0.0)
+        else if f_isFractal(DN_POINT, P1, shift)
+            array.push(fastDnPts, low[shift])
+            array.push(fastUpPts, 0.0)
+        else
+            array.push(fastUpPts, 0.0)
+            array.push(fastDnPts, 0.0)
+        
+        // Slow fractals
+        if f_isFractal(UP_POINT, P2, shift)
+            array.push(slowUpPts, high[shift])
+            array.push(slowDnPts, 0.0)
+        else if f_isFractal(DN_POINT, P2, shift)
+            array.push(slowDnPts, low[shift])
+            array.push(slowUpPts, 0.0)
+        else
+            array.push(slowUpPts, 0.0)
+            array.push(slowDnPts, 0.0)
+    
+    [fastUpPts, fastDnPts, slowUpPts, slowDnPts]
+
+// ═══════════════════════════════════════════════════════════════════
+// FIND ZONES FUNCTION
+// ═══════════════════════════════════════════════════════════════════
+
+f_findZones(fastUpPts, fastDnPts, slowUpPts, slowDnPts) =>
+    var array<float> temp_hi = array.new_float(0)
+    var array<float> temp_lo = array.new_float(0)
+    var array<int> temp_start = array.new_int(0)
+    var array<int> temp_hits = array.new_int(0)
+    var array<int> temp_strength = array.new_int(0)
+    var array<bool> temp_turn = array.new_bool(0)
+    var array<bool> temp_merge = array.new_bool(0)
+    
+    array.clear(temp_hi)
+    array.clear(temp_lo)
+    array.clear(temp_start)
+    array.clear(temp_hits)
+    array.clear(temp_strength)
+    array.clear(temp_turn)
+    array.clear(temp_merge)
+    
+    limit = math.min(bar_index, backLimit)
+    atrValue = ta.atr(7)
+    
+    // Find zones from fractals
+    // Need at least 6 bars for fractal detection (period 3 needs 3 before + 3 after)
+    minBars = 6
+    fastUpSize = array.size(fastUpPts)
+    fastDnSize = array.size(fastDnPts)
+    slowUpSize = array.size(slowUpPts)
+    slowDnSize = array.size(slowDnPts)
+    if limit >= minBars and fastUpSize > limit and fastDnSize > limit and slowUpSize > limit and slowDnSize > limit
+        for ii = limit to minBars
+            if ii >= fastUpSize or ii >= fastDnSize or ii >= slowUpSize or ii >= slowDnSize
+                continue
+            
+            atr = atrValue
+            fu = atr / 2 * zone_fuzzfactor
+            
+            // Check for fast up fractal (resistance zone)
+            if ii < fastUpSize and array.get(fastUpPts, ii) > 0.001
+                isWeak = true
+                if ii < slowUpSize and array.get(slowUpPts, ii) > 0.001
+                    isWeak := false
+                    
+                hival = high[ii]
+                if zone_extend
+                    hival += fu
+                loval = math.max(math.min(close[ii], high[ii] - fu), high[ii] - fu * 2)
+                
+                turned = false
+                hasturned = false
+                bustcount = 0
+                testcount = 0
+                isBust = false
+                
+                for i = ii - 1 to 0
+                    if i < 0 or i >= array.size(fastUpPts) or i >= array.size(fastDnPts)
+                        break
+                        
+                    // Check for touch
+                    touchOk = false
+                    if (not turned and array.get(fastUpPts, i) >= loval and array.get(fastUpPts, i) <= hival) or (turned and array.get(fastDnPts, i) <= hival and array.get(fastDnPts, i) >= loval)
+                        touchOk := true
+                        maxJ = math.min(i + 10, array.size(fastUpPts) - 1)
+                        for j = i + 1 to maxJ
+                            if j < array.size(fastDnPts) and ((not turned and array.get(fastUpPts, j) >= loval and array.get(fastUpPts, j) <= hival) or (turned and array.get(fastDnPts, j) <= hival and array.get(fastDnPts, j) >= loval))
+                                touchOk := false
+                                break
+                    if touchOk
+                        bustcount := 0
+                        testcount += 1
+                    
+                    // Check for bust
+                    if (not turned and high[i] > hival) or (turned and low[i] < loval)
+                        bustcount += 1
+                        if bustcount > 1 or isWeak
+                            isBust := true
+                            break
+                        turned := not turned
+                        hasturned := true
+                        testcount := 0
+                
+                if not isBust
+                    array.push(temp_hi, hival)
+                    array.push(temp_lo, loval)
+                    array.push(temp_turn, hasturned)
+                    array.push(temp_hits, testcount)
+                    array.push(temp_start, ii)
+                    array.push(temp_merge, false)
+                    
+                    strength = ZONE_WEAK
+                    if testcount > 3
+                        strength := ZONE_PROVEN
+                    else if testcount > 0
+                        strength := ZONE_VERIFIED
+                    else if hasturned
+                        strength := ZONE_TURNCOAT
+                    else if not isWeak
+                        strength := ZONE_UNTESTED
+                        
+                    array.push(temp_strength, strength)
+            
+            // Check for fast down fractal (support zone)
+            else if ii < fastDnSize and array.get(fastDnPts, ii) > 0.001
+                isWeak = true
+                if ii < slowDnSize and array.get(slowDnPts, ii) > 0.001
+                    isWeak := false
+                    
+                loval = low[ii]
+                if zone_extend
+                    loval -= fu
+                hival = math.min(math.max(close[ii], low[ii] + fu), low[ii] + fu * 2)
+                
+                turned = false
+                hasturned = false
+                bustcount = 0
+                testcount = 0
+                isBust = false
+                
+                for i = ii - 1 to 0
+                    if i < 0 or i >= array.size(fastDnPts) or i >= array.size(fastUpPts)
+                        break
+                        
+                    // Check for touch
+                    touchOk = false
+                    if (turned and array.get(fastUpPts, i) >= loval and array.get(fastUpPts, i) <= hival) or (not turned and array.get(fastDnPts, i) <= hival and array.get(fastDnPts, i) >= loval)
+                        touchOk := true
+                        maxJ = math.min(i + 10, array.size(fastDnPts) - 1)
+                        for j = i + 1 to maxJ
+                            if j < array.size(fastUpPts) and ((turned and array.get(fastUpPts, j) >= loval and array.get(fastUpPts, j) <= hival) or (not turned and array.get(fastDnPts, j) <= hival and array.get(fastDnPts, j) >= loval))
+                                touchOk := false
+                                break
+                    if touchOk
+                        bustcount := 0
+                        testcount += 1
+                    
+                    // Check for bust
+                    if (turned and high[i] > hival) or (not turned and low[i] < loval)
+                        bustcount += 1
+                        if bustcount > 1 or isWeak
+                            isBust := true
+                            break
+                        turned := not turned
+                        hasturned := true
+                        testcount := 0
+                
+                if not isBust
+                    array.push(temp_hi, hival)
+                    array.push(temp_lo, loval)
+                    array.push(temp_turn, hasturned)
+                    array.push(temp_hits, testcount)
+                    array.push(temp_start, ii)
+                    array.push(temp_merge, false)
+                    
+                    strength = ZONE_WEAK
+                    if testcount > 3
+                        strength := ZONE_PROVEN
+                    else if testcount > 0
+                        strength := ZONE_VERIFIED
+                    else if hasturned
+                        strength := ZONE_TURNCOAT
+                    else if not isWeak
+                        strength := ZONE_UNTESTED
+                        
+                    array.push(temp_strength, strength)
+    
+    // Merge overlapping zones
+    if zone_merge
+        merge_count = 1
+        iterations = 0
+        
+        while merge_count > 0 and iterations < 3
+            merge_count := 0
+            iterations += 1
+            
+            // Reset merge flags
+            tempMergeSize = array.size(temp_merge)
+            if tempMergeSize > 0
+                for i = 0 to tempMergeSize - 1
+                    if i < tempMergeSize
+                        array.set(temp_merge, i, false)
+            
+            // Find overlapping zones
+            var array<int> merge1 = array.new_int(0)
+            var array<int> merge2 = array.new_int(0)
+            array.clear(merge1)
+            array.clear(merge2)
+            
+            tempHiSize = array.size(temp_hi)
+            tempHitsSize = array.size(temp_hits)
+            tempLoSize = array.size(temp_lo)
+            // tempMergeSize already defined above, no need to redeclare
+            
+            if tempHiSize > 1 and tempHitsSize == tempHiSize and tempMergeSize == tempHiSize and tempLoSize == tempHiSize
+                for i = 0 to tempHiSize - 2
+                    if i >= tempHitsSize or i >= tempMergeSize
+                        continue
+                    if array.get(temp_hits, i) == -1 or array.get(temp_merge, i)
+                        continue
+                        
+                    for j = i + 1 to tempHiSize - 1
+                        if j >= tempHitsSize or j >= tempMergeSize or j >= tempLoSize
+                            continue
+                        if array.get(temp_hits, j) == -1 or array.get(temp_merge, j)
+                            continue
+                        
+                        if i < tempHiSize and i < tempLoSize and j < tempHiSize and j < tempLoSize
+                            hi_i = array.get(temp_hi, i)
+                            lo_i = array.get(temp_lo, i)
+                            hi_j = array.get(temp_hi, j)
+                            lo_j = array.get(temp_lo, j)
+                            
+                            // Check for overlap
+                            if (hi_i >= lo_j and hi_i <= hi_j) or (lo_i <= hi_j and lo_i >= lo_j) or (hi_j >= lo_i and hi_j <= hi_i) or (lo_j <= hi_i and lo_j >= lo_i)
+                                array.push(merge1, i)
+                                array.push(merge2, j)
+                                if i < tempMergeSize
+                                    array.set(temp_merge, i, true)
+                                if j < tempMergeSize
+                                    array.set(temp_merge, j, true)
+                                merge_count += 1
+            
+            // Perform merges
+            merge1Size = array.size(merge1)
+            merge2Size = array.size(merge2)
+            if merge1Size > 0 and merge2Size > 0 and merge1Size == merge2Size
+                for i = 0 to merge1Size - 1
+                    if i < merge1Size and i < merge2Size
+                        target = array.get(merge1, i)
+                        source = array.get(merge2, i)
+                        
+                        // Validate indices before accessing arrays
+                        // Use sizes from outer scope (arrays don't change size during merge)
+                        tempStartSize = array.size(temp_start)
+                        tempStrengthSize = array.size(temp_strength)
+                        tempTurnSize = array.size(temp_turn)
+                        
+                        targetValid = target >= 0 and target < tempHiSize and target < tempLoSize and target < tempHitsSize and target < tempStartSize and target < tempStrengthSize and target < tempTurnSize
+                        sourceValid = source >= 0 and source < tempHiSize and source < tempLoSize and source < tempHitsSize and source < tempStartSize and source < tempStrengthSize and source < tempTurnSize
+                        
+                        if targetValid and sourceValid
+                            array.set(temp_hi, target, math.max(array.get(temp_hi, target), array.get(temp_hi, source)))
+                            array.set(temp_lo, target, math.min(array.get(temp_lo, target), array.get(temp_lo, source)))
+                            array.set(temp_hits, target, array.get(temp_hits, target) + array.get(temp_hits, source))
+                            array.set(temp_start, target, math.max(array.get(temp_start, target), array.get(temp_start, source)))
+                            array.set(temp_strength, target, math.max(array.get(temp_strength, target), array.get(temp_strength, source)))
+                            
+                            if array.get(temp_hits, target) > 3
+                                array.set(temp_strength, target, ZONE_PROVEN)
+                                
+                            if array.get(temp_hits, target) == 0 and not array.get(temp_turn, target)
+                                array.set(temp_hits, target, 1)
+                                if array.get(temp_strength, target) < ZONE_VERIFIED
+                                    array.set(temp_strength, target, ZONE_VERIFIED)
+                            
+                            if not array.get(temp_turn, target) or not array.get(temp_turn, source)
+                                array.set(temp_turn, target, false)
+                                
+                            if array.get(temp_turn, target)
+                                array.set(temp_hits, target, 0)
+                                
+                            array.set(temp_hits, source, -1)
+    
+    // Copy to final arrays
+    array.clear(zone_hi)
+    array.clear(zone_lo)
+    array.clear(zone_hits)
+    array.clear(zone_turn)
+    array.clear(zone_start)
+    array.clear(zone_strength)
+    array.clear(zone_type)
+    
+    // Validate array sizes before accessing
+    tempHiSize = array.size(temp_hi)
+    tempLoSize = array.size(temp_lo)
+    tempHitsSize = array.size(temp_hits)
+    tempTurnSize = array.size(temp_turn)
+    tempStartSize = array.size(temp_start)
+    tempStrengthSize = array.size(temp_strength)
+    
+    // Only process if all arrays have matching sizes
+    if tempHiSize > 0 and tempHiSize == tempLoSize and tempHiSize == tempHitsSize and tempHiSize == tempTurnSize and tempHiSize == tempStartSize and tempHiSize == tempStrengthSize
+        zonesAdded = 0
+        for i = 0 to tempHiSize - 1
+            // Stop if we've reached max zones limit
+            if zonesAdded >= max_zones
+                break
+            
+            if i < tempHitsSize and array.get(temp_hits, i) >= 0
+                if i < tempHiSize and i < tempLoSize and i < tempTurnSize and i < tempStartSize and i < tempStrengthSize
+                    array.push(zone_hi, array.get(temp_hi, i))
+                    array.push(zone_lo, array.get(temp_lo, i))
+                    array.push(zone_hits, array.get(temp_hits, i))
+                    array.push(zone_turn, array.get(temp_turn, i))
+                    array.push(zone_start, array.get(temp_start, i))
+                    array.push(zone_strength, array.get(temp_strength, i))
+                    
+                    // Determine zone type
+                    zoneType = ZONE_SUPPORT
+                    tempHiVal = array.get(temp_hi, i)
+                    tempLoVal = array.get(temp_lo, i)
+                    if tempHiVal < close
+                        zoneType := ZONE_SUPPORT
+                    else if tempLoVal > close
+                        zoneType := ZONE_RESIST
+                    else
+                        // Price is inside zone, check history (limit to 100 bars for performance)
+                        maxHistoryCheck = math.min(bar_index, backLimit, 100)
+                        if maxHistoryCheck > 0
+                            for j = 1 to maxHistoryCheck
+                                if j <= bar_index
+                                    if close[j] < tempLoVal
+                                        zoneType := ZONE_RESIST
+                                        break
+                                    else if close[j] > tempHiVal
+                                        zoneType := ZONE_SUPPORT
+                                        break
+                    
+                    array.push(zone_type, zoneType)
+                    zonesAdded += 1
+
+// ═══════════════════════════════════════════════════════════════════
+// DRAW ZONES FUNCTION
+// ═══════════════════════════════════════════════════════════════════
+
+f_drawZones() =>
+    // Delete old boxes and labels
+    zoneBoxesSize = array.size(zone_boxes)
+    if zoneBoxesSize > 0
+        for i = 0 to zoneBoxesSize - 1
+            if i < zoneBoxesSize
+                box.delete(array.get(zone_boxes, i))
+    array.clear(zone_boxes)
+    
+    zoneLabelsSize = array.size(zone_labels)
+    if zoneLabelsSize > 0
+        for i = 0 to zoneLabelsSize - 1
+            if i < zoneLabelsSize
+                label.delete(array.get(zone_labels, i))
+    array.clear(zone_labels)
+    
+    // Draw zones - validate all arrays have matching sizes
+    zoneHiSize = array.size(zone_hi)
+    zoneLoSize = array.size(zone_lo)
+    zoneStrengthSize = array.size(zone_strength)
+    zoneTypeSize = array.size(zone_type)
+    zoneStartSize = array.size(zone_start)
+    zoneHitsSize = array.size(zone_hits)
+    
+    if zoneHiSize > 0 and zoneHiSize == zoneLoSize and zoneHiSize == zoneStrengthSize and zoneHiSize == zoneTypeSize and zoneHiSize == zoneStartSize and zoneHiSize == zoneHitsSize
+        for i = 0 to zoneHiSize - 1
+            if i >= zoneStrengthSize
+                continue
+            
+            strength = array.get(zone_strength, i)
+                
+            // Check if zone should be shown
+            if strength == ZONE_WEAK and not zone_show_weak
+                continue
+            if strength == ZONE_UNTESTED and not zone_show_untested
+                continue
+            if strength == ZONE_TURNCOAT and not zone_show_turncoat
+                continue
+            
+            if i < zoneTypeSize and i < zoneHiSize and i < zoneLoSize and i < zoneStartSize and i < zoneHitsSize
+                zoneType = array.get(zone_type, i)
+                hi = array.get(zone_hi, i)
+                lo = array.get(zone_lo, i)
+                start_bar = array.get(zone_start, i)
+                hits = array.get(zone_hits, i)
+                
+                // Get color based on type and strength
+                zoneColor = color.gray
+                if zoneType == ZONE_SUPPORT
+                    if strength == ZONE_TURNCOAT
+                        zoneColor := color_support_turncoat
+                    else if strength == ZONE_PROVEN
+                        zoneColor := color_support_proven
+                    else if strength == ZONE_VERIFIED
+                        zoneColor := color_support_verified
+                    else if strength == ZONE_UNTESTED
+                        zoneColor := color_support_untested
+                    else
+                        zoneColor := color_support_weak
+                else
+                    if strength == ZONE_TURNCOAT
+                        zoneColor := color_resist_turncoat
+                    else if strength == ZONE_PROVEN
+                        zoneColor := color_resist_proven
+                    else if strength == ZONE_VERIFIED
+                        zoneColor := color_resist_verified
+                    else if strength == ZONE_UNTESTED
+                        zoneColor := color_resist_untested
+                    else
+                        zoneColor := color_resist_weak
+                
+                // Create box - extend to current price
+                startBarIndex = bar_index - start_bar
+                endBarIndex = bar_index
+                b = box.new(startBarIndex, hi, endBarIndex, lo, border_color=zoneColor, bgcolor=zone_solid ? zoneColor : na, border_width=zone_linewidth, extend=extend.none, text_color=color.black, text_size=text_size)
+                array.push(zone_boxes, b)
+                
+                // Create label if info is enabled - align at right end of zone
+                if zone_show_info
+                    strengthText = ""
+                    if strength == ZONE_PROVEN
+                        strengthText := "Proven"
+                    else if strength == ZONE_VERIFIED
+                        strengthText := "Verified"
+                    else if strength == ZONE_UNTESTED
+                        strengthText := "Untested"
+                    else if strength == ZONE_TURNCOAT
+                        strengthText := "Turncoat"
+                    else
+                        strengthText := "Weak"
+                    
+                    typeText = zoneType == ZONE_SUPPORT ? sup_name : res_name
+                    labelText = strengthText + " " + typeText
+                    
+                    if hits > 0 and strength > ZONE_UNTESTED
+                        labelText += ", " + test_name + "=" + str.tostring(hits)
+                    
+                    labelY = lo + (hi - lo) / 3
+                    lbl = label.new(endBarIndex, labelY, labelText, color=color.new(color.white, 100), textcolor=color.black, style=label.style_label_center, size=text_size)
+                    array.push(zone_labels, lbl)
+
+// ═══════════════════════════════════════════════════════════════════
+// CHECK FOR ALERTS
+// ═══════════════════════════════════════════════════════════════════
+
+f_checkAlerts() =>
+    if zone_show_alerts
+        zoneHiSize = array.size(zone_hi)
+        zoneLoSize = array.size(zone_lo)
+        zoneStrengthSize = array.size(zone_strength)
+        zoneTypeSize = array.size(zone_type)
+        
+        if zoneHiSize > 0 and zoneHiSize == zoneLoSize and zoneHiSize == zoneStrengthSize and zoneHiSize == zoneTypeSize
+            for i = 0 to zoneHiSize - 1
+                if i >= zoneStrengthSize
+                    continue
+                
+                strength = array.get(zone_strength, i)
+                    
+                if strength == ZONE_WEAK and not zone_show_weak
+                    continue
+                if strength == ZONE_UNTESTED and not zone_show_untested
+                    continue
+                if strength == ZONE_TURNCOAT and not zone_show_turncoat
+                    continue
+                
+                if i < zoneHiSize and i < zoneLoSize and i < zoneTypeSize
+                    hi = array.get(zone_hi, i)
+                    lo = array.get(zone_lo, i)
+                    zoneType = array.get(zone_type, i)
+                    
+                    if close >= lo and close < hi
+                        alertMessage = zoneType == ZONE_SUPPORT ? "Support Zone Entered" : "Resistance Zone Entered"
+                        alert(alertMessage, alert.freq_once_per_bar)
+                        break
+
+// ═══════════════════════════════════════════════════════════════════
+// MAIN EXECUTION
+// ═══════════════════════════════════════════════════════════════════
+
+// Calculate and update zones on every bar
+// Calculate fractals
+[fastUpPts, fastDnPts, slowUpPts, slowDnPts] = f_calculateFractals()
+
+// Find zones
+f_findZones(fastUpPts, fastDnPts, slowUpPts, slowDnPts)
+
+// Draw zones only on last bar (much more efficient - boxes persist anyway)
+if barstate.islast
+    f_drawZones()
+    f_checkAlerts()
+
+// ═══════════════════════════════════════════════════════════════════
+// PLOT NEAREST ZONES TO DATA WINDOW
+// ═══════════════════════════════════════════════════════════════════
+
+var float nearest_support_hi = na
+var float nearest_support_lo = na
+var float nearest_resist_hi = na
+var float nearest_resist_lo = na
+var int nearest_support_strength = na
+var int nearest_resist_strength = na
+
+if barstate.islast
+    nearest_support_hi := na
+    nearest_support_lo := na
+    nearest_resist_hi := na
+    nearest_resist_lo := na
+    nearest_support_strength := na
+    nearest_resist_strength := na
+    
+    zoneHiSize = array.size(zone_hi)
+    zoneLoSize = array.size(zone_lo)
+    zoneTypeSize = array.size(zone_type)
+    zoneStrengthSize = array.size(zone_strength)
+    
+    if zoneHiSize > 0 and zoneHiSize == zoneLoSize and zoneHiSize == zoneTypeSize and zoneHiSize == zoneStrengthSize
+        for i = 0 to zoneHiSize - 1
+            if i < zoneHiSize and i < zoneLoSize and i < zoneTypeSize and i < zoneStrengthSize
+                hi = array.get(zone_hi, i)
+                lo = array.get(zone_lo, i)
+                zoneType = array.get(zone_type, i)
+                strength = array.get(zone_strength, i)
+                
+                if zoneType == ZONE_SUPPORT and hi < close
+                    if na(nearest_support_hi) or lo > nearest_support_lo
+                        nearest_support_hi := hi
+                        nearest_support_lo := lo
+                        nearest_support_strength := strength
+                
+                if zoneType == ZONE_RESIST and lo > close
+                    if na(nearest_resist_lo) or hi < nearest_resist_hi
+                        nearest_resist_hi := hi
+                        nearest_resist_lo := lo
+                        nearest_resist_strength := strength
+
+plot(nearest_resist_hi, "Nearest Resistance High", color=color.new(color.red, 80), display=display.data_window)
+plot(nearest_resist_lo, "Nearest Resistance Low", color=color.new(color.red, 80), display=display.data_window)
+plot(nearest_support_hi, "Nearest Support High", color=color.new(color.green, 80), display=display.data_window)
+plot(nearest_support_lo, "Nearest Support Low", color=color.new(color.green, 80), display=display.data_window)
+plot(nearest_resist_strength, "Resistance Strength", color=color.new(color.red, 80), display=display.data_window)
+plot(nearest_support_strength, "Support Strength", color=color.new(color.green, 80), display=display.data_window)
+plot(array.size(zone_hi), "Total Zones Found", color=color.new(color.blue, 0), display=display.data_window)

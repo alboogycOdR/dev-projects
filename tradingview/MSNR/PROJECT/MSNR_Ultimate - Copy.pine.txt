@@ -1,0 +1,607 @@
+//@version=5
+indicator("MSNR Ultimate [KingdomFinancier]", shorttitle="MSNR-ULT", overlay=true, max_lines_count=500, max_labels_count=500)
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// MSNR ULTIMATE - MERGED & OPTIMIZED INDICATOR
+// Combines features from original MSNR and DanielM SnR indicators
+// Includes: A/V Levels, Gap Levels, QM Levels, HTF Support, and Alerts
+// ════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// ⚙️  LEVEL DETECTION SETTINGS
+// ════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+grp_detection = "⚙️  Level Detection"
+
+// A/V Level Detection
+max_av_levels = input.int(5, "Max A/V Levels", minval=1, maxval=20, group=grp_detection)
+pivot_length = input.int(5, "Pivot Length (A/V)", minval=2, maxval=20, group=grp_detection, tooltip="Bars left/right for swing detection. Higher = fewer, stronger levels")
+av_touch_tolerance = input.float(0.0002, "A/V Touch Tolerance", minval=0, step=0.00001, group=grp_detection, tooltip="Price distance to count as touch")
+
+// Gap Level Detection
+show_gaps = input.bool(true, "Show Gap Levels", group=grp_detection)
+max_gap_levels = input.int(3, "Max Gap Levels", minval=1, maxval=10, group=grp_detection)
+gaps_length = input.int(3, "Bars to Detect Gaps", minval=1, maxval=20, group=grp_detection)
+
+// QM Level Detection (Qualified Moves)
+show_qm = input.bool(true, "Show QM Levels", group=grp_detection)
+max_qm_levels = input.int(4, "Max QM Levels", minval=1, maxval=10, group=grp_detection)
+
+// General Settings
+use_closes_for_av = input.bool(true, "Use Close Prices for A/V", group=grp_detection)
+min_level_distance = input.float(0.0005, "Min Distance Between Levels", minval=0, step=0.0001, group=grp_detection)
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// 🎯 LEVEL TYPE CONTROLS
+// ════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+grp_types = "🎯 Level Type Filters"
+
+show_av = input.bool(true, "Show A/V Levels", group=grp_types, inline="av")
+av_only_resistance = input.bool(false, "Only Resistance", group=grp_types, inline="av")
+av_only_support = input.bool(false, "Only Support", group=grp_types, inline="av")
+
+gap_only_resistance = input.bool(false, "Only Gap Resistance", group=grp_types, inline="gap")
+gap_only_support = input.bool(false, "Only Gap Support", group=grp_types, inline="gap")
+
+qm_only_resistance = input.bool(false, "Only QM Resistance", group=grp_types, inline="qm")
+qm_only_support = input.bool(false, "Only QM Support", group=grp_types, inline="qm")
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// 👁️  DISPLAY CONTROLS
+// ════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+grp_display = "👁️  Display Controls"
+
+show_labels = input.bool(true, "Show Labels", group=grp_display)
+show_lines = input.bool(true, "Show Lines", group=grp_display)
+extend_lines_left = input.int(0, "Extend Lines Left", minval=0, maxval=500, group=grp_display)
+extend_lines_right = input.int(50, "Extend Lines Right", minval=0, maxval=500, group=grp_display)
+show_fresh_only = input.bool(false, "Hide Unfresh Levels", group=grp_display)
+show_debug_labels = input.bool(false, "Show Debug Labels", group=grp_display)
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// 📊 MULTI-TIMEFRAME SETTINGS
+// ════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+grp_mtf = "📊 Multi-Timeframe"
+
+show_ctf_levels = input.bool(true, "Show Current Timeframe Levels", group=grp_mtf)
+htf_enabled = input.bool(false, "Enable Higher Timeframe Levels", group=grp_mtf)
+htf_timeframe = input.timeframe("240", "HTF Timeframe", group=grp_mtf)
+htf_line_style = input.string("Dashed", "HTF Line Style", options=["Solid", "Dashed", "Dotted"], group=grp_mtf)
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// 🎨 STYLING & COLORS
+// ════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+grp_colors = "🎨 Colors & Styling"
+
+av_fresh_color = input.color(#00ff88, "Fresh A/V", group=grp_colors, inline="av")
+av_unfresh_color = input.color(#ff4444, "Unfresh A/V", group=grp_colors, inline="av")
+
+gap_fresh_color = input.color(#3399ff, "Fresh Gap", group=grp_colors, inline="gap")
+gap_unfresh_color = input.color(#ff9933, "Unfresh Gap", group=grp_colors, inline="gap")
+
+qm_fresh_color = input.color(#ff00ff, "Fresh QM", group=grp_colors, inline="qm")
+qm_unfresh_color = input.color(#ff6600, "Unfresh QM", group=grp_colors, inline="qm")
+
+line_width = input.int(2, "Line Width", minval=1, maxval=5, group=grp_colors)
+fresh_line_width = input.int(2, "Fresh Line Width", minval=1, maxval=5, group=grp_colors, inline="lw")
+unfresh_line_width = input.int(1, "Unfresh Line Width", minval=1, maxval=5, group=grp_colors, inline="lw")
+
+label_size = input.string("small", "Label Size", options=["tiny", "small", "normal", "large"], group=grp_colors)
+label_show_price = input.bool(true, "Show Price in Label", group=grp_colors)
+label_show_touches = input.bool(true, "Show Touch Count", group=grp_colors)
+label_show_timeframe = input.bool(true, "Show Timeframe in Label", group=grp_colors)
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// 🔔 ALERT SETTINGS
+// ════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+grp_alerts = "🔔 Alerts"
+
+enable_alert_fresh_av = input.bool(true, "Alert on Fresh A/V Touch", group=grp_alerts)
+enable_alert_unfresh_av = input.bool(true, "Alert on Unfresh A/V Touch", group=grp_alerts)
+enable_alert_fresh_gap = input.bool(true, "Alert on Fresh Gap Touch", group=grp_alerts)
+enable_alert_unfresh_gap = input.bool(true, "Alert on Unfresh Gap Touch", group=grp_alerts)
+enable_alert_fresh_qm = input.bool(true, "Alert on Fresh QM Touch", group=grp_alerts)
+enable_alert_unfresh_qm = input.bool(true, "Alert on Unfresh QM Touch", group=grp_alerts)
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// 📊 DATA STRUCTURES
+// ════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+var all_levels = array.new<float>()
+var all_types = array.new<int>()           // 0=A/V, 1=Gap, 2=QM
+var all_fresh = array.new<int>()           // 1=fresh, 0=unfresh
+var all_touches = array.new<int>()
+var all_bars = array.new<int>()
+var all_lines = array.new<line>()
+var all_labels = array.new<label>()
+var all_is_resistance = array.new<bool>()
+var all_timeframes = array.new<string>()
+var all_is_htf = array.new<bool>()
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// 🔧 HELPER FUNCTIONS
+// ════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+get_label_size() =>
+    switch label_size
+        "tiny" => size.tiny
+        "small" => size.small
+        "normal" => size.normal
+        "large" => size.large
+        => size.small
+
+// OPTIMIZATION: Limit search scope to recent levels only
+f_level_exists(price) =>
+    exists = false
+    levels_count = array.size(all_levels)
+    if levels_count > 0
+        search_limit = math.min(levels_count - 1, 50)  // Only check last 50 levels
+        for j = search_limit to 0
+            level_price = array.get(all_levels, j)
+            distance = math.abs(level_price - price)
+            if distance <= av_touch_tolerance or (min_level_distance > 0 and distance <= min_level_distance)
+                exists := true
+                break
+    exists
+
+f_count_levels_by_type(target_type) =>
+    count = 0
+    types_count = array.size(all_types)
+    if types_count > 0
+        for i = 0 to types_count - 1
+            if array.get(all_types, i) == target_type
+                count += 1
+    count
+
+f_remove_oldest_level(target_type) =>
+    levels_count = array.size(all_levels)
+    if levels_count > 0
+        oldest_bar = bar_index + 1
+        remove_idx = -1
+        for i = 0 to levels_count - 1
+            if array.get(all_types, i) == target_type and array.get(all_bars, i) < oldest_bar
+                oldest_bar := array.get(all_bars, i)
+                remove_idx := i
+        if remove_idx >= 0
+            if remove_idx < array.size(all_lines)
+                line.delete(array.get(all_lines, remove_idx))
+            if remove_idx < array.size(all_labels)
+                label.delete(array.get(all_labels, remove_idx))
+            array.remove(all_levels, remove_idx)
+            array.remove(all_types, remove_idx)
+            array.remove(all_fresh, remove_idx)
+            array.remove(all_touches, remove_idx)
+            array.remove(all_bars, remove_idx)
+            array.remove(all_lines, remove_idx)
+            array.remove(all_labels, remove_idx)
+            array.remove(all_is_resistance, remove_idx)
+            array.remove(all_timeframes, remove_idx)
+            array.remove(all_is_htf, remove_idx)
+
+f_get_line_style_for_htf(is_from_htf) =>
+    if not is_from_htf
+        line.style_solid
+    else
+        switch htf_line_style
+            "Solid" => line.style_solid
+            "Dashed" => line.style_dashed
+            "Dotted" => line.style_dotted
+            => line.style_dashed
+
+f_get_tf_label(from_htf) =>
+    tf = from_htf ? htf_timeframe : timeframe.period
+    switch tf
+        "1" => "1m"
+        "3" => "3m"
+        "5" => "5m"
+        "15" => "15m"
+        "30" => "30m"
+        "45" => "45m"
+        "60" => "1H"
+        "120" => "2H"
+        "180" => "3H"
+        "240" => "4H"
+        "D" => "D"
+        "1D" => "D"
+        "W" => "W"
+        "1W" => "W"
+        "M" => "M"
+        "1M" => "M"
+        => tf
+
+f_build_label_text(level_dir, level_type, touches_count, tf_str, price_val) =>
+    lbl_txt = level_dir + level_type
+    if label_show_touches
+        lbl_txt := lbl_txt + " [" + str.tostring(touches_count) + "]"
+    if label_show_timeframe
+        lbl_txt := lbl_txt + " " + tf_str
+    if label_show_price
+        lbl_txt := lbl_txt + " " + str.tostring(price_val, format.mintick)
+    lbl_txt
+
+f_add_level(price, type_id, is_resist, tf_label, from_htf, max_count) =>
+    if not f_level_exists(price)
+        if f_count_levels_by_type(type_id) >= max_count
+            f_remove_oldest_level(type_id)
+        
+        pivot_bar = type_id == 0 ? bar_index - pivot_length : bar_index
+        
+        array.push(all_levels, price)
+        array.push(all_types, type_id)
+        array.push(all_fresh, 1)
+        array.push(all_touches, 0)
+        array.push(all_bars, pivot_bar)
+        array.push(all_is_resistance, is_resist)
+        array.push(all_timeframes, tf_label)
+        array.push(all_is_htf, from_htf)
+        
+        if show_lines
+            base_color = type_id == 1 ? gap_fresh_color : (type_id == 2 ? qm_fresh_color : av_fresh_color)
+            l = line.new(pivot_bar - extend_lines_left, price, bar_index + extend_lines_right, price, color=base_color, width=fresh_line_width, style=f_get_line_style_for_htf(from_htf), extend=extend.right)
+            array.push(all_lines, l)
+        else
+            array.push(all_lines, line(na))
+        
+        if show_labels
+            base_color = type_id == 1 ? gap_fresh_color : (type_id == 2 ? qm_fresh_color : av_fresh_color)
+            label_bg = color.new(base_color, 85)
+            level_type_str = type_id == 0 ? "" : (type_id == 1 ? "-GAP" : "-QM")
+            lbl = label.new(pivot_bar, price, text=f_build_label_text(is_resist ? "R" : "S", level_type_str, 0, tf_label, price), color=label_bg, textcolor=base_color, size=get_label_size(), style=label.style_label_down)
+            array.push(all_labels, lbl)
+        else
+            array.push(all_labels, label(na))
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// 📡 HTF DATA RETRIEVAL - CONSOLIDATED
+// ════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+htf_is_different = htf_timeframe != timeframe.period and htf_timeframe != ""
+
+f_get_htf_data() =>
+    [h, l, c, o, ph, pl] = request.security(syminfo.tickerid, htf_timeframe, [high, low, close, open, ta.pivothigh(use_closes_for_av ? close : high, pivot_length, pivot_length), ta.pivotlow(use_closes_for_av ? close : low, pivot_length, pivot_length)], lookahead=barmerge.lookahead_off)
+    [h, l, c, o, ph, pl]
+
+f_extract_htf_values() =>
+    data = htf_enabled and htf_is_different ? f_get_htf_data() : [na, na, na, na, na, na]
+    [data[0], data[1], data[2], data[3], data[4], data[5]]
+
+[htf_high, htf_low, htf_close, htf_open, htf_pivot_high, htf_pivot_low] = f_extract_htf_values()
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// 🔍 CURRENT TIMEFRAME LEVEL DETECTION
+// ════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+var float ctf_last_swing_high = na
+var float ctf_last_swing_low = na
+
+// A/V Levels
+ctf_pivot_high = ta.pivothigh(use_closes_for_av ? close : high, pivot_length, pivot_length)
+ctf_pivot_low = ta.pivotlow(use_closes_for_av ? close : low, pivot_length, pivot_length)
+
+ctf_av_level = not na(ctf_pivot_high) ? ctf_pivot_high : (not na(ctf_pivot_low) ? ctf_pivot_low : na)
+ctf_av_is_resist = not na(ctf_pivot_high)
+
+// Gap Levels
+ctf_gap_level = float(na)
+ctf_gap_is_resist = false
+
+if show_gaps
+    curr_bull = close > open
+    curr_bear = close < open
+    prev_bull = close[1] > open[1]
+    prev_bear = close[1] < open[1]
+    
+    if curr_bull and prev_bull
+        ctf_gap_level := close[1]
+        ctf_gap_is_resist := false
+    else if curr_bear and prev_bear
+        ctf_gap_level := close[1]
+        ctf_gap_is_resist := true
+
+// QM Levels
+ctf_qm_level = float(na)
+ctf_qm_is_resist = false
+
+if show_qm
+    if not na(ctf_pivot_low)
+        if na(ctf_last_swing_low) or ctf_pivot_low != ctf_last_swing_low
+            ctf_last_swing_low := ctf_pivot_low
+    if not na(ctf_pivot_high)
+        if na(ctf_last_swing_high) or ctf_pivot_high != ctf_last_swing_high
+            ctf_last_swing_high := ctf_pivot_high
+    
+    if not na(ctf_pivot_low) and not na(ctf_last_swing_high) and not na(ctf_last_swing_low[1])
+        if ctf_pivot_low > ctf_last_swing_low[1] and low < ctf_last_swing_high
+            ctf_qm_level := ctf_pivot_low
+            ctf_qm_is_resist := false
+    
+    if not na(ctf_pivot_high) and not na(ctf_last_swing_low) and not na(ctf_last_swing_high[1])
+        if ctf_pivot_high < ctf_last_swing_high[1] and high > ctf_last_swing_low
+            ctf_qm_level := ctf_pivot_high
+            ctf_qm_is_resist := true
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// 🔍 HIGHER TIMEFRAME LEVEL DETECTION
+// ════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+var float htf_last_swing_high = na
+var float htf_last_swing_low = na
+
+// A/V Levels
+htf_av_level = not na(htf_pivot_high) ? htf_pivot_high : (not na(htf_pivot_low) ? htf_pivot_low : na)
+htf_av_is_resist = not na(htf_pivot_high)
+
+// Gap Levels
+htf_gap_level = float(na)
+htf_gap_is_resist = false
+
+if show_gaps and htf_enabled and htf_is_different
+    curr_bull_htf = htf_close > htf_open
+    curr_bear_htf = htf_close < htf_open
+    prev_bull_htf = htf_close[1] > htf_open[1]
+    prev_bear_htf = htf_close[1] < htf_open[1]
+    
+    if curr_bull_htf and prev_bull_htf
+        htf_gap_level := htf_close[1]
+        htf_gap_is_resist := false
+    else if curr_bear_htf and prev_bear_htf
+        htf_gap_level := htf_close[1]
+        htf_gap_is_resist := true
+
+// QM Levels
+htf_qm_level = float(na)
+htf_qm_is_resist = false
+
+if show_qm and htf_enabled and htf_is_different
+    if not na(htf_pivot_low)
+        if na(htf_last_swing_low) or htf_pivot_low != htf_last_swing_low
+            htf_last_swing_low := htf_pivot_low
+    if not na(htf_pivot_high)
+        if na(htf_last_swing_high) or htf_pivot_high != htf_last_swing_high
+            htf_last_swing_high := htf_pivot_high
+    
+    if not na(htf_pivot_low) and not na(htf_last_swing_high) and not na(htf_last_swing_low[1])
+        if htf_pivot_low > htf_last_swing_low[1] and htf_low < htf_last_swing_high
+            htf_qm_level := htf_pivot_low
+            htf_qm_is_resist := false
+    
+    if not na(htf_pivot_high) and not na(htf_last_swing_low) and not na(htf_last_swing_high[1])
+        if htf_pivot_high < htf_last_swing_high[1] and htf_high > htf_last_swing_low
+            htf_qm_level := htf_pivot_high
+            htf_qm_is_resist := true
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// ➕ CREATE LEVELS
+// ════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+// CTF A/V Levels
+if show_av and show_ctf_levels and barstate.isconfirmed and not na(ctf_av_level)
+    if (not av_only_resistance and not av_only_support) or (av_only_resistance and ctf_av_is_resist) or (av_only_support and not ctf_av_is_resist)
+        f_add_level(ctf_av_level, 0, ctf_av_is_resist, f_get_tf_label(false), false, max_av_levels)
+
+// HTF A/V Levels
+if show_av and htf_enabled and htf_is_different and barstate.isconfirmed and not na(htf_av_level)
+    if (not av_only_resistance and not av_only_support) or (av_only_resistance and htf_av_is_resist) or (av_only_support and not htf_av_is_resist)
+        f_add_level(htf_av_level, 0, htf_av_is_resist, f_get_tf_label(true), true, max_av_levels)
+
+// CTF Gap Levels
+if show_gaps and show_ctf_levels and barstate.isconfirmed and not na(ctf_gap_level)
+    if (not gap_only_resistance and not gap_only_support) or (gap_only_resistance and ctf_gap_is_resist) or (gap_only_support and not ctf_gap_is_resist)
+        f_add_level(ctf_gap_level, 1, ctf_gap_is_resist, f_get_tf_label(false), false, max_gap_levels)
+
+// HTF Gap Levels
+if show_gaps and htf_enabled and htf_is_different and barstate.isconfirmed and not na(htf_gap_level)
+    if (not gap_only_resistance and not gap_only_support) or (gap_only_resistance and htf_gap_is_resist) or (gap_only_support and not htf_gap_is_resist)
+        f_add_level(htf_gap_level, 1, htf_gap_is_resist, f_get_tf_label(true), true, max_gap_levels)
+
+// CTF QM Levels
+if show_qm and show_ctf_levels and barstate.isconfirmed and not na(ctf_qm_level)
+    if (not qm_only_resistance and not qm_only_support) or (qm_only_resistance and ctf_qm_is_resist) or (qm_only_support and not ctf_qm_is_resist)
+        f_add_level(ctf_qm_level, 2, ctf_qm_is_resist, f_get_tf_label(false), false, max_qm_levels)
+
+// HTF QM Levels
+if show_qm and htf_enabled and htf_is_different and barstate.isconfirmed and not na(htf_qm_level)
+    if (not qm_only_resistance and not qm_only_support) or (qm_only_resistance and htf_qm_is_resist) or (qm_only_support and not htf_qm_is_resist)
+        f_add_level(htf_qm_level, 2, htf_qm_is_resist, f_get_tf_label(true), true, max_qm_levels)
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// 🔔 ALERT MANAGEMENT
+// ════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+var bool alert_fresh_av_triggered = false
+var bool alert_unfresh_av_triggered = false
+var bool alert_fresh_gap_triggered = false
+var bool alert_unfresh_gap_triggered = false
+var bool alert_fresh_qm_triggered = false
+var bool alert_unfresh_qm_triggered = false
+
+alert_fresh_av_triggered := false
+alert_unfresh_av_triggered := false
+alert_fresh_gap_triggered := false
+alert_unfresh_gap_triggered := false
+alert_fresh_qm_triggered := false
+alert_unfresh_qm_triggered := false
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// 🎯 TOUCH/UNFRESH LOGIC - MAIN PROCESSING LOOP WITH OPTIMIZATIONS
+// ════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+if barstate.isconfirmed
+    levels_count = array.size(all_levels)
+    if levels_count > 0
+        // OPTIMIZATION: Cache OHLC values
+        current_high = high
+        current_low = low
+        current_close = close
+        current_open = open
+        current_bar = bar_index
+        
+        for i = levels_count - 1 to 0
+            // OPTIMIZATION: Check if level is in current price range first
+            lvl_price = array.get(all_levels, i)
+            
+            if not (current_high >= lvl_price - av_touch_tolerance and current_low <= lvl_price + av_touch_tolerance)
+                // Level not in current range - update line x2 only
+                if i < array.size(all_lines)
+                    ln = array.get(all_lines, i)
+                    if not na(ln)
+                        line.set_x2(ln, current_bar + 20)
+                if i < array.size(all_labels)
+                    lbl = array.get(all_labels, i)
+                    if not na(lbl)
+                        label.set_x(lbl, current_bar + 20)
+                continue
+            
+            // OPTIMIZATION: Cache all array values for level in price range
+            is_fresh = array.get(all_fresh, i) == 1
+            touches = array.get(all_touches, i)
+            type_id = array.get(all_types, i)
+            is_resist = array.get(all_is_resistance, i)
+            tf_str = array.get(all_timeframes, i)
+            from_htf = array.get(all_is_htf, i)
+            
+            ln = i < array.size(all_lines) ? array.get(all_lines, i) : line(na)
+            lbl = i < array.size(all_labels) ? array.get(all_labels, i) : label(na)
+            
+            // Evaluate conditions
+            range_overlap = (current_high >= lvl_price - av_touch_tolerance and current_low <= lvl_price + av_touch_tolerance)
+            close_cross_up = current_close > lvl_price and current_open <= lvl_price
+            close_cross_down = current_close < lvl_price and current_open >= lvl_price
+            wick_touch = range_overlap and not (close_cross_up or close_cross_down)
+            body_cross = close_cross_up or close_cross_down
+            
+            // Determine level type strings
+            level_type = type_id == 0 ? "" : (type_id == 1 ? "-GAP" : "-QM")
+            level_dir = is_resist ? "R" : "S"
+            
+            // Determine colors
+            fresh_col = type_id == 1 ? gap_fresh_color : (type_id == 2 ? qm_fresh_color : av_fresh_color)
+            unfresh_col = type_id == 1 ? gap_unfresh_color : (type_id == 2 ? qm_unfresh_color : av_unfresh_color)
+            
+            // Handle wick touch (mark as unfresh)
+            if wick_touch and is_fresh
+                array.set(all_fresh, i, 0)
+                new_touches = math.min(touches + 1, 2)
+                array.set(all_touches, i, new_touches)
+                
+                if show_lines and not na(ln)
+                    line.set_color(ln, unfresh_col)
+                    line.set_width(ln, unfresh_line_width)
+                    line.set_style(ln, line.style_dashed)
+                
+                if show_labels and not na(lbl)
+                    label_bg = color.new(unfresh_col, 85)
+                    label.set_text(lbl, f_build_label_text(level_dir, level_type, new_touches, tf_str, lvl_price))
+                    label.set_color(lbl, label_bg)
+                    label.set_textcolor(lbl, unfresh_col)
+                
+                if show_debug_labels
+                    label.new(current_bar, current_high * 1.001, "👆", color=color.yellow, size=size.tiny, style=label.style_label_down)
+                
+                // Alert triggering
+                if type_id == 0 and enable_alert_unfresh_av
+                    alert_unfresh_av_triggered := true
+                else if type_id == 1 and enable_alert_unfresh_gap
+                    alert_unfresh_gap_triggered := true
+                else if type_id == 2 and enable_alert_unfresh_qm
+                    alert_unfresh_qm_triggered := true
+            
+            // Handle body cross (reset to fresh)
+            else if body_cross and touches < 2
+                array.set(all_fresh, i, 1)
+                array.set(all_touches, i, 0)
+                
+                if show_lines and not na(ln)
+                    line.set_color(ln, fresh_col)
+                    line.set_width(ln, fresh_line_width)
+                    line.set_style(ln, f_get_line_style_for_htf(from_htf))
+                
+                if show_labels and not na(lbl)
+                    label_bg = color.new(fresh_col, 85)
+                    label.set_text(lbl, f_build_label_text(level_dir, level_type, 0, tf_str, lvl_price))
+                    label.set_color(lbl, label_bg)
+                    label.set_textcolor(lbl, fresh_col)
+                
+                if show_debug_labels
+                    label.new(current_bar, current_low * 0.999, "⚡", color=color.lime, size=size.tiny, style=label.style_label_up)
+                
+                // Alert triggering
+                if type_id == 0 and enable_alert_fresh_av
+                    alert_fresh_av_triggered := true
+                else if type_id == 1 and enable_alert_fresh_gap
+                    alert_fresh_gap_triggered := true
+                else if type_id == 2 and enable_alert_fresh_qm
+                    alert_fresh_qm_triggered := true
+            
+            // Update level state
+            updated_touches = array.get(all_touches, i)
+            updated_fresh = array.get(all_fresh, i) == 1
+            
+            // Handle expired levels (2 touches while unfresh)
+            if updated_touches >= 2 and not updated_fresh
+                if not na(ln)
+                    line.set_style(ln, line.style_dotted)
+                    line.set_width(ln, 1)
+                if not na(lbl)
+                    label.set_text(lbl, "❌ " + level_dir + level_type + " [EXP] " + tf_str)
+                
+                if show_fresh_only
+                    if not na(ln)
+                        line.delete(ln)
+                    if not na(lbl)
+                        label.delete(lbl)
+                    array.remove(all_levels, i)
+                    array.remove(all_types, i)
+                    array.remove(all_fresh, i)
+                    array.remove(all_touches, i)
+                    array.remove(all_bars, i)
+                    array.remove(all_lines, i)
+                    array.remove(all_labels, i)
+                    array.remove(all_is_resistance, i)
+                    array.remove(all_timeframes, i)
+                    array.remove(all_is_htf, i)
+                    continue
+            
+            // Hide unfresh levels if requested
+            if show_fresh_only and not updated_fresh and updated_touches < 2
+                if not na(ln)
+                    line.set_color(ln, color.new(color.gray, 100))
+                if not na(lbl)
+                    label.set_color(lbl, color.new(color.gray, 100))
+            
+            // Update line end point
+            if not na(ln)
+                line.set_x2(ln, current_bar + 20)
+            if not na(lbl)
+                label.set_x(lbl, current_bar + 20)
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// 📢 SEND ALERTS
+// ════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+if alert_fresh_av_triggered and enable_alert_fresh_av
+    alert("🎯 Fresh A/V Level touched at " + str.tostring(close, format.mintick), alert.freq_once_per_bar)
+
+if alert_unfresh_av_triggered and enable_alert_unfresh_av
+    alert("⚠️  Unfresh A/V Level touched at " + str.tostring(close, format.mintick), alert.freq_once_per_bar)
+
+if alert_fresh_gap_triggered and enable_alert_fresh_gap
+    alert("🎯 Fresh Gap Level touched at " + str.tostring(close, format.mintick), alert.freq_once_per_bar)
+
+if alert_unfresh_gap_triggered and enable_alert_unfresh_gap
+    alert("⚠️  Unfresh Gap Level touched at " + str.tostring(close, format.mintick), alert.freq_once_per_bar)
+
+if alert_fresh_qm_triggered and enable_alert_fresh_qm
+    alert("🎯 Fresh QM Level touched at " + str.tostring(close, format.mintick), alert.freq_once_per_bar)
+
+if alert_unfresh_qm_triggered and enable_alert_unfresh_qm
+    alert("⚠️  Unfresh QM Level touched at " + str.tostring(close, format.mintick), alert.freq_once_per_bar)
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// END OF MSNR ULTIMATE
+// ════════════════════════════════════════════════════════════════════════════════════════════════════════════

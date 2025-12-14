@@ -1,0 +1,668 @@
+// This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © KingdomFinancier - Wick Rejection S/R Trading Strategy
+// Version: 1.0
+// Based on: Liquidity Sweep & Wick Rejection Scalping Methodology
+
+//@version=5
+indicator("Wick Rejection S/R Strategy", shorttitle="WR-SR", overlay=true, max_lines_count=500, max_boxes_count=500, max_labels_count=500)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// INPUTS - LEVEL DETECTION
+// ═══════════════════════════════════════════════════════════════════════════════
+grp_levels = "══════ Level Detection ══════"
+lookback_period     = input.int(50, "Lookback Period", minval=20, maxval=200, group=grp_levels, tooltip="Number of candles to scan for rejection wicks")
+wick_threshold      = input.float(0.50, "Wick Threshold %", minval=0.30, maxval=0.80, step=0.05, group=grp_levels, tooltip="Minimum wick size as % of candle range")
+level_proximity     = input.float(2.0, "Level Merge Distance", minval=0.5, maxval=20.0, step=0.5, group=grp_levels, tooltip="Points tolerance for merging nearby levels")
+max_levels          = input.int(6, "Max Levels to Show", minval=2, maxval=12, group=grp_levels)
+zone_buffer         = input.float(1.5, "Zone Buffer (points)", minval=0.5, maxval=10.0, step=0.5, group=grp_levels, tooltip="Buffer above/below level for zone definition")
+min_candle_range    = input.float(1.0, "Min Candle Range", minval=0.1, maxval=10.0, step=0.1, group=grp_levels, tooltip="Ignore tiny candles below this range")
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// INPUTS - TREND FILTER
+// ═══════════════════════════════════════════════════════════════════════════════
+grp_trend = "══════ Trend Filter ══════"
+ema_length          = input.int(9, "EMA Length", minval=5, maxval=50, group=grp_trend)
+use_ema_filter      = input.bool(true, "Use EMA Filter", group=grp_trend, tooltip="Only allow signals aligned with EMA direction")
+require_h1_align    = input.bool(true, "Require H1 Confluence", group=grp_trend, tooltip="Signal must align with H1 trend")
+show_ema            = input.bool(true, "Show EMA Line", group=grp_trend)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// INPUTS - SIGNAL SETTINGS
+// ═══════════════════════════════════════════════════════════════════════════════
+grp_signals = "══════ Signal Settings ══════"
+show_zone_test      = input.bool(true, "Show Zone Test Signals", group=grp_signals)
+show_sweeps         = input.bool(true, "Show Liquidity Sweeps", group=grp_signals)
+show_breakout_retest = input.bool(true, "Show Breakout Retests", group=grp_signals)
+min_confidence      = input.int(2, "Minimum Confidence Score", minval=1, maxval=5, group=grp_signals, tooltip="Minimum score (1-5) to show signal")
+signal_cooldown     = input.int(5, "Signal Cooldown (bars)", minval=1, maxval=20, group=grp_signals, tooltip="Minimum bars between signals at same level")
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// INPUTS - VISUALS
+// ═══════════════════════════════════════════════════════════════════════════════
+grp_visuals = "══════ Visual Settings ══════"
+resistance_color    = input.color(color.red, "Resistance Color", group=grp_visuals)
+support_color       = input.color(color.red, "Support Color", group=grp_visuals)
+pivot_color         = input.color(color.orange, "Pivot Level Color", group=grp_visuals)
+zone_transparency   = input.int(90, "Zone Transparency", minval=70, maxval=98, group=grp_visuals)
+show_zones          = input.bool(true, "Show Zone Boxes", group=grp_visuals)
+show_labels         = input.bool(true, "Show Price Labels", group=grp_visuals)
+show_info_table     = input.bool(true, "Show Info Table", group=grp_visuals)
+buy_signal_color    = input.color(color.green, "Buy Signal Color", group=grp_visuals)
+sell_signal_color   = input.color(color.red, "Sell Signal Color", group=grp_visuals)
+sweep_color         = input.color(color.blue, "Liquidity Sweep Color", group=grp_visuals)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// INPUTS - ALERTS
+// ═══════════════════════════════════════════════════════════════════════════════
+grp_alerts = "══════ Alert Settings ══════"
+alert_zone_test     = input.bool(true, "Alert on Zone Test", group=grp_alerts)
+alert_signal        = input.bool(true, "Alert on Entry Signal", group=grp_alerts)
+alert_sweep         = input.bool(true, "Alert on Liquidity Sweep", group=grp_alerts)
+alert_breakout      = input.bool(true, "Alert on Breakout Retest", group=grp_alerts)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// CALCULATIONS - EMA & HTF DATA
+// ═══════════════════════════════════════════════════════════════════════════════
+ema_9 = ta.ema(close, ema_length)
+
+// H1 Data for confluence
+[h1_close, h1_ema9] = request.security(syminfo.tickerid, "60", [close, ta.ema(close, ema_length)], lookahead=barmerge.lookahead_off)
+
+// Trend determination
+m5_bullish = close > ema_9
+m5_bearish = close < ema_9
+h1_bullish = h1_close > h1_ema9
+h1_bearish = h1_close < h1_ema9
+
+// Combined bias
+overall_bullish = m5_bullish and (not require_h1_align or h1_bullish)
+overall_bearish = m5_bearish and (not require_h1_align or h1_bearish)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// FUNCTIONS - WICK CALCULATIONS
+// ═══════════════════════════════════════════════════════════════════════════════
+// Calculate wick ratios
+f_candle_range() => high - low
+f_body_top() => math.max(open, close)
+f_body_bottom() => math.min(open, close)
+f_upper_wick() => high - f_body_top()
+f_lower_wick() => f_body_bottom() - low
+f_body_size() => math.abs(close - open)
+
+f_upper_wick_ratio() =>
+    range_size = f_candle_range()
+    range_size > min_candle_range ? f_upper_wick() / range_size : 0.0
+
+f_lower_wick_ratio() =>
+    range_size = f_candle_range()
+    range_size > min_candle_range ? f_lower_wick() / range_size : 0.0
+
+// Check if candle is a rejection candle
+f_is_bullish_rejection() => f_lower_wick_ratio() >= wick_threshold
+f_is_bearish_rejection() => f_upper_wick_ratio() >= wick_threshold
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// LEVEL STORAGE - Using Arrays
+// ═══════════════════════════════════════════════════════════════════════════════
+var float[] support_levels = array.new_float()
+var float[] resistance_levels = array.new_float()
+var int[] support_touches = array.new_int()
+var int[] resistance_touches = array.new_int()
+var int[] support_bar_idx = array.new_int()
+var int[] resistance_bar_idx = array.new_int()
+
+// Track when levels were last signaled (cooldown)
+var int[] support_last_signal = array.new_int()
+var int[] resistance_last_signal = array.new_int()
+
+// Lines and boxes for visualization
+var line[] support_lines = array.new_line()
+var line[] resistance_lines = array.new_line()
+var box[] support_boxes = array.new_box()
+var box[] resistance_boxes = array.new_box()
+var label[] level_labels = array.new_label()
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// FUNCTIONS - LEVEL MANAGEMENT
+// ═══════════════════════════════════════════════════════════════════════════════
+f_find_nearby_level(levels, price, proximity) =>
+    idx = -1
+    if array.size(levels) > 0
+        for i = 0 to array.size(levels) - 1
+            if math.abs(array.get(levels, i) - price) <= proximity
+                idx := i
+                break
+    idx
+
+f_add_or_update_support(price) =>
+    nearby_idx = f_find_nearby_level(support_levels, price, level_proximity)
+    if nearby_idx >= 0
+        // Update existing level (average price, increment touches)
+        old_price = array.get(support_levels, nearby_idx)
+        old_touches = array.get(support_touches, nearby_idx)
+        new_price = (old_price * old_touches + price) / (old_touches + 1)
+        array.set(support_levels, nearby_idx, new_price)
+        array.set(support_touches, nearby_idx, old_touches + 1)
+        array.set(support_bar_idx, nearby_idx, bar_index)
+    else
+        // Add new level
+        if array.size(support_levels) >= max_levels
+            // Remove oldest/weakest level
+            min_touches = 999
+            min_idx = 0
+            for i = 0 to array.size(support_levels) - 1
+                if array.get(support_touches, i) < min_touches
+                    min_touches := array.get(support_touches, i)
+                    min_idx := i
+            array.remove(support_levels, min_idx)
+            array.remove(support_touches, min_idx)
+            array.remove(support_bar_idx, min_idx)
+            array.remove(support_last_signal, min_idx)
+        array.push(support_levels, price)
+        array.push(support_touches, 1)
+        array.push(support_bar_idx, bar_index)
+        array.push(support_last_signal, 0)
+
+f_add_or_update_resistance(price) =>
+    nearby_idx = f_find_nearby_level(resistance_levels, price, level_proximity)
+    if nearby_idx >= 0
+        old_price = array.get(resistance_levels, nearby_idx)
+        old_touches = array.get(resistance_touches, nearby_idx)
+        new_price = (old_price * old_touches + price) / (old_touches + 1)
+        array.set(resistance_levels, nearby_idx, new_price)
+        array.set(resistance_touches, nearby_idx, old_touches + 1)
+        array.set(resistance_bar_idx, nearby_idx, bar_index)
+    else
+        if array.size(resistance_levels) >= max_levels
+            min_touches = 999
+            min_idx = 0
+            for i = 0 to array.size(resistance_levels) - 1
+                if array.get(resistance_touches, i) < min_touches
+                    min_touches := array.get(resistance_touches, i)
+                    min_idx := i
+            array.remove(resistance_levels, min_idx)
+            array.remove(resistance_touches, min_idx)
+            array.remove(resistance_bar_idx, min_idx)
+            array.remove(resistance_last_signal, min_idx)
+        array.push(resistance_levels, price)
+        array.push(resistance_touches, 1)
+        array.push(resistance_bar_idx, bar_index)
+        array.push(resistance_last_signal, 0)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// LEVEL DETECTION - Scan for Rejection Wicks
+// ═══════════════════════════════════════════════════════════════════════════════
+// Detect new rejection candles and add levels
+if barstate.isconfirmed
+    // Bullish rejection (support level) - long lower wick
+    if f_is_bullish_rejection()
+        f_add_or_update_support(low)
+    
+    // Bearish rejection (resistance level) - long upper wick
+    if f_is_bearish_rejection()
+        f_add_or_update_resistance(high)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SIGNAL DETECTION - Zone Tests & Entries
+// ═══════════════════════════════════════════════════════════════════════════════
+var int last_buy_bar = 0
+var int last_sell_bar = 0
+var float last_buy_level = 0.0
+var float last_sell_level = 0.0
+
+// Signal variables
+var bool buy_signal = false
+var bool sell_signal = false
+var bool sweep_buy = false
+var bool sweep_sell = false
+var float signal_level = 0.0
+var int signal_confidence = 0
+var string signal_type = ""
+
+// Reset signals each bar
+buy_signal := false
+sell_signal := false
+sweep_buy := false
+sweep_sell := false
+signal_confidence := 0
+signal_type := ""
+
+// Check for signals at support levels
+f_check_support_signals() =>
+    _buy = false
+    _sweep = false
+    _level = 0.0
+    _conf = 0
+    _type = ""
+    
+    if array.size(support_levels) > 0
+        for i = 0 to array.size(support_levels) - 1
+            level = array.get(support_levels, i)
+            touches = array.get(support_touches, i)
+            last_sig = array.get(support_last_signal, i)
+            
+            // Check cooldown
+            if bar_index - last_sig < signal_cooldown and last_sig > 0
+                continue
+            
+            zone_top = level + zone_buffer
+            zone_bottom = level - zone_buffer
+            
+            // Price is in the zone
+            in_zone = low <= zone_top and low >= zone_bottom
+            
+            // Liquidity sweep: price broke below level but closed above
+            swept = low < level and close > level
+            
+            // Rejection forming at zone
+            rejecting = in_zone and f_is_bullish_rejection()
+            
+            if show_sweeps and swept and barstate.isconfirmed
+                _sweep := true
+                _level := level
+                _conf := 3  // Base confidence for sweep
+                _conf += touches > 2 ? 1 : 0  // Strong level bonus
+                _conf += (not use_ema_filter or m5_bullish) ? 1 : 0  // EMA alignment
+                _conf += (not require_h1_align or h1_bullish) ? 1 : 0  // H1 alignment
+                _type := "LIQUIDITY SWEEP"
+                array.set(support_last_signal, i, bar_index)
+                break
+            
+            if show_zone_test and rejecting and barstate.isconfirmed
+                // Calculate confidence
+                conf = 1  // Base
+                conf += touches > 2 ? 1 : 0
+                conf += (not use_ema_filter or m5_bullish) ? 1 : 0
+                conf += (not require_h1_align or h1_bullish) ? 1 : 0
+                conf += f_lower_wick_ratio() > 0.6 ? 1 : 0  // Strong rejection
+                
+                if conf >= min_confidence
+                    _buy := true
+                    _level := level
+                    _conf := conf
+                    _type := "ZONE TEST"
+                    array.set(support_last_signal, i, bar_index)
+                    break
+    
+    [_buy, _sweep, _level, _conf, _type]
+
+// Check for signals at resistance levels
+f_check_resistance_signals() =>
+    _sell = false
+    _sweep = false
+    _level = 0.0
+    _conf = 0
+    _type = ""
+    
+    if array.size(resistance_levels) > 0
+        for i = 0 to array.size(resistance_levels) - 1
+            level = array.get(resistance_levels, i)
+            touches = array.get(resistance_touches, i)
+            last_sig = array.get(resistance_last_signal, i)
+            
+            if bar_index - last_sig < signal_cooldown and last_sig > 0
+                continue
+            
+            zone_top = level + zone_buffer
+            zone_bottom = level - zone_buffer
+            
+            in_zone = high >= zone_bottom and high <= zone_top
+            swept = high > level and close < level
+            rejecting = in_zone and f_is_bearish_rejection()
+            
+            if show_sweeps and swept and barstate.isconfirmed
+                _sweep := true
+                _level := level
+                _conf := 3
+                _conf += touches > 2 ? 1 : 0
+                _conf += (not use_ema_filter or m5_bearish) ? 1 : 0
+                _conf += (not require_h1_align or h1_bearish) ? 1 : 0
+                _type := "LIQUIDITY SWEEP"
+                array.set(resistance_last_signal, i, bar_index)
+                break
+            
+            if show_zone_test and rejecting and barstate.isconfirmed
+                conf = 1
+                conf += touches > 2 ? 1 : 0
+                conf += (not use_ema_filter or m5_bearish) ? 1 : 0
+                conf += (not require_h1_align or h1_bearish) ? 1 : 0
+                conf += f_upper_wick_ratio() > 0.6 ? 1 : 0
+                
+                if conf >= min_confidence
+                    _sell := true
+                    _level := level
+                    _conf := conf
+                    _type := "ZONE TEST"
+                    array.set(resistance_last_signal, i, bar_index)
+                    break
+    
+    [_sell, _sweep, _level, _conf, _type]
+
+// Execute signal checks
+[_buy, _sweep_buy, _buy_level, _buy_conf, _buy_type] = f_check_support_signals()
+[_sell, _sweep_sell, _sell_level, _sell_conf, _sell_type] = f_check_resistance_signals()
+
+// Apply signals with EMA filter
+if _sweep_buy and (not use_ema_filter or overall_bullish)
+    sweep_buy := true
+    buy_signal := true
+    signal_level := _buy_level
+    signal_confidence := _buy_conf
+    signal_type := _buy_type
+    last_buy_bar := bar_index
+    last_buy_level := _buy_level
+else if _buy and (not use_ema_filter or overall_bullish)
+    buy_signal := true
+    signal_level := _buy_level
+    signal_confidence := _buy_conf
+    signal_type := _buy_type
+    last_buy_bar := bar_index
+    last_buy_level := _buy_level
+
+if _sweep_sell and (not use_ema_filter or overall_bearish)
+    sweep_sell := true
+    sell_signal := true
+    signal_level := _sell_level
+    signal_confidence := _sell_conf
+    signal_type := _sell_type
+    last_sell_bar := bar_index
+    last_sell_level := _sell_level
+else if _sell and (not use_ema_filter or overall_bearish)
+    sell_signal := true
+    signal_level := _sell_level
+    signal_confidence := _sell_conf
+    signal_type := _sell_type
+    last_sell_bar := bar_index
+    last_sell_level := _sell_level
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// BREAKOUT-RETEST DETECTION
+// ═══════════════════════════════════════════════════════════════════════════════
+var float[] broken_supports = array.new_float()
+var float[] broken_resistances = array.new_float()
+var int[] broken_support_bars = array.new_int()
+var int[] broken_resistance_bars = array.new_int()
+
+// Track breakouts
+if barstate.isconfirmed
+    // Check if any support was broken (now becomes resistance)
+    if array.size(support_levels) > 0
+        for i = array.size(support_levels) - 1 to 0
+            level = array.get(support_levels, i)
+            if close < level - zone_buffer  // Confirmed break below
+                array.push(broken_supports, level)
+                array.push(broken_support_bars, bar_index)
+                // Keep only recent broken levels
+                if array.size(broken_supports) > 5
+                    array.shift(broken_supports)
+                    array.shift(broken_support_bars)
+    
+    // Check if any resistance was broken (now becomes support)
+    if array.size(resistance_levels) > 0
+        for i = array.size(resistance_levels) - 1 to 0
+            level = array.get(resistance_levels, i)
+            if close > level + zone_buffer  // Confirmed break above
+                array.push(broken_resistances, level)
+                array.push(broken_resistance_bars, bar_index)
+                if array.size(broken_resistances) > 5
+                    array.shift(broken_resistances)
+                    array.shift(broken_resistance_bars)
+
+// Check for breakout retests
+breakout_retest_buy = false
+breakout_retest_sell = false
+var float retest_level = 0.0
+
+if show_breakout_retest and barstate.isconfirmed
+    // Retest of broken resistance (now support) = BUY
+    if array.size(broken_resistances) > 0
+        for i = 0 to array.size(broken_resistances) - 1
+            level = array.get(broken_resistances, i)
+            brk_bar = array.get(broken_resistance_bars, i)
+            
+            // Must be recent breakout and price returning to test
+            if bar_index - brk_bar > 3 and bar_index - brk_bar < 50
+                if low <= level + zone_buffer and low >= level - zone_buffer
+                    if f_is_bullish_rejection() and (not use_ema_filter or overall_bullish)
+                        breakout_retest_buy := true
+                        retest_level := level
+                        buy_signal := true
+                        signal_level := level
+                        signal_confidence := 4  // High confidence for B/R
+                        signal_type := "BREAKOUT RETEST"
+                        break
+    
+    // Retest of broken support (now resistance) = SELL
+    if array.size(broken_supports) > 0
+        for i = 0 to array.size(broken_supports) - 1
+            level = array.get(broken_supports, i)
+            brk_bar = array.get(broken_support_bars, i)
+            
+            if bar_index - brk_bar > 3 and bar_index - brk_bar < 50
+                if high >= level - zone_buffer and high <= level + zone_buffer
+                    if f_is_bearish_rejection() and (not use_ema_filter or overall_bearish)
+                        breakout_retest_sell := true
+                        retest_level := level
+                        sell_signal := true
+                        signal_level := level
+                        signal_confidence := 4
+                        signal_type := "BREAKOUT RETEST"
+                        break
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// VISUALIZATION - Clear and Redraw
+// ═══════════════════════════════════════════════════════════════════════════════
+// Clear old drawings
+if barstate.islast
+    // Clear old lines
+    for ln in support_lines
+        line.delete(ln)
+    array.clear(support_lines)
+    
+    for ln in resistance_lines
+        line.delete(ln)
+    array.clear(resistance_lines)
+    
+    // Clear old boxes
+    for bx in support_boxes
+        box.delete(bx)
+    array.clear(support_boxes)
+    
+    for bx in resistance_boxes
+        box.delete(bx)
+    array.clear(resistance_boxes)
+    
+    // Clear old labels
+    for lb in level_labels
+        label.delete(lb)
+    array.clear(level_labels)
+    
+    // Draw support levels
+    if array.size(support_levels) > 0
+        for i = 0 to array.size(support_levels) - 1
+            level = array.get(support_levels, i)
+            touches = array.get(support_touches, i)
+            
+            // Line width based on touches
+            lwidth = touches >= 4 ? 3 : touches >= 2 ? 2 : 1
+            lstyle = touches >= 3 ? line.style_solid : line.style_dashed
+            
+            // Draw line
+            ln = line.new(bar_index - lookback_period, level, bar_index + 10, level, 
+                 color=support_color, width=lwidth, style=lstyle, extend=extend.right)
+            array.push(support_lines, ln)
+            
+            // Draw zone box
+            if show_zones
+                bx = box.new(bar_index - lookback_period, level + zone_buffer, bar_index + 10, level - zone_buffer,
+                     bgcolor=color.new(color.green, zone_transparency), border_color=color.new(color.green, 70), extend=extend.right)
+                array.push(support_boxes, bx)
+            
+            // Price label
+            if show_labels
+                lb = label.new(bar_index + 15, level, str.tostring(level, format.mintick), 
+                     style=label.style_label_left, color=color.new(support_color, 50), textcolor=color.white, size=size.small)
+                array.push(level_labels, lb)
+    
+    // Draw resistance levels
+    if array.size(resistance_levels) > 0
+        for i = 0 to array.size(resistance_levels) - 1
+            level = array.get(resistance_levels, i)
+            touches = array.get(resistance_touches, i)
+            
+            lwidth = touches >= 4 ? 3 : touches >= 2 ? 2 : 1
+            lstyle = touches >= 3 ? line.style_solid : line.style_dashed
+            
+            ln = line.new(bar_index - lookback_period, level, bar_index + 10, level,
+                 color=resistance_color, width=lwidth, style=lstyle, extend=extend.right)
+            array.push(resistance_lines, ln)
+            
+            if show_zones
+                bx = box.new(bar_index - lookback_period, level + zone_buffer, bar_index + 10, level - zone_buffer,
+                     bgcolor=color.new(color.red, zone_transparency), border_color=color.new(color.red, 70), extend=extend.right)
+                array.push(resistance_boxes, bx)
+            
+            if show_labels
+                lb = label.new(bar_index + 15, level, str.tostring(level, format.mintick),
+                     style=label.style_label_left, color=color.new(resistance_color, 50), textcolor=color.white, size=size.small)
+                array.push(level_labels, lb)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// PLOT - EMA Line
+// ═══════════════════════════════════════════════════════════════════════════════
+plot(show_ema ? ema_9 : na, "9 EMA", color=color.red, linewidth=2)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// PLOT - Signal Markers
+// ═══════════════════════════════════════════════════════════════════════════════
+// Buy signals
+plotshape(buy_signal and not sweep_buy, "Buy Signal", shape.triangleup, location.belowbar, 
+          buy_signal_color, size=size.normal)
+
+// Sell signals  
+plotshape(sell_signal and not sweep_sell, "Sell Signal", shape.triangledown, location.abovebar,
+          sell_signal_color, size=size.normal)
+
+// Liquidity sweep signals (special marker)
+plotshape(sweep_buy, "Sweep Buy", shape.diamond, location.belowbar,
+          sweep_color, size=size.normal)
+
+plotshape(sweep_sell, "Sweep Sell", shape.diamond, location.abovebar,
+          sweep_color, size=size.normal)
+
+// Breakout retest signals
+plotshape(breakout_retest_buy and not sweep_buy, "BR Buy", shape.circle, location.belowbar,
+          color.new(buy_signal_color, 30), size=size.small)
+
+plotshape(breakout_retest_sell and not sweep_sell, "BR Sell", shape.circle, location.abovebar,
+          color.new(sell_signal_color, 30), size=size.small)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SIGNAL LABELS WITH DETAILS
+// ═══════════════════════════════════════════════════════════════════════════════
+if buy_signal and barstate.isconfirmed
+    stop_loss = signal_level - zone_buffer - 1.0
+    conf_text = signal_confidence >= 4 ? "HIGH" : signal_confidence >= 3 ? "MED" : "LOW"
+    label_text = "BUY\n" + signal_type + "\nLevel: " + str.tostring(signal_level, format.mintick) + 
+                 "\nSL: " + str.tostring(stop_loss, format.mintick) + "\nConf: " + conf_text
+    label.new(bar_index, low, label_text, style=label.style_label_up, color=buy_signal_color, 
+              textcolor=color.white, size=size.small)
+
+if sell_signal and barstate.isconfirmed
+    stop_loss = signal_level + zone_buffer + 1.0
+    conf_text = signal_confidence >= 4 ? "HIGH" : signal_confidence >= 3 ? "MED" : "LOW"
+    label_text = "SELL\n" + signal_type + "\nLevel: " + str.tostring(signal_level, format.mintick) + 
+                 "\nSL: " + str.tostring(stop_loss, format.mintick) + "\nConf: " + conf_text
+    label.new(bar_index, high, label_text, style=label.style_label_down, color=sell_signal_color,
+              textcolor=color.white, size=size.small)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// INFO TABLE
+// ═══════════════════════════════════════════════════════════════════════════════
+var table info_table = table.new(position.top_right, 2, 8, bgcolor=color.new(color.black, 80), border_width=1)
+
+if show_info_table and barstate.islast
+    // Header
+    table.cell(info_table, 0, 0, "METRIC", text_color=color.white, text_size=size.small, bgcolor=color.new(color.gray, 50))
+    table.cell(info_table, 1, 0, "VALUE", text_color=color.white, text_size=size.small, bgcolor=color.new(color.gray, 50))
+    
+    // M5 Bias
+    m5_bias_text = m5_bullish ? "BULLISH" : m5_bearish ? "BEARISH" : "NEUTRAL"
+    m5_bias_color = m5_bullish ? color.green : m5_bearish ? color.red : color.gray
+    table.cell(info_table, 0, 1, "M5 Bias", text_color=color.white, text_size=size.small)
+    table.cell(info_table, 1, 1, m5_bias_text, text_color=m5_bias_color, text_size=size.small)
+    
+    // H1 Bias
+    h1_bias_text = h1_bullish ? "BULLISH" : h1_bearish ? "BEARISH" : "NEUTRAL"
+    h1_bias_color = h1_bullish ? color.green : h1_bearish ? color.red : color.gray
+    table.cell(info_table, 0, 2, "H1 Bias", text_color=color.white, text_size=size.small)
+    table.cell(info_table, 1, 2, h1_bias_text, text_color=h1_bias_color, text_size=size.small)
+    
+    // Overall Bias
+    overall_text = overall_bullish ? "LONG ONLY" : overall_bearish ? "SHORT ONLY" : "WAIT"
+    overall_color = overall_bullish ? color.green : overall_bearish ? color.red : color.orange
+    table.cell(info_table, 0, 3, "Direction", text_color=color.white, text_size=size.small)
+    table.cell(info_table, 1, 3, overall_text, text_color=overall_color, text_size=size.small)
+    
+    // Nearest Support
+    nearest_sup = array.size(support_levels) > 0 ? array.get(support_levels, array.size(support_levels) - 1) : na
+    sup_text = na(nearest_sup) ? "N/A" : str.tostring(nearest_sup, format.mintick)
+    table.cell(info_table, 0, 4, "Near Support", text_color=color.white, text_size=size.small)
+    table.cell(info_table, 1, 4, sup_text, text_color=color.green, text_size=size.small)
+    
+    // Nearest Resistance
+    nearest_res = array.size(resistance_levels) > 0 ? array.get(resistance_levels, array.size(resistance_levels) - 1) : na
+    res_text = na(nearest_res) ? "N/A" : str.tostring(nearest_res, format.mintick)
+    table.cell(info_table, 0, 5, "Near Resist", text_color=color.white, text_size=size.small)
+    table.cell(info_table, 1, 5, res_text, text_color=color.red, text_size=size.small)
+    
+    // Support Levels Count
+    table.cell(info_table, 0, 6, "Sup Levels", text_color=color.white, text_size=size.small)
+    table.cell(info_table, 1, 6, str.tostring(array.size(support_levels)), text_color=color.white, text_size=size.small)
+    
+    // Resistance Levels Count
+    table.cell(info_table, 0, 7, "Res Levels", text_color=color.white, text_size=size.small)
+    table.cell(info_table, 1, 7, str.tostring(array.size(resistance_levels)), text_color=color.white, text_size=size.small)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ALERTS
+// ═══════════════════════════════════════════════════════════════════════════════
+// Zone Test Alerts
+alertcondition(buy_signal and signal_type == "ZONE TEST", "Zone Test BUY", 
+               "{{ticker}} M5: BUY Signal - Zone Test at Support | Confidence: {{plot_4}}")
+
+alertcondition(sell_signal and signal_type == "ZONE TEST", "Zone Test SELL",
+               "{{ticker}} M5: SELL Signal - Zone Test at Resistance | Confidence: {{plot_4}}")
+
+// Liquidity Sweep Alerts
+alertcondition(sweep_buy, "Liquidity Sweep BUY",
+               "{{ticker}} M5: LIQUIDITY SWEEP detected below support - BUY SETUP")
+
+alertcondition(sweep_sell, "Liquidity Sweep SELL", 
+               "{{ticker}} M5: LIQUIDITY SWEEP detected above resistance - SELL SETUP")
+
+// Breakout Retest Alerts
+alertcondition(breakout_retest_buy, "Breakout Retest BUY",
+               "{{ticker}} M5: Breakout RETEST - Previous resistance now support - BUY")
+
+alertcondition(breakout_retest_sell, "Breakout Retest SELL",
+               "{{ticker}} M5: Breakout RETEST - Previous support now resistance - SELL")
+
+// Combined Buy Alert
+alertcondition(buy_signal, "Any BUY Signal",
+               "{{ticker}} M5: BUY SIGNAL DETECTED | Check chart for details")
+
+// Combined Sell Alert  
+alertcondition(sell_signal, "Any SELL Signal",
+               "{{ticker}} M5: SELL SIGNAL DETECTED | Check chart for details")
+
+// High Confidence Alerts Only
+alertcondition(buy_signal and signal_confidence >= 4, "High Conf BUY",
+               "{{ticker}} M5: HIGH CONFIDENCE BUY | Level: Check chart")
+
+alertcondition(sell_signal and signal_confidence >= 4, "High Conf SELL",
+               "{{ticker}} M5: HIGH CONFIDENCE SELL | Level: Check chart")
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// END OF SCRIPT
+// ═══════════════════════════════════════════════════════════════════════════════

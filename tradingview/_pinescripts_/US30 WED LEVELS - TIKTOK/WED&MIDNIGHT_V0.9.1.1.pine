@@ -622,7 +622,7 @@ if isNewDataPoint
             highLabelText = str.format("Midnight High {0} {1}", str.tostring(h_req, format.mintick), dateString)
             lowLabelText  = str.format("Midnight Low {0} {1}", str.tostring(l_req, format.mintick), dateString)
 
-            label_x_position = extendRight ? dayTimestamp + 50 * bar_width_ms : x2_time
+            label_x_position = x2_time
 
             array.push(midnightHighLabels, label.new(label_x_position, h_req, highLabelText, xloc=xloc.bar_time, color=color(na), textcolor=globalLabelColor, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
             array.push(midnightLowLabels, label.new(label_x_position, l_req, lowLabelText, xloc=xloc.bar_time, color=color(na), textcolor=globalLabelColor, style=label.style_label_right, size=actualLabelSize, textalign=text.align_right))
@@ -1261,27 +1261,9 @@ if barstate.islast
                 4 => opC4
                 5 => opC5
                 => na
-            hiW = switch w
-                1 => globalLineWidth
-                2 => globalLineWidth
-                3 => globalLineWidth
-                4 => globalLineWidth
-                5 => globalLineWidth
-                => na
-            loW = switch w
-                1 => globalLineWidth
-                2 => globalLineWidth
-                3 => globalLineWidth
-                4 => globalLineWidth
-                5 => globalLineWidth
-                => na
-            opW = switch w
-                1 => globalLineWidth
-                2 => globalLineWidth
-                3 => globalLineWidth
-                4 => globalLineWidth
-                5 => globalLineWidth
-                => na
+            hiW = globalLineWidth
+            loW = globalLineWidth
+            opW = globalLineWidth
             
             x2 = extendRight ? t + 50 * bar_width_ms : t + MS_IN_DAY - 1
             label_x_position = extendRight ? t + (wednesdayLabelOffset + 50) * bar_width_ms : x2
@@ -1292,7 +1274,7 @@ if barstate.islast
             if showWednesdayOpen
                 array.push(wednesdayOpenLines, line.new(t, o, x2, o, xloc=xloc.bar_time, color=opCol, width=opW))
             
-            if labelText
+            if labelText and (showWednesdays or showWednesdayOpen)
                 highLabelText = str.format("{0} High {1}", dStr, str.tostring(h, format.mintick))
                 lowLabelText  = str.format("{0} Low {1}", dStr, str.tostring(l, format.mintick))
                 openLabelText = str.format("{0} Open {1}", dStr, str.tostring(o, format.mintick))
@@ -1595,20 +1577,16 @@ if extendRight and showMidnightLevelsInput
     bar_width_ms = time - nz(time[1], time)
     if array.size(midnightHighLines) > 0
         for i = 0 to array.size(midnightHighLines) - 1
-            if i < array.size(midnightHighLines)
-                array.get(midnightHighLines, i).set_x2(time_close + 50 * bar_width_ms)
+            array.get(midnightHighLines, i).set_x2(time_close + 50 * bar_width_ms)
     if array.size(midnightLowLines) > 0
         for i = 0 to array.size(midnightLowLines) - 1
-            if i < array.size(midnightLowLines)
-                array.get(midnightLowLines, i).set_x2(time_close + 50 * bar_width_ms)
+            array.get(midnightLowLines, i).set_x2(time_close + 50 * bar_width_ms)
     if labelText and array.size(midnightHighLabels) > 0
         for i = 0 to array.size(midnightHighLabels) - 1
-            if i < array.size(midnightHighLabels)
-                array.get(midnightHighLabels, i).set_x(time_close + 50 * bar_width_ms)
+            array.get(midnightHighLabels, i).set_x(time_close + 50 * bar_width_ms)
     if labelText and array.size(midnightLowLabels) > 0
         for i = 0 to array.size(midnightLowLabels) - 1
-            if i < array.size(midnightLowLabels)
-                array.get(midnightLowLabels, i).set_x(time_close + 50 * bar_width_ms)
+            array.get(midnightLowLabels, i).set_x(time_close + 50 * bar_width_ms)
 
 // Update daily session lines to extend to current time
 if extendRight and showDailySessions
@@ -1617,56 +1595,48 @@ if extendRight and showDailySessions
     // Tokyo Open Lines
     if array.size(tokyoHighLines) > 0
         for i = 0 to array.size(tokyoHighLines) - 1
-            if i < array.size(tokyoHighLines)
-                array.get(tokyoHighLines, i).set_x2(time_close + 50 * bar_width_ms)
+            array.get(tokyoHighLines, i).set_x2(time_close + 50 * bar_width_ms)
             if labelText and i < array.size(tokyoHighLabels)
                 array.get(tokyoHighLabels, i).set_x(time_close + 50 * bar_width_ms)
     if array.size(tokyoLowLines) > 0
         for i = 0 to array.size(tokyoLowLines) - 1
-            if i < array.size(tokyoLowLines)
-                array.get(tokyoLowLines, i).set_x2(time_close + 50 * bar_width_ms)
+            array.get(tokyoLowLines, i).set_x2(time_close + 50 * bar_width_ms)
             if labelText and i < array.size(tokyoLowLabels)
                 array.get(tokyoLowLabels, i).set_x(time_close + 50 * bar_width_ms)
     
     // Asian Physical Open Lines
     if array.size(asianPhysicalHighLines) > 0
         for i = 0 to array.size(asianPhysicalHighLines) - 1
-            if i < array.size(asianPhysicalHighLines)
-                array.get(asianPhysicalHighLines, i).set_x2(time_close + 50 * bar_width_ms)
+            array.get(asianPhysicalHighLines, i).set_x2(time_close + 50 * bar_width_ms)
             if labelText and i < array.size(asianPhysicalHighLabels)
                 array.get(asianPhysicalHighLabels, i).set_x(time_close + 50 * bar_width_ms)
     if array.size(asianPhysicalLowLines) > 0
         for i = 0 to array.size(asianPhysicalLowLines) - 1
-            if i < array.size(asianPhysicalLowLines)
-                array.get(asianPhysicalLowLines, i).set_x2(time_close + 50 * bar_width_ms)
+            array.get(asianPhysicalLowLines, i).set_x2(time_close + 50 * bar_width_ms)
             if labelText and i < array.size(asianPhysicalLowLabels)
                 array.get(asianPhysicalLowLabels, i).set_x(time_close + 50 * bar_width_ms)
     
     // London Pre-Open Lines
     if array.size(londonPreHighLines) > 0
         for i = 0 to array.size(londonPreHighLines) - 1
-            if i < array.size(londonPreHighLines)
-                array.get(londonPreHighLines, i).set_x2(time_close + 50 * bar_width_ms)
+            array.get(londonPreHighLines, i).set_x2(time_close + 50 * bar_width_ms)
             if labelText and i < array.size(londonPreHighLabels)
                 array.get(londonPreHighLabels, i).set_x(time_close + 50 * bar_width_ms)
     if array.size(londonPreLowLines) > 0
         for i = 0 to array.size(londonPreLowLines) - 1
-            if i < array.size(londonPreLowLines)
-                array.get(londonPreLowLines, i).set_x2(time_close + 50 * bar_width_ms)
+            array.get(londonPreLowLines, i).set_x2(time_close + 50 * bar_width_ms)
             if labelText and i < array.size(londonPreLowLabels)
                 array.get(londonPreLowLabels, i).set_x(time_close + 50 * bar_width_ms)
     
     // London Gold Fix Morning Lines
     if array.size(londonGoldMornHighLines) > 0
         for i = 0 to array.size(londonGoldMornHighLines) - 1
-            if i < array.size(londonGoldMornHighLines)
-                array.get(londonGoldMornHighLines, i).set_x2(time_close + 50 * bar_width_ms)
+            array.get(londonGoldMornHighLines, i).set_x2(time_close + 50 * bar_width_ms)
             if labelText and i < array.size(londonGoldMornHighLabels)
                 array.get(londonGoldMornHighLabels, i).set_x(time_close + 50 * bar_width_ms)
     if array.size(londonGoldMornLowLines) > 0
         for i = 0 to array.size(londonGoldMornLowLines) - 1
-            if i < array.size(londonGoldMornLowLines)
-                array.get(londonGoldMornLowLines, i).set_x2(time_close + 50 * bar_width_ms)
+            array.get(londonGoldMornLowLines, i).set_x2(time_close + 50 * bar_width_ms)
             if labelText and i < array.size(londonGoldMornLowLabels)
                 array.get(londonGoldMornLowLabels, i).set_x(time_close + 50 * bar_width_ms)
     
@@ -1679,50 +1649,43 @@ if extendRight and showDailySessions
                 array.get(londonMornHighLabels, i).set_x(time_close + 50 * bar_width_ms)
     if array.size(londonMornLowLines) > 0
         for i = 0 to array.size(londonMornLowLines) - 1
-            if i < array.size(londonMornLowLines)
-                array.get(londonMornLowLines, i).set_x2(time_close + 50 * bar_width_ms)
+            array.get(londonMornLowLines, i).set_x2(time_close + 50 * bar_width_ms)
             if labelText and i < array.size(londonMornLowLabels)
                 array.get(londonMornLowLabels, i).set_x(time_close + 50 * bar_width_ms)
     
     // London Afternoon Fix Lines
     if array.size(londonAftHighLines) > 0
         for i = 0 to array.size(londonAftHighLines) - 1
-            if i < array.size(londonAftHighLines)
-                array.get(londonAftHighLines, i).set_x2(time_close + 50 * bar_width_ms)
+            array.get(londonAftHighLines, i).set_x2(time_close + 50 * bar_width_ms)
             if labelText and i < array.size(londonAftHighLabels)
                 array.get(londonAftHighLabels, i).set_x(time_close + 50 * bar_width_ms)
     if array.size(londonAftLowLines) > 0
         for i = 0 to array.size(londonAftLowLines) - 1
-            if i < array.size(londonAftLowLines)
-                array.get(londonAftLowLines, i).set_x2(time_close + 50 * bar_width_ms)
+            array.get(londonAftLowLines, i).set_x2(time_close + 50 * bar_width_ms)
             if labelText and i < array.size(londonAftLowLabels)
                 array.get(londonAftLowLabels, i).set_x(time_close + 50 * bar_width_ms)
     
     // NYSE Close Lines
     if array.size(nyseHighLines) > 0
         for i = 0 to array.size(nyseHighLines) - 1
-            if i < array.size(nyseHighLines)
-                array.get(nyseHighLines, i).set_x2(time_close + 50 * bar_width_ms)
+            array.get(nyseHighLines, i).set_x2(time_close + 50 * bar_width_ms)
             if labelText and i < array.size(nyseHighLabels)
                 array.get(nyseHighLabels, i).set_x(time_close + 50 * bar_width_ms)
     if array.size(nyseLowLines) > 0
         for i = 0 to array.size(nyseLowLines) - 1
-            if i < array.size(nyseLowLines)
-                array.get(nyseLowLines, i).set_x2(time_close + 50 * bar_width_ms)
+            array.get(nyseLowLines, i).set_x2(time_close + 50 * bar_width_ms)
             if labelText and i < array.size(nyseLowLabels)
                 array.get(nyseLowLabels, i).set_x(time_close + 50 * bar_width_ms)
     
     // CME Settlement Lines
     if array.size(cmeHighLines) > 0
         for i = 0 to array.size(cmeHighLines) - 1
-            if i < array.size(cmeHighLines)
-                array.get(cmeHighLines, i).set_x2(time_close + 50 * bar_width_ms)
+            array.get(cmeHighLines, i).set_x2(time_close + 50 * bar_width_ms)
             if labelText and i < array.size(cmeHighLabels)
                 array.get(cmeHighLabels, i).set_x(time_close + 50 * bar_width_ms)
     if array.size(cmeLowLines) > 0
         for i = 0 to array.size(cmeLowLines) - 1
-            if i < array.size(cmeLowLines)
-                array.get(cmeLowLines, i).set_x2(time_close + 50 * bar_width_ms)
+            array.get(cmeLowLines, i).set_x2(time_close + 50 * bar_width_ms)
             if labelText and i < array.size(cmeLowLabels)
                 array.get(cmeLowLabels, i).set_x(time_close + 50 * bar_width_ms)
     

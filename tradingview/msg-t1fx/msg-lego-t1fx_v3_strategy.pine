@@ -1,0 +1,2001 @@
+//@version=5
+strategy("MSG Enhanced LEGO System v3.0 Strategy", overlay=true, max_boxes_count=500, max_labels_count=500, initial_capital=10000, default_qty_type=strategy.percent_of_equity, default_qty_value=10, commission_type=strategy.commission.percent, commission_value=0.1)
+
+// =====================================================
+// VERSION HISTORY
+// =====================================================
+// v3.0 Strategy Enhanced - MSG Enhanced LEGO System v3.0 Strategy
+//   - Converted from indicator to strategy for automated trading
+//   - Added trade execution logic with strategy.entry() and strategy.exit()
+//   - Multiple stop-loss methods: Range-based, ATR-based, Fixed Points, Risk-Reward Ratio
+//   - Multiple take-profit methods: Range-based, ATR-based, Fixed Points, Risk-Reward Ratio
+//   - Tracks which MSG range triggered each trade for proper SL/TP calculation
+//   - Position sizing options: Fixed contracts, percentage of equity, risk-based
+//   - Maintains all visual features from indicator version
+//   - All features from v3.0 indicator maintained
+//
+//   FEATURE 1 - RISK MANAGEMENT:
+//   - Daily loss limit protection (enable/disable)
+//   - Maximum drawdown protection (enable/disable)
+//   - Consecutive loss limit (enable/disable)
+//   - Time-based exit (hours/bars) (enable/disable)
+//
+//   FEATURE 2 - ADVANCED TRADE MANAGEMENT:
+//   - Trailing stop loss (ATR/Percentage/Points) (enable/disable)
+//   - Break-even stop loss (enable/disable)
+//   - Partial profit taking with multiple TP levels (enable/disable)
+//   - Pyramiding (add to winning positions) (enable/disable)
+//   - Opposite signal exit (enable/disable)
+//
+//   FEATURE 3 - TRADE FILTERS:
+//   - Volume filter (Average/Fixed) (enable/disable)
+//   - Trend filter (EMA/SMA/ADX on higher timeframe) (enable/disable)
+//   - Time filter (specific hours) (enable/disable)
+//   - Range size filter (ATR/Points/Percentage) (enable/disable)
+//   - Multiple range confirmation (enable/disable)
+//
+//   FEATURE 4 - VISUAL ENHANCEMENTS:
+//   - SL/TP lines on chart (enable/disable)
+//   - Trade statistics table (enable/disable)
+//   - Trade history labels (enable/disable)
+//   - Risk-Reward ratio visualization (enable/disable)
+//
+//   FEATURE 5 - ADVANCED SL/TP METHODS:
+//   - Structure-based SL (swing highs/lows) (enable/disable)
+//   - Fibonacci TP extensions (enable/disable)
+//   - Dynamic ATR multiplier (volatility-based) (enable/disable)
+//   - Percentage-based SL/TP (enable/disable)
+//
+//   FEATURE 6 - STRATEGY OPTIMIZATION:
+//   - Performance metrics tracking (enable/disable)
+//   - Trade logging (enable/disable)
+//   - Custom alerts (TP hit, SL hit, Entry, Daily limit) (enable/disable)
+//
+// v2.0 - MSG Enhanced LEGO System
+//   - Added support for 4 independent MSG ranges (MSG1-MSG4)
+//   - Each range can be individually enabled/disabled
+//   - Customizable time periods, names, and colors per range
+//   - Display options: Range, Trendline, Mean, VWAP, Max/Min (Range implemented)
+//   - All ranges process independently and create persistent boxes on historical bars
+//   - Maintains session boxes (Asia, London, New York) from v1.0
+//
+// v1.0 - MSG Enhanced Range Breakout System (msg-t1fx.pine)
+//   - Single MSG range (23:00-01:00 GMT default)
+//   - Range breakout detection with buy/sell signals
+//   - Risk zone visualization
+//   - Session boxes and labels
+//   - Dashboard and alerts
+
+// =====================================================
+// DESCRIPTION
+// =====================================================
+// The MSG Enhanced LEGO System allows you to define up to 4 independent
+// MSG (Market Structure Gap) ranges with customizable time periods.
+// Each range tracks price action during its specified period and displays
+// a colored box on the chart. Ranges can overlap and are processed
+// independently, making it easy to identify multiple key trading periods
+// throughout the day. The system also includes session boxes for major
+// trading sessions (Asia, London, New York) to provide additional market
+// context.
+//
+// Version 3.0 Strategy adds automated trade execution when price breaks out
+// of any enabled MSG range. The strategy calculates stop-loss and take-profit
+// levels based on the triggering range, with multiple calculation methods
+// available. All visual features from the indicator version are maintained
+// for analysis and backtesting.
+// =====================================================
+
+// =====================================================
+// INPUT PARAMETERS - SESSION A
+// =====================================================
+grp_session_a = "SESSION A - NY"
+
+sessionAEnabled = input.bool(true, title="", group=grp_session_a, inline="session_a_main")
+sessionAName = "New York" //input.string("New York", title="", group=grp_session_a, inline="session_a_main")
+sessionAStartHour = input.int(13, title="", minval=0, maxval=23, group=grp_session_a, inline="session_a_main")
+sessionAStartMinute = input.int(0, title="", minval=0, maxval=59, group=grp_session_a, inline="session_a_main")
+sessionAEndHour = input.int(22, title="", minval=0, maxval=23, group=grp_session_a, inline="session_a_main")
+sessionAEndMinute = input.int(0, title="", minval=0, maxval=59, group=grp_session_a, inline="session_a_main")
+sessionAColor = input.color(color.orange, title="", group=grp_session_a, inline="session_a_display") //session_a_main
+
+sessionAShowRange = input.bool(true, title="Range", group=grp_session_a, inline="session_a_display")
+sessionAShowTrendline = input.bool(false, title="Trendline", group=grp_session_a, inline="session_a_display")
+sessionAShowMean = input.bool(false, title="Mean", group=grp_session_a, inline="session_a_display")//session_a_display2
+sessionAShowVWAP = input.bool(true, title="VWAP", group=grp_session_a, inline="session_a_display")
+sessionAShowMaxMin = input.bool(true, title="Max/Min", group=grp_session_a, inline="session_a_display")
+
+// =====================================================
+// INPUT PARAMETERS - SESSION B
+// =====================================================
+grp_session_b = "SESSION B - LON"
+
+sessionBEnabled = input.bool(true, title="", group=grp_session_b, inline="session_b_main")
+sessionBName = "London" //input.string("London", title="", group=grp_session_b, inline="session_b_main")
+sessionBStartHour = input.int(8, title="", minval=0, maxval=23, group=grp_session_b, inline="session_b_main")
+sessionBStartMinute = input.int(0, title="", minval=0, maxval=59, group=grp_session_b, inline="session_b_main")
+sessionBEndHour = input.int(17, title="", minval=0, maxval=23, group=grp_session_b, inline="session_b_main")
+sessionBEndMinute = input.int(0, title="", minval=0, maxval=59, group=grp_session_b, inline="session_b_main")
+sessionBColor = input.color(color.blue, title="", group=grp_session_b, inline="session_b_display") //session_b_main
+
+sessionBShowRange = input.bool(true, title="Range", group=grp_session_b, inline="session_b_display")
+sessionBShowTrendline = input.bool(false, title="Trendline", group=grp_session_b, inline="session_b_display")
+sessionBShowMean = input.bool(false, title="Mean", group=grp_session_b, inline="session_b_display")//session_b_display2
+sessionBShowVWAP = input.bool(false, title="VWAP", group=grp_session_b, inline="session_b_display")
+sessionBShowMaxMin = input.bool(false, title="Max/Min", group=grp_session_b, inline="session_b_display")
+
+// =====================================================
+// INPUT PARAMETERS - SESSION C
+// =====================================================
+grp_session_c = "SESSION C - TOK"
+
+sessionCEnabled = input.bool(true, title="", group=grp_session_c, inline="session_c_main")
+sessionCName = "Tokyo" //input.string("Tokyo", title="", group=grp_session_c, inline="session_c_main")
+sessionCStartHour = input.int(0, title="", minval=0, maxval=23, group=grp_session_c, inline="session_c_main")
+sessionCStartMinute = input.int(0, title="", minval=0, maxval=59, group=grp_session_c, inline="session_c_main")
+sessionCEndHour = input.int(9, title="", minval=0, maxval=23, group=grp_session_c, inline="session_c_main")
+sessionCEndMinute = input.int(0, title="", minval=0, maxval=59, group=grp_session_c, inline="session_c_main")
+sessionCColor = input.color(color.fuchsia, title="", group=grp_session_c, inline="session_c_display") //session_c_main
+
+sessionCShowRange = input.bool(true, title="Range", group=grp_session_c, inline="session_c_display")
+sessionCShowTrendline = input.bool(false, title="Trendline", group=grp_session_c, inline="session_c_display")
+sessionCShowMean = input.bool(false, title="Mean", group=grp_session_c, inline="session_c_display")//session_c_display2
+sessionCShowVWAP = input.bool(false, title="VWAP", group=grp_session_c, inline="session_c_display")
+sessionCShowMaxMin = input.bool(false, title="Max/Min", group=grp_session_c, inline="session_c_display")
+
+// =====================================================
+// INPUT PARAMETERS - MSG RANGE 1
+// =====================================================
+grp_msg1 = "MSG RANGE 1"
+
+msg1Enabled = input.bool(false, title="", group=grp_msg1, inline="msg1_main")
+msg1Name = "MSG1" //input.string("MSG1", title="", group=grp_msg1, inline="msg1_main")
+msg1StartHour = input.int(23, title="", minval=0, maxval=23, group=grp_msg1, inline="msg1_main")
+msg1StartMinute = input.int(0, title="", minval=0, maxval=59, group=grp_msg1, inline="msg1_main")
+msg1EndHour = input.int(1, title="", minval=0, maxval=23, group=grp_msg1, inline="msg1_main")
+msg1EndMinute = input.int(0, title="", minval=0, maxval=59, group=grp_msg1, inline="msg1_main")
+msg1Color = input.color(color.yellow, title="", group=grp_msg1, inline="msg1_display") //msg1_main
+
+msg1ShowRange = input.bool(false, title="Range", group=grp_msg1, inline="msg1_display")
+msg1ShowTrendline = input.bool(false, title="Trendline", group=grp_msg1, inline="msg1_display")
+msg1ShowMean = input.bool(false, title="Mean", group=grp_msg1, inline="msg1_display")//msg1_display2
+msg1ShowVWAP = input.bool(false, title="VWAP", group=grp_msg1, inline="msg1_display")
+msg1ShowMaxMin = input.bool(false, title="Max/Min", group=grp_msg1, inline="msg1_display")
+
+// =====================================================
+// INPUT PARAMETERS - MSG RANGE 2
+// =====================================================
+grp_msg2 = "MSG RANGE 2"
+
+msg2Enabled = input.bool(false, title="", group=grp_msg2, inline="msg2_main")
+msg2Name = "MSG2" //input.string("MSG2", title="", group=grp_msg2, inline="msg2_main")
+msg2StartHour = input.int(0, title="", minval=0, maxval=23, group=grp_msg2, inline="msg2_main")
+msg2StartMinute = input.int(0, title="", minval=0, maxval=59, group=grp_msg2, inline="msg2_main")
+msg2EndHour = input.int(8, title="", minval=0, maxval=23, group=grp_msg2, inline="msg2_main")
+msg2EndMinute = input.int(0, title="", minval=0, maxval=59, group=grp_msg2, inline="msg2_main")
+msg2Color = input.color(color.orange, title="", group=grp_msg2, inline="msg2_display") //msg2_main
+
+msg2ShowRange = input.bool(false, title="Range", group=grp_msg2, inline="msg2_display")
+msg2ShowTrendline = input.bool(false, title="Trendline", group=grp_msg2, inline="msg2_display")
+msg2ShowMean = input.bool(false, title="Mean", group=grp_msg2, inline="msg2_display")//msg2_display2
+msg2ShowVWAP = input.bool(false, title="VWAP", group=grp_msg2, inline="msg2_display")
+msg2ShowMaxMin = input.bool(false, title="Max/Min", group=grp_msg2, inline="msg2_display")
+
+// =====================================================
+// INPUT PARAMETERS - MSG RANGE 3
+// =====================================================
+grp_msg3 = "MSG RANGE 3"
+
+msg3Enabled = input.bool(true, title="", group=grp_msg3, inline="msg3_main")
+msg3Name = "MSG3" //input.string("MSG3", title="", group=grp_msg3, inline="msg3_main")
+msg3StartHour = input.int(9, title="", minval=0, maxval=23, group=grp_msg3, inline="msg3_main")
+msg3StartMinute = input.int(0, title="", minval=0, maxval=59, group=grp_msg3, inline="msg3_main")
+msg3EndHour = input.int(13, title="", minval=0, maxval=23, group=grp_msg3, inline="msg3_main")
+msg3EndMinute = input.int(0, title="", minval=0, maxval=59, group=grp_msg3, inline="msg3_main")
+msg3Color = input.color(color.new(color.aqua, 0), title="", group=grp_msg3, inline="msg3_display") //msg3_main
+
+msg3ShowRange = input.bool(true, title="Range", group=grp_msg3, inline="msg3_display")
+msg3ShowTrendline = input.bool(false, title="Trendline", group=grp_msg3, inline="msg3_display")
+msg3ShowMean = input.bool(false, title="Mean", group=grp_msg3, inline="msg3_display")//msg3_display2
+msg3ShowVWAP = input.bool(false, title="VWAP", group=grp_msg3, inline="msg3_display")
+msg3ShowMaxMin = input.bool(false, title="Max/Min", group=grp_msg3, inline="msg3_display")
+
+// =====================================================
+// INPUT PARAMETERS - MSG RANGE 4
+// =====================================================
+grp_msg4 = "MSG RANGE 4"
+
+msg4Enabled = input.bool(false, title="", group=grp_msg4, inline="msg4_main")
+msg4Name = "MSG4" //input.string("MSG4", title="", group=grp_msg4, inline="msg4_main")
+msg4StartHour = input.int(17, title="", minval=0, maxval=23, group=grp_msg4, inline="msg4_main")
+msg4StartMinute = input.int(0, title="", minval=0, maxval=59, group=grp_msg4, inline="msg4_main")
+msg4EndHour = input.int(22, title="", minval=0, maxval=23, group=grp_msg4, inline="msg4_main")
+msg4EndMinute = input.int(0, title="", minval=0, maxval=59, group=grp_msg4, inline="msg4_main")
+msg4Color = input.color(color.purple, title="", group=grp_msg4, inline="msg4_display") //msg4_main
+
+msg4ShowRange = input.bool(false, title="Range", group=grp_msg4, inline="msg4_display")
+msg4ShowTrendline = input.bool(false, title="Trendline", group=grp_msg4, inline="msg4_display")
+msg4ShowMean = input.bool(false, title="Mean", group=grp_msg4, inline="msg4_display")//msg4_display2
+msg4ShowVWAP = input.bool(false, title="VWAP", group=grp_msg4, inline="msg4_display")
+msg4ShowMaxMin = input.bool(false, title="Max/Min", group=grp_msg4, inline="msg4_display")
+
+// =====================================================
+// INPUT PARAMETERS - MSG SIGNAL SETTINGS
+// =====================================================
+grp_signal = "MSG SIGNAL SETTINGS"
+enableBreakoutSignals = input.bool(true, title="Enable Breakout Signals", group=grp_signal)
+showAlerts = input.bool(true, title="Show Alerts", group=grp_signal)
+buySignalColor = input.color(color.green, title="Buy Signal Color", group=grp_signal)
+sellSignalColor = input.color(color.red, title="Sell Signal Color", group=grp_signal)
+signalBorderWidth = input.int(3, title="Signal Border Width", minval=1, maxval=5, group=grp_signal)
+
+// =====================================================
+// INPUT PARAMETERS - STRATEGY TRADE SETTINGS
+// =====================================================
+grp_strategy = "STRATEGY TRADE SETTINGS"
+enableTrading = input.bool(true, title="Enable Trading", group=grp_strategy, tooltip="Enable/disable trade execution")
+positionSizeType = input.string("Risk-Based", title="Position Size Type", options=["Fixed Contracts", "Percent of Equity", "Risk-Based"], group=grp_strategy)
+positionSizeFixed = input.int(1, title="Fixed Contracts", minval=1, group=grp_strategy, tooltip="Number of contracts when using Fixed Contracts")
+positionSizePercent = input.float(10.0, title="Percent of Equity", minval=0.1, maxval=100.0, step=0.1, group=grp_strategy, tooltip="Percentage of equity to use per trade")
+riskPercent = input.float(1.5, title="Risk Per Trade (%)", minval=0.1, maxval=10.0, step=0.1, group=grp_strategy, tooltip="Percentage of equity to risk per trade (for Risk-Based sizing)")
+maxPositions = input.int(1, title="Max Concurrent Positions", minval=1, maxval=10, group=grp_strategy, tooltip="Maximum number of concurrent positions")
+
+// =====================================================
+// INPUT PARAMETERS - STOP LOSS SETTINGS
+// =====================================================
+grp_sl = "STOP LOSS SETTINGS"
+slMethod = input.string("ATR-Based", title="Stop Loss Method", options=["Range-Based", "ATR-Based", "Fixed Points", "Risk-Reward Ratio"], group=grp_sl, tooltip="Method to calculate stop loss")
+slRangeMultiplier = input.float(0.5, title="SL Range Multiplier", minval=0.1, maxval=2.0, step=0.1, group=grp_sl, tooltip="Multiplier for range-based SL (0.5 = half the range size)")
+slAtrLength = input.int(14, title="ATR Length", minval=1, maxval=50, group=grp_sl, tooltip="Period for ATR calculation")
+slAtrMultiplier = input.float(2.5, title="ATR Multiplier", minval=0.5, maxval=5.0, step=0.1, group=grp_sl, tooltip="Multiplier for ATR-based SL")
+slFixedPoints = input.float(50.0, title="Fixed Points", minval=1.0, step=1.0, group=grp_sl, tooltip="Fixed points for stop loss (in price units)")
+slRiskRewardRatio = input.float(1.0, title="SL Risk-Reward Ratio", minval=0.5, maxval=5.0, step=0.1, group=grp_sl, tooltip="Risk-reward ratio for SL (1.0 = 1:1)")
+
+// =====================================================
+// INPUT PARAMETERS - TAKE PROFIT SETTINGS
+// =====================================================
+grp_tp = "TAKE PROFIT SETTINGS"
+tpMethod = input.string("ATR-Based", title="Take Profit Method", options=["Range-Based", "ATR-Based", "Fixed Points", "Risk-Reward Ratio"], group=grp_tp, tooltip="Method to calculate take profit")
+tpRangeMultiplier = input.float(1.5, title="TP Range Multiplier", minval=0.5, maxval=5.0, step=0.1, group=grp_tp, tooltip="Multiplier for range-based TP (1.5 = 1.5x the range size)")
+tpAtrLength = input.int(14, title="ATR Length", minval=1, maxval=50, group=grp_tp, tooltip="Period for ATR calculation")
+tpAtrMultiplier = input.float(4.5, title="ATR Multiplier", minval=0.5, maxval=10.0, step=0.1, group=grp_tp, tooltip="Multiplier for ATR-based TP")
+tpFixedPoints = input.float(100.0, title="Fixed Points", minval=1.0, step=1.0, group=grp_tp, tooltip="Fixed points for take profit (in price units)")
+tpRiskRewardRatio = input.float(2.0, title="TP Risk-Reward Ratio", minval=0.5, maxval=10.0, step=0.1, group=grp_tp, tooltip="Risk-reward ratio for TP (2.0 = 2:1)")
+
+// =====================================================
+// INPUT PARAMETERS - RISK MANAGEMENT (Feature 1)
+// =====================================================
+grp_risk_mgmt = "RISK MANAGEMENT"
+enableDailyLossLimit = input.bool(true, title="Enable Daily Loss Limit", group=grp_risk_mgmt, tooltip="Stop trading after daily loss threshold")
+dailyLossLimitPercent = input.float(4.0, title="Daily Loss Limit (%)", minval=0.1, maxval=50.0, step=0.1, group=grp_risk_mgmt, tooltip="Maximum daily loss percentage")
+enableMaxDrawdown = input.bool(false, title="Enable Max Drawdown Protection", group=grp_risk_mgmt, tooltip="Pause trading if drawdown exceeds limit")
+maxDrawdownPercent = input.float(20.0, title="Max Drawdown (%)", minval=1.0, maxval=50.0, step=0.1, group=grp_risk_mgmt, tooltip="Maximum drawdown percentage before pausing")
+enableConsecutiveLossLimit = input.bool(true, title="Enable Consecutive Loss Limit", group=grp_risk_mgmt, tooltip="Stop trading after X consecutive losses")
+consecutiveLossLimit = input.int(3, title="Max Consecutive Losses", minval=1, maxval=10, group=grp_risk_mgmt, tooltip="Number of consecutive losses before stopping")
+enableTimeBasedExit = input.bool(false, title="Enable Time-Based Exit", group=grp_risk_mgmt, tooltip="Close trades after X hours/bars")
+timeBasedExitHours = input.int(24, title="Exit After Hours", minval=1, maxval=168, group=grp_risk_mgmt, tooltip="Close trade after this many hours")
+timeBasedExitBars = input.int(0, title="Exit After Bars (0=disabled)", minval=0, maxval=500, group=grp_risk_mgmt, tooltip="Close trade after this many bars (0 to disable)")
+
+// =====================================================
+// INPUT PARAMETERS - ADVANCED TRADE MANAGEMENT (Feature 2)
+// =====================================================
+grp_trade_mgmt = "ADVANCED TRADE MANAGEMENT"
+enableTrailingStop = input.bool(true, title="Enable Trailing Stop Loss", group=grp_trade_mgmt, tooltip="Dynamic SL that follows price (activates after break-even)")
+trailingStopType = input.string("ATR", title="Trailing Stop Type", options=["ATR", "Percentage", "Points"], group=grp_trade_mgmt)
+trailingStopAtrMultiplier = input.float(2.0, title="Trailing ATR Multiplier", minval=0.5, maxval=5.0, step=0.1, group=grp_trade_mgmt)
+trailingStopPercent = input.float(2.0, title="Trailing Stop %", minval=0.1, maxval=10.0, step=0.1, group=grp_trade_mgmt)
+trailingStopPoints = input.float(50.0, title="Trailing Stop Points", minval=1.0, step=1.0, group=grp_trade_mgmt)
+enableBreakEven = input.bool(true, title="Enable Break-Even Stop", group=grp_trade_mgmt, tooltip="Move SL to entry after reaching % of TP")
+breakEvenTriggerPercent = input.float(55.0, title="BE Trigger (% of TP)", minval=10.0, maxval=100.0, step=1.0, group=grp_trade_mgmt, tooltip="Move to BE when this % of TP is reached")
+enablePartialTP = input.bool(false, title="Enable Partial Profit Taking", group=grp_trade_mgmt, tooltip="Take profit in stages")
+partialTP1Percent = input.float(50.0, title="TP1 Close %", minval=10.0, maxval=90.0, step=1.0, group=grp_trade_mgmt, tooltip="Percentage to close at TP1")
+partialTP1Multiplier = input.float(1.0, title="TP1 Multiplier", minval=0.5, maxval=3.0, step=0.1, group=grp_trade_mgmt, tooltip="TP1 as multiple of initial TP")
+partialTP2Multiplier = input.float(2.0, title="TP2 Multiplier", minval=1.0, maxval=5.0, step=0.1, group=grp_trade_mgmt, tooltip="TP2 as multiple of initial TP")
+enablePyramiding = input.bool(false, title="Enable Pyramiding", group=grp_trade_mgmt, tooltip="Add to winning positions")
+pyramidingLevels = input.int(2, title="Pyramiding Levels", minval=1, maxval=5, group=grp_trade_mgmt, tooltip="Number of additional positions")
+pyramidingDistance = input.float(1.5, title="Pyramid Distance (ATR)", minval=0.5, maxval=5.0, step=0.1, group=grp_trade_mgmt, tooltip="Distance between pyramid entries in ATR")
+enableOppositeSignalExit = input.bool(false, title="Enable Opposite Signal Exit", group=grp_trade_mgmt, tooltip="Close trades when opposite signal appears")
+
+// =====================================================
+// INPUT PARAMETERS - TRADE FILTERS (Feature 3)
+// =====================================================
+grp_filters = "TRADE FILTERS"
+enableVolumeFilter = input.bool(true, title="Enable Volume Filter", group=grp_filters, tooltip="Only trade if volume exceeds threshold")
+volumeFilterType = input.string("Average", title="Volume Filter Type", options=["Average", "Fixed"], group=grp_filters)
+volumeFilterPeriod = input.int(20, title="Volume Average Period", minval=5, maxval=100, group=grp_filters)
+volumeFilterMultiplier = input.float(1.2, title="Volume Multiplier", minval=0.5, maxval=5.0, step=0.1, group=grp_filters, tooltip="Volume must be X times average")
+volumeFilterFixed = input.float(1000000.0, title="Fixed Volume Threshold", minval=1.0, step=1000.0, group=grp_filters)
+enableTrendFilter = input.bool(true, title="Enable Trend Filter", group=grp_filters, tooltip="Require alignment with higher timeframe trend")
+trendFilterTimeframe = input.timeframe("240", title="Trend Timeframe", group=grp_filters, tooltip="Timeframe for trend analysis")
+trendFilterMethod = input.string("EMA", title="Trend Method", options=["EMA", "SMA", "ADX"], group=grp_filters)
+trendFilterPeriod = input.int(20, title="Trend Period", minval=10, maxval=200, group=grp_filters)
+enableTimeFilter = input.bool(true, title="Enable Time Filter", group=grp_filters, tooltip="Trade only during specific hours")
+timeFilterStartHour = input.int(6, title="Start Hour (GMT)", minval=0, maxval=23, group=grp_filters)
+timeFilterEndHour = input.int(2, title="End Hour (GMT)", minval=0, maxval=23, group=grp_filters)
+enableRangeSizeFilter = input.bool(true, title="Enable Range Size Filter", group=grp_filters, tooltip="Only trade if range size meets minimum")
+rangeSizeFilterType = input.string("ATR", title="Range Size Filter Type", options=["ATR", "Points", "Percentage"], group=grp_filters)
+rangeSizeFilterATR = input.float(1.0, title="Min Range Size (ATR)", minval=0.1, maxval=5.0, step=0.1, group=grp_filters)
+rangeSizeFilterPoints = input.float(50.0, title="Min Range Size (Points)", minval=1.0, step=1.0, group=grp_filters)
+rangeSizeFilterPercent = input.float(0.5, title="Min Range Size (%)", minval=0.1, maxval=5.0, step=0.1, group=grp_filters)
+enableMultipleRangeConfirmation = input.bool(false, title="Enable Multiple Range Confirmation", group=grp_filters, tooltip="Require signals from multiple ranges")
+multipleRangeRequired = input.int(2, title="Required Ranges", minval=2, maxval=4, group=grp_filters, tooltip="Number of ranges that must signal")
+
+// =====================================================
+// INPUT PARAMETERS - VISUAL ENHANCEMENTS (Feature 4)
+// =====================================================
+grp_visual = "VISUAL ENHANCEMENTS"
+enableSLTPLines = input.bool(true, title="Show SL/TP Lines", group=grp_visual, tooltip="Draw lines on chart for active trades")
+slTPLineColor = input.color(color.red, title="SL Line Color", group=grp_visual)
+tpLineColor = input.color(color.green, title="TP Line Color", group=grp_visual)
+enableTradeStats = input.bool(true, title="Show Trade Statistics Table", group=grp_visual, tooltip="Display performance metrics")
+tradeStatsPosition = input.string("Bottom Right", title="Stats Position", options=["Top Right", "Top Left", "Bottom Right", "Bottom Left"], group=grp_visual)
+enableTradeHistoryLabels = input.bool(true, title="Show Trade History Labels", group=grp_visual, tooltip="Show closed trade results on chart")
+enableRRVisualization = input.bool(true, title="Show Risk-Reward Visualization", group=grp_visual, tooltip="Display R:R ratio for each trade")
+
+// =====================================================
+// INPUT PARAMETERS - ADVANCED SL/TP METHODS (Feature 5)
+// =====================================================
+grp_advanced_sltp = "ADVANCED SL/TP METHODS"
+enableStructureBasedSL = input.bool(false, title="Enable Structure-Based SL", group=grp_advanced_sltp, tooltip="Use swing highs/lows for SL")
+structureLookback = input.int(10, title="Structure Lookback", minval=5, maxval=50, group=grp_advanced_sltp, tooltip="Bars to look back for structure")
+enableFibonacciTP = input.bool(false, title="Enable Fibonacci TP", group=grp_advanced_sltp, tooltip="Use Fibonacci extensions for TP")
+fibTPLevels = input.string("1.272, 1.618, 2.0", title="Fib Levels", group=grp_advanced_sltp, tooltip="Comma-separated Fib extension levels")
+enableDynamicATR = input.bool(false, title="Enable Dynamic ATR", group=grp_advanced_sltp, tooltip="Adjust ATR multiplier based on volatility")
+dynamicATRVolatilityPeriod = input.int(20, title="Volatility Period", minval=5, maxval=100, group=grp_advanced_sltp)
+dynamicATRMinMultiplier = input.float(1.0, title="Min ATR Multiplier", minval=0.5, maxval=3.0, step=0.1, group=grp_advanced_sltp)
+dynamicATRMaxMultiplier = input.float(3.0, title="Max ATR Multiplier", minval=1.0, maxval=10.0, step=0.1, group=grp_advanced_sltp)
+enablePercentageSLTP = input.bool(false, title="Enable Percentage-Based SL/TP", group=grp_advanced_sltp, tooltip="SL/TP as percentage of entry price")
+percentageSL = input.float(1.0, title="SL Percentage", minval=0.1, maxval=10.0, step=0.1, group=grp_advanced_sltp)
+percentageTP = input.float(2.0, title="TP Percentage", minval=0.1, maxval=20.0, step=0.1, group=grp_advanced_sltp)
+
+// =====================================================
+// INPUT PARAMETERS - STRATEGY OPTIMIZATION (Feature 6)
+// =====================================================
+grp_optimization = "STRATEGY OPTIMIZATION"
+enablePerformanceMetrics = input.bool(true, title="Enable Performance Metrics", group=grp_optimization, tooltip="Track and display performance stats")
+enableTradeLogging = input.bool(false, title="Enable Trade Logging", group=grp_optimization, tooltip="Detailed trade information for analysis")
+enableCustomAlerts = input.bool(false, title="Enable Custom Alerts", group=grp_optimization, tooltip="Notify on specific events")
+alertOnTPHit = input.bool(true, title="Alert on TP Hit", group=grp_optimization)
+alertOnSLHit = input.bool(true, title="Alert on SL Hit", group=grp_optimization)
+alertOnEntry = input.bool(false, title="Alert on Entry", group=grp_optimization)
+alertOnDailyLimit = input.bool(true, title="Alert on Daily Limit", group=grp_optimization)
+
+// =====================================================
+// INPUT PARAMETERS - ADVANCED SETTINGS
+// =====================================================
+grp_advanced = "ADVANCED SETTINGS"
+riskLevel = input.string("Low Risk", title="Risk Level", options=["Low Risk", "Medium Risk", "High Risk", "Very High Risk"], group=grp_advanced)
+numberOfOrders = input.int(1, title="Number of Orders (Visual Only)", minval=1, group=grp_advanced)
+showSignalArrows = input.bool(true, title="Show Signal Arrows", group=grp_advanced)
+showRiskZones = input.bool(true, title="Show Risk Zones", group=grp_advanced)
+hoursAfterRangeForBreakout = input.int(4, title="Hours After Range to Allow Breakout", minval=0, group=grp_advanced)
+showTimeoutLine = input.bool(true, title="Show Timeout Line", group=grp_advanced)
+grayOutExpiredRanges = input.bool(true, title="Gray Out Expired Ranges", group=grp_advanced)
+showDashboard = input.bool(true, title="Show Dashboard", group=grp_advanced)
+dashboardPosition = input.string("Top Right", title="Dashboard Position", options=["Top Right", "Top Left", "Bottom Right", "Bottom Left"], group=grp_advanced)
+arrowSize = input.string("Normal", title="Arrow Size", options=["Small", "Normal", "Large"], group=grp_advanced)
+rangeLineWidth = input.int(2, title="Range Line Width", minval=1, maxval=4, group=grp_advanced)
+showSessionLabels = input.bool(true, title="Show Session Labels", group=grp_advanced)
+showAlertDebug = input.bool(true, title="Show Alert Debug (Replay Mode)", group=grp_advanced, tooltip="Shows visual indicators when alerts trigger - useful for testing in replay mode")
+alertDebugPosition = input.string("Top Left", title="Alert Debug Position", options=["Top Right", "Top Left", "Bottom Right", "Bottom Left"], group=grp_advanced)
+
+// =====================================================
+// FUNCTIONS - TIME CONVERSIONS
+// =====================================================
+// Convert hours to milliseconds
+hoursToMs(hours) => hours * 60 * 60 * 1000
+
+// Get GMT time
+getGMTHour() =>
+    utcHour = hour(time, "UTC")
+    utcHour
+
+getGMTMinute() =>
+    utcMinute = minute(time, "UTC")
+    utcMinute
+
+// Check if current time is within a session
+isInSession(startHour, endHour) =>
+    currentHour = getGMTHour()
+    if startHour < endHour
+        currentHour >= startHour and currentHour < endHour
+    else  // Session crosses midnight
+        currentHour >= startHour or currentHour < endHour
+
+// Check if we're in a specific MSG range period
+isInMsgRange(startHour, startMinute, endHour, endMinute) =>
+    currentHour = getGMTHour()
+    currentMinute = getGMTMinute()
+    rangeStart = startHour * 60 + startMinute
+    rangeEnd = endHour * 60 + endMinute
+    currentTime = currentHour * 60 + currentMinute
+    if rangeEnd > rangeStart
+        currentTime >= rangeStart and currentTime < rangeEnd
+    else  // Crosses midnight
+        currentTime >= rangeStart or currentTime < rangeEnd
+
+// =====================================================
+// STRATEGY FUNCTIONS - SL/TP CALCULATION
+// =====================================================
+// Calculate dynamic ATR multiplier based on volatility
+calculateDynamicATRMultiplier(float atrValue, float baseMultiplier) =>
+    volatility = ta.stdev(close, dynamicATRVolatilityPeriod) / close
+    normalizedVolatility = volatility * 100  // Convert to percentage
+    // Scale multiplier based on volatility (higher volatility = higher multiplier)
+    volatilityFactor = math.max(0.5, math.min(2.0, normalizedVolatility))
+    dynamicMultiplier = baseMultiplier * volatilityFactor
+    math.max(dynamicATRMinMultiplier, math.min(dynamicATRMaxMultiplier, dynamicMultiplier))
+
+// Calculate Stop Loss based on selected method (includes advanced methods)
+calculateStopLoss(bool isLong, float entryPrice, float rangeHigh, float rangeLow, float atrValue) =>
+    float sl = na
+    rangeSize = rangeHigh - rangeLow
+    
+    // Advanced method: Structure-based SL
+    if enableStructureBasedSL
+        if isLong
+            sl := ta.lowest(low, structureLookback)
+        else
+            sl := ta.highest(high, structureLookback)
+    // Advanced method: Percentage-based SL
+    else if enablePercentageSLTP
+        sl := isLong ? entryPrice * (1 - percentageSL / 100) : entryPrice * (1 + percentageSL / 100)
+    // Standard methods
+    else if slMethod == "Range-Based"
+        // For Range-Based: Use exact range boundaries
+        // BUY: Stop Loss at Range Low (below entry)
+        // SELL: Stop Loss at Range High (above entry)
+        sl := isLong ? rangeLow : rangeHigh
+    else if slMethod == "ATR-Based"
+        // Dynamic ATR multiplier if enabled
+        atrMult = enableDynamicATR ? calculateDynamicATRMultiplier(atrValue, slAtrMultiplier) : slAtrMultiplier
+        sl := isLong ? entryPrice - (atrValue * atrMult) : entryPrice + (atrValue * atrMult)
+    else if slMethod == "Fixed Points"
+        sl := isLong ? entryPrice - slFixedPoints * syminfo.mintick : entryPrice + slFixedPoints * syminfo.mintick
+    else if slMethod == "Risk-Reward Ratio"
+        float risk = math.abs(entryPrice - (isLong ? rangeLow : rangeHigh))
+        sl := isLong ? entryPrice - (risk * slRiskRewardRatio) : entryPrice + (risk * slRiskRewardRatio)
+    sl
+
+// Calculate Take Profit based on selected method (includes advanced methods)
+calculateTakeProfit(bool isLong, float entryPrice, float stopLossPrice, float rangeHigh, float rangeLow, float atrValue) =>
+    float tp = na
+    rangeSize = rangeHigh - rangeLow
+    
+    // Advanced method: Fibonacci TP
+    if enableFibonacciTP
+        fibLevels = str.split(fibTPLevels, ",")
+        // Use first Fib level for initial TP
+        if array.size(fibLevels) > 0
+            fibLevel = str.tonumber(array.get(fibLevels, 0))
+            if not na(fibLevel)
+                rangeSize = rangeHigh - rangeLow
+                if isLong
+                    tp := rangeLow + (rangeSize * fibLevel)
+                else
+                    tp := rangeHigh - (rangeSize * fibLevel)
+    // Advanced method: Percentage-based TP
+    else if enablePercentageSLTP
+        tp := isLong ? entryPrice * (1 + percentageTP / 100) : entryPrice * (1 - percentageTP / 100)
+    // Standard methods
+    else if tpMethod == "Range-Based"
+        tp := isLong ? entryPrice + (rangeSize * tpRangeMultiplier) : entryPrice - (rangeSize * tpRangeMultiplier)
+    else if tpMethod == "ATR-Based"
+        // Dynamic ATR multiplier if enabled
+        atrMult = enableDynamicATR ? calculateDynamicATRMultiplier(atrValue, tpAtrMultiplier) : tpAtrMultiplier
+        tp := isLong ? entryPrice + (atrValue * atrMult) : entryPrice - (atrValue * atrMult)
+    else if tpMethod == "Fixed Points"
+        tp := isLong ? entryPrice + tpFixedPoints * syminfo.mintick : entryPrice - tpFixedPoints * syminfo.mintick
+    else if tpMethod == "Risk-Reward Ratio"
+        float risk = math.abs(entryPrice - stopLossPrice)
+        tp := isLong ? entryPrice + (risk * tpRiskRewardRatio) : entryPrice - (risk * tpRiskRewardRatio)
+    tp
+
+// Calculate position size based on selected method
+calculatePositionSize(float entryPrice, float stopLossPrice) =>
+    float qty = na
+    if positionSizeType == "Fixed Contracts"
+        qty := positionSizeFixed
+    else if positionSizeType == "Percent of Equity"
+        qty := strategy.equity * positionSizePercent / 100 / entryPrice
+    else if positionSizeType == "Risk-Based"
+        float riskAmount = strategy.equity * riskPercent / 100
+        float riskPerUnit = math.abs(entryPrice - stopLossPrice)
+        qty := riskPerUnit > 0 ? riskAmount / riskPerUnit : na
+    qty
+
+// =====================================================
+// MSG RANGE TRACKING - Using arrays for multiple ranges
+// =====================================================
+// Arrays to track all MSG ranges
+var array<float> msgRangeHighs = array.new<float>(4, na)
+var array<float> msgRangeLows = array.new<float>(4, na)
+var array<bool> msgRangeSet = array.new<bool>(4, false)
+var array<int> msgRangeStartTimes = array.new<int>(4, na)
+var array<int> msgRangeEndTimes = array.new<int>(4, na)
+var array<int> msgRangeSignalExpiryTimes = array.new<int>(4, na)
+var array<bool> msgRangeBreakoutTriggered = array.new<bool>(4, false)
+var array<int> msgRangeBreakoutDirection = array.new<int>(4, 0)  // 1 for buy, -1 for sell
+var array<bool> msgRangeSignalExpired = array.new<bool>(4, false)
+var array<box> msgRangeBoxes = array.new<box>(4, na)
+var array<label> msgRangeLabels = array.new<label>(4, na)
+
+// Session tracking variables
+var float asiaHigh = na
+var float asiaLow = na
+var int asiaStart = na
+var float londonHigh = na
+var float londonLow = na
+var int londonStart = na
+var float nyHigh = na
+var float nyLow = na
+var int nyStart = na
+
+// New day detection
+newDay = dayofmonth != dayofmonth[1]
+
+// Reset session variables on new day
+if newDay
+    asiaHigh := na
+    asiaLow := na
+    asiaStart := na
+    londonHigh := na
+    londonLow := na
+    londonStart := na
+    nyHigh := na
+    nyLow := na
+    nyStart := na
+
+// =====================================================
+// RISK MANAGEMENT TRACKING VARIABLES (Feature 1)
+// =====================================================
+var float dailyStartEquity = na
+var float dailyPnL = 0.0
+var int consecutiveLosses = 0
+var float maxEquity = na
+var bool tradingPaused = false
+var array<line> slLines = array.new<line>()
+var array<line> tpLines = array.new<line>()
+var array<label> tradeLabels = array.new<label>()
+
+// Reset daily tracking on new day
+if newDay
+    dailyStartEquity := strategy.equity
+    dailyPnL := 0.0
+    if enableConsecutiveLossLimit
+        // Only reset if we haven't hit the limit
+        if consecutiveLosses < consecutiveLossLimit
+            consecutiveLosses := 0
+    else
+        consecutiveLosses := 0
+    tradingPaused := false
+
+// Update daily P&L
+dailyPnL := strategy.equity - (na(dailyStartEquity) ? strategy.equity : dailyStartEquity)
+
+// Update max equity for drawdown calculation
+if na(maxEquity) or strategy.equity > maxEquity
+    maxEquity := strategy.equity
+
+// Calculate current drawdown
+currentDrawdown = na(maxEquity) ? 0.0 : ((maxEquity - strategy.equity) / maxEquity) * 100
+
+// Check if trading should be paused
+if enableDailyLossLimit and not na(dailyStartEquity)
+    if dailyPnL < 0 and math.abs(dailyPnL / dailyStartEquity * 100) >= dailyLossLimitPercent
+        tradingPaused := true
+        if enableCustomAlerts and alertOnDailyLimit
+            alert("Daily loss limit reached: " + str.tostring(math.abs(dailyPnL / dailyStartEquity * 100), "#.##") + "%", alert.freq_once_per_bar)
+
+if enableMaxDrawdown and currentDrawdown >= maxDrawdownPercent
+    tradingPaused := true
+    if enableCustomAlerts and alertOnDailyLimit
+        alert("Max drawdown reached: " + str.tostring(currentDrawdown, "#.##") + "%", alert.freq_once_per_bar)
+
+if enableConsecutiveLossLimit and consecutiveLosses >= consecutiveLossLimit
+    tradingPaused := true
+    if enableCustomAlerts and alertOnDailyLimit
+        alert("Consecutive loss limit reached: " + str.tostring(consecutiveLosses) + " losses", alert.freq_once_per_bar)
+
+// =====================================================
+// TRADE MANAGEMENT TRACKING VARIABLES (Feature 2)
+// =====================================================
+var float entryPrice = na
+var float initialStopLoss = na
+var float initialTakeProfit = na
+var float trailingStopPrice = na
+var int entryBarIndex = na
+var int entryTime = na
+var bool breakEvenActivated = false
+var bool partialTP1Hit = false
+var int pyramidLevel = 0
+var float lastPyramidPrice = na
+
+// =====================================================
+// MSG RANGE PROCESSING - Process each range independently
+// =====================================================
+
+// MSG Range 1
+if msg1Enabled and msg1ShowRange
+    inRange1 = isInMsgRange(msg1StartHour, msg1StartMinute, msg1EndHour, msg1EndMinute)
+    wasInRange1 = isInMsgRange(msg1StartHour, msg1StartMinute, msg1EndHour, msg1EndMinute)[1]
+    range1High = array.get(msgRangeHighs, 0)
+    range1Low = array.get(msgRangeLows, 0)
+    range1Set = array.get(msgRangeSet, 0)
+    range1StartTime = array.get(msgRangeStartTimes, 0)
+    range1EndTime = array.get(msgRangeEndTimes, 0)
+    range1Box = array.get(msgRangeBoxes, 0)
+    
+    // Reset when entering new range period
+    if inRange1 and not wasInRange1 and range1Set
+        array.set(msgRangeSet, 0, false)
+        array.set(msgRangeHighs, 0, na)
+        array.set(msgRangeLows, 0, na)
+        array.set(msgRangeStartTimes, 0, na)
+        array.set(msgRangeEndTimes, 0, na)
+        array.set(msgRangeSignalExpiryTimes, 0, na)
+        array.set(msgRangeBreakoutTriggered, 0, false)
+        array.set(msgRangeBreakoutDirection, 0, 0)
+        array.set(msgRangeSignalExpired, 0, false)
+        if not na(range1Box)
+            box.delete(range1Box)
+            array.set(msgRangeBoxes, 0, na)
+        range1High := na
+        range1Low := na
+        range1StartTime := na
+        range1Box := na
+    
+    // Update range during the period
+    if inRange1 and not range1Set
+        if na(range1High) or high > range1High
+            range1High := high
+        if na(range1Low) or low < range1Low
+            range1Low := low
+        array.set(msgRangeHighs, 0, range1High)
+        array.set(msgRangeLows, 0, range1Low)
+        
+        if na(range1StartTime)
+            range1StartTime := time
+            array.set(msgRangeStartTimes, 0, range1StartTime)
+        
+        // Draw/update range box in real-time during range period
+        if not na(range1High) and not na(range1Low) and not na(range1StartTime)
+            if na(range1Box)
+                range1Box := box.new(left=range1StartTime, top=range1High, right=time, bottom=range1Low, border_color=msg1Color, border_width=rangeLineWidth, bgcolor=color.new(msg1Color, 85), xloc=xloc.bar_time)
+                array.set(msgRangeBoxes, 0, range1Box)
+            else
+                box.set_right(range1Box, time)
+                box.set_top(range1Box, range1High)
+                box.set_bottom(range1Box, range1Low)
+    
+    // Finalize range when period ends
+    if wasInRange1 and not inRange1 and not range1Set and not na(range1High) and not na(range1Low) and not na(range1StartTime)
+        array.set(msgRangeSet, 0, true)
+        range1EndTime := time
+        array.set(msgRangeEndTimes, 0, range1EndTime)
+        array.set(msgRangeSignalExpiryTimes, 0, range1EndTime + hoursToMs(hoursAfterRangeForBreakout))
+        
+        // Finalize the range box
+        if na(range1Box)
+            range1Box := box.new(left=range1StartTime, top=range1High, right=range1EndTime, bottom=range1Low, border_color=msg1Color, border_width=rangeLineWidth, bgcolor=color.new(msg1Color, 85), xloc=xloc.bar_time)
+            array.set(msgRangeBoxes, 0, range1Box)
+        else
+            box.set_right(range1Box, range1EndTime)
+            box.set_top(range1Box, range1High)
+            box.set_bottom(range1Box, range1Low)
+        
+        // Create persistent box for historical bars
+        if barstate.isconfirmed
+            box.new(left=range1StartTime, top=range1High, right=range1EndTime, bottom=range1Low, border_color=msg1Color, border_width=rangeLineWidth, bgcolor=color.new(msg1Color, 85), xloc=xloc.bar_time)
+            
+            // Create persistent label for historical bars
+            if showSessionLabels
+                labelX = range1StartTime + (range1EndTime - range1StartTime) / 2
+                label.new(x=labelX, y=range1High, text=msg1Name, color=color.new(color.white, 100), textcolor=color.black, style=label.style_label_down, size=size.small, xloc=xloc.bar_time)
+        
+        // Add range label for real-time updates
+        if showSessionLabels
+            range1Label = array.get(msgRangeLabels, 0)
+            if na(range1Label)
+                labelX = range1StartTime + (range1EndTime - range1StartTime) / 2
+                range1Label := label.new(x=labelX, y=range1High, text=msg1Name, color=color.new(color.white, 100), textcolor=color.black, style=label.style_label_down, size=size.small, xloc=xloc.bar_time)
+                array.set(msgRangeLabels, 0, range1Label)
+    
+    // Ensure range box persists after range period ends
+    if range1Set and not na(range1High) and not na(range1Low) and not na(range1StartTime)
+        range1EndTime = array.get(msgRangeEndTimes, 0)
+        if not na(range1EndTime)
+            if na(range1Box)
+                range1Box := box.new(left=range1StartTime, top=range1High, right=range1EndTime, bottom=range1Low, border_color=msg1Color, border_width=rangeLineWidth, bgcolor=color.new(msg1Color, 85), xloc=xloc.bar_time)
+                array.set(msgRangeBoxes, 0, range1Box)
+            else
+                box.set_left(range1Box, range1StartTime)
+                box.set_right(range1Box, range1EndTime)
+                box.set_top(range1Box, range1High)
+                box.set_bottom(range1Box, range1Low)
+
+// MSG Range 2
+if msg2Enabled and msg2ShowRange
+    inRange2 = isInMsgRange(msg2StartHour, msg2StartMinute, msg2EndHour, msg2EndMinute)
+    wasInRange2 = isInMsgRange(msg2StartHour, msg2StartMinute, msg2EndHour, msg2EndMinute)[1]
+    range2High = array.get(msgRangeHighs, 1)
+    range2Low = array.get(msgRangeLows, 1)
+    range2Set = array.get(msgRangeSet, 1)
+    range2StartTime = array.get(msgRangeStartTimes, 1)
+    range2EndTime = array.get(msgRangeEndTimes, 1)
+    range2Box = array.get(msgRangeBoxes, 1)
+    
+    // Reset when entering new range period
+    if inRange2 and not wasInRange2 and range2Set
+        array.set(msgRangeSet, 1, false)
+        array.set(msgRangeHighs, 1, na)
+        array.set(msgRangeLows, 1, na)
+        array.set(msgRangeStartTimes, 1, na)
+        array.set(msgRangeEndTimes, 1, na)
+        array.set(msgRangeSignalExpiryTimes, 1, na)
+        array.set(msgRangeBreakoutTriggered, 1, false)
+        array.set(msgRangeBreakoutDirection, 1, 0)
+        array.set(msgRangeSignalExpired, 1, false)
+        if not na(range2Box)
+            box.delete(range2Box)
+            array.set(msgRangeBoxes, 1, na)
+        range2High := na
+        range2Low := na
+        range2StartTime := na
+        range2Box := na
+    
+    // Update range during the period
+    if inRange2 and not range2Set
+        if na(range2High) or high > range2High
+            range2High := high
+        if na(range2Low) or low < range2Low
+            range2Low := low
+        array.set(msgRangeHighs, 1, range2High)
+        array.set(msgRangeLows, 1, range2Low)
+        
+        if na(range2StartTime)
+            range2StartTime := time
+            array.set(msgRangeStartTimes, 1, range2StartTime)
+        
+        // Draw/update range box in real-time during range period
+        if not na(range2High) and not na(range2Low) and not na(range2StartTime)
+            if na(range2Box)
+                range2Box := box.new(left=range2StartTime, top=range2High, right=time, bottom=range2Low, border_color=msg2Color, border_width=rangeLineWidth, bgcolor=color.new(msg2Color, 85), xloc=xloc.bar_time)
+                array.set(msgRangeBoxes, 1, range2Box)
+            else
+                box.set_right(range2Box, time)
+                box.set_top(range2Box, range2High)
+                box.set_bottom(range2Box, range2Low)
+    
+    // Finalize range when period ends
+    if wasInRange2 and not inRange2 and not range2Set and not na(range2High) and not na(range2Low) and not na(range2StartTime)
+        array.set(msgRangeSet, 1, true)
+        range2EndTime := time
+        array.set(msgRangeEndTimes, 1, range2EndTime)
+        array.set(msgRangeSignalExpiryTimes, 1, range2EndTime + hoursToMs(hoursAfterRangeForBreakout))
+        
+        // Finalize the range box
+        if na(range2Box)
+            range2Box := box.new(left=range2StartTime, top=range2High, right=range2EndTime, bottom=range2Low, border_color=msg2Color, border_width=rangeLineWidth, bgcolor=color.new(msg2Color, 85), xloc=xloc.bar_time)
+            array.set(msgRangeBoxes, 1, range2Box)
+        else
+            box.set_right(range2Box, range2EndTime)
+            box.set_top(range2Box, range2High)
+            box.set_bottom(range2Box, range2Low)
+        
+        // Create persistent box for historical bars
+        if barstate.isconfirmed
+            box.new(left=range2StartTime, top=range2High, right=range2EndTime, bottom=range2Low, border_color=msg2Color, border_width=rangeLineWidth, bgcolor=color.new(msg2Color, 85), xloc=xloc.bar_time)
+            
+            // Create persistent label for historical bars
+            if showSessionLabels
+                labelX = range2StartTime + (range2EndTime - range2StartTime) / 2
+                label.new(x=labelX, y=range2High, text=msg2Name, color=color.new(color.white, 100), textcolor=color.black, style=label.style_label_down, size=size.small, xloc=xloc.bar_time)
+        
+        // Add range label for real-time updates
+        if showSessionLabels
+            range2Label = array.get(msgRangeLabels, 1)
+            if na(range2Label)
+                labelX = range2StartTime + (range2EndTime - range2StartTime) / 2
+                range2Label := label.new(x=labelX, y=range2High, text=msg2Name, color=color.new(color.white, 100), textcolor=color.black, style=label.style_label_down, size=size.small, xloc=xloc.bar_time)
+                array.set(msgRangeLabels, 1, range2Label)
+    
+    // Ensure range box persists after range period ends
+    if range2Set and not na(range2High) and not na(range2Low) and not na(range2StartTime)
+        range2EndTime = array.get(msgRangeEndTimes, 1)
+        if not na(range2EndTime)
+            if na(range2Box)
+                range2Box := box.new(left=range2StartTime, top=range2High, right=range2EndTime, bottom=range2Low, border_color=msg2Color, border_width=rangeLineWidth, bgcolor=color.new(msg2Color, 85), xloc=xloc.bar_time)
+                array.set(msgRangeBoxes, 1, range2Box)
+            else
+                box.set_left(range2Box, range2StartTime)
+                box.set_right(range2Box, range2EndTime)
+                box.set_top(range2Box, range2High)
+                box.set_bottom(range2Box, range2Low)
+
+// MSG Range 3
+if msg3Enabled and msg3ShowRange
+    inRange3 = isInMsgRange(msg3StartHour, msg3StartMinute, msg3EndHour, msg3EndMinute)
+    wasInRange3 = isInMsgRange(msg3StartHour, msg3StartMinute, msg3EndHour, msg3EndMinute)[1]
+    range3High = array.get(msgRangeHighs, 2)
+    range3Low = array.get(msgRangeLows, 2)
+    range3Set = array.get(msgRangeSet, 2)
+    range3StartTime = array.get(msgRangeStartTimes, 2)
+    range3EndTime = array.get(msgRangeEndTimes, 2)
+    range3Box = array.get(msgRangeBoxes, 2)
+    
+    // Reset when entering new range period
+    if inRange3 and not wasInRange3 and range3Set
+        array.set(msgRangeSet, 2, false)
+        array.set(msgRangeHighs, 2, na)
+        array.set(msgRangeLows, 2, na)
+        array.set(msgRangeStartTimes, 2, na)
+        array.set(msgRangeEndTimes, 2, na)
+        array.set(msgRangeSignalExpiryTimes, 2, na)
+        array.set(msgRangeBreakoutTriggered, 2, false)
+        array.set(msgRangeBreakoutDirection, 2, 0)
+        array.set(msgRangeSignalExpired, 2, false)
+        if not na(range3Box)
+            box.delete(range3Box)
+            array.set(msgRangeBoxes, 2, na)
+        range3High := na
+        range3Low := na
+        range3StartTime := na
+        range3Box := na
+    
+    // Update range during the period
+    if inRange3 and not range3Set
+        if na(range3High) or high > range3High
+            range3High := high
+        if na(range3Low) or low < range3Low
+            range3Low := low
+        array.set(msgRangeHighs, 2, range3High)
+        array.set(msgRangeLows, 2, range3Low)
+        
+        if na(range3StartTime)
+            range3StartTime := time
+            array.set(msgRangeStartTimes, 2, range3StartTime)
+        
+        // Draw/update range box in real-time during range period
+        if not na(range3High) and not na(range3Low) and not na(range3StartTime)
+            if na(range3Box)
+                range3Box := box.new(left=range3StartTime, top=range3High, right=time, bottom=range3Low, border_color=msg3Color, border_width=rangeLineWidth, bgcolor=color.new(msg3Color, 85), xloc=xloc.bar_time)
+                array.set(msgRangeBoxes, 2, range3Box)
+            else
+                box.set_right(range3Box, time)
+                box.set_top(range3Box, range3High)
+                box.set_bottom(range3Box, range3Low)
+    
+    // Finalize range when period ends
+    if wasInRange3 and not inRange3 and not range3Set and not na(range3High) and not na(range3Low) and not na(range3StartTime)
+        array.set(msgRangeSet, 2, true)
+        range3EndTime := time
+        array.set(msgRangeEndTimes, 2, range3EndTime)
+        array.set(msgRangeSignalExpiryTimes, 2, range3EndTime + hoursToMs(hoursAfterRangeForBreakout))
+        
+        // Finalize the range box
+        if na(range3Box)
+            range3Box := box.new(left=range3StartTime, top=range3High, right=range3EndTime, bottom=range3Low, border_color=msg3Color, border_width=rangeLineWidth, bgcolor=color.new(msg3Color, 85), xloc=xloc.bar_time)
+            array.set(msgRangeBoxes, 2, range3Box)
+        else
+            box.set_right(range3Box, range3EndTime)
+            box.set_top(range3Box, range3High)
+            box.set_bottom(range3Box, range3Low)
+        
+        // Create persistent box for historical bars
+        if barstate.isconfirmed
+            box.new(left=range3StartTime, top=range3High, right=range3EndTime, bottom=range3Low, border_color=msg3Color, border_width=rangeLineWidth, bgcolor=color.new(msg3Color, 85), xloc=xloc.bar_time)
+            
+            // Create persistent label for historical bars
+            if showSessionLabels
+                labelX = range3StartTime + (range3EndTime - range3StartTime) / 2
+                label.new(x=labelX, y=range3High, text=msg3Name, color=color.new(color.white, 100), textcolor=color.black, style=label.style_label_down, size=size.small, xloc=xloc.bar_time)
+        
+        // Add range label for real-time updates
+        if showSessionLabels
+            range3Label = array.get(msgRangeLabels, 2)
+            if na(range3Label)
+                labelX = range3StartTime + (range3EndTime - range3StartTime) / 2
+                range3Label := label.new(x=labelX, y=range3High, text=msg3Name, color=color.new(color.white, 100), textcolor=color.black, style=label.style_label_down, size=size.small, xloc=xloc.bar_time)
+                array.set(msgRangeLabels, 2, range3Label)
+    
+    // Ensure range box persists after range period ends
+    if range3Set and not na(range3High) and not na(range3Low) and not na(range3StartTime)
+        range3EndTime = array.get(msgRangeEndTimes, 2)
+        if not na(range3EndTime)
+            if na(range3Box)
+                range3Box := box.new(left=range3StartTime, top=range3High, right=range3EndTime, bottom=range3Low, border_color=msg3Color, border_width=rangeLineWidth, bgcolor=color.new(msg3Color, 85), xloc=xloc.bar_time)
+                array.set(msgRangeBoxes, 2, range3Box)
+            else
+                box.set_left(range3Box, range3StartTime)
+                box.set_right(range3Box, range3EndTime)
+                box.set_top(range3Box, range3High)
+                box.set_bottom(range3Box, range3Low)
+
+// MSG Range 4
+if msg4Enabled and msg4ShowRange
+    inRange4 = isInMsgRange(msg4StartHour, msg4StartMinute, msg4EndHour, msg4EndMinute)
+    wasInRange4 = isInMsgRange(msg4StartHour, msg4StartMinute, msg4EndHour, msg4EndMinute)[1]
+    range4High = array.get(msgRangeHighs, 3)
+    range4Low = array.get(msgRangeLows, 3)
+    range4Set = array.get(msgRangeSet, 3)
+    range4StartTime = array.get(msgRangeStartTimes, 3)
+    range4EndTime = array.get(msgRangeEndTimes, 3)
+    range4Box = array.get(msgRangeBoxes, 3)
+    
+    // Reset when entering new range period
+    if inRange4 and not wasInRange4 and range4Set
+        array.set(msgRangeSet, 3, false)
+        array.set(msgRangeHighs, 3, na)
+        array.set(msgRangeLows, 3, na)
+        array.set(msgRangeStartTimes, 3, na)
+        array.set(msgRangeEndTimes, 3, na)
+        array.set(msgRangeSignalExpiryTimes, 3, na)
+        array.set(msgRangeBreakoutTriggered, 3, false)
+        array.set(msgRangeBreakoutDirection, 3, 0)
+        array.set(msgRangeSignalExpired, 3, false)
+        if not na(range4Box)
+            box.delete(range4Box)
+            array.set(msgRangeBoxes, 3, na)
+        range4High := na
+        range4Low := na
+        range4StartTime := na
+        range4Box := na
+    
+    // Update range during the period
+    if inRange4 and not range4Set
+        if na(range4High) or high > range4High
+            range4High := high
+        if na(range4Low) or low < range4Low
+            range4Low := low
+        array.set(msgRangeHighs, 3, range4High)
+        array.set(msgRangeLows, 3, range4Low)
+        
+        if na(range4StartTime)
+            range4StartTime := time
+            array.set(msgRangeStartTimes, 3, range4StartTime)
+        
+        // Draw/update range box in real-time during range period
+        if not na(range4High) and not na(range4Low) and not na(range4StartTime)
+            if na(range4Box)
+                range4Box := box.new(left=range4StartTime, top=range4High, right=time, bottom=range4Low, border_color=msg4Color, border_width=rangeLineWidth, bgcolor=color.new(msg4Color, 85), xloc=xloc.bar_time)
+                array.set(msgRangeBoxes, 3, range4Box)
+            else
+                box.set_right(range4Box, time)
+                box.set_top(range4Box, range4High)
+                box.set_bottom(range4Box, range4Low)
+    
+    // Finalize range when period ends
+    if wasInRange4 and not inRange4 and not range4Set and not na(range4High) and not na(range4Low) and not na(range4StartTime)
+        array.set(msgRangeSet, 3, true)
+        range4EndTime := time
+        array.set(msgRangeEndTimes, 3, range4EndTime)
+        array.set(msgRangeSignalExpiryTimes, 3, range4EndTime + hoursToMs(hoursAfterRangeForBreakout))
+        
+        // Finalize the range box
+        if na(range4Box)
+            range4Box := box.new(left=range4StartTime, top=range4High, right=range4EndTime, bottom=range4Low, border_color=msg4Color, border_width=rangeLineWidth, bgcolor=color.new(msg4Color, 85), xloc=xloc.bar_time)
+            array.set(msgRangeBoxes, 3, range4Box)
+        else
+            box.set_right(range4Box, range4EndTime)
+            box.set_top(range4Box, range4High)
+            box.set_bottom(range4Box, range4Low)
+        
+        // Create persistent box for historical bars
+        if barstate.isconfirmed
+            box.new(left=range4StartTime, top=range4High, right=range4EndTime, bottom=range4Low, border_color=msg4Color, border_width=rangeLineWidth, bgcolor=color.new(msg4Color, 85), xloc=xloc.bar_time)
+            
+            // Create persistent label for historical bars
+            if showSessionLabels
+                labelX = range4StartTime + (range4EndTime - range4StartTime) / 2
+                label.new(x=labelX, y=range4High, text=msg4Name, color=color.new(color.white, 100), textcolor=color.black, style=label.style_label_down, size=size.small, xloc=xloc.bar_time)
+        
+        // Add range label for real-time updates
+        if showSessionLabels
+            range4Label = array.get(msgRangeLabels, 3)
+            if na(range4Label)
+                labelX = range4StartTime + (range4EndTime - range4StartTime) / 2
+                range4Label := label.new(x=labelX, y=range4High, text=msg4Name, color=color.new(color.white, 100), textcolor=color.black, style=label.style_label_down, size=size.small, xloc=xloc.bar_time)
+                array.set(msgRangeLabels, 3, range4Label)
+    
+    // Ensure range box persists after range period ends
+    if range4Set and not na(range4High) and not na(range4Low) and not na(range4StartTime)
+        range4EndTime = array.get(msgRangeEndTimes, 3)
+        if not na(range4EndTime)
+            if na(range4Box)
+                range4Box := box.new(left=range4StartTime, top=range4High, right=range4EndTime, bottom=range4Low, border_color=msg4Color, border_width=rangeLineWidth, bgcolor=color.new(msg4Color, 85), xloc=xloc.bar_time)
+                array.set(msgRangeBoxes, 3, range4Box)
+            else
+                box.set_left(range4Box, range4StartTime)
+                box.set_right(range4Box, range4EndTime)
+                box.set_top(range4Box, range4High)
+                box.set_bottom(range4Box, range4Low)
+
+// =====================================================
+// BREAKOUT DETECTION - For all MSG ranges
+// =====================================================
+if enableBreakoutSignals
+    // MSG Range 1 Breakout Detection
+    if msg1Enabled
+        range1Set = array.get(msgRangeSet, 0)
+        range1BreakoutTriggered = array.get(msgRangeBreakoutTriggered, 0)
+        range1SignalExpired = array.get(msgRangeSignalExpired, 0)
+        range1SignalExpiryTime = array.get(msgRangeSignalExpiryTimes, 0)
+        range1High = array.get(msgRangeHighs, 0)
+        range1Low = array.get(msgRangeLows, 0)
+        range1Box = array.get(msgRangeBoxes, 0)
+        
+        if range1Set and not range1BreakoutTriggered and not range1SignalExpired
+            // Check if signal window has expired
+            if not na(range1SignalExpiryTime) and time > range1SignalExpiryTime and hoursAfterRangeForBreakout > 0
+                array.set(msgRangeSignalExpired, 0, true)
+                if not na(range1Box)
+                    box.set_border_color(range1Box, color.gray)
+                    box.set_bgcolor(range1Box, color.new(color.gray, 95))
+            
+            // Check for breakouts (only if not expired)
+            if not array.get(msgRangeSignalExpired, 0)
+                // Buy breakout
+                if not na(range1High) and close > range1High
+                    array.set(msgRangeBreakoutTriggered, 0, true)
+                    array.set(msgRangeBreakoutDirection, 0, 1)
+                    if not na(range1Box)
+                        box.set_border_color(range1Box, buySignalColor)
+                        box.set_border_width(range1Box, signalBorderWidth)
+                        box.set_bgcolor(range1Box, color.new(buySignalColor, 90))
+                
+                // Sell breakout
+                else if not na(range1Low) and close < range1Low
+                    array.set(msgRangeBreakoutTriggered, 0, true)
+                    array.set(msgRangeBreakoutDirection, 0, -1)
+                    if not na(range1Box)
+                        box.set_border_color(range1Box, sellSignalColor)
+                        box.set_border_width(range1Box, signalBorderWidth)
+                        box.set_bgcolor(range1Box, color.new(sellSignalColor, 90))
+    
+    // MSG Range 2 Breakout Detection
+    if msg2Enabled
+        range2Set = array.get(msgRangeSet, 1)
+        range2BreakoutTriggered = array.get(msgRangeBreakoutTriggered, 1)
+        range2SignalExpired = array.get(msgRangeSignalExpired, 1)
+        range2SignalExpiryTime = array.get(msgRangeSignalExpiryTimes, 1)
+        range2High = array.get(msgRangeHighs, 1)
+        range2Low = array.get(msgRangeLows, 1)
+        range2Box = array.get(msgRangeBoxes, 1)
+        
+        if range2Set and not range2BreakoutTriggered and not range2SignalExpired
+            // Check if signal window has expired
+            if not na(range2SignalExpiryTime) and time > range2SignalExpiryTime and hoursAfterRangeForBreakout > 0
+                array.set(msgRangeSignalExpired, 1, true)
+                if not na(range2Box)
+                    box.set_border_color(range2Box, color.gray)
+                    box.set_bgcolor(range2Box, color.new(color.gray, 95))
+            
+            // Check for breakouts (only if not expired)
+            if not array.get(msgRangeSignalExpired, 1)
+                // Buy breakout
+                if not na(range2High) and close > range2High
+                    array.set(msgRangeBreakoutTriggered, 1, true)
+                    array.set(msgRangeBreakoutDirection, 1, 1)
+                    if not na(range2Box)
+                        box.set_border_color(range2Box, buySignalColor)
+                        box.set_border_width(range2Box, signalBorderWidth)
+                        box.set_bgcolor(range2Box, color.new(buySignalColor, 90))
+                
+                // Sell breakout
+                else if not na(range2Low) and close < range2Low
+                    array.set(msgRangeBreakoutTriggered, 1, true)
+                    array.set(msgRangeBreakoutDirection, 1, -1)
+                    if not na(range2Box)
+                        box.set_border_color(range2Box, sellSignalColor)
+                        box.set_border_width(range2Box, signalBorderWidth)
+                        box.set_bgcolor(range2Box, color.new(sellSignalColor, 90))
+    
+    // MSG Range 3 Breakout Detection
+    if msg3Enabled
+        range3Set = array.get(msgRangeSet, 2)
+        range3BreakoutTriggered = array.get(msgRangeBreakoutTriggered, 2)
+        range3SignalExpired = array.get(msgRangeSignalExpired, 2)
+        range3SignalExpiryTime = array.get(msgRangeSignalExpiryTimes, 2)
+        range3High = array.get(msgRangeHighs, 2)
+        range3Low = array.get(msgRangeLows, 2)
+        range3Box = array.get(msgRangeBoxes, 2)
+        
+        if range3Set and not range3BreakoutTriggered and not range3SignalExpired
+            // Check if signal window has expired
+            if not na(range3SignalExpiryTime) and time > range3SignalExpiryTime and hoursAfterRangeForBreakout > 0
+                array.set(msgRangeSignalExpired, 2, true)
+                if not na(range3Box)
+                    box.set_border_color(range3Box, color.gray)
+                    box.set_bgcolor(range3Box, color.new(color.gray, 95))
+            
+            // Check for breakouts (only if not expired)
+            if not array.get(msgRangeSignalExpired, 2)
+                // Buy breakout
+                if not na(range3High) and close > range3High
+                    array.set(msgRangeBreakoutTriggered, 2, true)
+                    array.set(msgRangeBreakoutDirection, 2, 1)
+                    if not na(range3Box)
+                        box.set_border_color(range3Box, buySignalColor)
+                        box.set_border_width(range3Box, signalBorderWidth)
+                        box.set_bgcolor(range3Box, color.new(buySignalColor, 90))
+                
+                // Sell breakout
+                else if not na(range3Low) and close < range3Low
+                    array.set(msgRangeBreakoutTriggered, 2, true)
+                    array.set(msgRangeBreakoutDirection, 2, -1)
+                    if not na(range3Box)
+                        box.set_border_color(range3Box, sellSignalColor)
+                        box.set_border_width(range3Box, signalBorderWidth)
+                        box.set_bgcolor(range3Box, color.new(sellSignalColor, 90))
+    
+    // MSG Range 4 Breakout Detection
+    if msg4Enabled
+        range4Set = array.get(msgRangeSet, 3)
+        range4BreakoutTriggered = array.get(msgRangeBreakoutTriggered, 3)
+        range4SignalExpired = array.get(msgRangeSignalExpired, 3)
+        range4SignalExpiryTime = array.get(msgRangeSignalExpiryTimes, 3)
+        range4High = array.get(msgRangeHighs, 3)
+        range4Low = array.get(msgRangeLows, 3)
+        range4Box = array.get(msgRangeBoxes, 3)
+        
+        if range4Set and not range4BreakoutTriggered and not range4SignalExpired
+            // Check if signal window has expired
+            if not na(range4SignalExpiryTime) and time > range4SignalExpiryTime and hoursAfterRangeForBreakout > 0
+                array.set(msgRangeSignalExpired, 3, true)
+                if not na(range4Box)
+                    box.set_border_color(range4Box, color.gray)
+                    box.set_bgcolor(range4Box, color.new(color.gray, 95))
+            
+            // Check for breakouts (only if not expired)
+            if not array.get(msgRangeSignalExpired, 3)
+                // Buy breakout
+                if not na(range4High) and close > range4High
+                    array.set(msgRangeBreakoutTriggered, 3, true)
+                    array.set(msgRangeBreakoutDirection, 3, 1)
+                    if not na(range4Box)
+                        box.set_border_color(range4Box, buySignalColor)
+                        box.set_border_width(range4Box, signalBorderWidth)
+                        box.set_bgcolor(range4Box, color.new(buySignalColor, 90))
+                
+                // Sell breakout
+                else if not na(range4Low) and close < range4Low
+                    array.set(msgRangeBreakoutTriggered, 3, true)
+                    array.set(msgRangeBreakoutDirection, 3, -1)
+                    if not na(range4Box)
+                        box.set_border_color(range4Box, sellSignalColor)
+                        box.set_border_width(range4Box, signalBorderWidth)
+                        box.set_bgcolor(range4Box, color.new(sellSignalColor, 90))
+
+// =====================================================
+// SIGNAL ARROWS - For all MSG ranges
+// =====================================================
+if enableBreakoutSignals and showSignalArrows
+    arrowSizeValue = arrowSize == "Small" ? size.small : arrowSize == "Large" ? size.large : size.normal
+    
+    // MSG Range 1 Signals
+    if msg1Enabled
+        range1Set = array.get(msgRangeSet, 0)
+        range1SignalExpired = array.get(msgRangeSignalExpired, 0)
+        range1BreakoutTriggeredPrev = array.get(msgRangeBreakoutTriggered, 0)[1]
+        range1High = array.get(msgRangeHighs, 0)
+        range1Low = array.get(msgRangeLows, 0)
+        
+        if range1Set and not range1SignalExpired and not range1BreakoutTriggeredPrev
+            // Buy signal
+            if not na(range1High) and close > range1High
+                label.new(bar_index, low - (range1High - range1Low) * 0.1, "▲", color=color.new(color.white, 100), textcolor=color.black, style=label.style_label_up, size=arrowSizeValue)
+            
+            // Sell signal
+            else if not na(range1Low) and close < range1Low
+                label.new(bar_index, high + (range1High - range1Low) * 0.1, "▼", color=color.new(color.white, 100), textcolor=color.black, style=label.style_label_down, size=arrowSizeValue)
+    
+    // MSG Range 2 Signals
+    if msg2Enabled
+        range2Set = array.get(msgRangeSet, 1)
+        range2SignalExpired = array.get(msgRangeSignalExpired, 1)
+        range2BreakoutTriggeredPrev = array.get(msgRangeBreakoutTriggered, 1)[1]
+        range2High = array.get(msgRangeHighs, 1)
+        range2Low = array.get(msgRangeLows, 1)
+        
+        if range2Set and not range2SignalExpired and not range2BreakoutTriggeredPrev
+            // Buy signal
+            if not na(range2High) and close > range2High
+                label.new(bar_index, low - (range2High - range2Low) * 0.1, "▲", color=color.new(color.white, 100), textcolor=color.black, style=label.style_label_up, size=arrowSizeValue)
+            
+            // Sell signal
+            else if not na(range2Low) and close < range2Low
+                label.new(bar_index, high + (range2High - range2Low) * 0.1, "▼", color=color.new(color.white, 100), textcolor=color.black, style=label.style_label_down, size=arrowSizeValue)
+    
+    // MSG Range 3 Signals
+    if msg3Enabled
+        range3Set = array.get(msgRangeSet, 2)
+        range3SignalExpired = array.get(msgRangeSignalExpired, 2)
+        range3BreakoutTriggeredPrev = array.get(msgRangeBreakoutTriggered, 2)[1]
+        range3High = array.get(msgRangeHighs, 2)
+        range3Low = array.get(msgRangeLows, 2)
+        
+        if range3Set and not range3SignalExpired and not range3BreakoutTriggeredPrev
+            // Buy signal
+            if not na(range3High) and close > range3High
+                label.new(bar_index, low - (range3High - range3Low) * 0.1, "▲", color=color.new(color.white, 100), textcolor=color.black, style=label.style_label_up, size=arrowSizeValue)
+            
+            // Sell signal
+            else if not na(range3Low) and close < range3Low
+                label.new(bar_index, high + (range3High - range3Low) * 0.1, "▼", color=color.new(color.white, 100), textcolor=color.black, style=label.style_label_down, size=arrowSizeValue)
+    
+    // MSG Range 4 Signals
+    if msg4Enabled
+        range4Set = array.get(msgRangeSet, 3)
+        range4SignalExpired = array.get(msgRangeSignalExpired, 3)
+        range4BreakoutTriggeredPrev = array.get(msgRangeBreakoutTriggered, 3)[1]
+        range4High = array.get(msgRangeHighs, 3)
+        range4Low = array.get(msgRangeLows, 3)
+        
+        if range4Set and not range4SignalExpired and not range4BreakoutTriggeredPrev
+            // Buy signal
+            if not na(range4High) and close > range4High
+                label.new(bar_index, low - (range4High - range4Low) * 0.1, "▲", color=color.new(color.white, 100), textcolor=color.black, style=label.style_label_up, size=arrowSizeValue)
+            
+            // Sell signal
+            else if not na(range4Low) and close < range4Low
+                label.new(bar_index, high + (range4High - range4Low) * 0.1, "▼", color=color.new(color.white, 100), textcolor=color.black, style=label.style_label_down, size=arrowSizeValue)
+
+// =====================================================
+// ALERT CONDITIONS - Version 3.0
+// =====================================================
+// Aggregate breakout signals from all enabled MSG ranges
+// These alerts trigger only on confirmed bars to prevent repainting
+// Alert messages are formatted as JSON for easy webhook parsing
+
+// Track breakout signals from each range on current bar
+var bool buyBreakoutSignal = false
+var bool sellBreakoutSignal = false
+var int triggeringRangeIndex = -1  // Track which range triggered the signal (0-3 for MSG1-4)
+var float triggeringRangeHigh = na
+var float triggeringRangeLow = na
+
+// Reset signals each bar
+buyBreakoutSignal := false
+sellBreakoutSignal := false
+triggeringRangeIndex := -1
+triggeringRangeHigh := na
+triggeringRangeLow := na
+
+// Check for new breakouts on current bar (not previously triggered)
+// MSG Range 1
+if msg1Enabled and enableBreakoutSignals
+    range1Set = array.get(msgRangeSet, 0)
+    range1SignalExpired = array.get(msgRangeSignalExpired, 0)
+    range1BreakoutTriggeredPrev = array.get(msgRangeBreakoutTriggered, 0)[1]
+    range1High = array.get(msgRangeHighs, 0)
+    range1Low = array.get(msgRangeLows, 0)
+    if range1Set and not range1SignalExpired and not range1BreakoutTriggeredPrev
+        if not na(range1High) and close > range1High
+            buyBreakoutSignal := true
+            triggeringRangeIndex := 0
+            triggeringRangeHigh := range1High
+            triggeringRangeLow := range1Low
+        else if not na(range1Low) and close < range1Low
+            sellBreakoutSignal := true
+            triggeringRangeIndex := 0
+            triggeringRangeHigh := range1High
+            triggeringRangeLow := range1Low
+
+// MSG Range 2
+if msg2Enabled and enableBreakoutSignals
+    range2Set = array.get(msgRangeSet, 1)
+    range2SignalExpired = array.get(msgRangeSignalExpired, 1)
+    range2BreakoutTriggeredPrev = array.get(msgRangeBreakoutTriggered, 1)[1]
+    range2High = array.get(msgRangeHighs, 1)
+    range2Low = array.get(msgRangeLows, 1)
+    if range2Set and not range2SignalExpired and not range2BreakoutTriggeredPrev
+        if not na(range2High) and close > range2High
+            buyBreakoutSignal := true
+            triggeringRangeIndex := 1
+            triggeringRangeHigh := range2High
+            triggeringRangeLow := range2Low
+        else if not na(range2Low) and close < range2Low
+            sellBreakoutSignal := true
+            triggeringRangeIndex := 1
+            triggeringRangeHigh := range2High
+            triggeringRangeLow := range2Low
+
+// MSG Range 3
+if msg3Enabled and enableBreakoutSignals
+    range3Set = array.get(msgRangeSet, 2)
+    range3SignalExpired = array.get(msgRangeSignalExpired, 2)
+    range3BreakoutTriggeredPrev = array.get(msgRangeBreakoutTriggered, 2)[1]
+    range3High = array.get(msgRangeHighs, 2)
+    range3Low = array.get(msgRangeLows, 2)
+    if range3Set and not range3SignalExpired and not range3BreakoutTriggeredPrev
+        if not na(range3High) and close > range3High
+            buyBreakoutSignal := true
+            triggeringRangeIndex := 2
+            triggeringRangeHigh := range3High
+            triggeringRangeLow := range3Low
+        else if not na(range3Low) and close < range3Low
+            sellBreakoutSignal := true
+            triggeringRangeIndex := 2
+            triggeringRangeHigh := range3High
+            triggeringRangeLow := range3Low
+
+// MSG Range 4
+if msg4Enabled and enableBreakoutSignals
+    range4Set = array.get(msgRangeSet, 3)
+    range4SignalExpired = array.get(msgRangeSignalExpired, 3)
+    range4BreakoutTriggeredPrev = array.get(msgRangeBreakoutTriggered, 3)[1]
+    range4High = array.get(msgRangeHighs, 3)
+    range4Low = array.get(msgRangeLows, 3)
+    if range4Set and not range4SignalExpired and not range4BreakoutTriggeredPrev
+        if not na(range4High) and close > range4High
+            buyBreakoutSignal := true
+            triggeringRangeIndex := 3
+            triggeringRangeHigh := range4High
+            triggeringRangeLow := range4Low
+        else if not na(range4Low) and close < range4Low
+            sellBreakoutSignal := true
+            triggeringRangeIndex := 3
+            triggeringRangeHigh := range4High
+            triggeringRangeLow := range4Low
+
+// Alert conditions - only trigger on confirmed bars to prevent repainting
+buyAlertCondition = buyBreakoutSignal and barstate.isconfirmed
+sellAlertCondition = sellBreakoutSignal and barstate.isconfirmed
+
+// Buy Alert - Triggers when price breaks above any enabled MSG range high
+alertcondition(buyAlertCondition, title="MSG LEGO Buy Signal", message='{"action": "BUY", "ticker": "{{ticker}}", "price": "{{close}}", "time": "{{time}}", "timeframe": "{{interval}}", "exchange": "{{exchange}}"}')
+
+// Sell Alert - Triggers when price breaks below any enabled MSG range low
+alertcondition(sellAlertCondition, title="MSG LEGO Sell Signal", message='{"action": "SELL", "ticker": "{{ticker}}", "price": "{{close}}", "time": "{{time}}", "timeframe": "{{interval}}", "exchange": "{{exchange}}"}')
+
+// Combined Alert - Triggers on any buy or sell signal (useful for general notifications)
+alertcondition(buyAlertCondition or sellAlertCondition, title="MSG LEGO Any Signal", message='{"action": "{{strategy.order.action}}", "ticker": "{{ticker}}", "price": "{{close}}", "time": "{{time}}", "timeframe": "{{interval}}", "exchange": "{{exchange}}"}')
+
+// =====================================================
+// GLOBAL HIGHER TIMEFRAME DATA (for trend filter)
+// =====================================================
+// Calculate higher timeframe data on every bar (required by Pine Script)
+// request.security() must be called at top level, not inside conditionals
+// These must be declared before functions that use them
+htClose = request.security(syminfo.tickerid, trendFilterTimeframe, close)
+htOpen = request.security(syminfo.tickerid, trendFilterTimeframe, open)
+htHigh = request.security(syminfo.tickerid, trendFilterTimeframe, high)
+htLow = request.security(syminfo.tickerid, trendFilterTimeframe, low)
+
+// =====================================================
+// TRADE FILTER FUNCTIONS (Feature 3)
+// =====================================================
+// Check if volume filter passes
+checkVolumeFilter() =>
+    if not enableVolumeFilter
+        true
+    else
+        if volumeFilterType == "Average"
+            avgVolume = ta.sma(volume, volumeFilterPeriod)
+            volume >= avgVolume * volumeFilterMultiplier
+        else
+            volume >= volumeFilterFixed
+
+// Check if trend filter passes
+checkTrendFilter(bool isLong) =>
+    if not enableTrendFilter
+        true
+    else
+        // Use pre-calculated higher timeframe data (calculated on every bar above)
+        if trendFilterMethod == "EMA"
+            htMA = ta.ema(htClose, trendFilterPeriod)
+            isLong ? htClose > htMA : htClose < htMA
+        else if trendFilterMethod == "SMA"
+            htMA = ta.sma(htClose, trendFilterPeriod)
+            isLong ? htClose > htMA : htClose < htMA
+        else  // ADX - Calculate manually using higher timeframe data
+            // Calculate ADX manually on higher timeframe
+            htUpMove = htHigh - htHigh[1]
+            htDownMove = htLow[1] - htLow
+            htPlusDM = htUpMove > htDownMove and htUpMove > 0 ? htUpMove : 0
+            htMinusDM = htDownMove > htUpMove and htDownMove > 0 ? htDownMove : 0
+            htTR = math.max(htHigh - htLow, math.max(math.abs(htHigh - htClose[1]), math.abs(htLow - htClose[1])))
+            htATRValue = ta.rma(htTR, trendFilterPeriod)
+            htPlusDI = htATRValue > 0 ? 100 * ta.rma(htPlusDM, trendFilterPeriod) / htATRValue : 0
+            htMinusDI = htATRValue > 0 ? 100 * ta.rma(htMinusDM, trendFilterPeriod) / htATRValue : 0
+            htDX = (htPlusDI + htMinusDI) > 0 ? 100 * math.abs(htPlusDI - htMinusDI) / (htPlusDI + htMinusDI) : 0
+            htADXValue = ta.rma(htDX, trendFilterPeriod)
+            htADXValue > 25  // ADX > 25 indicates trending market
+
+// Check if time filter passes
+checkTimeFilter() =>
+    if not enableTimeFilter
+        true
+    else
+        currentHour = getGMTHour()
+        if timeFilterStartHour < timeFilterEndHour
+            currentHour >= timeFilterStartHour and currentHour < timeFilterEndHour
+        else  // Crosses midnight
+            currentHour >= timeFilterStartHour or currentHour < timeFilterEndHour
+
+// Check if range size filter passes
+checkRangeSizeFilter(float rangeHigh, float rangeLow, float atrValue) =>
+    if not enableRangeSizeFilter
+        true
+    else
+        rangeSize = rangeHigh - rangeLow
+        if rangeSizeFilterType == "ATR"
+            rangeSize >= atrValue * rangeSizeFilterATR
+        else if rangeSizeFilterType == "Points"
+            rangeSize >= rangeSizeFilterPoints * syminfo.mintick
+        else  // Percentage
+            rangeSize >= close * rangeSizeFilterPercent / 100
+
+// Check if multiple range confirmation passes
+checkMultipleRangeConfirmation() =>
+    if not enableMultipleRangeConfirmation
+        true
+    else
+        // Count how many ranges have triggered breakouts
+        triggeredCount = 0
+        if msg1Enabled and array.get(msgRangeBreakoutTriggered, 0)
+            triggeredCount += 1
+        if msg2Enabled and array.get(msgRangeBreakoutTriggered, 1)
+            triggeredCount += 1
+        if msg3Enabled and array.get(msgRangeBreakoutTriggered, 2)
+            triggeredCount += 1
+        if msg4Enabled and array.get(msgRangeBreakoutTriggered, 3)
+            triggeredCount += 1
+        triggeredCount >= multipleRangeRequired
+
+// =====================================================
+// GLOBAL ATR CALCULATION
+// =====================================================
+// Calculate ATR on every bar for consistency (required by Pine Script)
+atrValue14 = ta.atr(14)
+atrValueSL = ta.atr(slAtrLength)
+atrValueTP = ta.atr(tpAtrLength)
+
+// =====================================================
+// GLOBAL SL/TP CALCULATIONS (for consistency)
+// =====================================================
+// Calculate SL/TP on every bar to satisfy Pine Script requirements
+// Use current bar data when signals are present
+currentEntryPrice = close
+currentRangeHigh = not na(triggeringRangeHigh) ? triggeringRangeHigh : high
+currentRangeLow = not na(triggeringRangeLow) ? triggeringRangeLow : low
+currentAtrValue = slMethod == "ATR-Based" ? atrValueSL : tpMethod == "ATR-Based" ? atrValueTP : atrValue14
+
+// Calculate potential SL/TP for long position (called on every bar)
+potentialLongSL = calculateStopLoss(true, currentEntryPrice, currentRangeHigh, currentRangeLow, currentAtrValue)
+potentialLongTP = not na(potentialLongSL) ? calculateTakeProfit(true, currentEntryPrice, potentialLongSL, currentRangeHigh, currentRangeLow, currentAtrValue) : na
+
+// Calculate potential SL/TP for short position (called on every bar)
+potentialShortSL = calculateStopLoss(false, currentEntryPrice, currentRangeHigh, currentRangeLow, currentAtrValue)
+potentialShortTP = not na(potentialShortSL) ? calculateTakeProfit(false, currentEntryPrice, potentialShortSL, currentRangeHigh, currentRangeLow, currentAtrValue) : na
+
+// =====================================================
+// STRATEGY TRADE EXECUTION
+// =====================================================
+// Execute trades when breakout signals occur on confirmed bars
+// Only trade if trading is enabled, not paused, and we have valid range data
+if enableTrading and enableBreakoutSignals and barstate.isconfirmed and not tradingPaused
+    // Use appropriate ATR value for SL/TP calculations
+    atrValue = currentAtrValue
+    
+    // Check if we can open new positions
+    canOpenLong = strategy.position_size == 0 or (strategy.position_size < 0 and maxPositions > 1)
+    canOpenShort = strategy.position_size == 0 or (strategy.position_size > 0 and maxPositions > 1)
+    
+    // Handle opposite signal exit (Feature 2)
+    if enableOppositeSignalExit
+        if buyAlertCondition and strategy.position_size < 0
+            strategy.close("Short", comment="Opposite Signal")
+        if sellAlertCondition and strategy.position_size > 0
+            strategy.close("Long", comment="Opposite Signal")
+    
+    // Buy signal execution
+    if buyAlertCondition and canOpenLong and not na(triggeringRangeHigh) and not na(triggeringRangeLow) and triggeringRangeIndex >= 0
+        // Apply all filters (Feature 3)
+        volumePass = checkVolumeFilter()
+        trendPass = checkTrendFilter(true)
+        timePass = checkTimeFilter()
+        rangeSizePass = checkRangeSizeFilter(triggeringRangeHigh, triggeringRangeLow, atrValue)
+        multipleRangePass = checkMultipleRangeConfirmation()
+        
+        if volumePass and trendPass and timePass and rangeSizePass and multipleRangePass
+            entryPrice := close
+            // Use pre-calculated values (calculated on every bar above)
+            stopLossPrice = potentialLongSL
+            takeProfitPrice = potentialLongTP
+            positionQty = calculatePositionSize(entryPrice, stopLossPrice)
+            
+            // Validate SL/TP prices
+            if not na(stopLossPrice) and not na(takeProfitPrice) and not na(positionQty) and positionQty > 0
+                // Ensure SL is below entry and TP is above entry for long
+                if stopLossPrice < entryPrice and takeProfitPrice > entryPrice
+                    initialStopLoss := stopLossPrice
+                    initialTakeProfit := takeProfitPrice
+                    entryBarIndex := bar_index
+                    entryTime := time
+                    breakEvenActivated := false
+                    partialTP1Hit := false
+                    pyramidLevel := 0
+                    lastPyramidPrice := na
+                    
+                    // Calculate partial TP if enabled (Feature 2)
+                    if enablePartialTP
+                        tp1Price = entryPrice + ((takeProfitPrice - entryPrice) * partialTP1Multiplier)
+                        tp1Qty = positionQty * partialTP1Percent / 100
+                        remainingQty = positionQty - tp1Qty
+                        strategy.entry("Long", strategy.long, qty=positionQty, comment="MSG" + str.tostring(triggeringRangeIndex + 1))
+                        strategy.exit("Long TP1", "Long", qty=tp1Qty, limit=tp1Price, comment="TP1")
+                        strategy.exit("Long TP2", "Long", stop=stopLossPrice, limit=takeProfitPrice * partialTP2Multiplier, comment="TP2")
+                    else
+                        strategy.entry("Long", strategy.long, qty=positionQty, comment="MSG" + str.tostring(triggeringRangeIndex + 1))
+                        strategy.exit("Long Exit", "Long", stop=stopLossPrice, limit=takeProfitPrice, comment="SL/TP")
+                    
+                    // Visual label for trade entry (always show when trade is executed)
+                    // Use the validated values that were set above (initialStopLoss and initialTakeProfit)
+                    labelSL = initialStopLoss
+                    labelTP = initialTakeProfit
+                    labelEntry = entryPrice
+                    
+                    // Validate values before creating label
+                    if not na(labelSL) and not na(labelTP) and not na(labelEntry) and labelSL < labelEntry and labelTP > labelEntry
+                        rrRatio = (labelTP - labelEntry) / (labelEntry - labelSL)
+                        labelText = "LONG\nEntry: " + str.tostring(labelEntry, "#.####") + "\nSL: " + str.tostring(labelSL, "#.####") + "\nTP: " + str.tostring(labelTP, "#.####")
+                        if enableRRVisualization
+                            labelText += "\nR:R: " + str.tostring(rrRatio, "#.##")
+                        label.new(bar_index, low - 20, labelText, color=color.new(buySignalColor, 20), textcolor=color.black, style=label.style_label_up, size=size.small)
+                    
+                    // Draw SL/TP lines (Feature 4)
+                    if enableSLTPLines
+                        slLine = line.new(bar_index, stopLossPrice, bar_index + 50, stopLossPrice, color=slTPLineColor, width=2, style=line.style_dashed)
+                        tpLine = line.new(bar_index, takeProfitPrice, bar_index + 50, takeProfitPrice, color=tpLineColor, width=2, style=line.style_dashed)
+                        array.push(slLines, slLine)
+                        array.push(tpLines, tpLine)
+                    
+                    // Custom alerts (Feature 6)
+                    if enableCustomAlerts and alertOnEntry
+                        alert("Long entry at " + str.tostring(entryPrice, "#.####"), alert.freq_once_per_bar)
+    
+    // Sell signal execution
+    if sellAlertCondition and canOpenShort and not na(triggeringRangeHigh) and not na(triggeringRangeLow) and triggeringRangeIndex >= 0
+        // Apply all filters (Feature 3)
+        volumePass = checkVolumeFilter()
+        trendPass = checkTrendFilter(false)
+        timePass = checkTimeFilter()
+        rangeSizePass = checkRangeSizeFilter(triggeringRangeHigh, triggeringRangeLow, atrValue)
+        multipleRangePass = checkMultipleRangeConfirmation()
+        
+        if volumePass and trendPass and timePass and rangeSizePass and multipleRangePass
+            entryPrice := close
+            // Use pre-calculated values (calculated on every bar above)
+            stopLossPrice = potentialShortSL
+            takeProfitPrice = potentialShortTP
+            positionQty = calculatePositionSize(entryPrice, stopLossPrice)
+            
+            // Validate SL/TP prices
+            if not na(stopLossPrice) and not na(takeProfitPrice) and not na(positionQty) and positionQty > 0
+                // Ensure SL is above entry and TP is below entry for short
+                if stopLossPrice > entryPrice and takeProfitPrice < entryPrice
+                    initialStopLoss := stopLossPrice
+                    initialTakeProfit := takeProfitPrice
+                    entryBarIndex := bar_index
+                    entryTime := time
+                    breakEvenActivated := false
+                    partialTP1Hit := false
+                    pyramidLevel := 0
+                    lastPyramidPrice := na
+                    
+                    // Calculate partial TP if enabled (Feature 2)
+                    if enablePartialTP
+                        tp1Price = entryPrice - ((entryPrice - takeProfitPrice) * partialTP1Multiplier)
+                        tp1Qty = positionQty * partialTP1Percent / 100
+                        remainingQty = positionQty - tp1Qty
+                        strategy.entry("Short", strategy.short, qty=positionQty, comment="MSG" + str.tostring(triggeringRangeIndex + 1))
+                        strategy.exit("Short TP1", "Short", qty=tp1Qty, limit=tp1Price, comment="TP1")
+                        strategy.exit("Short TP2", "Short", stop=stopLossPrice, limit=takeProfitPrice * partialTP2Multiplier, comment="TP2")
+                    else
+                        strategy.entry("Short", strategy.short, qty=positionQty, comment="MSG" + str.tostring(triggeringRangeIndex + 1))
+                        strategy.exit("Short Exit", "Short", stop=stopLossPrice, limit=takeProfitPrice, comment="SL/TP")
+                    
+                    // Visual label for trade entry (always show when trade is executed)
+                    // Use the validated values that were set above (initialStopLoss and initialTakeProfit)
+                    labelSL = initialStopLoss
+                    labelTP = initialTakeProfit
+                    labelEntry = entryPrice
+                    
+                    // Validate values before creating label
+                    if not na(labelSL) and not na(labelTP) and not na(labelEntry) and labelSL > labelEntry and labelTP < labelEntry
+                        rrRatio = (labelEntry - labelTP) / (labelSL - labelEntry)
+                        labelText = "SHORT\nEntry: " + str.tostring(labelEntry, "#.####") + "\nSL: " + str.tostring(labelSL, "#.####") + "\nTP: " + str.tostring(labelTP, "#.####")
+                        if enableRRVisualization
+                            labelText += "\nR:R: " + str.tostring(rrRatio, "#.##")
+                        label.new(bar_index, high + 20, labelText, color=color.new(sellSignalColor, 20), textcolor=color.black, style=label.style_label_down, size=size.small)
+                    
+                    // Draw SL/TP lines (Feature 4)
+                    if enableSLTPLines
+                        slLine = line.new(bar_index, stopLossPrice, bar_index + 50, stopLossPrice, color=slTPLineColor, width=2, style=line.style_dashed)
+                        tpLine = line.new(bar_index, takeProfitPrice, bar_index + 50, takeProfitPrice, color=tpLineColor, width=2, style=line.style_dashed)
+                        array.push(slLines, slLine)
+                        array.push(tpLines, tpLine)
+                    
+                    // Custom alerts (Feature 6)
+                    if enableCustomAlerts and alertOnEntry
+                        alert("Short entry at " + str.tostring(entryPrice, "#.####"), alert.freq_once_per_bar)
+
+// =====================================================
+// ADVANCED TRADE MANAGEMENT (Feature 2)
+// =====================================================
+// Trailing Stop Loss (activates after break-even is triggered)
+// Calculate trailing distance on every bar for consistency
+float trailingDistance = na
+if enableTrailingStop and strategy.position_size != 0 and not na(entryPrice) and breakEvenActivated
+    isLong = strategy.position_size > 0
+    atrValue = atrValue14
+    
+    if trailingStopType == "ATR"
+        trailingDistance := atrValue * trailingStopAtrMultiplier
+    else if trailingStopType == "Percentage"
+        trailingDistance := entryPrice * trailingStopPercent / 100
+    else  // Points
+        trailingDistance := trailingStopPoints * syminfo.mintick
+    
+    if not na(trailingDistance)
+        if isLong
+            newTrailingStop = close - trailingDistance
+            // Only move trailing stop up, never down
+            if na(trailingStopPrice) or newTrailingStop > trailingStopPrice
+                trailingStopPrice := newTrailingStop
+                strategy.exit("Long Exit", "Long", stop=trailingStopPrice, comment="Trailing SL")
+        else
+            newTrailingStop = close + trailingDistance
+            // Only move trailing stop down, never up
+            if na(trailingStopPrice) or newTrailingStop < trailingStopPrice
+                trailingStopPrice := newTrailingStop
+                strategy.exit("Short Exit", "Short", stop=trailingStopPrice, comment="Trailing SL")
+
+// Break-Even Stop Loss
+if enableBreakEven and strategy.position_size != 0 and not na(entryPrice) and not na(initialTakeProfit) and not breakEvenActivated
+    isLong = strategy.position_size > 0
+    profitPercent = isLong ? ((close - entryPrice) / (initialTakeProfit - entryPrice)) * 100 : ((entryPrice - close) / (entryPrice - initialTakeProfit)) * 100
+    
+    if profitPercent >= breakEvenTriggerPercent
+        breakEvenActivated := true
+        if isLong
+            strategy.exit("Long Exit", "Long", stop=entryPrice, comment="Break-Even")
+        else
+            strategy.exit("Short Exit", "Short", stop=entryPrice, comment="Break-Even")
+
+// Time-Based Exit (Feature 1)
+if enableTimeBasedExit and strategy.position_size != 0 and not na(entryTime)
+    hoursElapsed = (time - entryTime) / (1000 * 60 * 60)
+    barsElapsed = bar_index - entryBarIndex
+    
+    if (timeBasedExitHours > 0 and hoursElapsed >= timeBasedExitHours) or (timeBasedExitBars > 0 and barsElapsed >= timeBasedExitBars)
+        strategy.close_all(comment="Time-Based Exit")
+
+// Pyramiding (Feature 2)
+if enablePyramiding and strategy.position_size != 0 and not na(entryPrice) and pyramidLevel < pyramidingLevels
+    isLong = strategy.position_size > 0
+    atrValue = atrValue14
+    pyramidDistance = atrValue * pyramidingDistance
+    
+    if isLong
+        pyramidEntryPrice = entryPrice + (pyramidDistance * (pyramidLevel + 1))
+        if close >= pyramidEntryPrice and (na(lastPyramidPrice) or close > lastPyramidPrice)
+            pyramidQty = calculatePositionSize(entryPrice, initialStopLoss)
+            strategy.entry("Long Pyramid " + str.tostring(pyramidLevel + 1), strategy.long, qty=pyramidQty, comment="Pyramid")
+            pyramidLevel += 1
+            lastPyramidPrice := close
+    else
+        pyramidEntryPrice = entryPrice - (pyramidDistance * (pyramidLevel + 1))
+        if close <= pyramidEntryPrice and (na(lastPyramidPrice) or close < lastPyramidPrice)
+            pyramidQty = calculatePositionSize(entryPrice, initialStopLoss)
+            strategy.entry("Short Pyramid " + str.tostring(pyramidLevel + 1), strategy.short, qty=pyramidQty, comment="Pyramid")
+            pyramidLevel += 1
+            lastPyramidPrice := close
+
+// =====================================================
+// ALERT LABELS - Removed: Entry labels now show all trade information
+// =====================================================
+// Alert labels removed - trade entry labels (LONG/SHORT) now display all information
+// LONG trades show label at bottom with Entry/SL/TP/R:R details
+// SHORT trades show label at top with Entry/SL/TP/R:R details
+
+// =====================================================
+// ALERT DEBUG VISUALIZATION - For Replay Mode Testing
+// =====================================================
+// This section provides visual feedback when alerts trigger, useful for testing
+// in replay mode where traditional alert popups don't appear
+if showAlertDebug and enableBreakoutSignals
+    // Determine debug table position
+    debugPos = alertDebugPosition == "Top Right" ? position.top_right : alertDebugPosition == "Top Left" ? position.top_left : alertDebugPosition == "Bottom Right" ? position.bottom_right : position.bottom_left
+    
+    // Track alert triggers for debug display
+    var int alertCount = 0
+    var string lastAlertType = ""
+    var float lastAlertPrice = na
+    var int lastAlertTime = na
+    
+    // Update alert tracking when conditions trigger
+    if buyAlertCondition
+        alertCount := alertCount + 1
+        lastAlertType := "BUY"
+        lastAlertPrice := close
+        lastAlertTime := time
+    
+    if sellAlertCondition
+        alertCount := alertCount + 1
+        lastAlertType := "SELL"
+        lastAlertPrice := close
+        lastAlertTime := time
+    
+    // Display debug table on last bar (shows current state)
+    if barstate.islast
+        var table alertDebugTable = table.new(debugPos, 2, 5, bgcolor=color.new(color.white, 0), frame_color=color.yellow, frame_width=2, border_width=1)
+        
+        // Header
+        table.cell(alertDebugTable, 0, 0, "🔔 ALERT DEBUG", text_color=color.black, text_size=size.normal, text_halign=text.align_center, bgcolor=color.new(color.gray, 70))
+        table.cell(alertDebugTable, 1, 0, "Status", text_color=color.black, text_size=size.normal, text_halign=text.align_center, bgcolor=color.new(color.gray, 70))
+        
+        // Alert count
+        table.cell(alertDebugTable, 0, 1, "Total Alerts", text_color=color.black, text_size=size.small, text_halign=text.align_left)
+        table.cell(alertDebugTable, 1, 1, str.tostring(alertCount), text_color=color.black, text_size=size.small, text_halign=text.align_right)
+        
+        // Last alert type
+        table.cell(alertDebugTable, 0, 2, "Last Alert", text_color=color.black, text_size=size.small, text_halign=text.align_left)
+        lastAlertText = lastAlertType != "" ? lastAlertType : "None"
+        lastAlertColor = lastAlertType == "BUY" ? buySignalColor : lastAlertType == "SELL" ? sellSignalColor : color.gray
+        table.cell(alertDebugTable, 1, 2, lastAlertText, text_color=color.black, text_size=size.small, text_halign=text.align_right)
+        
+        // Last alert price
+        table.cell(alertDebugTable, 0, 3, "Last Price", text_color=color.black, text_size=size.small, text_halign=text.align_left)
+        lastPriceText = not na(lastAlertPrice) ? str.tostring(lastAlertPrice, "#.####") : "N/A"
+        table.cell(alertDebugTable, 1, 3, lastPriceText, text_color=color.black, text_size=size.small, text_halign=text.align_right)
+        
+        // Current alert status
+        table.cell(alertDebugTable, 0, 4, "Current Status", text_color=color.black, text_size=size.small, text_halign=text.align_left)
+        currentStatus = buyAlertCondition ? "BUY Ready" : sellAlertCondition ? "SELL Ready" : "Monitoring"
+        currentStatusColor = buyAlertCondition ? buySignalColor : sellAlertCondition ? sellSignalColor : color.gray
+        table.cell(alertDebugTable, 1, 4, currentStatus, text_color=color.black, text_size=size.small, text_halign=text.align_right)
+
+// =====================================================
+// SESSION BOXES
+// =====================================================
+// Session A (New York)
+if sessionAEnabled
+    inSessionA = isInSession(sessionAStartHour, sessionAEndHour)
+    wasInSessionA = isInSession(sessionAStartHour, sessionAEndHour)[1]
+    
+    if inSessionA
+        if na(asiaStart) or not wasInSessionA
+            asiaStart := time
+            asiaHigh := high
+            asiaLow := low
+        else
+            asiaHigh := math.max(asiaHigh, high)
+            asiaLow := math.min(asiaLow, low)
+    
+    if not inSessionA and wasInSessionA and not na(asiaStart)
+        box.new(left=asiaStart, top=asiaHigh, right=time[1], bottom=asiaLow, border_color=sessionAColor, bgcolor=color.new(sessionAColor, 95), border_width=1, xloc=xloc.bar_time)
+        if showSessionLabels
+            label.new(x=asiaStart, y=asiaHigh, text=sessionAName, color=color.new(color.white, 100), textcolor=color.black, style=label.style_label_down, size=size.large, xloc=xloc.bar_time)
+
+// Session B (London)
+if sessionBEnabled
+    inSessionB = isInSession(sessionBStartHour, sessionBEndHour)
+    wasInSessionB = isInSession(sessionBStartHour, sessionBEndHour)[1]
+    
+    if inSessionB
+        if na(londonStart) or not wasInSessionB
+            londonStart := time
+            londonHigh := high
+            londonLow := low
+        else
+            londonHigh := math.max(londonHigh, high)
+            londonLow := math.min(londonLow, low)
+    
+    if not inSessionB and wasInSessionB and not na(londonStart)
+        box.new(left=londonStart, top=londonHigh, right=time[1], bottom=londonLow, border_color=sessionBColor, bgcolor=color.new(sessionBColor, 95), border_width=1, xloc=xloc.bar_time)
+        if showSessionLabels
+            label.new(x=londonStart, y=londonHigh, text=sessionBName, color=color.new(color.white, 100), textcolor=color.black, style=label.style_label_down, size=size.large, xloc=xloc.bar_time)
+
+// Session C (Tokyo/Asia)
+if sessionCEnabled
+    inSessionC = isInSession(sessionCStartHour, sessionCEndHour)
+    wasInSessionC = isInSession(sessionCStartHour, sessionCEndHour)[1]
+    
+    if inSessionC
+        if na(nyStart) or not wasInSessionC
+            nyStart := time
+            nyHigh := high
+            nyLow := low
+        else
+            nyHigh := math.max(nyHigh, high)
+            nyLow := math.min(nyLow, low)
+    
+    if not inSessionC and wasInSessionC and not na(nyStart)
+        box.new(left=nyStart, top=nyHigh, right=time[1], bottom=nyLow, border_color=sessionCColor, bgcolor=color.new(sessionCColor, 95), border_width=1, xloc=xloc.bar_time)
+        if showSessionLabels
+            label.new(x=nyStart, y=nyHigh, text=sessionCName, color=color.new(color.white, 100), textcolor=color.black, style=label.style_label_down, size=size.large, xloc=xloc.bar_time)
+
+// =====================================================
+// PERFORMANCE TRACKING & TRADE STATISTICS (Feature 6)
+// =====================================================
+// Track trade closures and update statistics
+var int totalTrades = 0
+var int winningTrades = 0
+var int losingTrades = 0
+var float totalProfit = 0.0
+var float totalLoss = 0.0
+var float largestWin = 0.0
+var float largestLoss = 0.0
+var float winRate = 0.0
+var float profitFactor = 0.0
+
+// Reset tracking variables when position closes
+if strategy.position_size == 0 and not na(entryPrice)
+    entryPrice := na
+    initialStopLoss := na
+    initialTakeProfit := na
+    entryBarIndex := na
+    entryTime := na
+    breakEvenActivated := false
+    partialTP1Hit := false
+    pyramidLevel := 0
+    lastPyramidPrice := na
+    trailingStopPrice := na
+    // Clear SL/TP lines
+    if array.size(slLines) > 0
+        for i = 0 to array.size(slLines) - 1
+            line.delete(array.get(slLines, i))
+        array.clear(slLines)
+    if array.size(tpLines) > 0
+        for i = 0 to array.size(tpLines) - 1
+            line.delete(array.get(tpLines, i))
+        array.clear(tpLines)
+
+// Track when trades close
+if strategy.closedtrades > totalTrades
+    lastTrade = strategy.closedtrades - 1
+    tradeProfit = strategy.closedtrades.profit(lastTrade)
+    totalTrades += 1
+    
+    // Declare trade variables outside conditionals for scope access
+    tradeEntryTime = strategy.closedtrades.entry_time(lastTrade)
+    tradeEntryPrice = strategy.closedtrades.entry_price(lastTrade)
+    tradeExitPrice = strategy.closedtrades.exit_price(lastTrade)
+    tradeDirection = strategy.closedtrades.size(lastTrade) > 0 ? "LONG" : "SHORT"
+    
+    if tradeProfit > 0
+        winningTrades += 1
+        totalProfit += tradeProfit
+        if tradeProfit > largestWin
+            largestWin := tradeProfit
+        // Reset consecutive losses
+        consecutiveLosses := 0
+    else
+        losingTrades += 1
+        totalLoss += math.abs(tradeProfit)
+        if tradeProfit < largestLoss
+            largestLoss := tradeProfit
+        consecutiveLosses += 1
+    
+    // Calculate metrics
+    winRate := totalTrades > 0 ? (winningTrades / totalTrades) * 100 : 0.0
+    profitFactor := totalLoss > 0 ? totalProfit / totalLoss : (totalProfit > 0 ? 999.0 : 0.0)
+    
+    // Trade history labels (Feature 4)
+    if enableTradeHistoryLabels
+        tradeColor = tradeProfit > 0 ? color.green : color.red
+        tradeLabel = tradeDirection + "\n" + str.tostring(tradeProfit, "#.##") + "\nR:R: " + str.tostring(math.abs(tradeProfit / (tradeEntryPrice - tradeExitPrice)), "#.##")
+        label.new(bar_index, close, tradeLabel, color=color.new(tradeColor, 80), textcolor=color.black, style=label.style_label_center, size=size.small)
+    
+    // Custom alerts on trade close (Feature 6)
+    if enableCustomAlerts
+        if tradeProfit > 0 and alertOnTPHit
+            alert("Take profit hit! Profit: " + str.tostring(tradeProfit, "#.##"), alert.freq_once_per_bar)
+        else if tradeProfit < 0 and alertOnSLHit
+            alert("Stop loss hit! Loss: " + str.tostring(tradeProfit, "#.##"), alert.freq_once_per_bar)
+    
+    // Trade logging (Feature 6)
+    if enableTradeLogging
+        logText = "Trade #" + str.tostring(totalTrades) + " | " + tradeDirection + " | Entry: " + str.tostring(tradeEntryPrice, "#.####") + " | Exit: " + str.tostring(tradeExitPrice, "#.####") + " | P&L: " + str.tostring(tradeProfit, "#.##")
+        // Note: Pine Script doesn't have file logging, but we can use this for debugging
+        // In production, you'd send this to a webhook or external service
+
+// Display Trade Statistics Table (Feature 4)
+if enableTradeStats and barstate.islast
+    statsPos = tradeStatsPosition == "Top Right" ? position.top_right : tradeStatsPosition == "Top Left" ? position.top_left : tradeStatsPosition == "Bottom Right" ? position.bottom_right : position.bottom_left
+    
+    var table statsTable = table.new(statsPos, 2, 13, bgcolor=color.new(color.white, 0), frame_color=color.blue, frame_width=2, border_width=1)
+    
+    // Header - Merge cells to span 2 columns
+    table.cell(statsTable, 0, 0, "📊 TRADE STATISTICS", text_color=color.black, text_size=size.normal, text_halign=text.align_center, bgcolor=color.new(color.gray, 70))
+    table.cell(statsTable, 1, 0, "", bgcolor=color.new(color.gray, 70))
+    table.merge_cells(statsTable, 0, 0, 1, 0)
+    
+    // Total Trades
+    table.cell(statsTable, 0, 1, "Total Trades", text_color=color.black, text_size=size.small, text_halign=text.align_left)
+    table.cell(statsTable, 1, 1, str.tostring(totalTrades), text_color=color.black, text_size=size.small, text_halign=text.align_right)
+    
+    // Win Rate
+    table.cell(statsTable, 0, 2, "Win Rate", text_color=color.black, text_size=size.small, text_halign=text.align_left)
+    winRateColor = winRate >= 50 ? color.green : winRate >= 30 ? color.orange : color.red
+    table.cell(statsTable, 1, 2, str.tostring(winRate, "#.##") + "%", text_color=color.black, text_size=size.small, text_halign=text.align_right)
+    
+    // Profit Factor
+    table.cell(statsTable, 0, 3, "Profit Factor", text_color=color.black, text_size=size.small, text_halign=text.align_left)
+    pfColor = profitFactor >= 2.0 ? color.green : profitFactor >= 1.0 ? color.orange : color.red
+    table.cell(statsTable, 1, 3, str.tostring(profitFactor, "#.##"), text_color=color.black, text_size=size.small, text_halign=text.align_right)
+    
+    // Winning Trades
+    table.cell(statsTable, 0, 4, "Winning Trades", text_color=color.black, text_size=size.small, text_halign=text.align_left)
+    table.cell(statsTable, 1, 4, str.tostring(winningTrades), text_color=color.black, text_size=size.small, text_halign=text.align_right)
+    
+    // Losing Trades
+    table.cell(statsTable, 0, 5, "Losing Trades", text_color=color.black, text_size=size.small, text_halign=text.align_left)
+    table.cell(statsTable, 1, 5, str.tostring(losingTrades), text_color=color.black, text_size=size.small, text_halign=text.align_right)
+    
+    // Total Profit
+    table.cell(statsTable, 0, 6, "Total Profit", text_color=color.black, text_size=size.small, text_halign=text.align_left)
+    table.cell(statsTable, 1, 6, str.tostring(totalProfit, "#.##"), text_color=color.black, text_size=size.small, text_halign=text.align_right)
+    
+    // Total Loss
+    table.cell(statsTable, 0, 7, "Total Loss", text_color=color.black, text_size=size.small, text_halign=text.align_left)
+    table.cell(statsTable, 1, 7, str.tostring(totalLoss, "#.##"), text_color=color.black, text_size=size.small, text_halign=text.align_right)
+    
+    // Largest Win
+    table.cell(statsTable, 0, 8, "Largest Win", text_color=color.black, text_size=size.small, text_halign=text.align_left)
+    table.cell(statsTable, 1, 8, str.tostring(largestWin, "#.##"), text_color=color.black, text_size=size.small, text_halign=text.align_right)
+    
+    // Largest Loss
+    table.cell(statsTable, 0, 9, "Largest Loss", text_color=color.black, text_size=size.small, text_halign=text.align_left)
+    table.cell(statsTable, 1, 9, str.tostring(largestLoss, "#.##"), text_color=color.black, text_size=size.small, text_halign=text.align_right)
+    
+    // Risk Management Status
+    if enableDailyLossLimit or enableMaxDrawdown or enableConsecutiveLossLimit
+        table.cell(statsTable, 0, 10, "Trading Status", text_color=color.black, text_size=size.small, text_halign=text.align_left)
+        statusText = tradingPaused ? "PAUSED" : "ACTIVE"
+        statusColor = tradingPaused ? color.red : color.green
+        table.cell(statsTable, 1, 10, statusText, text_color=color.black, text_size=size.small, text_halign=text.align_right)
+        
+        if tradingPaused
+            table.cell(statsTable, 0, 11, "Daily P&L", text_color=color.black, text_size=size.small, text_halign=text.align_left)
+            dailyPnLColor = dailyPnL >= 0 ? color.green : color.red
+            table.cell(statsTable, 1, 11, str.tostring(dailyPnL, "#.##"), text_color=color.black, text_size=size.small, text_halign=text.align_right)
+            
+            table.cell(statsTable, 0, 12, "Drawdown", text_color=color.black, text_size=size.small, text_halign=text.align_left)
+            table.cell(statsTable, 1, 12, str.tostring(currentDrawdown, "#.##") + "%", text_color=color.black, text_size=size.small, text_halign=text.align_right)
+
+// =====================================================
+// DASHBOARD
+// =====================================================
+if showDashboard and barstate.islast
+    // Determine position
+    dashPos = dashboardPosition == "Top Right" ? position.top_right : dashboardPosition == "Top Left" ? position.top_left : dashboardPosition == "Bottom Right" ? position.bottom_right : position.bottom_left
+    
+    // Build dashboard text
+    var dashText = ""
+    dashText := "═══ MSG LEGO SYSTEM ═══\n"
+    dashText += "Risk Level: " + riskLevel + "\n"
+    
+    // Show active ranges
+    activeRanges = 0
+    if msg1Enabled and array.get(msgRangeSet, 0)
+        activeRanges += 1
+    if msg2Enabled and array.get(msgRangeSet, 1)
+        activeRanges += 1
+    if msg3Enabled and array.get(msgRangeSet, 2)
+        activeRanges += 1
+    if msg4Enabled and array.get(msgRangeSet, 3)
+        activeRanges += 1
+    
+    dashText += "Active Ranges: " + str.tostring(activeRanges) + "\n"
+    
+    // Current session
+    currentSession = isInSession(sessionCStartHour, sessionCEndHour) ? sessionCName : isInSession(sessionBStartHour, sessionBEndHour) ? sessionBName : isInSession(sessionAStartHour, sessionAEndHour) ? sessionAName : "None"
+    dashText += "Session: " + currentSession
+    
+    // Display table
+    var table infoTable = table.new(dashPos, 1, 1, bgcolor=color.new(color.white, 0), frame_color=color.white, frame_width=1)
+    table.cell(infoTable, 0, 0, dashText, text_color=color.black, text_size=size.small, text_halign=text.align_left)
+

@@ -1,0 +1,336 @@
+// This work is licensed under a Attribution-NonCommercial-ShareAlike 4.0 International (CC BY-NC-SA 4.0) https://creativecommons.org/licenses/by-nc-sa/4.0/ 
+// © LuxAlgo
+
+//@version=5
+indicator('Change in State of Delivery (CISD) [LuxAlgo]', shorttitle='LuxAlgo - CISD', max_labels_count=500, max_lines_count=500, overlay=true)
+
+//---------------------------------------------------------------------------------------------------------------------}
+// Settings
+//---------------------------------------------------------------------------------------------------------------------{
+space                    =              '                               '
+Tracking_Method          = input.string  ('Classic', 'Detection Method'
+                         , options      =['Classic', 'Liquidity Sweep']                             )
+length                   = input.int( 10, 'Swing Length'           , minval=1             
+           , tooltip     =                'Only applicable on the Liquidity Sweep Detection Method'     )
+Minimum_Sequence_Length  = input.int(  0, 'Minimum CISD Duration'  , minval=0                             )
+Maximum_Sequence_Length  = input.int(100, 'Maximum Swing Validity' , minval=1, maxval=1000                  
+           ,  tooltip    =                'Maximum allowed swing level duration without a new detected sweep' )
+textSize   =  str.lower(input.string( 'Tiny', 'Label/Text Size'    , group='Style', options  =['Tiny', 'Small']))
+cBull      = input.color(#089981  ,         'Bullish'            , group='Style'                                )
+cBear      = input.color(#f23645  ,         'Bearish'            , group='Style'                                  )
+cSweepH    = input.color(#787b8684,         'Sweeps'      + space, group='Style', inline="S"                        )
+cSweepL    = input.color(#787b8684,         ''                   , group='Style', inline="S", tooltip='Sweep High/Low')
+
+//---------------------------------------------------------------------------------------------------------------------}
+//LuxAlgo Defined Types
+//---------------------------------------------------------------------------------------------------------------------{
+type bin 
+    line ln 
+    bool active 
+    chart.point cp1
+    chart.point cp2
+    bool broken = false
+
+type swing 
+    chart.point cp
+    line        ln
+    line       wick
+    bool active = false
+
+//---------------------------------------------------------------------------------------------------------------------}
+//Constants and general variables
+//---------------------------------------------------------------------------------------------------------------------{
+INV   = color(na)
+n     = bar_index 
+
+//---------------------------------------------------------------------------------------------------------------------}
+//Variables
+//---------------------------------------------------------------------------------------------------------------------{
+bull  = close > open 
+bear  = close < open 
+sweep = Tracking_Method == 'Liquidity Sweep'
+
+var int         trend          = 0
+var array<bin>  arrBull        = array.new<bin>() 
+var array<bin>  arrBear        = array.new<bin>() 
+var array<swing>swingsH        = array.new<swing>() 
+var array<swing>swingsL        = array.new<swing>() 
+var chart.point cp_lastPh      = chart.point.from_index(n , high) 
+var chart.point cp_lastPl      = chart.point.from_index(n , low ) 
+var chart.point trackPriceBull = chart.point.from_index(na,  na )
+var chart.point trackPriceBear = chart.point.from_index(na,  na )
+
+var  bin        oBull          = bin.new(
+       line.new(n, open, n, open, color=color.green)
+     , true
+     , chart.point.from_index(n, high)
+     , chart.point.from_index(n, high)
+     )
+var  bin        oBear          = bin.new(
+       line.new(n, open, n, open, color=color.red  )
+     , true
+     , chart.point.from_index(n, low )
+     , chart.point.from_index(n, low )
+     )
+
+//---------------------------------------------------------------------------------------------------------------------}
+//Execution
+//---------------------------------------------------------------------------------------------------------------------{
+ph = ta.pivothigh(length, 1)
+pl = ta.pivotlow (length, 1)
+
+if not na(ph) 
+    swingsH.push(swing.new(chart.point.from_index(n-1, ph)))
+    cp_lastPh           := chart.point.from_index(n-1, ph)
+
+if not na(pl) 
+    swingsL.push(swing.new(chart.point.from_index(n-1, pl)))
+    cp_lastPl           := chart.point.from_index(n-1, pl)
+
+if bull and bear[1]
+    trackPriceBull := chart.point.from_index(n, open)
+
+if bear and bull[1]
+    trackPriceBear := chart.point.from_index(n, open)
+
+//Reset when last Swing is broken
+if close > cp_lastPh.price
+    cp_lastPh := chart.point.from_index(na, na)
+
+if close < cp_lastPl.price
+    cp_lastPl := chart.point.from_index(na, na)
+
+//Not Sweep 
+//#region
+if not sweep      
+    //Bearish
+    if barstate.isconfirmed and bull and bear[1]
+        if oBull.active        
+            if not oBull.broken
+                oBull.ln.delete()
+
+        oBull.active := true 
+        oBull.ln     := line.new(trackPriceBull.index, trackPriceBull.price, n, trackPriceBull.price, color=color.new(cBull, 40))
+        oBull.cp1    := chart.point.from_index(cp_lastPh.index, cp_lastPh.price)        
+        oBull.cp2    := chart.point.from_index(n, cp_lastPh.price)
+        oBull.broken := false
+
+    //Bullish 
+    if barstate.isconfirmed and bear and bull[1] 
+        if oBear.active
+            if not oBear.broken
+                oBear.ln.delete() 
+
+        oBear.active := true 
+        oBear.ln     := line.new(trackPriceBear.index, trackPriceBear.price, n, trackPriceBear.price, color=color.new(cBear, 40))
+        oBear.cp1    := chart.point.from_index(cp_lastPl.index, cp_lastPl.price)        
+        oBear.cp2    := chart.point.from_index(n, cp_lastPl.price)
+        oBear.broken := false
+
+    //Bearish CISD
+    if oBull.active         
+        if n - oBull.ln.get_x1() <= Maximum_Sequence_Length
+            oBull.ln.set_x2(n)
+            if close < oBull.ln.get_y2()
+                if n - oBull.ln.get_x1() >= Minimum_Sequence_Length
+                    oBull.ln.set_color(cBear)
+                    if trend ==-1
+                        oBull.ln.set_style(line.style_dashed)
+                    oBull.active := false
+                    oBull.broken := true
+                    trend :=-1
+                    x1 = oBull.ln.get_x1()
+                    x  = math.ceil(math.avg(x1, n))
+
+                    label.new(x, oBull.ln.get_y2()
+                     , style= label.style_label_up
+                     , textcolor=cBear, text='CISD'
+                     , size=textSize
+                     , color=INV
+                     ) 
+                else 
+                    oBull.active := false
+                    oBull.ln.delete()
+        else 
+            oBull.active := false
+            oBull.ln.delete()
+
+    //Bullish CISD
+    if oBear.active    
+        if n - oBear.ln.get_x1() <= Maximum_Sequence_Length          
+            oBear.ln.set_x2(n)
+            if close > oBear.ln.get_y2()  
+                if n - oBear.ln.get_x1() >= Minimum_Sequence_Length 
+                    oBear.ln.set_color(cBull)
+                    if trend == 1
+                        oBear.ln.set_style(line.style_dashed)
+                    oBear.active := false
+                    oBear.broken := true
+                    trend := 1
+                    x1 = oBear.ln.get_x1()
+                    x  = math.ceil(math.avg(x1, n))
+                    label.new(x, oBear.ln.get_y2()
+                     , style= label.style_label_down
+                     , textcolor=cBull, text='CISD'
+                     , color=INV, size=textSize
+                     ) 
+                else
+                    oBear.active := false
+                    oBear.ln.delete()
+        else 
+            oBear.active := false
+            oBear.ln.delete()
+//#endregion
+
+//Sweep 
+//#region
+else 
+    if swingsH.size() > 0 
+        max_bars_back(close, 1000)
+        for i = swingsH.size() -1 to 0 
+            get = swingsH.get(i)
+            x = get.cp.index
+            y = get.cp.price        
+            //Too far back
+            if n - x > Maximum_Sequence_Length 
+                swingsH.remove(i)
+            else             
+                //if line swing available
+                if not na(get.ln)                
+                    //if broken
+                    if close > get.ln.get_y2() 
+                        swingsH.remove(i)
+                else 
+                    if close > y                     
+                        swingsH.remove(i)
+                    else
+                        //Show swing/sweeps - also in 'regular mode'
+                        //First time sweep of line
+                        if not get.active 
+                            if high > get.cp.price and close < get.cp.price
+                                get.ln := line.new(x, get.cp.price, n, get.cp.price, color=cSweepH)
+                                get.wick := line.new(n, get.cp.price, n, high, color=cSweepH, width=3)
+                                get.active := true
+
+                                //check if not broken already
+                                good = true
+                                for j = 0 to n - trackPriceBull.index
+                                    if close[j] < trackPriceBull.price 
+                                        good := false
+                                        break
+                                if good                                        
+                                    arrBull.push(bin.new(
+                                       line.new(trackPriceBull.index, trackPriceBull.price, n, trackPriceBull.price, color=color.new(cBull, 40))
+                                     , true
+                                     , chart.point.from_index(cp_lastPh.index, cp_lastPh.price)
+                                     , chart.point.from_index(n, cp_lastPh.price)
+                                      )
+                                     )
+    if swingsL.size() > 0 
+        max_bars_back(close, 1000)
+        for i = swingsL.size() -1 to 0 
+            get = swingsL.get(i)
+            x = get.cp.index
+            y = get.cp.price
+            //Too far back
+            if n - x > Maximum_Sequence_Length 
+                swingsL.remove(i)
+            else 
+                //if line swing available
+                if not na(get.ln)
+                    //if broken
+                    if close < get.ln.get_y2() 
+                        swingsL.remove(i)
+                else 
+                    if close < y 
+                        swingsL.remove(i)
+                    else 
+                        //Show swing/sweeps - also in 'regular mode'
+                        if not get.active  
+                            if low  < get.cp.price and close > get.cp.price
+                                get.ln := line.new(x, get.cp.price, n, get.cp.price, color=cSweepL)
+                                get.wick := line.new(n, get.cp.price, n, low , color=cSweepL, width=3)
+                                get.active := true
+
+                                //check if not broken already
+                                good = true
+                                for j = 0 to n - trackPriceBear.index
+                                    if close[j] > trackPriceBear.price 
+                                        good := false
+                                        break
+                                if good
+                                    arrBear.push(bin.new(
+                                       line.new(trackPriceBear.index, trackPriceBear.price, n, trackPriceBear.price, color=color.new(cBear, 40))
+                                     , true
+                                     , chart.point.from_index(cp_lastPl.index, cp_lastPl.price)
+                                     , chart.point.from_index(n, cp_lastPl.price)
+                                      )
+                                     )
+    if arrBull.size() > 0 
+        for i = arrBull.size() -1 to 0 
+            get = arrBull.get(i)
+            get.ln.set_x2(n)
+            x1 = get.ln.get_x1()
+            if n - x1 > Maximum_Sequence_Length
+                get.ln.delete()
+                arrBull.remove(i) 
+            else
+                if close < get.ln.get_y2() 
+                    if n - x1 >= Minimum_Sequence_Length
+                        get.ln.set_color(cBear)
+                        if trend ==-1
+                            get.ln.set_style(line.style_dashed)
+                        trend := -1 
+                        x  = math.ceil(math.avg(x1, n))
+                        label.new(x, get.ln.get_y2()
+                         , style= label.style_label_up
+                         , textcolor=cBear, text='CISD'
+                         , size=textSize
+                         , color=INV
+                         ) 
+                        label.new(n, high
+                         , style=label.style_label_down
+                         , textcolor=cBear, text='▼'
+                         , size=textSize
+                         , color=INV
+                         )
+                    else 
+                        get.ln.delete()
+
+                    arrBull.remove(i)
+
+    if arrBear.size() > 0 
+        for i = arrBear.size() -1 to 0 
+            get = arrBear.get(i)
+            get.ln.set_x2(n)
+            x1 = get.ln.get_x1()
+            if n - x1 > Maximum_Sequence_Length
+                get.ln.delete()
+                arrBear.remove(i) 
+            else
+                if close > get.ln.get_y2() 
+                    if n - x1 >= Minimum_Sequence_Length
+                        get.ln.set_color(cBull)
+                        if trend == 1
+                            get.ln.set_style(line.style_dashed)
+                        trend :=  1 
+                        x  = math.ceil(math.avg(x1, n))
+                        label.new(x, get.ln.get_y2()
+                         , style= label.style_label_down
+                         , textcolor=cBull, text='CISD'
+                         , size=textSize
+                         , color=INV
+                         ) 
+                        label.new(n, low
+                         , style=label.style_label_up
+                         , textcolor=cBull, text='▲'
+                         , size=textSize
+                         , color=INV
+                         )
+                    else 
+                        get.ln.delete()
+
+                    arrBear.remove(i)
+//#endregion
+
+//---------------------------------------------------------------------------------------------------------------------}
