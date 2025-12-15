@@ -17,13 +17,13 @@ strategy("Wick Rejection S/R Strategy v3.1", shorttitle="WR-SR v3.1", overlay=tr
 // INPUTS - LEVEL DETECTION
 // ═══════════════════════════════════════════════════════════════════════════════
 grp_levels = "══════ Level Detection ══════"
-lookback_period     = input.int(50, "Lookback Period", minval=20, maxval=200, group=grp_levels, tooltip="Number of candles to scan for rejection wicks")
-wick_threshold      = input.float(0.50, "Wick Threshold %", minval=0.30, maxval=0.80, step=0.05, group=grp_levels, tooltip="Minimum wick size as % of candle range")
+lookback_period     = input.int(100, "Lookback Period", minval=20, maxval=200, group=grp_levels, tooltip="Number of candles to scan for rejection wicks")
+wick_threshold      = input.float(0.35, "Wick Threshold %", minval=0.30, maxval=0.80, step=0.05, group=grp_levels, tooltip="Minimum wick size as % of candle range")
 level_proximity     = input.float(2.0, "Level Merge Distance", minval=0.5, maxval=20.0, step=0.5, group=grp_levels, tooltip="Points tolerance for merging nearby levels")
-max_levels          = input.int(6, "Max Levels to Show", minval=2, maxval=12, group=grp_levels)
+max_levels          = input.int(10, "Max Levels to Show", minval=2, maxval=12, group=grp_levels)
 zone_buffer         = input.float(1.5, "Zone Buffer (points)", minval=0.5, maxval=10.0, step=0.5, group=grp_levels, tooltip="Buffer above/below level for zone definition")
 min_candle_range    = input.float(1.0, "Min Candle Range", minval=0.1, maxval=10.0, step=0.1, group=grp_levels, tooltip="Ignore tiny candles below this range")
-level_expiration    = input.int(200, "Level Expiration (bars)", minval=50, maxval=500, group=grp_levels, tooltip="Levels older than this will be removed")
+level_expiration    = input.int(500, "Level Expiration (bars)", minval=50, maxval=500, group=grp_levels, tooltip="Levels older than this will be removed")
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // INPUTS - TREND FILTER
@@ -796,14 +796,14 @@ if barstate.islast
     
     if show_tp_lines and strategy.position_size != 0
         tp1_line := line.new(bar_index - 10, tp1_price, bar_index + 10, tp1_price, color=color.new(color.green, 30), width=2, style=line.style_dashed, extend=extend.right)
-        tp1_label := label.new(bar_index + 5, tp1_price, "TP1", style=label.style_label_left, color=color.new(color.green, 50), textcolor=color.white, size=size.tiny)
+        tp1_label := label.new(bar_index + 5, tp1_price, "TP1", style=label.style_label_left, color=color.new(color.green, 50), textcolor=color.black, size=size.tiny)
         if use_multiple_tp
             tp2_line := line.new(bar_index - 10, tp2_price, bar_index + 10, tp2_price, color=color.new(color.green, 50), width=1, style=line.style_dotted, extend=extend.right)
-            tp2_label := label.new(bar_index + 5, tp2_price, "TP2", style=label.style_label_left, color=color.new(color.green, 70), textcolor=color.white, size=size.tiny)
+            tp2_label := label.new(bar_index + 5, tp2_price, "TP2", style=label.style_label_left, color=color.new(color.green, 70), textcolor=color.black, size=size.tiny)
             tp3_line := line.new(bar_index - 10, tp3_price, bar_index + 10, tp3_price, color=color.new(color.green, 70), width=1, style=line.style_dotted, extend=extend.right)
-            tp3_label := label.new(bar_index + 5, tp3_price, "TP3", style=label.style_label_left, color=color.new(color.green, 80), textcolor=color.white, size=size.tiny)
+            tp3_label := label.new(bar_index + 5, tp3_price, "TP3", style=label.style_label_left, color=color.new(color.green, 80), textcolor=color.black, size=size.tiny)
         sl_line := line.new(bar_index - 10, stop_loss, bar_index + 10, stop_loss, color=color.new(color.red, 30), width=2, style=line.style_solid, extend=extend.right)
-        sl_label := label.new(bar_index + 5, stop_loss, "SL", style=label.style_label_left, color=color.new(color.red, 50), textcolor=color.white, size=size.tiny)
+        sl_label := label.new(bar_index + 5, stop_loss, "SL", style=label.style_label_left, color=color.new(color.red, 50), textcolor=color.black, size=size.tiny)
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // VISUALIZATION
@@ -825,7 +825,7 @@ f_draw_support_levels() =>
                 level_obj.level_box := box.new(bar_index - lookback_period, level_price + support_zone_above, bar_index + 20, level_price - support_zone_below, bgcolor=color.new(color.green, zone_transparency), border_color=color.new(color.green, 80), extend=extend.right)
             if show_labels
                 touch_text = touches > 1 ? " (" + str.tostring(touches) + "x)" : ""
-                level_obj.level_label := label.new(bar_index + 25, level_price, str.tostring(level_price, format.mintick) + touch_text, style=label.style_label_left, color=color.new(support_color, 60), textcolor=color.white, size=size.small)
+                level_obj.level_label := label.new(bar_index + 25, level_price, str.tostring(level_price, format.mintick) + touch_text, style=label.style_label_left, color=color.new(support_color, 60), textcolor=color.black, size=size.small)
             array.set(support_data, i, level_obj)
 
 f_draw_resistance_levels() =>
@@ -845,7 +845,7 @@ f_draw_resistance_levels() =>
                 level_obj.level_box := box.new(bar_index - lookback_period, level_price + resist_zone_above, bar_index + 20, level_price - resist_zone_below, bgcolor=color.new(color.red, zone_transparency), border_color=color.new(color.red, 80), extend=extend.right)
             if show_labels
                 touch_text = touches > 1 ? " (" + str.tostring(touches) + "x)" : ""
-                level_obj.level_label := label.new(bar_index + 25, level_price, str.tostring(level_price, format.mintick) + touch_text, style=label.style_label_left, color=color.new(resistance_color, 60), textcolor=color.white, size=size.small)
+                level_obj.level_label := label.new(bar_index + 25, level_price, str.tostring(level_price, format.mintick) + touch_text, style=label.style_label_left, color=color.new(resistance_color, 60), textcolor=color.black, size=size.small)
             array.set(resistance_data, i, level_obj)
 
 if barstate.islast or levels_changed
@@ -855,8 +855,8 @@ if barstate.islast or levels_changed
 
 plot(show_ema ? ema_9 : na, "9 EMA", color=color.red, linewidth=2)
 
-plotshape(buy_signal and not is_sweep_signal and not is_breakout_retest, "Buy Signal", shape.triangleup, location.belowbar, buy_signal_color, size=size.normal)
-plotshape(sell_signal and not is_sweep_signal and not is_breakout_retest, "Sell Signal", shape.triangledown, location.abovebar, sell_signal_color, size=size.normal)
+plotshape(buy_signal and not is_sweep_signal and not is_breakout_retest, "Buy Signal", shape.triangleup, location.belowbar, buy_signal_color, size=size.small)
+plotshape(sell_signal and not is_sweep_signal and not is_breakout_retest, "Sell Signal", shape.triangledown, location.abovebar, sell_signal_color, size=size.small)
 plotshape(buy_signal and is_sweep_signal, "Sweep Buy", shape.diamond, location.belowbar, sweep_color, size=size.large)
 plotshape(sell_signal and is_sweep_signal, "Sweep Sell", shape.diamond, location.abovebar, sweep_color, size=size.large)
 plotshape(buy_signal and is_breakout_retest, "BR Buy", shape.circle, location.belowbar, color.new(buy_signal_color, 20), size=size.normal)
@@ -868,7 +868,7 @@ if buy_signal and barstate.isconfirmed
     conf_emoji = signal_confidence >= 4 ? "🔥" : signal_confidence >= 3 ? "⚡" : "⚠"
     type_short = is_sweep_signal ? "SWEEP" : is_breakout_retest ? "B/R" : "ZONE"
     label_text = conf_emoji + " BUY " + type_short + " @" + str.tostring(signal_level, format.mintick) + " | SL:" + str.tostring(suggested_sl, format.mintick)
-    new_label = label.new(bar_index, low - (zone_buffer * 1.5), label_text, style=label.style_label_up, color=buy_signal_color, textcolor=color.white, size=size.small)
+    new_label = label.new(bar_index, low - (zone_buffer * 1.5), label_text, style=label.style_label_up, color=buy_signal_color, textcolor=color.black, size=size.small)
     array.push(signal_labels, new_label)
     if array.size(signal_labels) > max_signal_labels
         old_label = array.shift(signal_labels)
@@ -878,7 +878,7 @@ if sell_signal and barstate.isconfirmed
     conf_emoji = signal_confidence >= 4 ? "🔥" : signal_confidence >= 3 ? "⚡" : "⚠"
     type_short = is_sweep_signal ? "SWEEP" : is_breakout_retest ? "B/R" : "ZONE"
     label_text = conf_emoji + " SELL " + type_short + " @" + str.tostring(signal_level, format.mintick) + " | SL:" + str.tostring(suggested_sl, format.mintick)
-    new_label = label.new(bar_index, high + (zone_buffer * 1.5), label_text, style=label.style_label_down, color=sell_signal_color, textcolor=color.white, size=size.small)
+    new_label = label.new(bar_index, high + (zone_buffer * 1.5), label_text, style=label.style_label_down, color=sell_signal_color, textcolor=color.black, size=size.small)
     array.push(signal_labels, new_label)
     if array.size(signal_labels) > max_signal_labels
         old_label = array.shift(signal_labels)
