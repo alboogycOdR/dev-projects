@@ -1,5 +1,5 @@
-//@version=6
-indicator("Shved Supply & Demand [Optimized]", overlay=true, max_boxes_count=500, max_labels_count=500)
+//@version=5
+indicator("Shved Supply & Demand [Optimized2]", overlay=true, max_boxes_count=500, max_labels_count=500)
 
 // ═══════════════════════════════════════════════════════════════════════════
 // PERFORMANCE OPTIMIZATIONS:
@@ -26,7 +26,6 @@ i_showTurncoat = input.bool(true, "Show Broken Zones", group="Zone Settings")
 i_atrMult = input.float(0.75, "Zone Width (ATR Multiplier)", minval=0.1, maxval=3.0, step=0.05, group="Zone Settings")
 i_merge = input.bool(true, "Merge Overlapping Zones", group="Zone Settings")
 i_extend = input.bool(true, "Extend Zones Right", group="Zone Settings")
-i_extendBars = input.int(5, "Extend Bars (Right)", minval=0, maxval=500, tooltip="How many bars past the current bar to extend zone drawings. Uses time-based coordinates.", group="Zone Settings")
 
 // Fractal Settings
 i_fastLeft = input.int(3, "Fast Pivot Left Bars", minval=1, maxval=20, group="Fractal Settings")
@@ -67,7 +66,7 @@ int UNTESTED = 2
 int VERIFIED = 3
 int PROVEN = 4
 
-// Zone structure using parallel arrays for better performance
+// Zone structure
 type Zone
     float hi
     float lo
@@ -76,14 +75,14 @@ type Zone
     int strength
     int hits
     bool turned
-    box zoneBox = na
-    label zoneLabel = na
 
 // ═══════════════════════════════════════════════════════════════════
 // GLOBAL VARIABLES
 // ═══════════════════════════════════════════════════════════════════
 
 var array<Zone> zones = array.new<Zone>()
+var array<box> zoneBoxes = array.new<box>()
+var array<label> zoneLabels = array.new<label>()
 
 // Convert label size string to size constant
 getLabelSize() =>
@@ -116,12 +115,12 @@ isSlowLow = not na(slowLow)
 // ZONE CREATION FUNCTION
 // ═══════════════════════════════════════════════════════════════════
 
-createZone(isResistance, price, barIndex, isStrong) =>
+createZone(isResistance, price, barIdx, isStrong) =>
     atr = ta.atr(7)
     fu = atr * 0.5 * i_atrMult
     
-    var float zHi = na
-    var float zLo = na
+    float zHi = na
+    float zLo = na
     
     if isResistance
         zHi := i_extend ? price + fu : price
@@ -130,8 +129,15 @@ createZone(isResistance, price, barIndex, isStrong) =>
         zLo := i_extend ? price - fu : price
         zHi := math.min(math.max(close, price + fu), price + fu * 2)
     
-    // Default new zones to UNTESTED so they are visible by default (and then get upgraded/downgraded by updateZoneStrength()).
-    Zone.new(hi = zHi, lo = zLo, startBar = barIndex, zoneType = isResistance ? RESIST : SUPPORT, strength = UNTESTED, hits = 0, turned = false)
+    Zone.new(
+         hi = zHi,
+         lo = zLo,
+         startBar = barIdx,
+         zoneType = isResistance ? RESIST : SUPPORT,
+         strength = isStrong ? UNTESTED : WEAK,
+         hits = 0,
+         turned = false
+     )
 
 // ═══════════════════════════════════════════════════════════════════
 // ZONE VALIDATION & TESTING
@@ -142,7 +148,8 @@ updateZoneStrength(Zone zone) =>
     testCount = 0
     bustCount = 0
     turned = false
-    maxLookback = math.min(bar_index - zone.startBar, i_lookback)
+    barsAgo = bar_index - zone.startBar
+    maxLookback = math.min(barsAgo, i_lookback)
     
     // Optimized test counting - only check bars since zone creation
     for i = 1 to maxLookback
@@ -175,8 +182,8 @@ updateZoneStrength(Zone zone) =>
             turned := true
     
     // Determine strength based on tests and busts
-    var int newStrength = WEAK
-    var bool isValid = true
+    int newStrength = WEAK
+    bool isValid = true
     
     if bustCount > 1
         isValid := false  // Zone broken too many times
@@ -211,28 +218,24 @@ mergeZones() =>
             iterations += 1
             
             // Mark zones for deletion (merged zones)
-            var array<int> toDelete = array.new_int()
-            array.clear(toDelete)
+            toDelete = array.new_int()
             
-            zonesSize = array.size(zones)
-            if zonesSize >= 2
-                for i = 0 to zonesSize - 2
-                    if i >= zonesSize or array.includes(toDelete, i)
+            zoneCount = array.size(zones)
+            if zoneCount >= 2
+                for i = 0 to zoneCount - 2
+                    if array.includes(toDelete, i)
                         continue
                         
                     zone1 = array.get(zones, i)
                     
-                    for j = i + 1 to zonesSize - 1
-                        if j >= zonesSize or array.includes(toDelete, j)
+                    for j = i + 1 to zoneCount - 1
+                        if array.includes(toDelete, j)
                             continue
                             
                         zone2 = array.get(zones, j)
                         
                         // Check if zones overlap
-                        if (zone1.hi >= zone2.lo and zone1.hi <= zone2.hi) or 
-                           (zone1.lo <= zone2.hi and zone1.lo >= zone2.lo) or
-                           (zone2.hi >= zone1.lo and zone2.hi <= zone1.hi) or
-                           (zone2.lo <= zone1.hi and zone2.lo >= zone1.lo)
+                        if (zone1.hi >= zone2.lo and zone1.hi <= zone2.hi) or (zone1.lo <= zone2.hi and zone1.lo >= zone2.lo) or (zone2.hi >= zone1.lo and zone2.hi <= zone1.hi) or (zone2.lo <= zone1.hi and zone2.lo >= zone1.lo)
                             
                             // Merge zone2 into zone1
                             zone1.hi := math.max(zone1.hi, zone2.hi)
@@ -250,16 +253,14 @@ mergeZones() =>
                             
                             array.push(toDelete, j)
                             needsMerge := true
-                
-                // Remove merged zones (from end to preserve indices)
-                toDeleteSize = array.size(toDelete)
-                if toDeleteSize > 0
-                    array.sort(toDelete, order.descending)
-                    for i = 0 to toDeleteSize - 1
-                        if i < toDeleteSize
-                            idx = array.get(toDelete, i)
-                            if idx >= 0 and idx < zonesSize
-                                array.remove(zones, idx)
+            
+            // Remove merged zones (from end to preserve indices)
+            if array.size(toDelete) > 0
+                array.sort(toDelete, order.descending)
+                for i = 0 to array.size(toDelete) - 1
+                    idx = array.get(toDelete, i)
+                    if idx < array.size(zones)
+                        array.remove(zones, idx)
 
 // ═══════════════════════════════════════════════════════════════════
 // GET ZONE COLOR
@@ -284,41 +285,69 @@ getZoneColor(int zType, int strength) =>
             => c_resWeak
 
 // ═══════════════════════════════════════════════════════════════════
+// DELETE ALL DRAWINGS
+// ═══════════════════════════════════════════════════════════════════
+
+deleteAllDrawings() =>
+    // Delete all boxes
+    if array.size(zoneBoxes) > 0
+        for i = 0 to array.size(zoneBoxes) - 1
+            box.delete(array.get(zoneBoxes, i))
+        array.clear(zoneBoxes)
+    
+    // Delete all labels
+    if array.size(zoneLabels) > 0
+        for i = 0 to array.size(zoneLabels) - 1
+            label.delete(array.get(zoneLabels, i))
+        array.clear(zoneLabels)
+
+// ═══════════════════════════════════════════════════════════════════
 // DRAW ZONES
 // ═══════════════════════════════════════════════════════════════════
 
-drawZone(Zone zone, int index) =>
-    // Filter by strength - only draw if zone should be shown
-    shouldDraw = true
-    if zone.strength == WEAK and not i_showWeak
-        shouldDraw := false
-    if zone.strength == UNTESTED and not i_showUntested
-        shouldDraw := false
-    if zone.strength == TURNCOAT and not i_showTurncoat
-        shouldDraw := false
+drawZones() =>
+    // Clear old drawings first
+    deleteAllDrawings()
     
-    if shouldDraw
-        // Delete old drawings if they exist
-        if not na(zone.zoneBox)
-            box.delete(zone.zoneBox)
-        if not na(zone.zoneLabel)
-            label.delete(zone.zoneLabel)
-
-        // Always draw using bar time coordinates to avoid xloc.bar_index limits (history + future constraints)
-        // zone.startBar is an absolute bar_index at the time the zone was created.
-        maxHistory = 10000
+    // Draw all valid zones
+    for i = 0 to array.size(zones) - 1
+        zone = array.get(zones, i)
+        
+        // Filter by strength
+        if zone.strength == WEAK and not i_showWeak
+            continue
+        if zone.strength == UNTESTED and not i_showUntested
+            continue
+        if zone.strength == TURNCOAT and not i_showTurncoat
+            continue
+        
+        // Calculate bars back from current bar
         barsBack = bar_index - zone.startBar
-        barsBackValid = barsBack >= 0 and barsBack <= maxHistory
-        if barsBackValid
+        
+        // Limit barsBack to available historical buffer (max 5000 bars or bar_index, whichever is smaller)
+        maxBarsBack = math.min(bar_index, 5000)
+        
+        // Only draw if within reasonable range
+        if barsBack >= 0 and barsBack <= maxBarsBack
             zColor = getZoneColor(zone.zoneType, zone.strength)
-            // Extend to current bar (and optionally N bars beyond) using time delta
-            extendBars = i_extend ? i_extendBars : 0
-            barDelta = time - time[1]
-            rightTime = na(barDelta) ? time : (time + barDelta * extendBars)
-            leftTime = time[barsBack]
-
-            zone.zoneBox := box.new(left = leftTime, top = zone.hi, right = rightTime, bottom = zone.lo, xloc = xloc.bar_time, border_color = zColor, bgcolor = i_fillZones ? zColor : color.new(zColor, 100), border_width = i_borderWidth, extend = extend.none)
-
+            
+            // Ensure left coordinate doesn't go beyond available bars
+            leftBar = math.max(0, bar_index - barsBack)
+            
+            // Create box using bar_index coordinates
+            b = box.new(
+                 left = leftBar,
+                 top = zone.hi,
+                 right = bar_index,
+                 bottom = zone.lo,
+                 border_color = zColor,
+                 bgcolor = i_fillZones ? zColor : color.new(zColor, 100),
+                 border_width = i_borderWidth,
+                 extend = i_extend ? extend.right : extend.none
+             )
+            array.push(zoneBoxes, b)
+            
+            // Create label if enabled
             if i_showLabels
                 strengthText = switch zone.strength
                     PROVEN => "Proven"
@@ -326,21 +355,30 @@ drawZone(Zone zone, int index) =>
                     UNTESTED => "Untested"
                     TURNCOAT => "Turncoat"
                     => "Weak"
-
+                
                 typeText = zone.zoneType == SUPPORT ? "Sup" : "Res"
                 labelText = strengthText + " " + typeText
+                
                 if zone.hits > 0 and zone.strength > UNTESTED
                     labelText += " (" + str.tostring(zone.hits) + ")"
-
+                
                 labelY = zone.lo + (zone.hi - zone.lo) * 0.5
-                // Align label at the right edge of the zone
-                zone.zoneLabel := label.new(x = rightTime, y = labelY, xloc = xloc.bar_time, text = labelText, color = color.new(color.white, 100), textcolor = color.black, style = label.style_label_left, size = getLabelSize())
+                
+                lbl = label.new(
+                     x = leftBar,
+                     y = labelY,
+                     text = labelText,
+                     color = color.new(color.white, 100),
+                     textcolor = color.black,
+                     style = label.style_none,
+                     size = getLabelSize()
+                 )
+                array.push(zoneLabels, lbl)
 
 // ═══════════════════════════════════════════════════════════════════
 // MAIN PROCESSING
 // ═══════════════════════════════════════════════════════════════════
 
-// Process on every bar to update zones, create new ones when pivots are confirmed
 // Add new zones from pivots (only at pivot confirmation)
 if isFastHigh
     newZone = createZone(true, fastHigh, bar_index - i_fastRight, isSlowHigh)
@@ -352,34 +390,22 @@ if isFastLow
     if array.size(zones) < i_maxZones * 2  // Allow room for merging
         array.push(zones, newZone)
 
-// Update existing zones (strength, tests, etc.) - run on every bar
-zonesSize = array.size(zones)
-if zonesSize > 0
+// Update existing zones (on every bar for real-time updates)
+if array.size(zones) > 0
     validZones = array.new<Zone>()
     
-    for i = 0 to zonesSize - 1
-        if i < zonesSize
-            zone = array.get(zones, i)
-            
-            // Remove zones that are too old
-            if bar_index - zone.startBar > i_lookback
-                if not na(zone.zoneBox)
-                    box.delete(zone.zoneBox)
-                if not na(zone.zoneLabel)
-                    label.delete(zone.zoneLabel)
-                continue
-            
-            // Update zone and check if still valid
-            isValid = updateZoneStrength(zone)
-            
-            if isValid
-                array.push(validZones, zone)
-            else
-                // Clean up invalid zone
-                if not na(zone.zoneBox)
-                    box.delete(zone.zoneBox)
-                if not na(zone.zoneLabel)
-                    label.delete(zone.zoneLabel)
+    for i = 0 to array.size(zones) - 1
+        zone = array.get(zones, i)
+        
+        // Remove zones that are too old
+        if bar_index - zone.startBar > i_lookback
+            continue
+        
+        // Update zone and check if still valid
+        isValid = updateZoneStrength(zone)
+        
+        if isValid
+            array.push(validZones, zone)
     
     zones := validZones
 
@@ -387,76 +413,59 @@ if zonesSize > 0
 if i_merge and array.size(zones) > 1
     mergeZones()
 
-// Sort zones by strength and proximity to current price
-// Keep only the best zones up to max_zones
+// Sort and limit zones to max_zones
 if array.size(zones) > i_maxZones
-    // Sort by strength (descending) and distance to price
-    sortedZones = array.new<Zone>()
-    
     // Separate support and resistance
     supports = array.new<Zone>()
     resistances = array.new<Zone>()
     
-    zonesSize = array.size(zones)
-    for i = 0 to zonesSize - 1
-        if i < zonesSize
-            zone = array.get(zones, i)
-            if zone.hi < close
-                array.push(supports, zone)
-            else if zone.lo > close
-                array.push(resistances, zone)
+    for i = 0 to array.size(zones) - 1
+        zone = array.get(zones, i)
+        if zone.hi < close
+            array.push(supports, zone)
+        else if zone.lo > close
+            array.push(resistances, zone)
+    
+    // Sort each by proximity to price
+    // For supports: higher is closer (sort descending by lo)
+    // For resistances: lower is closer (sort ascending by hi)
     
     // Take best of each type
+    sortedZones = array.new<Zone>()
     maxPerType = math.floor(i_maxZones / 2)
     
-    // Add top supports (closest to price)
-    supportsSize = array.size(supports)
-    if supportsSize > 0
-        numToTakeSupports = math.min(supportsSize, maxPerType)
-        if numToTakeSupports > 0
-            for i = 0 to numToTakeSupports - 1
-                if i < supportsSize
-                    array.push(sortedZones, array.get(supports, i))
+    // Add closest supports
+    numSupports = math.min(array.size(supports), maxPerType)
+    for i = 0 to numSupports - 1
+        array.push(sortedZones, array.get(supports, i))
     
-    // Add top resistances (closest to price)
-    resistancesSize = array.size(resistances)
-    if resistancesSize > 0
-        numToTakeResistances = math.min(resistancesSize, maxPerType)
-        if numToTakeResistances > 0
-            for i = 0 to numToTakeResistances - 1
-                if i < resistancesSize
-                    array.push(sortedZones, array.get(resistances, i))
+    // Add closest resistances
+    numResist = math.min(array.size(resistances), maxPerType)
+    for i = 0 to numResist - 1
+        array.push(sortedZones, array.get(resistances, i))
     
-    // If price is inside most zones, supports/resistances lists can both be empty.
-    // Never replace `zones` with an empty selection, otherwise nothing gets drawn.
-    if array.size(sortedZones) > 0
-        zones := sortedZones
+    zones := sortedZones
 
-// Draw all zones on confirmed bars (boxes persist, so this is safe)
-zonesSize := array.size(zones)
-if (barstate.isconfirmed or barstate.islast) and zonesSize > 0
-    for i = 0 to zonesSize - 1
-        if i < zonesSize
-            drawZone(array.get(zones, i), i)
+// Draw all zones on last bar
+if barstate.islast
+    drawZones()
 
 // Check for alerts
 if i_alerts and barstate.isconfirmed
-    zonesSize := array.size(zones)
-    if zonesSize > 0
-        for i = 0 to zonesSize - 1
-            if i < zonesSize
-                zone = array.get(zones, i)
-                
-                if zone.strength == WEAK and not i_showWeak
-                    continue
-                if zone.strength == UNTESTED and not i_showUntested
-                    continue
-                if zone.strength == TURNCOAT and not i_showTurncoat
-                    continue
-                
-                if close >= zone.lo and close <= zone.hi
-                    alertMsg = (zone.zoneType == SUPPORT ? "Support" : "Resistance") + " Zone Entered"
-                    alert(alertMsg, alert.freq_once_per_bar)
+    for i = 0 to array.size(zones) - 1
+        zone = array.get(zones, i)
+        
+        if zone.strength == WEAK and not i_showWeak
+            continue
+        if zone.strength == UNTESTED and not i_showUntested
+            continue
+        if zone.strength == TURNCOAT and not i_showTurncoat
+            continue
+        
+        if close >= zone.lo and close <= zone.hi
+            alertMsg = (zone.zoneType == SUPPORT ? "Support" : "Resistance") + " Zone Entered"
+            alert(alertMsg, alert.freq_once_per_bar)
+            break
 
 // ═══════════════════════════════════════════════════════════════════
 // NEAREST ZONES FOR DATA WINDOW
@@ -473,21 +482,18 @@ if barstate.islast
     nearestResHi := na
     nearestResLo := na
     
-    zonesSize = array.size(zones)
-    if zonesSize > 0
-        for i = 0 to zonesSize - 1
-            if i < zonesSize
-                zone = array.get(zones, i)
-                
-                if zone.zoneType == SUPPORT and zone.hi < close
-                    if na(nearestSuppHi) or zone.lo > nearestSuppLo
-                        nearestSuppHi := zone.hi
-                        nearestSuppLo := zone.lo
-                
-                if zone.zoneType == RESIST and zone.lo > close
-                    if na(nearestResHi) or zone.hi < nearestResHi
-                        nearestResHi := zone.hi
-                        nearestResLo := zone.lo
+    for i = 0 to array.size(zones) - 1
+        zone = array.get(zones, i)
+        
+        if zone.zoneType == SUPPORT and zone.hi < close
+            if na(nearestSuppHi) or zone.lo > nearestSuppLo
+                nearestSuppHi := zone.hi
+                nearestSuppLo := zone.lo
+        
+        if zone.zoneType == RESIST and zone.lo > close
+            if na(nearestResHi) or zone.hi < nearestResHi
+                nearestResHi := zone.hi
+                nearestResLo := zone.lo
 
 plot(nearestResHi, "Nearest Resistance High", color.new(color.red, 90), display=display.data_window)
 plot(nearestResLo, "Nearest Resistance Low", color.new(color.red, 90), display=display.data_window)

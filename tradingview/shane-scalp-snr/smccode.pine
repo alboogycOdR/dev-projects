@@ -1,0 +1,1147 @@
+ 
+
+//@version=6
+indicator("🔥 SMC Reversal Engine v3.6 – Clean FVG + Dashboard", overlay=true, max_lines_count=500, max_boxes_count=500, max_labels_count=500)
+
+// === INPUTS ===
+// === DASHBOARD + STRUCTURE CONTROLS (Top-Level View) ===
+dashboardPosition    = input.string("Top Right", "Dashboard Position", options=["Top Left", "Top Right", "Bottom Left", "Bottom Right"], group="Display")
+htf                  = input.timeframe("60", "Higher Timeframe for Structure", group="Structure")
+useIDMFilter         = input.bool(true, "Require Inducement Before CHoCH/BOS?", group="Structure")
+useAutoFractal       = input.bool(true,  "Auto Fractal Sensitivity?", group="Fractal Settings")
+manualFractalSensitivity = input.int(3, "Manual Sensitivity (Auto OFF)", minval=1, group="Fractal Settings")
+
+// === CORE DISPLAY OPTIONS ===
+showStructureLines   = input.bool(true,  "Show HTF High/Low Lines", group="Display")
+showZigZag           = input.bool(true,  "Show ZigZag Lines", group="Display")
+showPivotDots        = input.bool(true,  "Show Pivot Dots", group="Display")
+minimalMode          = input.bool(false, "Minimal Mode (hide tables & most labels)", group="Display")
+
+// === ZONE VISUALS ===
+showOrderBlockZones   = input.bool(true,  "Show HTF Order Block Zones", group="Display")
+showExpectedHLZones   = input.bool(true,  "Show Expected HL/LH Zones", group="Display")
+showFibZones          = input.bool(false, "Show Fibonacci Zones", group="Display")
+
+// === LABELS & STRUCTURE INFO ===
+showOBLabels          = input.bool(true,  "Show Order Block Labels", group="Display")
+showStructureLabels   = input.bool(true,  "Show Structure Labels", group="Display")
+showNextExpectation   = input.bool(true,  "Show Next Expected Structure", group="Display")
+showInvalidationLabels= input.bool(true,  "Show Invalidation Labels", group="Display")
+
+// === ORDER BLOCK SETTINGS ===
+enableHTFob           = input.bool(true, "Enable HTF Order Blocks", group="Order Blocks")
+obHTF                 = input.timeframe("W", "OB Timeframe (M/W/D)", group="Order Blocks")
+maxOBs                = input.int(3, "Max Order Blocks per Side", minval=1, group="Order Blocks")
+
+// === OB STYLING ===
+showTrendlineShading  = input.bool(true,  "Show Trendline Break Shading", group="Display")
+fadeOldOBZones        = input.bool(true,  "Fade Old OB Zones", group="Display")
+maxOBOpacity          = input.int(60,     "OB Fade Opacity (%)", minval=0, maxval=100, group="Display")
+onlyShowCurrentTrend  = input.bool(false, "Only Show Current Trend Zones", group="Display")
+
+// === FAIR VALUE GAP (FVG) SETTINGS ===
+enableFVG             = input.bool(true,  "Enable FVG Zones", group="FVG Settings")
+useTrendFilter        = input.bool(true,  "Only FVGs in Trend Direction", group="FVG Settings")
+enableAutoEntry       = input.bool(false, "Auto-Enter on FVG Tap", group="FVG Settings")
+markTapEntry          = input.bool(true,  "Mark Entry on FVG Tap", group="FVG Settings")
+showFVGFill           = input.bool(true,  "Show FVG Fill", group="FVG Settings")
+showFvgTapLine        = input.bool(true,  "Show FVG Tap Line", group="FVG Settings")
+fvgTapLineBars        = input.int(8, "FVG Tap Line Extend (bars)", minval=1, maxval=50, group="FVG Settings")
+fvgLabelOffset        = input.int(2, "FVG Label Left Offset", minval=0, maxval=10, group="FVG Settings")
+maxFVGs               = input.int(3, "Max FVG per Direction", minval=1, group="FVG Settings")
+fvgExtend             = input.string("right", "FVG Extend", options=["right","none"], group="FVG Settings") == "right" ? extend.right : extend.none
+fvgMaxLife            = input.int(50, "FVG Max Life (bars)", minval=10, group="FVG Settings")
+enableFVGStrengthFilter = input.bool(false, "Enable FVG Strength Filter", group="FVG Settings")
+fvgStrengthThreshold  = input.float(1.5, "FVG Strength Threshold (X times body)", step=0.1, minval=0.1, group="FVG Settings")
+fvgMitigationMethod   = input.string("wick", "FVG Removal Method", options=["wick", "close"], group="FVG Settings")
+fvgRemovalDelayBars   = input.int(0, "Delay After Mitigation (bars)", minval=0, maxval=10, group="FVG Settings")
+
+// === LABEL OFFSETS ===
+chochLabelOffset      = input.int(6, "CHoCH Label Offset", options=[2,4,6,8,12], group="Display")
+bosLabelOffset        = input.int(4, "BOS Label Offset",   options=[2,4,6,8,12], group="Display")
+
+// === ACCURACY DASHBOARD ===
+showAccuracyChart     = input.bool(true, "Show Accuracy Mini-Chart", group="Display")
+showPredictionAccuracy= input.bool(true, "Show Prediction Accuracy", group="Display")
+maxAccPoints          = input.int(20, "Max Accuracy History Points", minval=5, maxval=50, group="Display")
+
+// === EQ ZONE SETTINGS ===
+enablePDZones         = input.bool(true, "Show Premium / Discount Zones", group="EQ Zones")
+pdZoneTransparency    = input.int(85, "Zone Transparency (0–100)", minval=0, maxval=100, group="EQ Zones")
+eqLineColor           = input.color(color.gray, "Equilibrium Line Color", group="EQ Zones")
+premiumColor          = input.color(color.red, "Premium Zone Color", group="EQ Zones")
+discountColor         = input.color(color.green, "Discount Zone Color", group="EQ Zones")
+
+// === EARLY TOP DETECTION ===
+enableEarlyTop        = input.bool(true,  "Enable Early‑Top Warning", group="EarlyTop")
+wickThresh            = input.float(0.5, "Wick Threshold (%)", step=0.1, group="EarlyTop")
+rsiLen                = input.int(14,   "RSI Length", group="EarlyTop")
+rsiOB                 = input.int(70,   "RSI Overbought Level", group="EarlyTop")
+earlyTopCooldownBars  = input.int(30,   "Cooldown Bars Between Early Tops", minval=1, group="EarlyTop")
+
+// === BUY / SELL SIGNALS ===
+enableBuySell         = input.bool(true,  "Enable Buy/Sell Signals", group="Buy/Sell")
+useAutoEMA            = input.bool(true,  "Auto EMA Lengths", group="Buy/Sell")
+manualFastEMA         = input.int(9,    "Fast EMA Length", minval=1, group="Buy/Sell")
+manualSlowEMA         = input.int(21,   "Slow EMA Length", minval=1, group="Buy/Sell")
+emaGapThreshold       = input.float(0.5, "Minimum EMA Gap (%)", step=0.1, group="Buy/Sell")
+buySellCooldownBars   = input.int(20,   "Cooldown Bars Between Signals", minval=1, group="Buy/Sell")
+
+// === TRENDLINE CONTROLS ===
+enableTrendlines      = input.bool(true, "Auto Trendlines from Swings", group="Trendlines")
+requireStrongTrend    = input.bool(true, "Only Draw if Trend Confidence > 70%", group="Trendlines")
+allowBothTrendlines   = input.bool(false, "Allow Bullish + Bearish Trendlines", group="Trendlines")
+preserveTrendlines    = input.bool(true, "Preserve Historical Trendlines", group="Trendlines")
+maxTrendlines         = input.int(5, "Max Trendlines to Keep", minval=1, maxval=20, group="Trendlines")
+enableTrendlineValidation = input.bool(true, "Enable Trendline Validation", group="Trendlines")
+trendlineBreakMode    = input.string("Close", "Trigger On", options=["Close", "Wick"], group="Trendlines")
+highlightBrokenLines  = input.bool(true, "Highlight Broken Lines", group="Trendlines")
+
+// === LIQUIDITY SWEEPS ===
+enableLiquiditySweep  = input.bool(true, "Enable Liquidity Sweep Detection", group="Liquidity Sweeps")
+showSweepLabels       = input.bool(true, "Show Sweep Labels", group="Liquidity Sweeps")
+
+// === EDUCATIONAL OVERLAYS ===
+showSwingTags         = input.bool(true,  "Show HH/HL/LH/LL Tags", group="Educational")
+showCheatSheet        = input.bool(true,  "Show SMC Quick Guide", group="Educational")
+showAnticipation      = input.bool(true,  "Show Anticipation Label", group="Educational")
+
+// === PERFORMANCE CONTROLS (Last) ===
+enableLightMode       = input.bool(false, "🔦 Light Mode (disables lines & labels)", group="Performance")
+maxZigzagSwings       = input.int(20, "Max ZigZag Swings to Keep", minval=5, group="Performance")
+maxEarlyTopLabels     = input.int(5,  "Max Recent Early‑Top Labels", minval=1, group="Performance")
+maxSwingHistory       = input.int(12, "Max Swing Memory", minval=4, maxval=50, group="Performance")
+
+// === FVG DELETION FUNCTION (Safe) ===
+f_deleteFVG(_boxes, _bars, _touches, _i) =>
+    if _i < array.size(_boxes) and _i < array.size(_bars) and _i < array.size(_touches)
+        box.delete(array.get(_boxes, _i))
+        array.remove(_boxes, _i)
+        array.remove(_bars, _i)
+        array.remove(_touches, _i)
+
+   // === FRACTAL SENSITIVITY (FIXED) ===
+fractalSensitivity = useAutoFractal ? (htf == "1"   ? 1 :htf == "5"   ? 2 :htf == "15"  ? 3 :htf == "30"  ? 4 :htf == "60"  ? 5 :htf == "120" ? 6 :htf == "240" ? 7 :htf == "D"   ? 8 :htf == "W"   ? 10 : 12) : manualFractalSensitivity
+
+// 🔧 FIX: Never allow sensitivity to drop below 2 (1 causes dead pivots on low TF)
+fractalSensitivity := math.max(2, fractalSensitivity)
+
+// === STRUCTURE & SWINGS (CHoCH / BOS) ===
+pivotHigh = ta.pivothigh(high, fractalSensitivity, fractalSensitivity)
+pivotLow  = ta.pivotlow(low,  fractalSensitivity, fractalSensitivity)
+
+// === IDM Tracking (Store Pre-Break Swings) ===
+var float preBreakHigh = na
+var float preBreakLow  = na
+
+if not na(pivotHigh)
+    preBreakHigh := high
+if not na(pivotLow)
+    preBreakLow := low
+
+// === LIQUIDITY SWEEP DETECTION (Optional Toggle) ===
+var label[] sweepLabels = array.new_label()
+
+bearSweep = not na(pivotHigh[1]) and high > pivotHigh[1] and close < pivotHigh[1]
+bullSweep = not na(pivotLow[1])  and low  < pivotLow[1]  and close > pivotLow[1]
+
+if enableLiquiditySweep and not minimalMode
+    if bearSweep
+        lbl = showSweepLabels ? label.new(bar_index, high, "🔻 Sweep", color=color.red, textcolor=color.white, style=label.style_label_down, size=size.tiny) : na
+        if not na(lbl)
+            array.push(sweepLabels, lbl)
+    if bullSweep
+        lbl = showSweepLabels ? label.new(bar_index, low, "🔺 Sweep", color=color.green, textcolor=color.black, style=label.style_label_up, size=size.tiny) : na
+        if not na(lbl)
+            array.push(sweepLabels, lbl)
+
+    // Optional: limit sweep labels
+    if array.size(sweepLabels) > 10
+        oldLbl = array.shift(sweepLabels)
+        label.delete(oldLbl)
+
+// === TREND & SWING STATE ===
+var float lastSwingHigh = na
+var float lastSwingLow  = na
+var string trendDir     = "Neutral"
+
+// === ORDER BLOCK TAP FLAGS (Used for OB mitigation + alerts/markers) ===
+var bool showBullOBTap = false
+var bool showBearOBTap = false
+
+// === TRACK LAST CONFIRMED SWING HIGH/LOW (for trend direction & CHoCH/BOS logic) ===
+if not na(pivotHigh)
+    lastSwingHigh := high
+if not na(pivotLow)
+    lastSwingLow := low
+
+// === CHoCH WITH IDM FILTER === 
+bullishCHoCH = not na(pivotHigh) and pivotHigh > nz(lastSwingHigh[1]) and trendDir == "Bearish"
+bearishCHoCH = not na(pivotLow)  and pivotLow  < nz(lastSwingLow[1])  and trendDir == "Bullish"
+
+validBullCHoCH = bullishCHoCH and (not useIDMFilter or high > preBreakHigh)
+validBearCHoCH = bearishCHoCH and (not useIDMFilter or low < preBreakLow)
+
+bullishBOS = not na(pivotLow)  and pivotLow > nz(lastSwingLow[1])
+bearishBOS = not na(pivotHigh) and pivotHigh < nz(lastSwingHigh[1])
+
+trendDir := validBullCHoCH or bullishBOS ? "Bullish" : validBearCHoCH or bearishBOS ? "Bearish" : trendDir
+
+// === HTF ORDER BLOCKS (Anchored) ===
+obHigh = request.security(syminfo.tickerid, obHTF, ta.pivothigh(high, 5, 5)[1])
+obLow  = request.security(syminfo.tickerid, obHTF, ta.pivotlow(low, 5, 5)[1])
+
+// === OB STATE STORAGE ===
+var box[]   bullOBs         = array.new_box()
+var box[]   bearOBs         = array.new_box()
+var bool[]  bullOBMitigated = array.new_bool()
+var bool[]  bearOBMitigated = array.new_bool()
+var label[] bullOBLabels    = array.new_label()
+var label[] bearOBLabels    = array.new_label()
+
+// === FRESH MITIGATION FLAGS (reset every bar) ===
+var bool newBullOBMitigation = false
+var bool newBearOBMitigation = false
+newBullOBMitigation := false
+newBearOBMitigation := false
+
+var float lastBullOB = na
+var float lastBearOB = na
+var int   lastOBBar  = na
+
+// === OB CREATION FUNCTION ===
+f_createHTFOB(_isBull, _proximal, _distal, _obPrice, _color, _labelText) =>
+    box newOB = box.new(left = bar_index - 5,top = math.max(_proximal, _distal),right = bar_index + 50,bottom = math.min(_proximal, _distal),border_color = _color,bgcolor = color.new(_color, 85),extend = extend.right)
+
+    label newLbl = na
+    if not minimalMode and not enableLightMode and showOBLabels
+        newLbl := label.new(x = bar_index,y = _obPrice,text = "OB Zone",style = label.style_label_center,textcolor = color.white,size = size.small,yloc = yloc.price,color = color.new(_color, 70))
+
+    if _isBull
+        array.push(bullOBs, newOB)
+        array.push(bullOBMitigated, false)
+        array.push(bullOBLabels, newLbl)
+    else
+        array.push(bearOBs, newOB)
+        array.push(bearOBMitigated, false)
+        array.push(bearOBLabels, newLbl)
+
+// === HTF OB CREATION TRIGGER ===
+if enableHTFob
+    if not na(obLow) and (na(lastBullOB) or obLow != lastBullOB)
+        f_createHTFOB(true, high, obLow, obLow, color.green, obHTF + " Bullish OB")
+        lastBullOB := obLow
+        lastOBBar := bar_index
+
+    if not na(obHigh) and (na(lastBearOB) or obHigh != lastBearOB)
+        f_createHTFOB(false, low, obHigh, obHigh, color.red, obHTF + " Bearish OB")
+        lastBearOB := obHigh
+        lastOBBar := bar_index
+
+// === ORDER BLOCK MITIGATION DETECTION ===
+
+// Bullish OBs
+if array.size(bullOBs) > 0
+    for i = 0 to array.size(bullOBs) - 1
+        box ob = array.get(bullOBs, i)
+        bool mit = array.get(bullOBMitigated, i)
+        float bot = box.get_bottom(ob)
+
+        if not mit and close < bot
+            array.set(bullOBMitigated, i, true)
+            newBullOBMitigation := true  // ✅ fresh event
+
+            box.set_bgcolor(ob, color.new(color.gray, 60))
+            box.set_border_color(ob, color.new(color.gray, 60))
+
+            if array.size(bullOBLabels) > i and not na(array.get(bullOBLabels, i))
+                label.delete(array.get(bullOBLabels, i))
+
+            label newLbl = na
+            if showOBLabels and not minimalMode
+                newLbl := label.new(bar_index, bot, "Bull OB Mitigated", style=label.style_label_left, color=color.gray, textcolor=color.white, size=size.small)
+
+            array.set(bullOBLabels, i, newLbl)
+
+// Bearish OBs
+if array.size(bearOBs) > 0
+    for i = 0 to array.size(bearOBs) - 1
+        box ob = array.get(bearOBs, i)
+        bool mit = array.get(bearOBMitigated, i)
+        float top = box.get_top(ob)
+
+        if not mit and close > top
+            array.set(bearOBMitigated, i, true)
+            newBearOBMitigation := true  // ✅ fresh event
+
+            box.set_bgcolor(ob, color.new(color.gray, 60))
+            box.set_border_color(ob, color.new(color.gray, 60))
+
+            if array.size(bearOBLabels) > i and not na(array.get(bearOBLabels, i))
+                label.delete(array.get(bearOBLabels, i))
+
+            label newLbl = na
+            if showOBLabels and not minimalMode
+                newLbl := label.new(bar_index, top, "Bear OB Mitigated", style=label.style_label_left, color=color.gray, textcolor=color.white, size=size.small)
+
+            array.set(bearOBLabels, i, newLbl)
+
+// === OB STATUS TRACKERS (for dashboard table - after mitigation loops) ===
+lastBullOBMitigated = array.size(bullOBMitigated) > 0 ? array.get(bullOBMitigated, array.size(bullOBMitigated) - 1) : false
+lastBearOBMitigated = array.size(bearOBMitigated) > 0 ? array.get(bearOBMitigated, array.size(bearOBMitigated) - 1) : false
+
+// === TREND CONFIDENCE SCORING (Optimized) ===
+confEMAFastLen   = input.int(9,  "Conf Fast EMA Len",   group="Trend Confidence", minval=1)
+confEMASlowLen   = input.int(21, "Conf Slow EMA Len",   group="Trend Confidence", minval=1)
+confEMAweight    = input.float(0.4, "EMA Spread Weight", group="Trend Confidence", minval=0.0, maxval=1.0, step=0.05)
+confStructureW   = input.float(0.4, "Structure (BOS/CHoCH) Weight", group="Trend Confidence", minval=0.0, maxval=1.0, step=0.05)
+confSlopeW       = input.float(0.2, "Price Slope Weight", group="Trend Confidence", minval=0.0, maxval=1.0, step=0.05)
+confLookbackBars = input.int(50, "Structure Lookback Bars", group="Trend Confidence", minval=10)
+
+// === EMA Spread Scoring ===
+confFastEMA = ta.ema(close, confEMAFastLen)
+confSlowEMA = ta.ema(close, confEMASlowLen)
+emaScore    = math.min(100, math.abs(confFastEMA - confSlowEMA) / close * 100 * 10)
+
+// === Structure Count (BOS / CHoCH Events in Lookback) ===
+structEvents = 0
+for i = 1 to confLookbackBars
+    structEvents += (bullishBOS[i] or bearishBOS[i] or validBullCHoCH[i] or validBearCHoCH[i]) ? 1 : 0
+maxStructEvents = math.max(1, confLookbackBars / 10)
+structScore = math.min(100, structEvents / maxStructEvents * 100)
+
+// === Price Slope Scoring ===
+lookbackPrice = close[confLookbackBars]
+priceSlopePct = (close - lookbackPrice) / lookbackPrice * 100
+slopeScore = math.min(100, math.abs(priceSlopePct) * 5)
+
+// === Combined Trend Confidence Score ===
+trendConfScore = math.round(emaScore * confEMAweight + structScore * confStructureW + slopeScore * confSlopeW)
+
+// === STRUCTURE SHIFT DETECTOR (Safe + Clean) ===
+structureShiftLookback = input.int(8, "Structure Shift Lookback Bars", group="Structure")
+var label[] shiftLabels = array.new_label()
+
+// === BOS BAR INDEX TRACKING (for structure shift) ===
+var int bullBOSBar = na
+var int bearBOSBar = na
+if bullishBOS
+    bullBOSBar := bar_index
+if bearishBOS
+    bearBOSBar := bar_index
+
+// Detect Bullish structure shift (CHoCH + BOS within lookback)
+bullShift = validBullCHoCH and not na(bullBOSBar) and bar_index - bullBOSBar <= structureShiftLookback
+
+// Detect Bearish structure shift
+bearShift = validBearCHoCH and not na(bearBOSBar) and bar_index - bearBOSBar <= structureShiftLookback
+
+if bullShift
+    lbl = label.new(bar_index, low, "⬆️ Structure Shift", style=label.style_label_up, color=color.lime, textcolor=color.black, size=size.normal)
+    array.push(shiftLabels, lbl)
+
+if bearShift
+    lbl = label.new(bar_index, high, "⬇️ Structure Shift", style=label.style_label_down, color=color.red, textcolor=color.white, size=size.normal)
+    array.push(shiftLabels, lbl)
+
+// 🧼 Limit memory usage
+if array.size(shiftLabels) > 10
+    old = array.shift(shiftLabels)
+    label.delete(old)
+
+// === STRUCTURE LABELS & CLEANUP ===
+maxStructureLabels = switch htf
+    "1" => 2
+    "5" => 4
+    "15"=> 6
+    "30"=> 8
+    "60"=> 10
+    "120"=>12
+    "240"=>14
+    "D" =>21
+    "W" =>26
+    => 10
+
+var label[] structureLabels = array.new_label()
+
+f_addStructLbl(lbl) =>
+    array.push(structureLabels, lbl)
+    if array.size(structureLabels) > maxStructureLabels
+        old = array.shift(structureLabels)
+        label.delete(old)
+
+f_drawLabelLine(_offset, _y, _txt, _col) =>
+    lineEnd = bar_index + _offset * 8
+    line.new(bar_index, _y, lineEnd, _y, style=line.style_dotted, color=_col)
+    label.new(lineEnd, _y, _txt, style=label.style_label_left, color=na, textcolor=color.white, size=size.small)
+
+// === STRUCTURE LABELS ===
+if validBullCHoCH
+    f_addStructLbl(f_drawLabelLine(chochLabelOffset, high, "CHoCH ↑ $" + str.tostring(high, "#.##"), color.orange))
+if validBearCHoCH
+    f_addStructLbl(f_drawLabelLine(chochLabelOffset, low,  "CHoCH ↓ $" + str.tostring(low, "#.##"), color.orange))
+if bullishBOS
+    f_addStructLbl(f_drawLabelLine(bosLabelOffset, high, "BOS ↑ $" + str.tostring(high, "#.##"), color.lime))
+if bearishBOS
+    f_addStructLbl(f_drawLabelLine(bosLabelOffset, low,  "BOS ↓ $" + str.tostring(low, "#.##"), color.red))
+
+// === PROPER HTF Swing High/Low for Support & Resistance ===
+htfPivotHigh = request.security(syminfo.tickerid, htf, ta.pivothigh(high, fractalSensitivity, fractalSensitivity)[1])
+htfPivotLow  = request.security(syminfo.tickerid, htf, ta.pivotlow(low,  fractalSensitivity, fractalSensitivity)[1])
+
+var float htfLastHigh = na
+var float htfLastLow  = na
+
+if not na(htfPivotHigh)
+    htfLastHigh := htfPivotHigh
+if not na(htfPivotLow)
+    htfLastLow  := htfPivotLow
+
+plot(showStructureLines ? htfLastHigh : na, title="HTF Resistance", color=color.red,   linewidth=2, style=plot.style_linebr)
+plot(showStructureLines ? htfLastLow  : na, title="HTF Support",   color=color.green, linewidth=2, style=plot.style_linebr)
+
+// === PREMIUM / DISCOUNT ZONES ===
+var box premiumBox  = na
+var box discountBox = na
+var line eqLine     = na
+
+if enablePDZones and not na(lastSwingHigh) and not na(lastSwingLow)
+    float eqPrice = (lastSwingHigh + lastSwingLow) / 2
+
+    // Clean up previous boxes/lines
+    if not na(premiumBox)
+        box.delete(premiumBox)
+    if not na(discountBox)
+        box.delete(discountBox)
+    if not na(eqLine)
+        line.delete(eqLine)
+
+    premiumBox := box.new(left=bar_index, top=lastSwingHigh, right=bar_index + 50, bottom=eqPrice,
+                          bgcolor=color.new(premiumColor, pdZoneTransparency), border_color=na, extend=extend.right)
+    discountBox := box.new(left=bar_index, top=eqPrice, right=bar_index + 50, bottom=lastSwingLow,
+                           bgcolor=color.new(discountColor, pdZoneTransparency), border_color=na, extend=extend.right)
+    eqLine := line.new(bar_index, eqPrice, bar_index + 50, eqPrice, color=eqLineColor, width=1, style=line.style_dashed)
+
+// === FVG Zones + Tap + Auto‑Delete (SAFE Version, No Array Mismatch) ===
+
+// === Define FVG Arrays ===
+var box[] bullFVGs       = array.new_box()
+var box[] bearFVGs       = array.new_box()
+var int[] bullBars       = array.new_int()
+var int[] bearBars       = array.new_int()
+var int[] bullTouchBars  = array.new_int()
+var int[] bearTouchBars  = array.new_int()
+
+// === Debug: Prevent crashes from array mismatch (Safe Warning Mode) ===
+if not enableLightMode
+    if array.size(bullFVGs) != array.size(bullBars) or array.size(bullBars) != array.size(bullTouchBars)
+        label.new(bar_index, high, "⚠️ Bull FVG Array Mismatch", style=label.style_label_down, color=color.red, textcolor=color.white, size=size.small)
+
+    if array.size(bearFVGs) != array.size(bearBars) or array.size(bearBars) != array.size(bearTouchBars)
+        label.new(bar_index, low, "⚠️ Bear FVG Array Mismatch", style=label.style_label_up, color=color.red, textcolor=color.white, size=size.small)
+
+// === Strength Filter Check ===
+imbalanceStrength     = math.abs(high[1] - low[1]) / math.max(math.abs(high[2] - low[0]), 1e-5)
+passesStrengthFilter  = not enableFVGStrengthFilter or imbalanceStrength >= fvgStrengthThreshold
+
+// === Add New FVG Zones ===
+if enableFVG and not enableLightMode
+    if low[2] > high[1] and (not useTrendFilter or trendDir == "Bullish") and passesStrengthFilter
+        b = box.new(bar_index-2, low[2], bar_index, high[1], border_color=color.lime, bgcolor=showFVGFill ? color.new(color.lime, 90) : na, extend=fvgExtend)
+        array.push(bullFVGs, b)
+        array.push(bullBars, bar_index)
+        array.push(bullTouchBars, na)
+
+    if high[2] < low[1] and (not useTrendFilter or trendDir == "Bearish") and passesStrengthFilter
+        b = box.new(bar_index-2, high[1], bar_index, low[2], border_color=color.red, bgcolor=showFVGFill ? color.new(color.red, 90) : na, extend=fvgExtend)
+        array.push(bearFVGs, b)
+        array.push(bearBars, bar_index)
+        array.push(bearTouchBars, na)
+
+// === Prune oldest FVGs beyond limit ===
+while array.size(bullFVGs) > maxFVGs
+    f_deleteFVG(bullFVGs, bullBars, bullTouchBars, 0)
+
+while array.size(bearFVGs) > maxFVGs
+    f_deleteFVG(bearFVGs, bearBars, bearTouchBars, 0)
+
+// === Mitigation Check Helper ===
+checkFVGMitigation(_price, _top, _bot) =>
+    fvgMitigationMethod == "wick"  ? (_price <= _top and _price >= _bot) :fvgMitigationMethod == "close" ? (close <= _top and close >= _bot) : false
+
+// === Define AutoEntry Tap Flags ===
+var bool showBullTapEntry = false
+var bool showBearTapEntry = false
+
+// === Tap Detection & Immediate or Delayed Cleanup ===
+if enableFVG and not enableLightMode
+    // --- Bullish FVGs ---
+    if array.size(bullFVGs) > 0
+        for i = array.size(bullFVGs) - 1 to 0
+            b = array.get(bullFVGs, i)
+            top = box.get_top(b)
+            bot = box.get_bottom(b)
+            tapped = checkFVGMitigation(low, top, bot)
+
+            if tapped
+                if showFvgTapLine
+                    line.new(x1 = bar_index - fvgLabelOffset - 2, y1 = low * 0.9995, x2 = bar_index + fvgTapLineBars, y2 = low * 0.9995, color=color.white, style=line.style_dotted, width=1)
+                label.new(x = bar_index - fvgLabelOffset, y = low, text = "🟢 FVG Tap", style=label.style_label_left, color=na, textcolor=color.lime, size=size.tiny)
+
+                if enableAutoEntry and markTapEntry
+                    showBullTapEntry := true
+
+                if fvgRemovalDelayBars == 0
+                    f_deleteFVG(bullFVGs, bullBars, bullTouchBars, i)
+                else if na(array.get(bullTouchBars, i))
+                    array.set(bullTouchBars, i, bar_index)
+
+    // --- Bearish FVGs ---
+    if array.size(bearFVGs) > 0
+        for i = array.size(bearFVGs) - 1 to 0
+            b = array.get(bearFVGs, i)
+            top = box.get_top(b)
+            bot = box.get_bottom(b)
+            tapped = checkFVGMitigation(high, top, bot)
+
+            if tapped
+                if showFvgTapLine
+                    line.new(x1 = bar_index - fvgLabelOffset - 2, y1 = high * 1.0005, x2 = bar_index + fvgTapLineBars, y2 = high * 1.0005, color=color.white, style=line.style_dotted, width=1)
+                label.new(x = bar_index - fvgLabelOffset, y = high, text = "🔻 FVG Tap", style=label.style_label_left, color=na, textcolor=color.red, size=size.tiny)
+
+                if enableAutoEntry and markTapEntry
+                    showBearTapEntry := true
+
+                if fvgRemovalDelayBars == 0
+                    f_deleteFVG(bearFVGs, bearBars, bearTouchBars, i)
+                else if na(array.get(bearTouchBars, i))
+                    array.set(bearTouchBars, i, bar_index)
+
+// === Delayed Cleanup (All FVGs, no flag needed) ===
+if array.size(bullTouchBars) > 0
+    for i = array.size(bullTouchBars) - 1 to 0
+        tb = array.get(bullTouchBars, i)
+        if not na(tb) and bar_index - tb >= fvgRemovalDelayBars
+            f_deleteFVG(bullFVGs, bullBars, bullTouchBars, i)
+
+if array.size(bearTouchBars) > 0
+    for i = array.size(bearTouchBars) - 1 to 0
+        tb = array.get(bearTouchBars, i)
+        if not na(tb) and bar_index - tb >= fvgRemovalDelayBars
+            f_deleteFVG(bearFVGs, bearBars, bearTouchBars, i)
+
+// === AutoEntry Visual Markers ===
+plotshape(showBullTapEntry and markTapEntry and enableAutoEntry, title="Auto Long", location=location.belowbar, style=shape.triangleup, color=color.lime, size=size.small)
+plotshape(showBearTapEntry and markTapEntry and enableAutoEntry, title="Auto Short", location=location.abovebar, style=shape.triangledown, color=color.red, size=size.small)
+
+// === Reset Flags ===
+if showBullTapEntry
+    showBullTapEntry := false
+if showBearTapEntry
+    showBearTapEntry := false
+
+// === BUY/SELL SIGNALS — Pivot‑based or EMA‑based (toggleable) ===
+usePivotSignals = input.bool(false, "Use Pivot‑based Signals (instead of EMA)", group="Buy/Sell")
+
+// Detect pivots (structural swings) — optimized
+pivotBuy  = usePivotSignals and not na(pivotLow)
+pivotSell = usePivotSignals and not na(pivotHigh)
+
+// EMA‑based logic (your previous filters)
+fastLen = useAutoEMA ? (htf=="1"?5 : htf=="5"?9 : htf=="15"?12 : htf=="30"?14 : htf=="60"?21 : htf=="120"?34 : htf=="240"?55 : 89) : manualFastEMA
+slowLen = useAutoEMA ? (htf=="1"?13: htf=="5"?21: htf=="15"?34:htf=="30"?50:htf=="60"?89:htf=="120"?144:htf=="240"?200:300) : manualSlowEMA
+
+fastEMA = ta.ema(close, fastLen)
+slowEMA = ta.ema(close, slowLen)
+
+crossUp = ta.crossover(fastEMA, slowEMA)
+crossDn = ta.crossunder(fastEMA, slowEMA)
+
+var int lastBuyBar  = na
+var int lastSellBar = na
+
+emaGapPct      = math.abs(fastEMA - slowEMA) / close * 100
+priceAboveSlow = close > slowEMA
+priceBelowSlow = close < slowEMA
+emaSeparated   = emaGapPct >= emaGapThreshold
+inBullTrend    = trendDir == "Bullish"
+inBearTrend    = trendDir == "Bearish"
+
+emaBuy  = crossUp  and priceAboveSlow and emaSeparated and inBullTrend and (na(lastBuyBar)  or bar_index - lastBuyBar  > buySellCooldownBars)
+emaSell = crossDn and priceBelowSlow and emaSeparated and inBearTrend and (na(lastSellBar) or bar_index - lastSellBar > buySellCooldownBars)
+
+if emaBuy
+    lastBuyBar := bar_index
+if emaSell
+    lastSellBar := bar_index
+
+// Final signals: either pivot-based or EMA‑based
+buySignal  = usePivotSignals ? pivotBuy  : (enableBuySell and emaBuy)
+sellSignal = usePivotSignals ? pivotSell : (enableBuySell and emaSell)
+
+// === Pivot Dot Plots (Must Stay at Global Scope) ===
+plotshape(showPivotDots and not minimalMode and not na(pivotLow),title="Pivot Low Dot",style=shape.circle,location=location.belowbar,color=color.green,size=size.small,offset=-1)
+plotshape(showPivotDots and not minimalMode and not na(pivotHigh),title="Pivot High Dot",style=shape.circle,location=location.abovebar,color=color.red,size=size.small,offset=-1)
+
+// === SWING MEMORY for ZigZag — Trimmed & Adaptive === 
+var float[] swingPrices = array.new_float()
+var int[]   swingBars   = array.new_int()
+var line[]  trendLines  = array.new_line()
+var line[]  zzLines     = array.new_line()
+var string[] trendTypes = array.new_string()  // "bull" or "bear"
+var bool trendlineBrokenBull = false
+var bool trendlineBrokenBear = false
+
+// === MEMORY RESET ON FILTER CHANGE (IDM toggle resets structure)
+var bool lastIDMSetting = useIDMFilter
+if useIDMFilter != lastIDMSetting
+    array.clear(swingPrices)
+    array.clear(swingBars)
+    array.clear(trendLines)
+    lastIDMSetting := useIDMFilter
+
+// === STORE NEW SWING POINTS ===
+if not na(pivotHigh)
+    array.push(swingPrices, high)
+    array.push(swingBars, bar_index)
+
+if not na(pivotLow)
+    array.push(swingPrices, low)
+    array.push(swingBars, bar_index)
+
+// 🧼 Prune swing memory
+while array.size(swingPrices) > maxSwingHistory
+    array.shift(swingPrices)
+    array.shift(swingBars)
+
+// === ZIGZAG LINES (last N swings) ===
+if showZigZag and array.size(swingPrices) >= 2
+    int prevIdx = array.size(swingPrices) - 2
+    int currIdx = array.size(swingPrices) - 1
+
+    int x1 = array.get(swingBars, prevIdx)
+    float y1 = array.get(swingPrices, prevIdx)
+    int x2 = array.get(swingBars, currIdx)
+    float y2 = array.get(swingPrices, currIdx)
+
+    color col = y2 > y1 ? color.new(color.lime, 0) : color.new(color.red, 0)
+    line newL = line.new(x1, y1, x2, y2, color=col, width=2)
+    array.push(zzLines, newL)
+
+    if array.size(zzLines) > maxZigzagSwings
+        line oldZig = array.shift(zzLines)
+        line.delete(oldZig)
+
+// === DRAW TRENDLINES — MULTI‑MODE + VALIDATION SUPPORT ===
+if enableTrendlines and array.size(swingBars) >= 4
+    bool validBull = trendDir == "Bullish" and (not requireStrongTrend or trendConfScore > 70)
+    bool validBear = trendDir == "Bearish" and (not requireStrongTrend or trendConfScore > 70)
+
+    bool drawBull = allowBothTrendlines or validBull
+    bool drawBear = allowBothTrendlines or validBear
+
+    // 🧼 Clear old trendlines ONLY if historical mode is OFF
+    if not preserveTrendlines
+        if array.size(trendLines) > 0
+            for i = 0 to array.size(trendLines) - 1
+                line.delete(array.get(trendLines, i))
+        array.clear(trendLines)
+        array.clear(trendTypes)  // 🔁 Clear type memory too
+
+    int x1 = array.get(swingBars, array.size(swingBars) - 4)
+    float y1 = array.get(swingPrices, array.size(swingPrices) - 4)
+    int x2 = array.get(swingBars, array.size(swingBars) - 2)
+    float y2 = array.get(swingPrices, array.size(swingPrices) - 2)
+
+    if drawBull
+        line bullLine = line.new(x1, y1, x2, y2,
+                                extend=extend.right,
+                                color=color.new(color.lime, preserveTrendlines ? 60 : 0),
+                                width=2)
+
+        array.push(trendLines, bullLine)
+        array.push(trendTypes, "bull")  // 🟢 Track as bullish
+
+        // 🔍 Validation Logic (Bullish)
+        if enableTrendlineValidation
+            float px = trendlineBreakMode == "Close" ? close : low
+            bool brokenBull = px < y2
+            if brokenBull and highlightBrokenLines
+                line.set_color(bullLine, color.new(color.gray, 50))
+                line.set_style(bullLine, line.style_dashed)
+
+    if drawBear
+        line bearLine = line.new(x1, y1, x2, y2,
+                                extend=extend.right,
+                                color=color.new(color.red, preserveTrendlines ? 60 : 0),
+                                width=2)
+
+        array.push(trendLines, bearLine)
+        array.push(trendTypes, "bear")  // 🔴 Track as bearish
+
+        // 🔍 Validation Logic (Bearish)
+        if enableTrendlineValidation
+            float px = trendlineBreakMode == "Close" ? close : high
+            bool brokenBear = px > y2
+            if brokenBear and highlightBrokenLines
+                line.set_color(bearLine, color.new(color.gray, 50))
+                line.set_style(bearLine, line.style_dashed)
+
+    // 🧼 Cap historical trendlines (only if preserving history)
+    if preserveTrendlines
+        while array.size(trendLines) > maxTrendlines
+            line oldestLine = array.shift(trendLines)
+            line.delete(oldestLine)
+            array.shift(trendTypes)  // 🔁 Shift type memory too
+
+// === HH / HL / LH / LL Tags (with optional IDM swing tags) ===
+if showSwingTags and not minimalMode
+    if not na(pivotHigh)
+        txt = high > nz(lastSwingHigh[1]) ? "HH" : "LH"
+        col = high > nz(lastSwingHigh[1]) ? color.lime : color.orange
+        label.new(bar_index, high, txt, style=label.style_label_down, color=col, textcolor=color.black, size=size.tiny)
+        
+        if useIDMFilter
+            label.new(bar_index, high, "IDM High", style=label.style_label_down, size=size.tiny, color=color.yellow, textcolor=color.purple)
+
+    if not na(pivotLow)
+        txt = low < nz(lastSwingLow[1]) ? "LL" : "HL"
+        col = low < nz(lastSwingLow[1]) ? color.red : color.green
+        label.new(bar_index, low, txt, style=label.style_label_up, color=col, textcolor=color.white, size=size.tiny)
+
+        if useIDMFilter
+            label.new(bar_index, low, "IDM Low", style=label.style_label_up, size=size.tiny, color=color.yellow, textcolor=color.purple)
+
+// === EARLY‑TOP WARNING (with cooldown + limited count) ===
+var label[] earlyLabels = array.new_label()
+var int lastEarlyTopBar = na
+
+if enableEarlyTop
+    if na(lastEarlyTopBar) or bar_index - lastEarlyTopBar > earlyTopCooldownBars
+        wickRatio = (high - math.max(open, close)) / (high - low + 1e-10) * 100
+        rsiVal = ta.rsi(close, rsiLen)
+        if wickRatio >= wickThresh and rsiVal > rsiOB and close < high * 0.98
+            label lbl = label.new(bar_index, high, "⚠️ Early Top?", style=label.style_label_down, color=color.yellow, textcolor=color.black, size=size.small)
+            array.push(earlyLabels, lbl)
+            lastEarlyTopBar := bar_index
+
+            // 🧼 Limit early top memory
+            if array.size(earlyLabels) > maxEarlyTopLabels
+                label oldLbl = array.shift(earlyLabels)
+                label.delete(oldLbl)
+
+// === PREDICTION / EXPECTATION & ACCURACY (SMART + EARLY‑SIGNAL VERSION) ===
+var int    predCount            = 0
+var int    correctCount         = 0
+var string lastPredictionResult = "—"
+var int    lastConfirmBar       = na  // ⏱ Prevents double‑counting same bar
+
+var bool expectHL = false
+var bool expectLH = false
+var bool expectHH = false
+var bool expectLL = false
+
+// === EARLY‑SIGNAL SETTINGS ===
+enableEarlySignal = input.bool(true,  "Enable Early HL/LH Signal", group="EarlySignal")
+earlyRSILen       = input.int(14,     "Early‑Signal RSI Length", group="EarlySignal", minval=5)
+earlyRSIOver      = input.int(60,     "Early‑Signal RSI Over‑Threshold (Bullish)", group="EarlySignal", minval=50, maxval=100)
+earlyRSIUnder     = input.int(40,     "Early‑Signal RSI Under‑Threshold (Bearish)", group="EarlySignal", minval=0, maxval=50)
+enableEarlyVol    = input.bool(false, "Require Volume Spike for Early Signal?", group="EarlySignal")
+volMultiplier     = input.float(1.5,  "Volume Spike Multiplier", group="EarlySignal", minval=1.0, step=0.1)
+
+// Precompute helper variables
+rsiVal = ta.rsi(close, earlyRSILen)
+volSpike = enableEarlyVol ? volume > ta.sma(volume, 20) * volMultiplier : true
+
+// === Expectation Triggers ===
+// On confirmed CHoCH → set HL / LH expectation
+if validBullCHoCH
+    expectHL := true
+    predCount += 1
+
+if validBearCHoCH
+    expectLH := true
+    predCount += 1
+
+// Early‑signal detection (before pivot confirmation)  
+if enableEarlySignal and validBullCHoCH
+    // Bullish scenario: look for momentum, RSI, optional volume
+    condMomentum = close > (low + (high - low) * 0.5)
+    condRSI      = rsiVal > earlyRSIOver
+    condVolOK    = volSpike
+    if condMomentum and condRSI and condVolOK
+        expectHL := true
+        predCount += 1
+        lastPredictionResult := "🔹 Early HL Signal at $" + str.tostring(close, "#.##")
+
+if enableEarlySignal and validBearCHoCH
+    // Bearish scenario: look for momentum, RSI, optional volume
+    condMomentum = close < (high - (high - low) * 0.5)
+    condRSI      = rsiVal < earlyRSIUnder
+    condVolOK    = volSpike
+    if condMomentum and condRSI and condVolOK
+        expectLH := true
+        predCount += 1
+        lastPredictionResult := "🔹 Early LH Signal at $" + str.tostring(close, "#.##")
+
+// On BOS → set HH / LL expectation (unchanged)
+if bullishBOS
+    expectHH := true
+    predCount += 1
+
+if bearishBOS
+    expectLL := true
+    predCount += 1
+
+// === SMART PREDICTION SYSTEM PARAMETERS ===
+var float expectedHLLevel = na
+var float expectedLHLevel = na
+var int chochBarHL = na
+var int chochBarLH = na
+minBarsAfterCHoCH = 5
+expiryBars = 30
+
+// ———— ATOMIC STRUCTURE RESET + PREDICTION ENGINE (FINAL FIX) ————
+var bool predictionActive = false
+
+// Reset ALL prediction memory when ANY new structural event happens
+if validBullCHoCH or validBearCHoCH or bullishBOS or bearishBOS
+    expectedHLLevel := na
+    expectedLHLevel := na
+    chochBarHL      := na
+    chochBarLH      := na
+    expectHL        := false
+    expectLH        := false
+    expectHH        := false
+    expectLL        := false
+    predictionActive := true
+
+// Only set new expectation ONCE per structural event
+if validBullCHoCH and not expectHL and predictionActive
+    expectedHLLevel := low
+    chochBarHL      := bar_index
+    expectHL        := true
+    predCount      += 1
+
+if validBearCHoCH and not expectLH and predictionActive
+    expectedLHLevel := high
+    chochBarLH      := bar_index
+    expectLH        := true
+    predCount      += 1
+
+// BOS expectations (still fire fresh each time)
+if bullishBOS
+    expectHH := true
+    predCount += 1
+
+if bearishBOS
+    expectLL := true
+    predCount += 1
+
+// Turn off the reset flag after first use
+predictionActive := false
+
+// === Confirm HL with Smart Expiry & Invalidation Logic ===
+if expectHL
+    barsSinceCHoCH = bar_index - chochBarHL
+    hlFormed = not na(pivotLow) and low > expectedHLLevel and barsSinceCHoCH >= minBarsAfterCHoCH
+    priceInvalidated = low < expectedHLLevel
+
+    if hlFormed
+        correctCount += 1
+        expectHL := false
+        lastConfirmBar := bar_index
+        lastPredictionResult := "✅ HL Confirmed at $" + str.tostring(low, "#.##")
+
+    else if priceInvalidated
+        expectHL := false
+        lastPredictionResult := "❌ HL Invalidated (low < $" + str.tostring(expectedHLLevel, "#.##") + ")"
+
+    else if barsSinceCHoCH > expiryBars
+        expectHL := false
+        lastPredictionResult := "❌ HL Expired (no valid pivot above $" + str.tostring(expectedHLLevel, "#.##") + ")"
+
+// === Confirm LH with Smart Expiry & Invalidation Logic ===
+if expectLH
+    barsSinceCHoCH = bar_index - chochBarLH
+    lhFormed = not na(pivotHigh) and high < expectedLHLevel and barsSinceCHoCH >= minBarsAfterCHoCH
+    priceInvalidated = high > expectedLHLevel
+
+    if lhFormed
+        correctCount += 1
+        expectLH := false
+        lastConfirmBar := bar_index
+        lastPredictionResult := "✅ LH Confirmed at $" + str.tostring(high, "#.##")
+
+    else if priceInvalidated
+        expectLH := false
+        lastPredictionResult := "❌ LH Invalidated (high > $" + str.tostring(expectedLHLevel, "#.##") + ")"
+
+    else if barsSinceCHoCH > expiryBars
+        expectLH := false
+        lastPredictionResult := "❌ LH Expired (no valid pivot below $" + str.tostring(expectedLHLevel, "#.##") + ")"
+
+// === SMART HH/LL CONFIRMATION + EXPIRY + INVALIDATION ===
+// --- HH (Bullish Continuation) ---
+if expectHH
+    barsSinceBOS = bar_index - bullBOSBar
+    hhConfirmed = not na(pivotHigh) and high > nz(lastSwingHigh[1])
+    hhInvalidated = low < nz(lastSwingLow[1])  // violated bullish structure
+
+    if hhConfirmed and bar_index != lastConfirmBar
+        correctCount += 1
+        expectHH := false
+        lastConfirmBar := bar_index
+        lastPredictionResult := "✅ HH Confirmed at $" + str.tostring(high, "#.##")
+
+    else if hhInvalidated
+        expectHH := false
+        lastPredictionResult := "❌ HH Invalidated (low < previous swing low)"
+
+    else if barsSinceBOS > expiryBars
+        expectHH := false
+        lastPredictionResult := "❌ HH Expired (no higher high)"
+
+// --- LL (Bearish Continuation) ---
+if expectLL
+    barsSinceBOS = bar_index - bearBOSBar
+    llConfirmed = not na(pivotLow) and low < nz(lastSwingLow[1])
+    llInvalidated = high > nz(lastSwingHigh[1])  // violated bearish structure
+
+    if llConfirmed and bar_index != lastConfirmBar
+        correctCount += 1
+        expectLL := false
+        lastConfirmBar := bar_index
+        lastPredictionResult := "✅ LL Confirmed at $" + str.tostring(low, "#.##")
+
+    else if llInvalidated
+        expectLL := false
+        lastPredictionResult := "❌ LL Invalidated (high > previous swing high)"
+
+    else if barsSinceBOS > expiryBars
+        expectLL := false
+        lastPredictionResult := "❌ LL Expired (no lower low)"
+
+// === ACCURACY RATE CALCULATION ===
+predictionRate = predCount > 0 ? correctCount / predCount * 100 : na
+
+// === ANTICIPATION LABEL LOGIC ===
+anticipateHL = not na(expectedHLLevel) ? "HL > $" + str.tostring(expectedHLLevel, "#.##") + " (" + str.tostring((close - expectedHLLevel) / close * 100, "#.##") + "%)" : ""
+anticipateLH = not na(expectedLHLevel) ? "LH < $" + str.tostring(expectedLHLevel, "#.##") + " (" + str.tostring((expectedLHLevel - close) / close * 100, "#.##") + "%)" : ""
+
+anticipate = validBullCHoCH ? "CHoCH Bull → Expect HL" :
+             validBearCHoCH ? "CHoCH Bear → Expect LH" :
+             bullishBOS     ? "BOS Bull → Expect HH" :
+             bearishBOS     ? "BOS Bear → Expect LL" :
+             trendDir == "Bullish" and not na(expectedHLLevel) ? "Bull Trend → Wait " + anticipateHL :
+             trendDir == "Bearish" and not na(expectedLHLevel) ? "Bear Trend → Wait " + anticipateLH :
+             "Neutral"
+
+// === ANTICIPATION LABEL (Next Expected Structure) ===
+if showNextExpectation and barstate.islast and not minimalMode and not enableLightMode and anticipate != "Neutral"
+    if bar_index % 5 == 0
+        label.new(bar_index + 3,trendDir == "Bullish" ? low : high,anticipate,style=label.style_label_left,color=color.teal,textcolor=color.black,size=size.normal)
+
+// === INVALIDATION LINES & LABELS ===
+if showInvalidationLabels and barstate.islast and not minimalMode and not enableLightMode
+    int offsetBars = 15
+
+    if trendDir == "Bullish" and not na(expectedHLLevel)
+        line.new(bar_index, expectedHLLevel,bar_index + offsetBars, expectedHLLevel,style = line.style_dotted, color = color.red, width = 1)
+        label.new(bar_index + offsetBars, expectedHLLevel,"Invalidate Bull < $" + str.tostring(expectedHLLevel, "#.##"),style = label.style_none, textcolor = color.red, size = size.small)
+
+    if trendDir == "Bearish" and not na(expectedLHLevel)
+        line.new(bar_index, expectedLHLevel,bar_index + offsetBars, expectedLHLevel,style = line.style_dotted, color = color.green, width = 1)
+        label.new(bar_index + offsetBars, expectedLHLevel,"Invalidate Bear > $" + str.tostring(expectedLHLevel, "#.##"),style = label.style_none, textcolor = color.green, size = size.small)
+
+// === VISIBLE & SEXY MINI ACCURACY CHART (REPLACEMENT) ===
+var float[] accHistory = array.new_float()
+
+// Store accuracy every 5 bars only when it changes
+if barstate.islast and not na(predictionRate) and bar_index % 5 == 0
+    float lastStored = array.size(accHistory) > 0 ? array.get(accHistory, array.size(accHistory)-1) : na
+    if na(lastStored) or math.abs(predictionRate - lastStored) >= 0.01
+        array.push(accHistory, predictionRate)
+        if array.size(accHistory) > maxAccPoints
+            array.shift(accHistory)
+
+// DRAW THE CHART — FINALLY VISIBLE, NO MORE INVISIBILITY CLOAK
+if showAccuracyChart and not enableLightMode and array.size(accHistory) >= 2 and barstate.islast
+    float offset = ta.atr(14) * 6                     // Push it down safely
+    float scale  = offset * 2.5                        // Full height usage (0–100%)
+
+    for i = 0 to array.size(accHistory) - 2
+        float val1 = array.get(accHistory, i)
+        float val2 = array.get(accHistory, i + 1)
+
+        // Y position = low - offset + (accuracy/100 * scale)
+        float y1 = low - offset + (val1 / 100) * scale
+        float y2 = low - offset + (val2 / 100) * scale
+
+        // X spacing — clean and readable
+        int x1 = bar_index - (array.size(accHistory) - i) * 4
+        int x2 = bar_index - (array.size(accHistory) - i - 1) * 4
+
+        // Thick glowing line
+        line.new(x1=x1, y1=y1, x2=x2, y2=y2, 
+                 color=color.new(color.aqua, 0), width=3)
+
+        // Big visible dots
+        label.new(x=x1, y=y1, text="●", textcolor=color.aqua, 
+                  style=label.style_none, size=size.large)
+
+    // Optional: Show current % as floating label
+    if array.size(accHistory) > 0
+        float currentAcc = array.get(accHistory, array.size(accHistory)-1)
+        label.new(bar_index, low - offset + (currentAcc/100)*scale + ta.atr(14)*0.5,
+                  text = "Accuracy: " + str.tostring(currentAcc, "0.0") + "%",
+                  style=label.style_label_left, color=color.new(color.black, 20),
+                  textcolor=color.aqua, size=size.normal)
+
+// === DASHBOARD TABLE ===
+pos = dashboardPosition == "Top Left"    ? position.top_left :
+      dashboardPosition == "Top Right"   ? position.top_right :
+      dashboardPosition == "Bottom Left" ? position.bottom_left :
+                                           position.bottom_right
+
+var table dash = table.new(pos, 1, 11, border_width=1, bgcolor=color.new(color.black, 85), frame_color=color.white)
+
+if barstate.islast and not minimalMode
+    bosColor   = bullishBOS ? color.lime : bearishBOS ? color.red : color.gray
+    chochColor = validBullCHoCH or validBearCHoCH ? color.orange : color.gray
+    accText    = showPredictionAccuracy and not na(predictionRate) ? str.tostring(predictionRate, "#.##") + "%" : "—"
+    accColor   = na(predictionRate) ? color.gray :
+                 predictionRate >= 80 ? color.lime :
+                 predictionRate >= 50 ? color.orange : color.red
+
+    trendConfColor = trendConfScore >= 70 ? color.lime :
+                     trendConfScore >= 40 ? color.orange : color.red
+
+    table.cell(dash, 0, 0, "Trend: " + trendDir,                 text_color=color.white)
+    table.cell(dash, 0, 1, "Last High: " + str.tostring(lastSwingHigh, "#.##"), text_color=color.red)
+    table.cell(dash, 0, 2, "Last Low:  " + str.tostring(lastSwingLow, "#.##"), text_color=color.lime)
+    table.cell(dash, 0, 3, "Next → " + anticipate,              text_color=color.yellow)
+    table.cell(dash, 0, 4, "BOS:  " + (bullishBOS ? "Bull" : bearishBOS ? "Bear" : "—"), text_color=bosColor)
+    table.cell(dash, 0, 5, "CHoCH: " + (bullishCHoCH ? "Bull" : bearishCHoCH ? "Bear" : "—"), text_color=chochColor)
+    table.cell(dash, 0, 6, "Accuracy: " + accText,              text_color=accColor)
+    table.cell(dash, 0, 7, anticipate,                          text_color=color.teal)
+    table.cell(dash, 0, 8, lastPredictionResult,                text_color=color.green)
+    table.cell(dash, 0, 9, "Trend Conf: " + str.tostring(trendConfScore) + "%", text_color=trendConfColor)
+    table.cell(dash, 0,10, "OB Status: Bull " + (lastBullOBMitigated ? "✅ Mitigated" : "🟢 Active") + " / Bear " + (lastBearOBMitigated ? "✅ Mitigated" : "🔴 Active"), text_color=color.white)
+
+// === SMC QUICK GUIDE (Cheat‑Sheet) ===
+if showCheatSheet
+    var table guide = table.new(position.bottom_left, 1, 9, bgcolor=color.new(color.black, 30), border_width=2, border_color=color.fuchsia)
+    table.cell(guide,0,0,"SMC QUICK GUIDE",            text_color=color.yellow, text_size=size.normal)
+    table.cell(guide,0,1,"CHoCH ↑ → Expect HL (reversal)", text_color=color.orange)
+    table.cell(guide,0,2,"CHoCH ↓ → Expect LH (reversal)", text_color=color.orange)
+    table.cell(guide,0,3,"BOS   ↑ → Expect HH (continuation)", text_color=color.lime)
+    table.cell(guide,0,4,"BOS   ↓ → Expect LL (continuation)", text_color=color.red)
+    table.cell(guide,0,5,"HH = Higher High",          text_color=color.lime)
+    table.cell(guide,0,6,"HL = Higher Low",           text_color=color.green)
+    table.cell(guide,0,7,"LH = Lower High",           text_color=color.orange)
+    table.cell(guide,0,8,"LL = Lower Low",            text_color=color.red)
+
+// === TRENDLINE VALIDATION (Break Detection) ===
+trendlineBrokenBull := false
+trendlineBrokenBear := false
+
+if enableTrendlineValidation and array.size(trendLines) > 0
+    for i = 0 to array.size(trendLines) - 1
+        line l = array.get(trendLines, i)
+        string trendType = array.get(trendTypes, i)
+
+        bool isBullLine = trendType == "bull"
+        bool isBearLine = trendType == "bear"
+
+        int x1 = line.get_x1(l)
+        float y1 = line.get_y1(l)
+        int x2 = line.get_x2(l)
+        float y2 = line.get_y2(l)
+
+        // Only evaluate once price is past line start
+        if bar_index >= x1 and x2 != x1
+            float yOnLine = y1 + (y2 - y1) * (bar_index - x1) / (x2 - x1)
+
+            // --- Break logic ---
+            bool bullWickBreak  = trendlineBreakMode == "Wick"  and low  < yOnLine
+            bool bullCloseBreak = trendlineBreakMode == "Close" and close < yOnLine
+
+            bool bearWickBreak  = trendlineBreakMode == "Wick"  and high > yOnLine
+            bool bearCloseBreak = trendlineBreakMode == "Close" and close > yOnLine
+
+            // --- Bullish Trendline Break ---
+            if isBullLine and (bullWickBreak or bullCloseBreak)
+                trendlineBrokenBull := true
+
+                if highlightBrokenLines
+                    line.set_color(l, color.new(color.gray, 60))
+                    line.set_style(l, line.style_dashed)
+
+            // --- Bearish Trendline Break ---
+            if isBearLine and (bearWickBreak or bearCloseBreak)
+                trendlineBrokenBear := true
+
+                if highlightBrokenLines
+                    line.set_color(l, color.new(color.gray, 60))
+                    line.set_style(l, line.style_dashed)
+
+// === 🔔 ALERTCONDITIONS === 
+
+// — ENTRY SIGNALS —
+alertcondition(buySignal, title="📈 Buy Signal", message="📈 BUY signal triggered on {{ticker}} at {{close}}")
+alertcondition(sellSignal, title="📉 Sell Signal", message="📉 SELL signal triggered on {{ticker}} at {{close}}")
+
+// — STRUCTURE SHIFTS —
+alertcondition(validBullCHoCH, title="🟠 Bullish CHoCH", message="🟠 Bullish CHoCH on {{ticker}} at {{close}} → Expect HL")
+alertcondition(validBearCHoCH, title="🟠 Bearish CHoCH", message="🟠 Bearish CHoCH on {{ticker}} at {{close}} → Expect LH")
+alertcondition(bullishBOS,     title="🟢 Bullish BOS",  message="🟢 Bullish BOS on {{ticker}} at {{close}} → Expect HH")
+alertcondition(bearishBOS,     title="🔴 Bearish BOS",  message="🔴 Bearish BOS on {{ticker}} at {{close}} → Expect LL")
+
+// — FVG TAPS —
+alertcondition(array.size(bullTouchBars) > 0 and not na(array.get(bullTouchBars, array.size(bullTouchBars) - 1)),
+  title="🟢 Bullish FVG Tap",
+  message="🟢 Bullish FVG Tap on {{ticker}} at {{close}}")
+
+alertcondition(array.size(bearTouchBars) > 0 and not na(array.get(bearTouchBars, array.size(bearTouchBars) - 1)),
+  title="🔻 Bearish FVG Tap",
+  message="🔻 Bearish FVG Tap on {{ticker}} at {{close}}")
+
+// — IDM HIGH/LOWs —
+alertcondition(useIDMFilter and not na(pivotHigh), title="💡 IDM High Swing", message="💡 IDM High swing on {{ticker}} at {{high}}")
+alertcondition(useIDMFilter and not na(pivotLow),  title="💡 IDM Low Swing",  message="💡 IDM Low swing on {{ticker}} at {{low}}")
+
+// — BONUS (optional additions) —
+alertcondition(bullShift, title="⬆️ Bullish Structure Shift", message="⬆️ Bullish Structure Shift on {{ticker}} → CHoCH + BOS")
+alertcondition(bearShift, title="⬇️ Bearish Structure Shift", message="⬇️ Bearish Structure Shift on {{ticker}} → CHoCH + BOS")
+
+// === 🔔 PREDICTION CONFIRMATION ALERTS (Smart HL/LH/HH/LL) ===
+alertcondition(expectHL == false and not na(pivotLow) and not na(expectedHLLevel) and low > expectedHLLevel,
+  title="✅ HL Confirmed",
+  message="✅ Higher Low confirmed on {{ticker}} at {{low}}")
+
+alertcondition(expectLH == false and not na(pivotHigh) and not na(expectedLHLevel) and high < expectedLHLevel,
+  title="✅ LH Confirmed",
+  message="✅ Lower High confirmed on {{ticker}} at {{high}}")
+
+alertcondition(expectHH == false and not na(pivotHigh) and high > nz(lastSwingHigh[1]),
+  title="✅ HH Confirmed",
+  message="✅ Higher High confirmed on {{ticker}} at {{high}}")
+
+alertcondition(expectLL == false and not na(pivotLow) and low < nz(lastSwingLow[1]),
+  title="✅ LL Confirmed",
+  message="✅ Lower Low confirmed on {{ticker}} at {{low}}")
+
+// === 🔔 TRENDLINE VALIDATION ALERTS (New) ===
+alertcondition(trendlineBrokenBull, title="⚠️ Bullish Trendline Broken", message="⚠️ Bullish trendline broken on {{ticker}} at {{close}} — structure may reverse or CHoCH soon")
+alertcondition(trendlineBrokenBear, title="⚠️ Bearish Trendline Broken", message="⚠️ Bearish trendline broken on {{ticker}} at {{close}} — structure may reverse or CHoCH soon")
+
+// === 🔔 ORDER BLOCK MITIGATION ===
+alertcondition(newBullOBMitigation, title="✅ Bullish OB Mitigated", message="✅ Bullish HTF Order Block mitigated on {{ticker}} at {{close}}")
+alertcondition(newBearOBMitigation, title="✅ Bearish OB Mitigated", message="✅ Bearish HTF Order Block mitigated on {{ticker}} at {{close}}")
+
+// === 🔔 BOS + OB CONFLUENCE ===
+alertcondition(bullishBOS and newBearOBMitigation, title="🟢 Bullish BOS + Bear OB Mitigated", message="🟢 Bullish Break of Structure + Bear OB Mitigated on {{ticker}} at {{close}} → Bullish confirmation")
+alertcondition(bearishBOS and newBullOBMitigation, title="🔴 Bearish BOS + Bull OB Mitigated", message="🔴 Bearish Break of Structure + Bull OB Mitigated on {{ticker}} at {{close}} → Bearish confirmation")
+
+// end of Script®

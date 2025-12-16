@@ -1,0 +1,2997 @@
+//@version=6
+indicator('Forever Model', overlay = true, max_lines_count = 500, max_labels_count = 500, max_boxes_count = 500, max_bars_back = 501)
+
+// HTF Settings
+autoMode = input.bool(true, 'Auto Mode', tooltip = 'Automatically select HTF based on current chart timeframe.', group = 'HTF Settings')
+manualHTF = input.timeframe('D', 'Manual HTF', tooltip = 'Manual HTF selection (only used when Auto Mode is disabled)', group = 'HTF Settings')
+
+// Indicator Settings
+showConfirmationLines = input.bool(true, 'Show Confirmation Lines', group = 'Indicator')
+extendOnlyLatestConfirmation = input.bool(true, 'Extend Only Latest Confirmation', tooltip = 'If enabled, only the latest confirmation line extends to current bar. If disabled, all confirmation lines extend to current bar.', group = 'Indicator')
+showLabels = input.bool(false, 'Show Labels', tooltip = 'Show labels for FVGs and ERLs', group = 'Indicator')
+showFVGBoxes = input.bool(true, 'Show FVG Boxes', tooltip = 'Show FVG boxes on chart', group = 'Indicator')
+bias = input.string('No Bias', 'Bias', options = ['No Bias', 'Bullish Bias', 'Bearish Bias'], tooltip = 'When biased, only detect FVGs for that bias. No Bias detects both.', group = 'Indicator')
+
+// Dashboard Settings
+showDashboard = input.bool(true, 'Show Dashboard', group = 'Dashboard')
+dashboardPosition = input.string('Top Right', 'Dashboard Position', options = ['Top Left', 'Top Center', 'Top Right', 'Middle Left', 'Middle Center', 'Middle Right', 'Bottom Left', 'Bottom Center', 'Bottom Right'], group = 'Dashboard')
+dashboardBgColor = input.color(color.new(color.gray, 100), 'Dashboard Background', group = 'Dashboard')
+dashboardBorderColor = input.color(color.black, 'Dashboard Border', group = 'Dashboard')
+dashboardTextColor = input.color(color.black, 'Dashboard Text', group = 'Dashboard')
+dashboardSize = input.string(size.small, 'Dashboard Text Size', options = [size.tiny, size.small, size.normal, size.large, size.huge], group = 'Dashboard')
+dashboardBorderWidth = input.int(1, 'Dashboard Border Width', minval = 0, maxval = 5, group = 'Dashboard')
+dashboardFrameColor = input.color(color.black, 'Dashboard Frame Color', group = 'Dashboard')
+dashboardFrameWidth = input.int(1, 'Dashboard Frame Width', minval = 0, maxval = 5, group = 'Dashboard')
+
+// Position Sizing Settings
+showPositionSize = input.bool(false, 'Show Position Size for Latest Signal', group = 'Position Sizing')
+accountBalance = input.float(10000.0, 'Account Balance (USD)', minval = 0.0, group = 'Position Sizing')
+riskType = input.string('Percentage', 'Risk Type', options = ['Percentage', 'Fixed Amount'], group = 'Position Sizing')
+riskAmount = input.float(1.0, 'Risk Amount (% or USD)', minval = 0.0, group = 'Position Sizing')
+usingProp = input.bool(false, 'Using Prop Firm', group = 'Position Sizing', tooltip = 'Use prop firm contract size calculations')
+abbreviatePositionInfo = input.bool(false, 'Abbreviate Position Info', group = 'Position Sizing', tooltip = 'Shorten position sizing text (Size, Entry, Stop, contracts, units)')
+
+// SMT Settings
+enableSMT = input.bool(false, 'Enable SMT Detection', group = 'SMT Settings')
+smtAutoMode = input.bool(true, 'SMT Auto Pair', tooltip = 'Automatically select SMT pair based on symbol. For crypto: BTC↔ETH, others→ETH. For stocks/futures: related pairs.', group = 'SMT Settings')
+smtManualPair = input.symbol('', 'SMT Manual Pair', tooltip = 'Manual SMT pair selection (only used when Auto Pair is disabled)', group = 'SMT Settings')
+smtLineWidth = input.int(2, 'SMT Line Width', minval = 1, group = 'SMT Settings')
+smtOnlyInFVG = input.bool(false, 'Only Display SMTs in FVG', tooltip = 'Only display SMTs that have at least one extreme within an FVG range (not fully mitigated)', group = 'SMT Settings')
+smtRequiredForSignal = input.bool(false, 'Require SMT for Signal Confirmation', tooltip = 'Only allow signal confirmation if there is an SMT of that direction that occurred after the initial touch point of the FVG and has at least one extreme within the FVG', group = 'SMT Settings')
+smtKeepOnlyLatest = input.bool(false, 'Keep Only Latest SMTs', tooltip = 'When enabled, only the latest bearish and latest bullish SMTs are kept. Older SMTs of the same type are removed.', group = 'SMT Settings')
+
+
+// OI-based special range settings
+useOIForSpecialRanges = input.bool(false, 'Use OI for Special Ranges', group = 'Range Detection', tooltip = 'Detect special ranges based on OI pivot detection')
+oiPivotLookLeft = input.int(1, 'OI Pivot Look Left', minval = 1, group = 'Range Detection')
+oiPivotLookRight = input.int(1, 'OI Pivot Look Right', minval = 1, group = 'Range Detection')
+
+// iFVG Settings
+showInversionFVGs = input.bool(false, 'Show Inversion FVGs', group = 'iFVG Settings', tooltip = 'Display inversion FVG boxes on confirmation lines')
+
+// Get HTF Period function - around 15-16x multiples (except fixed ones)
+getHTFPeriod() =>
+    switch timeframe.period
+        '1'   => '15'      // 1m → 15m (15x) - fixed
+        '3'   => '30'      // 3m → 30m (10x) - fixed
+        '5'   => '60'      // 5m → 1h (12x) - fixed
+        '10'  => '150'     // 10m → 150m (15x) = 2.5h
+        '15'  => '240'     // 15m → 4h (16x) - fixed
+        '30'  => '1D'      // 30m → 1D (48x) - fixed
+        '45'  => '720'     // 45m → 12h (16x)
+        '60'  => '1D'      // 1h → 1D (24x) - fixed, same as 30m
+        '120' => '2D'      // 2h → 2D (24x) - closest standard timeframe (30h not available)
+        '240' => '1W'      // 4h → 1W (42x) - fixed
+        '360' => '4D'      // 6h → 4D (16x)
+        '720' => '1W'      // 12h → 1W (14x) - closest to 1W
+        '1D'  => '15D'      // 1D → 15D (15x)
+        '3D'  => '45D'      // 3D → 45D (15x)
+        '1W'  => '15W'      // 1W → 15W (15x)
+        '1M'  => '15M'      // 1M → 15M (15x)
+        '3M'  => '45M'      // 3M → 45M (15x)
+        => '1D'            // Default
+
+// Helper function to format timeframe name
+formatTimeframe(string tf) =>
+    seconds = timeframe.in_seconds(tf)
+    if seconds < 60
+        str.tostring(seconds) + "S"
+    else if (seconds / 60) < 60
+        str.tostring((seconds/60)) + "M"
+    else if (seconds/60/60) < 24
+        str.tostring((seconds/60/60)) + "H"
+    else if (seconds/60/60/24) < 7
+        str.tostring((seconds/60/60/24)) + "D"
+    else if (seconds/60/60/24/7) < 4
+        str.tostring((seconds/60/60/24/7)) + "W"
+    else if (seconds/60/60/24/30) < 12
+        str.tostring((seconds/60/60/24/30)) + "M"
+    else
+        str.tostring((seconds/60/60/24/365)) + "Y"
+
+// Helper function to get current timeframe string
+getCurrentTimeframe() =>
+    current_seconds = timeframe.in_seconds()
+    if current_seconds < 60
+        str.tostring(current_seconds) + "S"
+    else if (current_seconds / 60) < 60
+        str.tostring((current_seconds/60)) + "M"
+    else if (current_seconds/60/60) < 24
+        str.tostring((current_seconds/60/60)) + "H"
+    else if (current_seconds/60/60/24) < 7
+        str.tostring((current_seconds/60/60/24)) + "D"
+    else if (current_seconds/60/60/24/7) < 4
+        str.tostring((current_seconds/60/60/24/7)) + "W"
+    else if (current_seconds/60/60/24/30) < 12
+        str.tostring((current_seconds/60/60/24/30)) + "M"
+    else
+        str.tostring((current_seconds/60/60/24/365)) + "Y"
+
+// Helper function to get remaining time until next HTF candle
+getRemainingTime(string htf) =>
+    if barstate.isrealtime
+        timeRemaining = (time_close(htf) - timenow)/1000
+        days = math.floor(timeRemaining / 86400)
+        hours = math.floor((timeRemaining - (days*86400)) / 3600)
+        minutes = math.floor((timeRemaining - (days*86400) - (hours*3600))/ 60)
+        seconds = math.floor(timeRemaining - (days*86400) - (hours*3600) - (minutes*60))
+        
+        r = str.tostring(seconds, "00")
+        if minutes > 0 or hours > 0 or days > 0
+            r := str.tostring(minutes, "00") + ":" + r
+        if hours > 0 or days > 0
+            r := str.tostring(hours, "00") + ":" + r
+        if days > 0
+            r := str.tostring(days) + "D " + r
+        r
+    else
+        "n/a"
+
+// Helper function to get table position
+getTablePosition(string position) =>
+    switch position
+        'Top Left' => position.top_left
+        'Top Center' => position.top_center
+        'Top Right' => position.top_right
+        'Middle Left' => position.middle_left
+        'Middle Center' => position.middle_center
+        'Middle Right' => position.middle_right
+        'Bottom Left' => position.bottom_left
+        'Bottom Center' => position.bottom_center
+        'Bottom Right' => position.bottom_right
+        => position.top_right
+
+// Get contract size for common futures
+getContractSize() =>
+    if usingProp
+        ticker = syminfo.ticker
+        if syminfo.type == "forex" or str.contains(ticker,"6")
+            100000.0
+        else if str.contains(ticker, "MES") or str.contains(ticker, "MNQ") or str.contains(ticker, "MYM") or str.contains(ticker, "M2K") or str.contains(ticker, "MGC") or str.contains(ticker, "MSI") or str.contains(ticker, "MCL") or str.contains(ticker, "MNG") or str.contains(ticker, "MZC") or str.contains(ticker, "MZW") or str.contains(ticker, "MZS") or str.contains(ticker, "MHG") or str.contains(ticker, "M6E") or str.contains(ticker, "M6J") or str.contains(ticker, "M6B") or str.contains(ticker, "M6A") or str.contains(ticker, "M6C") or str.contains(ticker, "M6S") or str.contains(ticker, "M6N") or str.contains(ticker, "M6M")
+            1.0
+        else if str.contains(ticker, "ES") or str.contains(ticker, "NQ") or str.contains(ticker, "YM") or str.contains(ticker, "RTY") or str.contains(ticker, "DJI") or str.contains(ticker, "USTEC") or str.contains(ticker, "US100") or str.contains(ticker, "US500") or str.contains(ticker, "SP500") or str.contains(ticker, "US2000") or str.contains(ticker, "SPX") or str.contains(ticker, "NDX") or str.contains(ticker, "DJX")
+            1.0
+        else if str.contains(ticker, "GC") or str.contains(ticker, "XAU") or str.contains(ticker, "GOLD")
+            100.0
+        else if str.contains(ticker, "SI") or str.contains(ticker, "XAG") or str.contains(ticker, "SILVER")
+            5000.0
+        else if str.contains(ticker, "NG") or str.contains(ticker, "NATGAS") or str.contains(ticker, "NATURALGAS")
+            1000.0
+        else if str.contains(ticker, "CL") or str.contains(ticker, "OIL") or str.contains(ticker, "CRUDE") or str.contains(ticker, "BRENT") or str.contains(ticker, "WTI")
+            100.0
+        else if str.contains(ticker, "ZC") or str.contains(ticker, "CORN")
+            5000.0
+        else if str.contains(ticker, "ZW") or str.contains(ticker, "WHEAT")
+            5000.0
+        else if str.contains(ticker, "ZS") or str.contains(ticker, "SOYBEANS")
+            5000.0
+        else if str.contains(ticker, "HG") or str.contains(ticker, "COPPER")
+            25000.0
+        else
+            1.0
+    else
+        ticker = syminfo.ticker
+        if str.contains(ticker, "MES")
+            5.0
+        else if str.contains(ticker, "MNQ")
+            2.0
+        else if str.contains(ticker, "MYM")
+            0.5
+        else if str.contains(ticker, "M2K")
+            5.0
+        else if str.contains(ticker, "MGC")
+            10.0
+        else if str.contains(ticker, "MSI")
+            1000.0
+        else if str.contains(ticker, "MCL")
+            100.0
+        else if str.contains(ticker, "MNG")
+            1000.0
+        else if str.contains(ticker, "MZC") or str.contains(ticker, "MZW") or str.contains(ticker, "MZS")
+            500.0
+        else if str.contains(ticker, "MHG")
+            2500.0
+        else if str.contains(ticker, "M6E")
+            12500.0
+        else if str.contains(ticker, "M6J")
+            1250000.0
+        else if str.contains(ticker, "M6B")
+            6250.0
+        else if str.contains(ticker, "M6A") or str.contains(ticker, "M6C")
+            10000.0
+        else if str.contains(ticker, "M6S")
+            12500.0
+        else if str.contains(ticker, "M6N")
+            10000.0
+        else if str.contains(ticker, "M6M")
+            50000.0
+        else if str.contains(ticker, "GC") or str.contains(ticker, "XAU") or str.contains(ticker, "GOLD")
+            100.0
+        else if str.contains(ticker, "SI") or str.contains(ticker, "XAG") or str.contains(ticker, "SILVER")
+            5000.0
+        else if str.contains(ticker, "CL")
+            1000.0
+        else if str.contains(ticker, "NG")
+            10000.0
+        else if str.contains(ticker, "ZC") or str.contains(ticker, "CORN")
+            5000.0
+        else if str.contains(ticker, "ZW") or str.contains(ticker, "WHEAT")
+            5000.0
+        else if str.contains(ticker, "ZS") or str.contains(ticker, "SOYBEANS")
+            5000.0
+        else if str.contains(ticker, "HG") or str.contains(ticker, "COPPER")
+            25000.0
+        else if str.contains(ticker, "ES")
+            50.0
+        else if str.contains(ticker, "NQ")
+            20.0
+        else if str.contains(ticker, "YM")
+            5.0
+        else if str.contains(ticker, "6E")
+            125000.0
+        else if str.contains(ticker, "6J")
+            12500000.0
+        else if str.contains(ticker, "6B")
+            62500.0
+        else if str.contains(ticker, "6A") or str.contains(ticker, "6C")
+            100000.0
+        else if str.contains(ticker, "6S")
+            125000.0
+        else if str.contains(ticker, "6N")
+            100000.0
+        else if str.contains(ticker, "6M")
+            500000.0
+        else
+            1.0
+
+// Function to calculate position size based on risk parameters
+calculatePositionSize(float entry, float stop, float riskUsd) =>
+    riskPerUnit = math.abs(entry - stop)
+    positionSize = riskPerUnit != 0 ? riskUsd / riskPerUnit : 0
+    
+    // Format based on market type
+    detectedMarket = syminfo.type
+    if detectedMarket == "forex"
+        ticker = syminfo.ticker
+        needsConversion = not (str.contains(ticker, "USD") and str.endswith(ticker, "USD")) or str.contains(ticker, "6")
+        if needsConversion
+            positionSize := (positionSize * entry) / 100000.0
+        else
+            positionSize := positionSize / 100000.0
+    else if detectedMarket == "futures" or detectedMarket == "future" or detectedMarket == "cfd" or detectedMarket == "index"
+        contractSize = getContractSize()
+        positionSize := positionSize / contractSize
+    else if detectedMarket == "crypto" or detectedMarket == "stock" or detectedMarket == "other"
+        positionSize := positionSize
+    else
+        positionSize := positionSize
+    
+    positionSize
+
+// Function to format position size based on market type
+formatPositionSize(float size) =>
+    detectedMarket = syminfo.type
+    sizeText = ""
+    if detectedMarket == "forex"
+        sizeText := str.tostring(size, '#.##') + (abbreviatePositionInfo ? ' lt' : ' lots')
+    else if detectedMarket == "futures" or detectedMarket == "future" or detectedMarket == "cfd" or detectedMarket == "index"
+        sizeText := str.tostring(size, '#.##') + (abbreviatePositionInfo ? ' ct' : ' contracts')
+    else if detectedMarket == "crypto" or detectedMarket == "stock"
+        sizeText := str.tostring(size, '#.####') + (abbreviatePositionInfo ? ' un' : ' units')
+    else
+        sizeText := str.tostring(size, '#.####')
+    sizeText
+
+// Function to get precision string (e.g., "#####" for 5 decimals)
+getPrecisionString() =>
+    int decimals = int(math.log10(1 / syminfo.mintick))
+    string precisionString = ''
+    for i = 0 to decimals - 1 by 1
+        precisionString := precisionString + '#'
+    precisionString
+
+
+
+// Helper function to check if SMT extreme is within an FVG range (not fully mitigated)
+isSMTInFVG(string smtType, float prevChartHigh, float currChartHigh, float prevChartLow, float currChartLow, float rangeHigh, float rangeLow, bool highMitigated, bool lowMitigated) =>
+    // Check if range is not fully mitigated
+    bool notFullyMitigated = (na(rangeHigh) or not highMitigated) or (na(rangeLow) or not lowMitigated)
+    if not notFullyMitigated
+        false
+    else
+        // Determine min and max of range (rangeHigh might be less than rangeLow for FVGs)
+        float rangeMin = math.min(rangeHigh, rangeLow)
+        float rangeMax = math.max(rangeHigh, rangeLow)
+        
+        // For bearish SMT: check if at least one high is within FVG range
+        if smtType == "BEARISH"
+            bool prevHighInRange = not na(prevChartHigh) and not na(rangeHigh) and not na(rangeLow) and prevChartHigh >= rangeMin and prevChartHigh <= rangeMax
+            bool currHighInRange = not na(currChartHigh) and not na(rangeHigh) and not na(rangeLow) and currChartHigh >= rangeMin and currChartHigh <= rangeMax
+            prevHighInRange or currHighInRange
+        // For bullish SMT: check if at least one low is within FVG range
+        else
+            bool prevLowInRange = not na(prevChartLow) and not na(rangeHigh) and not na(rangeLow) and prevChartLow >= rangeMin and prevChartLow <= rangeMax
+            bool currLowInRange = not na(currChartLow) and not na(rangeHigh) and not na(rangeLow) and currChartLow >= rangeMin and currChartLow <= rangeMax
+            prevLowInRange or currLowInRange
+
+// Helper function to check if SMT is within a specific FVG range (for signal confirmation)
+isSMTInFVGRange(string smtType, float prevChartHigh, float currChartHigh, float prevChartLow, float currChartLow, float fvgHigh, float fvgLow) =>
+    if na(fvgHigh) or na(fvgLow)
+        false
+    else
+        // For bearish SMT: check if at least one high is within FVG range
+        if smtType == "BEARISH"
+            bool prevHighInRange = not na(prevChartHigh) and prevChartHigh >= fvgLow and prevChartHigh <= fvgHigh
+            bool currHighInRange = not na(currChartHigh) and currChartHigh >= fvgLow and currChartHigh <= fvgHigh
+            prevHighInRange or currHighInRange
+        // For bullish SMT: check if at least one low is within FVG range
+        else
+            bool prevLowInRange = not na(prevChartLow) and prevChartLow >= fvgLow and prevChartLow <= fvgHigh
+            bool currLowInRange = not na(currChartLow) and currChartLow >= fvgLow and currChartLow <= fvgHigh
+            prevLowInRange or currLowInRange
+
+// Get SMT Pair function - auto-detection based on symbol
+getSMTPair() =>
+    string ticker = syminfo.ticker
+    string baseTicker = syminfo.tickerid
+    
+    // Check if crypto (BTC, ETH, etc.)
+    if str.contains(ticker, "BTC") or str.contains(baseTicker, "BTC")
+        "ETHUSD"  // BTC's pair is ETH
+    else if str.contains(ticker, "ETH") or str.contains(baseTicker, "ETH")
+        "BTCUSD"  // ETH's pair is BTC
+    else if str.contains(ticker, "USD") or str.contains(baseTicker, "USD")
+        "ETHUSD"  // Other cryptos pair with ETH
+    // Futures pairs
+    else if str.contains(ticker, "ES1!") or str.contains(baseTicker, "ES1!")
+        "NQ1!"    // ES pairs with NQ
+    else if str.contains(ticker, "NQ1!") or str.contains(baseTicker, "NQ1!")
+        "ES1!"    // NQ pairs with ES
+    else if str.contains(ticker, "YM1!") or str.contains(baseTicker, "YM1!")
+        "ES1!"    // YM pairs with ES
+    else if str.contains(ticker, "RTY1!") or str.contains(baseTicker, "RTY1!")
+        "ES1!"    // RTY pairs with ES
+    else if str.contains(ticker, "CL1!") or str.contains(baseTicker, "CL1!")
+        "NG1!"    // CL pairs with NG
+    else if str.contains(ticker, "NG1!") or str.contains(baseTicker, "NG1!")
+        "CL1!"    // NG pairs with CL
+    else if str.contains(ticker, "GC1!") or str.contains(baseTicker, "GC1!")
+        "SI1!"    // GC pairs with SI
+    else if str.contains(ticker, "SI1!") or str.contains(baseTicker, "SI1!")
+        "GC1!"    // SI pairs with GC
+    // Forex pairs
+    else if str.contains(ticker, "EURUSD") or str.contains(baseTicker, "EURUSD")
+        "GBPUSD"  // EUR pairs with GBP
+    else if str.contains(ticker, "GBPUSD") or str.contains(baseTicker, "GBPUSD")
+        "EURUSD"  // GBP pairs with EUR
+    else if str.contains(ticker, "USDJPY") or str.contains(baseTicker, "USDJPY")
+        "EURJPY"  // USDJPY pairs with EURJPY
+    else if str.contains(ticker, "EURJPY") or str.contains(baseTicker, "EURJPY")
+        "USDJPY"  // EURJPY pairs with USDJPY
+    else if str.contains(ticker, "AUDUSD") or str.contains(baseTicker, "AUDUSD")
+        "NZDUSD"  // AUD pairs with NZD
+    else if str.contains(ticker, "NZDUSD") or str.contains(baseTicker, "NZDUSD")
+        "AUDUSD"  // NZD pairs with AUD
+    else if str.contains(ticker, "USDCAD") or str.contains(baseTicker, "USDCAD")
+        "USDCHF"  // USDCAD pairs with USDCHF
+    else if str.contains(ticker, "USDCHF") or str.contains(baseTicker, "USDCHF")
+        "USDCAD"  // USDCHF pairs with USDCAD
+    else if str.contains(ticker, "EUR") or str.contains(baseTicker, "EUR")
+        "GBPUSD"  // Other EUR pairs with GBP
+    else if str.contains(ticker, "GBP") or str.contains(baseTicker, "GBP")
+        "EURUSD"  // Other GBP pairs with EUR
+    else if str.contains(ticker, "JPY") or str.contains(baseTicker, "JPY")
+        "EURJPY"  // Other JPY pairs with EURJPY
+    else
+        "ES1!"    // Default fallback
+
+// Determine HTF
+selectedHTF = manualHTF
+
+if autoMode
+    // In auto mode: automatically select HTF based on chart timeframe
+    selectedHTF := getHTFPeriod()
+else
+    // Manual mode: use manual HTF input
+    selectedHTF := manualHTF
+
+
+// Input parameters
+maxRangesToDisplay = input.int(10, 'Max Ranges to Display', minval = 1, maxval = 100)
+rangeFilter = input.bool(false, 'Range Filter', tooltip = "Filter Fvg Keep Only Those Outside Ranges")
+
+// Detect new HTF candle
+bool newPeriod = timeframe.change(selectedHTF)
+
+// ========================================
+// TYPES
+// ========================================
+type HTFPivotPoint
+    float price
+    string pType // "HIGH" or "LOW"
+    int time
+    int barIndex
+
+type HTFInsideSwing
+    float high    // Outer High
+    float low     // Outer Low
+    int time      // Time when the pattern completed (4th pivot time)
+    int startBar  // Start bar of the pattern
+    int endBar    // End bar of the pattern
+
+// ========================================
+// GLOBAL STORAGE
+// ========================================
+var allHtfPivots = array.new<HTFPivotPoint>()
+var activeSwingHistory = array.new<HTFInsideSwing>()
+
+// ========================================
+// HTF DATA & PIVOT DETECTION
+// ========================================
+// Function to detect HTF pivots based on candle direction
+detectHTFPivots() =>
+    bool hasPivotHigh = false
+    bool hasPivotLow = false
+    float pivotHighPrice = na
+    float pivotLowPrice = na
+    int pivotHighTime = na
+    int pivotLowTime = na
+    
+    if barstate.isconfirmed
+        // Get HTF data
+        float htfHigh = high[0]
+        float htfLow = low[0]
+        float htfHigh1 = high[1]
+        float htfLow1 = low[1]
+        float htfOpen = open[0]
+        float htfClose = close[0]
+        float htfOpen1 = open[1]
+        float htfClose1 = close[1]
+        int htfTime = time[0]
+        
+        bool currentHtfIsBullish = htfClose > htfOpen
+        bool prevHtfWasBullishCheck = htfClose1 > htfOpen1
+        
+        // Bullish HTF candle after bearish → new HTF pivot low
+        if currentHtfIsBullish and not prevHtfWasBullishCheck and not na(htfLow) and not na(htfLow1)
+            hasPivotLow := true
+            pivotLowPrice := math.min(htfLow, htfLow1)
+            pivotLowTime := htfTime
+        
+        // Bearish HTF candle after bullish → new HTF pivot high
+        if not currentHtfIsBullish and prevHtfWasBullishCheck and not na(htfHigh) and not na(htfHigh1)
+            hasPivotHigh := true
+            pivotHighPrice := math.max(htfHigh, htfHigh1)
+            pivotHighTime := htfTime
+    
+    [hasPivotHigh, hasPivotLow, pivotHighPrice, pivotLowPrice, pivotHighTime, pivotLowTime]
+
+// Fetch HTF data
+[htfHasPivotHigh, htfHasPivotLow, htfPivotHighPrice, htfPivotLowPrice, htfPivotHighTime, htfPivotLowTime] = request.security(syminfo.tickerid, selectedHTF, detectHTFPivots())
+// Detect new HTF candle
+
+// ========================================
+// PIVOT STORAGE & PATTERN LOGIC
+// ========================================
+// Only process on new HTF pivots
+if htfHasPivotHigh and newPeriod
+    newPivot = HTFPivotPoint.new(htfPivotHighPrice, "HIGH", htfPivotHighTime, bar_index)
+    array.push(allHtfPivots, newPivot)
+
+if htfHasPivotLow and newPeriod
+    newPivot = HTFPivotPoint.new(htfPivotLowPrice, "LOW", htfPivotLowTime, bar_index)
+    array.push(allHtfPivots, newPivot)
+
+// Detect Inside Swings (Run whenever we have enough pivots)
+if (htfHasPivotHigh or htfHasPivotLow) and array.size(allHtfPivots) >= 4 and newPeriod
+    // Get last 4 pivots
+    p4 = array.get(allHtfPivots, array.size(allHtfPivots) - 1) // Latest
+    p3 = array.get(allHtfPivots, array.size(allHtfPivots) - 2)
+    p2 = array.get(allHtfPivots, array.size(allHtfPivots) - 3)
+    p1 = array.get(allHtfPivots, array.size(allHtfPivots) - 4) // Oldest
+    
+    HTFInsideSwing newSwing = na
+    
+    // HLHL Pattern: High(1) -> Low(1) -> High(2) -> Low(2)
+    if p1.pType == "HIGH" and p2.pType == "LOW" and p3.pType == "HIGH" and p4.pType == "LOW"
+        // Outer High (H1) > Inner High (H2) AND Outer Low (L1) < Inner Low (L2)
+        if p1.price > p3.price and p2.price < p4.price
+            newSwing := HTFInsideSwing.new(p1.price, p2.price, p4.time, p1.barIndex, p4.barIndex)
+
+    // LHLH Pattern: Low(1) -> High(1) -> Low(2) -> High(2)
+    if p1.pType == "LOW" and p2.pType == "HIGH" and p3.pType == "LOW" and p4.pType == "HIGH"
+        // Outer Low (L1) < Inner Low (L2) AND Outer High (H1) > Inner High (H2)
+        if p1.price < p3.price and p2.price > p4.price
+            newSwing := HTFInsideSwing.new(p2.price, p1.price, p4.time, p1.barIndex, p4.barIndex)
+            
+    // Nesting Logic
+    if not na(newSwing)
+        // Check against current active swing
+        HTFInsideSwing activeSwing = na
+        if array.size(activeSwingHistory) > 0
+            activeSwing := array.get(activeSwingHistory, array.size(activeSwingHistory) - 1)
+        
+        bool isNested = false
+        if not na(activeSwing)
+            // Check if new swing is contained within active swing
+            // New High <= Active High AND New Low >= Active Low
+            if newSwing.high <= activeSwing.high and newSwing.low >= activeSwing.low
+                isNested := true
+        
+        if not isNested
+            array.push(activeSwingHistory, newSwing)
+
+// ========================================
+// FILTERING FUNCTION
+// ========================================
+// Function to check if FVG passes the Inside Swing filter
+// Returns true if filter is disabled OR if FVG meets the criteria
+fvgPassesFilter(bool isBullish, float fvgTop, float fvgBottom, int fvgTime) =>
+    bool passed = false
+    
+    if not rangeFilter
+        passed := true
+    else
+        // Find the active swing that was valid BEFORE this FVG formed
+        HTFInsideSwing relevantSwing = na
+        if array.size(activeSwingHistory) > 0
+            for i = array.size(activeSwingHistory) - 1 to 0
+                s = array.get(activeSwingHistory, i)
+                if s.time < fvgTime
+                    relevantSwing := s
+                    break
+        
+        if na(relevantSwing)
+            passed := true // No active swing to filter against
+        else
+            if isBullish
+                // Bullish FVG Top must be > Active Swing High (Break Out Up)
+                passed := fvgTop > relevantSwing.high
+            else
+                // Bearish FVG Bottom must be < Active Swing Low (Break Out Down)
+                passed := fvgBottom < relevantSwing.low
+    
+    passed
+
+
+// Color settings
+bullishFVGColor = input.color(color.green, 'Bullish FVG Color')
+bearishFVGColor = input.color(color.red, 'Bearish FVG Color')
+erlColor = input.color(color.yellow, 'ERL Color')
+
+// Structure for ranges - track high and low mitigation separately
+type Range
+    float rangeHigh
+    float rangeLow
+    int highStartTime     // Time when the high was formed
+    int lowStartTime      // Time when the low was formed
+    bool highMitigated
+    bool lowMitigated
+    int highMitigationTime
+    int lowMitigationTime
+    bool isSpecial        // Flag to mark special ranges (only one extreme)
+    int creationBar       // Bar index where the range was created (for special ranges)
+    bool isOIBased        // Flag to mark OI-based special ranges
+    bool isSignalBased    // Flag to mark signal-based special ranges
+    int signalCreationBar      // Bar index where signal was created (for signal-based ranges)
+    int signalConfirmationBar  // Bar index where signal was confirmed (for signal-based ranges)
+    bool canCreateSignalFromHigh  // True if high mitigation can create a signal
+    bool canCreateSignalFromLow   // True if low mitigation can create a signal
+    array<box> fvgBoxes           // Array of boxes for FVG segments
+    array<int> fvgBoxEndTimes     // Array of end times for each box segment (na = still extending)
+
+// Helper function to cleanup FVG boxes when range is deleted
+cleanupFVGBoxes(Range r) =>
+    if array.size(r.fvgBoxes) > 0
+        for i = array.size(r.fvgBoxes) - 1 to 0
+            box.delete(array.get(r.fvgBoxes, i))
+        array.clear(r.fvgBoxes)
+    if array.size(r.fvgBoxEndTimes) > 0
+        array.clear(r.fvgBoxEndTimes)
+
+// Pending Signal Structure
+type PendingSignal
+    string signalType       // "BEARISH" or "BULLISH"
+    float confirmationLevel // Pivot level that needs to be crossed
+    int creationBar         // Bar where signal was created
+    int pivotBarIndex       // Bar index where the pivot was formed
+    float maxPrice          // Max price from creation to confirmation (for bearish)
+    float minPrice          // Min price from creation to confirmation (for bullish)
+    float mitigatedLevel    // The range level that was mitigated (rangeHigh for bearish, rangeLow for bullish)
+    float fvgRangeHigh      // FVG range high (for SMT checking)
+    float fvgRangeLow       // FVG range low (for SMT checking)
+    int fvgTouchBar         // Bar where FVG was initially touched (for SMT checking)
+
+// iFVG Structure (chart timeframe inversion FVG - stored in arrays only)
+type InversionFVG
+    int left                // Left time of the FVG
+    float top               // Top of the FVG gap
+    int right               // Right time of the FVG (na = still extending)
+    float bot               // Bottom of the FVG gap
+    float mid               // Midline of the FVG
+    int dir                 // 1 for bullish iFVG, -1 for bearish iFVG
+    int state               // 0 = just inverted, 1 = confirmed
+    int creationBar         // Bar where FVG was created
+    int inversionBar        // Bar where FVG was inverted
+    box invBox              // Box object for display (only created when drawing)
+    label invLabel          // Label object for display (only created when drawing)
+    bool mitigated          // True if fully mitigated (gap filled)
+    int mitigationTime      // Time when iFVG was mitigated (na if not mitigated)
+
+// Confirmation Line Structure
+type ConfirmationLine
+    line confLine           // The confirmation line
+    label confLabel         // The label for the confirmation line
+    string signalType       // "BEARISH" or "BULLISH"
+    float confirmationLevel // The confirmation level
+    int startTime           // Time where line starts
+    int confirmationTime    // Time when signal was confirmed (line stops here for older ones)
+    float stopPrice         // Stop price for this signal
+    float entryPrice        // Entry price for this signal
+    float positionSize      // Position size for this signal
+    float fvgRangeHigh      // FVG range high (for OB breach detection)
+    float fvgRangeLow       // FVG range low (for OB breach detection)
+    int fvgTouchBar         // Bar where FVG was initially touched
+    int pivotBar            // Bar index where pivot was formed
+    array<InversionFVG> iFVGs  // Array of inversion FVGs between pivot and confirmation bars
+
+// Initialize arrays
+var ranges = array.new<Range>()
+var mitigatedRanges = array.new<Range>()  // Separate array for fully mitigated ranges
+var array<line> rangeLines = array.new_line()
+var array<label> fvgLabels = array.new<label>()  // Global array for all FVG labels (recreated every bar)
+
+// Confirmation lines array
+var confirmationLines = array.new<ConfirmationLine>()
+
+// Track latest signal info (for dashboard and position sizing)
+var float latestBearishStopPrice = na  // Stop price for latest bearish signal
+var float latestBullishStopPrice = na  // Stop price for latest bullish signal
+var float latestBearishEntryPrice = na  // Entry price for latest bearish signal
+var float latestBullishEntryPrice = na  // Entry price for latest bullish signal
+var float latestBearishPositionSize = na  // Position size for latest bearish signal
+var float latestBullishPositionSize = na  // Position size for latest bullish signal
+
+// ERL (External Range Liquidity) - tracks latest HTF pivots (one high, one low)
+var float erlHighLevel = na  // Latest HTF pivot high
+var int erlHighTime = na     // Time when pivot high was formed
+var bool erlHighMitigated = false  // True if pivot high ERL has been mitigated
+var int erlHighMitigationTime = na  // Time when pivot high ERL was mitigated
+var line erlHighLine = na   // Line object for pivot high ERL
+var label erlHighLabel = na  // Label for pivot high ERL
+
+var float erlLowLevel = na  // Latest HTF pivot low
+var int erlLowTime = na     // Time when pivot low was formed
+var bool erlLowMitigated = false  // True if pivot low ERL has been mitigated
+var int erlLowMitigationTime = na  // Time when pivot low ERL was mitigated
+var line erlLowLine = na   // Line object for pivot low ERL
+var label erlLowLabel = na  // Label for pivot low ERL
+
+// Pivot tracking (always one high and one low)
+var float pivotHigh = na
+var float pivotLow = na
+var int pivotHighBar = na
+var int pivotLowBar = na
+var bool wasBullish = true  // Initialize to true to track changes
+
+// Pending signals (max one of each type)
+var PendingSignal pendingBearish = na
+var PendingSignal pendingBullish = na
+
+// Chart timeframe FVG arrays (for iFVG detection - arrays only, no boxes)
+var array<InversionFVG> bullFVGArray = array.new<InversionFVG>()  // Bullish FVGs (not yet inverted)
+var array<InversionFVG> bearFVGArray = array.new<InversionFVG>()  // Bearish FVGs (not yet inverted)
+var array<InversionFVG> bullInvArray = array.new<InversionFVG>()  // Bullish iFVGs (inverted bearish FVGs)
+var array<InversionFVG> bearInvArray = array.new<InversionFVG>()  // Bearish iFVGs (inverted bullish FVGs)
+
+// Dashboard table
+var table dashboardTable = na
+
+// Helper function to check if SMT should be created (based on smtOnlyInFVG filter)
+shouldCreateSMT(string smtType, float prevChartHigh, float currChartHigh, float prevChartLow, float currChartLow) =>
+    if not smtOnlyInFVG
+        true  // No filter, create all SMTs
+    else
+        // Only create if within pending signal FVG range
+        bool shouldCreate = false
+        // For bearish SMT, check against pending bearish signal FVG
+        if smtType == "BEARISH" and not na(pendingBearish) and not na(pendingBearish.fvgRangeHigh) and not na(pendingBearish.fvgRangeLow)
+            // More lenient check: any of the highs is greater than FVG bottom (rangeHigh)
+            bool prevHighAboveBottom = not na(prevChartHigh) and prevChartHigh > pendingBearish.fvgRangeHigh
+            bool currHighAboveBottom = not na(currChartHigh) and currChartHigh > pendingBearish.fvgRangeHigh
+            shouldCreate := prevHighAboveBottom or currHighAboveBottom
+        // For bullish SMT, check against pending bullish signal FVG
+        else if smtType == "BULLISH" and not na(pendingBullish) and not na(pendingBullish.fvgRangeHigh) and not na(pendingBullish.fvgRangeLow)
+            // More lenient check: any of the lows is less than FVG top (rangeLow)
+            bool prevLowBelowTop = not na(prevChartLow) and prevChartLow < pendingBullish.fvgRangeLow
+            bool currLowBelowTop = not na(currChartLow) and currChartLow < pendingBullish.fvgRangeLow
+            shouldCreate := prevLowBelowTop or currLowBelowTop
+        shouldCreate
+
+// Arrays to store pivot values for special range creation
+var storedPivotHighs = array.new<float>()
+var storedPivotLows = array.new<float>()
+
+// Arrays to track OI-based pivots separately so we can mark ranges created from them
+var array<float> oiBasedPivotHighs = array.new<float>()
+var array<float> oiBasedPivotLows = array.new<float>()
+
+// Arrays to track signal-based pivots separately (store price, creation bar, confirmation bar)
+var array<float> signalBasedPivotHighs = array.new<float>()
+var array<int> signalBasedPivotHighsCreationBar = array.new<int>()
+var array<int> signalBasedPivotHighsConfirmationBar = array.new<int>()
+var array<float> signalBasedPivotLows = array.new<float>()
+var array<int> signalBasedPivotLowsCreationBar = array.new<int>()
+var array<int> signalBasedPivotLowsConfirmationBar = array.new<int>()
+
+// SMT Structure
+type SMT
+    string smtType        // "BEARISH" or "BULLISH"
+    string detectionMode  // "HTF" or "PIVOT"
+    string smtPair        // SMT pair symbol (for labels)
+    // For HTF: prev and curr swing points; For Pivot: prev and curr pivots
+    float prevChartHigh   // Previous chart high (HTF swing or pivot)
+    float currChartHigh   // Current chart high (HTF swing or pivot)
+    int prevChartHighTime // Previous chart high time
+    int currChartHighTime // Current chart high time
+    float prevChartLow    // Previous chart low (HTF swing or pivot)
+    float currChartLow   // Current chart low (HTF swing or pivot)
+    int prevChartLowTime  // Previous chart low time
+    int currChartLowTime  // Current chart low time
+    bool confirmed        // True if confirmed (HTF: on new bar, Pivot: on opposing pivot)
+    int creationBar       // Bar where SMT was created
+    line smtLine          // Line object for SMT
+    label smtLabel        // Label object for SMT
+
+// SMT Variables
+var array<SMT> smtArray = array.new<SMT>()  // Array to store all SMT instances
+var array<label> smtLabels = array.new<label>()  // Global array for SMT labels (recreated every bar)
+
+// SMT Pivot Tracking (for Pivot mode)
+// Chart pivots
+var float chartPivotHigh = na
+var float chartPivotLow = na
+var int chartPivotHighBar = na
+var int chartPivotLowBar = na
+var int chartPivotHighTime = na
+var int chartPivotLowTime = na
+var string chartLastPivotType = ""  // "HIGH" or "LOW" or ""
+var float prevChartPivotHigh = na  // Previous pivot high for comparison
+var float prevChartPivotLow = na   // Previous pivot low for comparison
+var int prevChartPivotHighBar = na  // Previous pivot high bar
+var int prevChartPivotLowBar = na   // Previous pivot low bar
+var int prevChartPivotHighTime = na  // Previous pivot high time
+var int prevChartPivotLowTime = na   // Previous pivot low time
+
+// SMT Pair pivots
+var float smtPivotHigh = na
+var float smtPivotLow = na
+var int smtPivotHighBar = na
+var int smtPivotLowBar = na
+var int smtPivotHighTime = na
+var int smtPivotLowTime = na
+var string smtLastPivotType = ""  // "HIGH" or "LOW" or ""
+var float prevSmtPivotHigh = na  // Previous pivot high for comparison
+var float prevSmtPivotLow = na   // Previous pivot low for comparison
+
+// SMT HTF Tracking (for HTF mode)
+var float prevChartHigh = na
+var int prevChartHighTime = na
+var float currChartHigh = na
+var int currChartHighTime = na
+var float prevChartLow = na
+var int prevChartLowTime = na
+var float currChartLow = na
+var int currChartLowTime = na
+
+var line liveBearSmtLine = na  // Live pending bearish SMT line (HTF mode)
+var line liveBullSmtLine = na  // Live pending bullish SMT line (HTF mode)
+
+
+// Clear previous drawings
+while array.size(rangeLines) > 0
+    line.delete(array.pop(rangeLines))
+
+// Clean up old confirmation lines (keep only last 50 by confirmation time)
+// Only run cleanup on confirmed bars to avoid replay vs live discrepancies
+if barstate.isconfirmed and array.size(confirmationLines) > maxRangesToDisplay
+    // Find the 50th oldest confirmation time (threshold)
+    array<int> confirmationTimes = array.new<int>()
+    for i = 0 to array.size(confirmationLines) - 1
+        conf = array.get(confirmationLines, i)
+        array.push(confirmationTimes, conf.confirmationTime)
+    array.sort(confirmationTimes, order = order.ascending)
+    int thresholdTime = array.get(confirmationTimes, array.size(confirmationLines) - maxRangesToDisplay)
+    
+    // Remove all lines with confirmation time less than threshold
+    for i = array.size(confirmationLines) - 1 to 0
+        conf = array.get(confirmationLines, i)
+        if conf.confirmationTime < thresholdTime
+            line.delete(conf.confLine)
+            label.delete(conf.confLabel)
+            array.remove(confirmationLines, i)
+
+// Arrays to track labels
+// Labels are stored in Range objects and ERL variables
+
+// ========================================
+// PIVOT CALCULATION
+// ========================================
+// Update pivots based on candle color changes
+bool isBullish = close > open
+bool isBearish = close < open
+
+// Bullish candle after bearish → new pivot low
+if isBullish and not wasBullish
+    pivotLow := math.min(low, low[1])
+    // Pivot bar is the actual bar where the low was formed
+    pivotLowBar := low < low[1] ? bar_index : bar_index - 1
+
+// Bearish candle after bullish → new pivot high
+if isBearish and wasBullish
+    pivotHigh := math.max(high, high[1])
+    // Pivot bar is the actual bar where the high was formed
+    pivotHighBar := high > high[1] ? bar_index : bar_index - 1
+
+// Update candle direction tracking
+if isBullish or isBearish
+    wasBullish := isBullish
+
+
+// Data Sources
+oi_binance = true
+oi_binance2 = true
+oi_binance3 = true
+oi_bitmex = true
+oi_bitmex2 = true
+oi_kraken = true
+oi_bybit = true
+oi_okex = true
+
+// Threshold values
+oi_d_mult = 5.0
+
+
+
+
+// Getting OI data
+oi_mex = syminfo.basecurrency == 'BTC' ? 'XBT' : string(syminfo.basecurrency)
+oi_base = string(syminfo.basecurrency)
+oi_base_alt = '1000' + string(syminfo.basecurrency)
+
+[oi_d1, oi_c1, oi_o1, oi_h1, oi_l1] = request.security('BINANCE' + ':' + oi_base + 'USDT.P_OI', timeframe.period, [close - close[1], close, open, high, low], ignore_invalid_symbol = true)
+[oi_d1a, oi_c1a, oi_o1a, oi_h1a, oi_l1a] = request.security('BINANCE' + ':' + oi_base_alt + 'USDT.P_OI', timeframe.period, [close - close[1], close, open, high, low], ignore_invalid_symbol = true)
+[oi_d2, oi_c2, oi_o2, oi_h2, oi_l2] = request.security('BINANCE' + ':' + oi_base + 'USD.P_OI', timeframe.period, [close - close[1], close, open, high, low], ignore_invalid_symbol = true)
+[oi_d2a, oi_c2a, oi_o2a, oi_h2a, oi_l2a] = request.security('BINANCE' + ':' + oi_base_alt + 'USD.P_OI', timeframe.period, [close - close[1], close, open, high, low], ignore_invalid_symbol = true)
+[oi_d3, oi_c3, oi_o3, oi_h3, oi_l3] = request.security('BINANCE' + ':' + oi_base + 'BUSD.P_OI', timeframe.period, [close - close[1], close, open, high, low], ignore_invalid_symbol = true)
+[oi_d3a, oi_c3a, oi_o3a, oi_h3a, oi_l3a] = request.security('BINANCE' + ':' + oi_base_alt + 'BUSD.P_OI', timeframe.period, [close - close[1], close, open, high, low], ignore_invalid_symbol = true)
+[oi_d4, oi_c4, oi_o4, oi_h4, oi_l4] = request.security('BITMEX' + ':' + oi_mex + 'USD.P_OI', timeframe.period, [close - close[1], close, open, high, low], ignore_invalid_symbol = true)
+[oi_d5, oi_c5, oi_o5, oi_h5, oi_l5] = request.security('BITMEX' + ':' + oi_mex + 'USDT.P_OI', timeframe.period, [close - close[1], close, open, high, low], ignore_invalid_symbol = true)
+[oi_d6, oi_c6, oi_o6, oi_h6, oi_l6] = request.security('KRAKEN' + ':' + oi_base + 'USD.P_OI', timeframe.period, [close - close[1], close, open, high, low], ignore_invalid_symbol = true)
+[oi_d6a, oi_c6a, oi_o6a, oi_h6a, oi_l6a] = request.security('KRAKEN' + ':' + oi_base_alt + 'USD.P_OI', timeframe.period, [close - close[1], close, open, high, low], ignore_invalid_symbol = true)
+[oi_d7, oi_c7, oi_o7, oi_h7, oi_l7] = request.security('BYBIT' + ':' + oi_base + 'USD.P_OI', timeframe.period, [close - close[1], close, open, high, low], ignore_invalid_symbol = true)
+[oi_d7a, oi_c7a, oi_o7a, oi_h7a, oi_l7a] = request.security('BYBIT' + ':' + oi_base_alt + 'USD.P_OI', timeframe.period, [close - close[1], close, open, high, low], ignore_invalid_symbol = true)
+[oi_d8, oi_c8, oi_o8, oi_h8, oi_l8] = request.security('BYBIT' + ':' + oi_base + 'USDT.P_OI', timeframe.period, [close - close[1], close, open, high, low], ignore_invalid_symbol = true)
+[oi_d8a, oi_c8a, oi_o8a, oi_h8a, oi_l8a] = request.security('BYBIT' + ':' + oi_base_alt + 'USDT.P_OI', timeframe.period, [close - close[1], close, open, high, low], ignore_invalid_symbol = true)
+[oi_d9, oi_c9, oi_o9, oi_h9, oi_l9] = request.security('OKX' + ':' + oi_base + 'USDT.P_OI', timeframe.period, [close - close[1], close, open, high, low], ignore_invalid_symbol = true)
+
+oi_deltaOI = (oi_binance ? nz(oi_d1, 0) + nz(oi_d1a, 0) : 0) + (oi_binance2 ? (nz(oi_d2, 0) + nz(oi_d2a, 0)) / close : 0) + (oi_binance3 ? nz(oi_d3, 0) + nz(oi_d3a, 0) : 0) + (oi_bitmex ? nz(oi_d4, 0) / close : 0) + (oi_bitmex2 ? nz(oi_d5, 0) / close : 0) + (oi_kraken ? (nz(oi_d6, 0) + nz(oi_d6a, 0)) / close : 0) + (oi_bybit ? (nz(oi_d7, 0) + nz(oi_d7a, 0)) / close : 0) + (oi_bybit ? nz(oi_d8, 0) + nz(oi_d8a, 0) : 0) + (oi_okex ? nz(oi_d9, 0) / close : 0)
+
+// Thresholds, conditions
+oi_p_delta_thresh = ta.sma(oi_deltaOI > 0 ? oi_deltaOI : 0, 300) * oi_d_mult
+oi_n_delta_thresh = ta.sma(oi_deltaOI < 0 ? oi_deltaOI : 0, 300) * oi_d_mult
+oi_large_oi_up = oi_deltaOI > oi_p_delta_thresh
+oi_large_oi_dw = oi_deltaOI < oi_n_delta_thresh
+// Aggregate OI OHLC from all exchanges
+oi_O = nz(oi_o1, 0) + nz(oi_o1a, 0) + (nz(oi_o2, 0) + nz(oi_o2a, 0)) / close + nz(oi_o3, 0) + nz(oi_o3a, 0) + nz(oi_o4, 0) / close + nz(oi_o5, 0) / close + (nz(oi_o6, 0) + nz(oi_o6a, 0)) / close + (nz(oi_o7, 0) + nz(oi_o7a, 0)) / close + nz(oi_o8, 0) + nz(oi_o8a, 0) + nz(oi_o9, 0) / close
+
+oi_H = nz(oi_h1, 0) + nz(oi_h1a, 0) + (nz(oi_h2, 0) + nz(oi_h2a, 0)) / close + nz(oi_h3, 0) + nz(oi_h3a, 0) + nz(oi_h4, 0) / close + nz(oi_h5, 0) / close + (nz(oi_h6, 0) + nz(oi_h6a, 0)) / close + (nz(oi_h7, 0) + nz(oi_h7a, 0)) / close + nz(oi_h8, 0) + nz(oi_h8a, 0) + nz(oi_h9, 0) / close
+
+oi_L = nz(oi_l1, 0) + nz(oi_l1a, 0) + (nz(oi_l2, 0) + nz(oi_l2a, 0)) / close + nz(oi_l3, 0) + nz(oi_l3a, 0) + nz(oi_l4, 0) / close + nz(oi_l5, 0) / close + (nz(oi_l6, 0) + nz(oi_l6a, 0)) / close + (nz(oi_l7, 0) + nz(oi_l7a, 0)) / close + nz(oi_l8, 0) + nz(oi_l8a, 0) + nz(oi_l9, 0) / close
+
+oi_C = nz(oi_c1, 0) + nz(oi_c1a, 0) + (nz(oi_c2, 0) + nz(oi_c2a, 0)) / close + nz(oi_c3, 0) + nz(oi_c3a, 0) + nz(oi_c4, 0) / close + nz(oi_c5, 0) / close + (nz(oi_c6, 0) + nz(oi_c6a, 0)) / close + (nz(oi_c7, 0) + nz(oi_c7a, 0)) / close + nz(oi_c8, 0) + nz(oi_c8a, 0) + nz(oi_c9, 0) / close
+
+
+// Global variable for final bar color
+var color final_barcolor = na
+
+// Global variable for volume to use
+var float vol_to_use = volume
+
+// Use chart volume
+vol_to_use := volume
+
+//------------------------------------------------------------------------------
+// Calcs
+
+var int vol_highlights_length = 610
+var int vol_highlights_slength = 610
+
+vol_highlights_length := vol_highlights_length > bar_index + 1 ? bar_index + 1 : vol_highlights_length
+vol_highlights_slength := vol_highlights_slength > bar_index + 1 ? bar_index + 1 : vol_highlights_slength
+
+vol_highlights_dir = close > open
+vol_highlights_mean = ta.sma(vol_to_use, vol_highlights_length)
+vol_highlights_std = ta.stdev(vol_to_use, vol_highlights_slength)
+
+// how many stdev is the volume far from the mean?
+// eg: vol_highlights_stdbar = 2.5, is 2.5 * stdev above the mean (2.5 * stdev + mean)
+vol_highlights_stdbar = (vol_to_use - vol_highlights_mean) / vol_highlights_std
+
+// ========== VOLUME THRESHOLD LOGIC (ALTERNATIVE CONDITION) ==========
+// Calculate volume delta (change from previous bar)
+volumeDelta = vol_to_use - vol_to_use[1]
+
+// Calculate thresholds using 300-period SMA of positive/negative volume deltas
+volume_p_delta_thresh = ta.sma(volumeDelta > 0 ? volumeDelta : 0, 300) * 5.0
+volume_n_delta_thresh = ta.sma(volumeDelta < 0 ? volumeDelta : 0, 300) * 5.0
+
+// Volume threshold conditions
+volume_threshold_up = volumeDelta > volume_p_delta_thresh
+volume_threshold_down = volumeDelta < volume_n_delta_thresh
+
+// Only extra high threshold (4.0)
+vol_highlights_bcolor = vol_highlights_stdbar > 4.0 ? vol_highlights_dir ? #00FF00 : #FF0000 : na
+
+// Volume threshold bar color (extra high colors)
+volume_threshold_barcolor = volume_threshold_up or volume_threshold_down ? close > open ? #00FF00 : #FF0000 : na
+
+// Priority: Volume threshold bar color overrides other volume highlight colors
+if not na(volume_threshold_barcolor)
+    final_barcolor := volume_threshold_barcolor
+else
+    final_barcolor := vol_highlights_bcolor
+
+// Extra pivot detection based on significant volume/OI activity
+if not na(final_barcolor) or oi_large_oi_up or oi_large_oi_dw
+    // If candle is bullish, its low becomes a pivot low
+    if isBullish
+        pivotLow := low
+        pivotLowBar := bar_index
+    // If candle is bearish, its high becomes a pivot high
+    else if isBearish
+        pivotHigh := high
+        pivotHighBar := bar_index
+
+// OI-based special range detection using ta.pivothigh/ta.pivotlow
+var float oi_pivot_high_value = na
+var bool oi_pivot_high_push_to_highs = false
+var int oi_pivot_high_bar = na
+var float oi_pivot_low_value = na
+var bool oi_pivot_low_push_to_highs = false
+var int oi_pivot_low_bar = na
+
+if useOIForSpecialRanges
+    // Detect OI pivots using ta.pivothigh and ta.pivotlow on OI high/low series
+    float oi_pivot_high = ta.pivothigh(oi_H, oiPivotLookLeft, oiPivotLookRight)
+    float oi_pivot_low = ta.pivotlow(oi_L, oiPivotLookLeft, oiPivotLookRight)
+    
+    // When OI pivot high is detected
+    if not na(oi_pivot_high)
+        // Pivot bar is oiPivotLookRight bars ago (use relative offset)
+        // Check price candle direction at pivot bar
+        bool pivot_bar_bearish = close[oiPivotLookRight] < open[oiPivotLookRight]
+        bool pivot_bar_bullish = close[oiPivotLookRight] > open[oiPivotLookRight]
+        
+        if pivot_bar_bearish
+            // Bearish candle: push high to storedPivotLows
+            float pivot_high = high[oiPivotLookRight]
+            // Check if high hasn't been breached since pivot bar (check all bars from pivot+1 to current, exclude pivot bar)
+            bool high_breached = false
+            if oiPivotLookRight > 0
+                for i = oiPivotLookRight - 1 to 0
+                    if high[i] >= pivot_high
+                        high_breached := true
+                        break
+            
+            if not high_breached
+                oi_pivot_high_value := pivot_high
+                oi_pivot_high_push_to_highs := false  // Push to storedPivotLows
+                oi_pivot_high_bar := bar_index - oiPivotLookRight
+        
+        else if pivot_bar_bullish
+            // Bullish candle: push low to storedPivotHighs
+            float pivot_low = low[oiPivotLookRight]
+            // Check if low hasn't been breached since pivot bar (check all bars from pivot+1 to current, exclude pivot bar)
+            bool low_breached = false
+            if oiPivotLookRight > 0
+                for i = oiPivotLookRight - 1 to 0
+                    if low[i] <= pivot_low
+                        low_breached := true
+                        break
+            
+            if not low_breached
+                oi_pivot_high_value := pivot_low
+                oi_pivot_high_push_to_highs := true  // Push to storedPivotHighs
+                oi_pivot_high_bar := bar_index - oiPivotLookRight
+    
+    // When OI pivot low is detected
+    if not na(oi_pivot_low)
+        // Pivot bar is oiPivotLookRight bars ago (use relative offset)
+        // Check price candle direction at pivot bar
+        bool pivot_bar_bearish = close[oiPivotLookRight] < open[oiPivotLookRight]
+        bool pivot_bar_bullish = close[oiPivotLookRight] > open[oiPivotLookRight]
+        
+        if pivot_bar_bearish
+            // Bearish candle: push high to storedPivotLows
+            float pivot_high = high[oiPivotLookRight]
+            // Check if high hasn't been breached since pivot bar (check all bars from pivot+1 to current, exclude pivot bar)
+            bool high_breached = false
+            if oiPivotLookRight > 0
+                for i = oiPivotLookRight - 1 to 0
+                    if high[i] >= pivot_high 
+                        high_breached := true
+                        break
+            
+            if not high_breached
+                oi_pivot_low_value := pivot_high
+                oi_pivot_low_push_to_highs := false  // Push to storedPivotLows
+                oi_pivot_low_bar := bar_index - oiPivotLookRight
+        
+        else if pivot_bar_bullish
+            // Bullish candle: push low to storedPivotHighs
+            float pivot_low = low[oiPivotLookRight]
+            // Check if low hasn't been breached since pivot bar (check all bars from pivot+1 to current, exclude pivot bar)
+            bool low_breached = false
+            if oiPivotLookRight > 0
+                for i = oiPivotLookRight - 1 to 0
+                    if low[i] <= pivot_low
+                        low_breached := true
+                        break
+            
+            if not low_breached
+                oi_pivot_low_value := pivot_low
+                oi_pivot_low_push_to_highs := true  // Push to storedPivotHighs
+                oi_pivot_low_bar := bar_index - oiPivotLookRight
+
+
+
+
+// This function will be moved after OI variables are defined
+
+//End of Volume Highlights
+
+// ========================================
+// CHART TIMEFRAME FVG & iFVG DETECTION (Arrays Only)
+// ========================================
+// Helper function to manage FVG arrays and convert to iFVG
+fvgManage(array<InversionFVG> fvgArray, array<InversionFVG> invArray) =>
+    // Remove old FVGs if buffer exceeded (keep last 100)
+    if array.size(fvgArray) >= 100
+        array.shift(fvgArray)
+    
+    // Check each FVG for inversion
+    if array.size(fvgArray) > 0
+        float cTop = math.max(open, close)
+        float cBot = math.min(open, close)
+        
+        for i = array.size(fvgArray) - 1 to 0
+            fvg = array.get(fvgArray, i)
+            
+            // Bullish FVG becomes bearish iFVG when price breaks below gap bottom
+            if fvg.dir == 1 and cBot < fvg.bot
+                fvg.inversionBar := bar_index
+                fvg.right := time
+                array.push(invArray, array.remove(fvgArray, i))
+            
+            // Bearish FVG becomes bullish iFVG when price breaks above gap top
+            if fvg.dir == -1 and cTop > fvg.top
+                fvg.inversionBar := bar_index
+                fvg.right := time
+                array.push(invArray, array.remove(fvgArray, i))
+
+// Helper function to manage iFVG arrays and check for mitigation
+invManage(array<InversionFVG> invArray) =>
+    float cTop = math.max(open, close)
+    float cBot = math.min(open, close)
+    
+    // Remove old iFVGs if buffer exceeded (keep last 100)
+    if array.size(invArray) >= 100
+        array.shift(invArray)
+    
+    if array.size(invArray) > 0
+        for i = array.size(invArray) - 1 to 0
+            inv = array.get(invArray, i)
+            bxTop = inv.top
+            bxBot = inv.bot
+            invDir = inv.dir
+            invState = inv.state
+            
+            // Update state: 0 = just inverted, 1 = confirmed
+            if invState == 0
+                inv.state := 1
+                // Flip direction: bullish FVG inverted becomes bearish iFVG (-1), bearish FVG inverted becomes bullish iFVG (1)
+                if invDir == 1
+                    inv.dir := -1
+                else
+                    inv.dir := 1
+            
+            // Set right time when confirmed
+            if invState >= 1
+                inv.right := time
+            
+            // Check for mitigation: iFVG is invalidated when original gap is fully filled
+            // Bearish iFVG (was bullish FVG): invalidated when price goes above gap top
+            // Bullish iFVG (was bearish FVG): invalidated when price goes below gap bottom
+            if invState >= 1
+                bool isMitigated = false
+                if invDir == -1 and cTop > bxTop  // Bearish iFVG: price above gap top
+                    isMitigated := true
+                else if invDir == 1 and cBot < bxBot  // Bullish iFVG: price below gap bottom
+                    isMitigated := true
+                
+                if isMitigated
+                    inv.mitigated := true
+                    array.remove(invArray, i)
+
+// Detect chart timeframe FVGs (3-candle pattern)
+bool fvgUp = low > high[2] and close[1] > high[2]
+bool fvgDown = high < low[2] and close[1] < low[2]
+
+// Create bullish FVG (arrays only, no boxes)
+if fvgUp
+    float fvgBottom = high[2]
+    float fvgTop = low
+    float fvgMid = math.avg(fvgBottom, fvgTop)
+    newFVG = InversionFVG.new()
+    newFVG.left := time[1]
+    newFVG.top := fvgTop
+    newFVG.right := na  // Extends until inverted
+    newFVG.bot := fvgBottom
+    newFVG.mid := fvgMid
+    newFVG.dir := 1  // Bullish FVG
+    newFVG.state := 0
+    newFVG.creationBar := bar_index
+    newFVG.inversionBar := na
+    newFVG.invBox := na  // No box created here
+    newFVG.invLabel := na  // No label created here
+    newFVG.mitigated := false
+    newFVG.mitigationTime := na
+    array.push(bullFVGArray, newFVG)
+
+// Create bearish FVG (arrays only, no boxes)
+if fvgDown
+    float fvgBottom = high
+    float fvgTop = low[2]
+    float fvgMid = math.avg(fvgBottom, fvgTop)
+    newFVG = InversionFVG.new()
+    newFVG.left := time[1]
+    newFVG.top := fvgTop
+    newFVG.right := na  // Extends until inverted
+    newFVG.bot := fvgBottom
+    newFVG.mid := fvgMid
+    newFVG.dir := -1  // Bearish FVG
+    newFVG.state := 0
+    newFVG.creationBar := bar_index
+    newFVG.inversionBar := na
+    newFVG.invBox := na  // No box created here
+    newFVG.invLabel := na  // No label created here
+    newFVG.mitigated := false
+    newFVG.mitigationTime := na
+    array.push(bearFVGArray, newFVG)
+
+// Manage FVG arrays and convert to iFVG
+fvgManage(bullFVGArray, bearInvArray)  // Bullish FVGs become bearish iFVGs
+fvgManage(bearFVGArray, bullInvArray)  // Bearish FVGs become bullish iFVGs
+
+// Manage iFVG arrays and check for mitigation
+invManage(bullInvArray)  // Bullish iFVGs
+invManage(bearInvArray)  // Bearish iFVGs
+
+// ========================================
+// FVG DETECTION DATA (HTF)
+// ========================================
+// Function to detect FVG on HTF - only runs on confirmed HTF bars
+detectFVG() =>
+    var bool hasBearishFVG = false
+    var bool hasBullishFVG = false
+    var float bearishBottom = na
+    var float bearishTop = na
+    var float bullishBottom = na
+    var float bullishTop = na
+    var int htfTimeVal = na
+    var int htfTime2Val = na
+    
+    if barstate.isconfirmed
+        // Get HTF data for FVG detection
+        float htfHigh0 = high[0]
+        float htfLow0 = low[0]
+        float htfHigh2 = high[2]
+        float htfLow2 = low[2]
+        int htfTime0 = time[0]
+        int htfTime1 = time[1]
+        
+        // Bearish FVG: HTF[0] high < HTF[2] low (DOWN Imbalance)
+        if not na(htfLow2) and htfHigh0 < htfLow2
+            hasBearishFVG := true
+            bearishBottom := htfHigh0
+            bearishTop := htfLow2
+            htfTimeVal := htfTime0
+            htfTime2Val := time[2]
+        else
+            hasBearishFVG := false
+        
+        // Bullish FVG: HTF[0] low > HTF[2] high (UP Imbalance)
+        if not na(htfHigh2) and htfLow0 > htfHigh2
+            hasBullishFVG := true
+            bullishBottom := htfHigh2
+            bullishTop := htfLow0
+            htfTimeVal := htfTime0
+            htfTime2Val := time[2]
+        else
+            hasBullishFVG := false
+    
+    [hasBearishFVG, hasBullishFVG, bearishBottom, bearishTop, bullishBottom, bullishTop, htfTimeVal, htfTime2Val]
+
+// Get FVG detection data from HTF (only returns data on confirmed HTF bars)
+[htfHasBearishFVG, htfHasBullishFVG, htfBearishBottom, htfBearishTop, htfBullishBottom, htfBullishTop, htfTime, htfTime2] = request.security(syminfo.tickerid, selectedHTF, detectFVG())
+
+// Get HTF data for other purposes (ERL, etc.)
+[htfHigh, htfLow, htfHigh1, htfLow1, htfHigh2, htfLow2] = request.security(syminfo.tickerid, selectedHTF, [high[0], low[0], high[1], low[1], high[2], low[2]], lookahead = barmerge.lookahead_off)
+
+// Get HTF open/close for ERL detection
+[htfOpen, htfClose, htfOpen1, htfClose1] = request.security(syminfo.tickerid, selectedHTF, [open, close, open[1], close[1]], lookahead = barmerge.lookahead_off)
+
+
+
+// ========================================
+// ERL (EXTERNAL RANGE LIQUIDITY) DETECTION
+// ========================================
+// Track previous HTF candle direction
+var bool prevHtfWasBullish = true
+
+// Detect HTF pivot when new period starts and directions differ
+if newPeriod and not na(htfClose) and not na(htfOpen) and not na(htfClose1) and not na(htfOpen1)
+    bool currentHtfIsBullish = htfClose > htfOpen
+    bool prevHtfWasBullishCheck = htfClose1 > htfOpen1
+    
+    // Bullish HTF candle after bearish → new HTF pivot low
+    if currentHtfIsBullish and not prevHtfWasBullishCheck and not na(htfLow) and not na(htfLow1)
+        float htfPivotLow = math.min(htfLow, htfLow1)
+        erlLowLevel := htfPivotLow
+        erlLowMitigated := false
+        erlLowMitigationTime := na
+        // Find the time when this pivot low was formed (loop back to find when low was touched)
+        int htfPivotLowTime = htfTime
+        int maxLookback = math.min(500, math.max(0, bar_index - 1))  // Safety margin to prevent historical buffer errors
+        for j = 1 to maxLookback
+            if bar_index - j < 0
+                break
+            if low[j] <= htfPivotLow
+                htfPivotLowTime := time[j]
+                break
+        erlLowTime := htfPivotLowTime
+        // Delete old pivot low ERL line
+        if not na(erlLowLine)
+            line.delete(erlLowLine)
+            erlLowLine := na
+        // Delete old pivot low ERL label
+        if not na(erlLowLabel)
+            label.delete(erlLowLabel)
+            erlLowLabel := na
+    
+    // Bearish HTF candle after bullish → new HTF pivot high
+    if not currentHtfIsBullish and prevHtfWasBullishCheck and not na(htfHigh) and not na(htfHigh1)
+        float htfPivotHigh = math.max(htfHigh, htfHigh1)
+        erlHighLevel := htfPivotHigh
+        erlHighMitigated := false
+        erlHighMitigationTime := na
+        // Find the time when this pivot high was formed (loop back to find when high was touched)
+        int htfPivotHighTime = htfTime
+        int maxLookback = math.min(500, math.max(0, bar_index - 1))  // Safety margin to prevent historical buffer errors
+        for j = 1 to maxLookback
+            if bar_index - j < 0
+                break
+            if high[j] >= htfPivotHigh
+                htfPivotHighTime := time[j]
+                break
+        erlHighTime := htfPivotHighTime
+        // Delete old pivot high ERL line
+        if not na(erlHighLine)
+            line.delete(erlHighLine)
+            erlHighLine := na
+        // Delete old pivot high ERL label
+        if not na(erlHighLabel)
+            label.delete(erlHighLabel)
+            erlHighLabel := na
+    
+    // Update previous HTF direction
+    prevHtfWasBullish := currentHtfIsBullish
+
+// Check ERL mitigation - any interaction with ERL level (same logic as range mitigation)
+// Check pivot high ERL mitigation
+if not na(erlHighLevel) and not erlHighMitigated
+    if high >= erlHighLevel
+        erlHighMitigated := true
+        erlHighMitigationTime := time
+
+// Check pivot low ERL mitigation
+if not na(erlLowLevel) and not erlLowMitigated
+    if low <= erlLowLevel
+        erlLowMitigated := true
+        erlLowMitigationTime := time
+
+// ========================================
+// SMT (SAME MARKET THEORY) DETECTION
+// ========================================
+if enableSMT and bar_index > last_bar_index - 4500
+    // Determine SMT pair symbol
+    string smtPairSymbol = smtAutoMode ? getSMTPair() : str.tostring(smtManualPair)
+    
+    if smtPairSymbol != ""
+        // Fetch SMT pair HTF data
+        [smtHtfHigh, smtHtfLow, smtHtfHigh1, smtHtfLow1, smtHtfOpen, smtHtfClose, smtHtfOpen1, smtHtfClose1, smtHtfTime] = request.security(smtPairSymbol, selectedHTF, [high, low, high[1], low[1], open, close, open[1], close[1], time], lookahead = barmerge.lookahead_off)
+        
+        // ========================================
+        // SMT HTF MODE DETECTION (exact logic from reference)
+        // ========================================
+        // Direction of current HTF candle
+        bool bearishHtf = not na(htfClose) and not na(htfOpen) and htfClose < htfOpen
+        bool bullishHtf = not na(htfClose) and not na(htfOpen) and htfClose > htfOpen
+        
+        // Divergence conditions (exact from reference) - use htfHigh1/htfLow1 (already fetched) as previous values
+        bool bearDiv = bearishHtf and not na(htfHigh) and not na(htfHigh1) and htfHigh < htfHigh1 and not na(smtHtfHigh) and not na(smtHtfHigh1) and smtHtfHigh > smtHtfHigh1
+        bool bullDiv = bullishHtf and not na(htfLow) and not na(htfLow1) and htfLow > htfLow1 and not na(smtHtfLow) and not na(smtHtfLow1) and smtHtfLow < smtHtfLow1
+        
+        // Update current swing points within the live HTF candle
+        if high >= currChartHigh or na(currChartHigh)
+            currChartHigh := high
+            currChartHighTime := time
+        if low <= currChartLow or na(currChartLow)
+            currChartLow := low
+            currChartLowTime := time
+        
+        // Finalize previous candle on new HTF bar
+        if newPeriod
+            // Bearish SMT from previous HTF candle
+            if bearDiv[1] and not na(prevChartHigh) and not na(currChartHigh)
+                // Check if SMT should be created (based on smtOnlyInFVG filter)
+                if shouldCreateSMT("BEARISH", prevChartHigh, currChartHigh, na, na)
+                    newSmt = SMT.new()
+                    newSmt.smtType := "BEARISH"
+                    newSmt.detectionMode := "HTF"
+                    newSmt.smtPair := smtPairSymbol
+                    newSmt.prevChartHigh := prevChartHigh
+                    newSmt.currChartHigh := currChartHigh
+                    newSmt.prevChartHighTime := prevChartHighTime
+                    newSmt.currChartHighTime := currChartHighTime
+                    newSmt.confirmed := true
+                    newSmt.creationBar := bar_index
+                    newSmt.smtLine := na
+                    newSmt.smtLabel := na
+                    array.push(smtArray, newSmt)
+            
+            // Bullish SMT from previous HTF candle
+            if bullDiv[1] and not na(prevChartLow) and not na(currChartLow)
+                // Check if SMT should be created (based on smtOnlyInFVG filter)
+                if shouldCreateSMT("BULLISH", na, na, prevChartLow, currChartLow)
+                    newSmt = SMT.new()
+                    newSmt.smtType := "BULLISH"
+                    newSmt.detectionMode := "HTF"
+                    newSmt.smtPair := smtPairSymbol
+                    newSmt.prevChartLow := prevChartLow
+                    newSmt.currChartLow := currChartLow
+                    newSmt.prevChartLowTime := prevChartLowTime
+                    newSmt.currChartLowTime := currChartLowTime
+                    newSmt.confirmed := true
+                    newSmt.creationBar := bar_index
+                    newSmt.smtLine := na
+                    newSmt.smtLabel := na
+                    array.push(smtArray, newSmt)
+            
+            // Shift current → previous
+            prevChartHigh := currChartHigh
+            prevChartHighTime := currChartHighTime
+            prevChartLow := currChartLow
+            prevChartLowTime := currChartLowTime
+            
+            // Reset current for new HTF candle
+            currChartHigh := high
+            currChartHighTime := time
+            currChartLow := low
+            currChartLowTime := time
+            
+            // Delete any live lines (they are now finalized)
+            if not na(liveBearSmtLine)
+                line.delete(liveBearSmtLine)
+                liveBearSmtLine := na
+            if not na(liveBullSmtLine)
+                line.delete(liveBullSmtLine)
+                liveBullSmtLine := na
+        
+        // Draw/update live potential SMT lines
+        if bearDiv and not na(prevChartHigh) and not na(currChartHigh)
+            if na(liveBearSmtLine)
+                liveBearSmtLine := line.new(prevChartHighTime, prevChartHigh, currChartHighTime, currChartHigh, xloc = xloc.bar_time, color = color.new(bearishFVGColor, 70), style = line.style_dashed, width = smtLineWidth)
+            else
+                line.set_xy1(liveBearSmtLine, prevChartHighTime, prevChartHigh)
+                line.set_xy2(liveBearSmtLine, currChartHighTime, currChartHigh)
+        
+        if bullDiv and not na(prevChartLow) and not na(currChartLow)
+            if na(liveBullSmtLine)
+                liveBullSmtLine := line.new(prevChartLowTime, prevChartLow, currChartLowTime, currChartLow, xloc = xloc.bar_time, color = color.new(bullishFVGColor, 70), style = line.style_dashed, width = smtLineWidth)
+            else
+                line.set_xy1(liveBullSmtLine, prevChartLowTime, prevChartLow)
+                line.set_xy2(liveBullSmtLine, currChartLowTime, currChartLow)
+        
+        // Cleanup live lines when condition disappears before HTF close
+        if not bearDiv and not na(liveBearSmtLine)
+            line.delete(liveBearSmtLine)
+            liveBearSmtLine := na
+        if not bullDiv and not na(liveBullSmtLine)
+            line.delete(liveBullSmtLine)
+            liveBullSmtLine := na
+        
+        // ========================================
+        // SMT PIVOT MODE DETECTION (exact logic from reference with update ability)
+        // ========================================
+        // Get pivot direction for chart and SMT pair (pivot length = 3)
+        int chartPivotDir = not na(ta.pivothigh(3, 3)) ? 1 : not na(ta.pivotlow(3, 3)) ? -1 : 0
+        [smtPivotDir, smtPivotHighVal, smtPivotLowVal] = request.security(smtPairSymbol, timeframe.period, [not na(ta.pivothigh(3, 3)) ? 1 : not na(ta.pivotlow(3, 3)) ? -1 : 0, high[3], low[3]], lookahead = barmerge.lookahead_off)
+        
+        // Update pivot data for CURRENT symbol when a new pivot is detected
+        if chartPivotDir == 1
+            // Pivot high detected
+            float newChartHigh = high[3]
+            int newChartHighBar = bar_index[3]
+            int newChartHighTime = time[3]
+            
+            if chartLastPivotType == "HIGH"
+                // Same type - update if more extreme
+                if newChartHigh > chartPivotHigh
+                    prevChartPivotHigh := chartPivotHigh
+                    prevChartPivotHighBar := chartPivotHighBar
+                    prevChartPivotHighTime := chartPivotHighTime
+                    chartPivotHigh := newChartHigh
+                    chartPivotHighBar := newChartHighBar
+                    chartPivotHighTime := newChartHighTime
+            else
+                // Different type - new pivot (store previous before updating)
+                prevChartPivotHigh := chartPivotHigh
+                prevChartPivotHighBar := chartPivotHighBar
+                prevChartPivotHighTime := chartPivotHighTime
+                chartPivotHigh := newChartHigh
+                chartPivotHighBar := newChartHighBar
+                chartPivotHighTime := newChartHighTime
+                chartLastPivotType := "HIGH"
+                
+                // Check for confirmation of pending bullish SMT
+                if array.size(smtArray) > 0
+                    for i = array.size(smtArray) - 1 to 0
+                        s = array.get(smtArray, i)
+                        if s.detectionMode == "PIVOT" and s.smtType == "BULLISH" and not s.confirmed
+                            s.confirmed := true
+                            break
+        
+        if chartPivotDir == -1
+            // Pivot low detected
+            float newChartLow = low[3]
+            int newChartLowBar = bar_index[3]
+            int newChartLowTime = time[3]
+            
+            if chartLastPivotType == "LOW"
+                // Same type - update if more extreme
+                if newChartLow < chartPivotLow
+                    prevChartPivotLow := chartPivotLow
+                    prevChartPivotLowBar := chartPivotLowBar
+                    prevChartPivotLowTime := chartPivotLowTime
+                    chartPivotLow := newChartLow
+                    chartPivotLowBar := newChartLowBar
+                    chartPivotLowTime := newChartLowTime
+            else
+                // Different type - new pivot (store previous before updating)
+                prevChartPivotLow := chartPivotLow
+                prevChartPivotLowBar := chartPivotLowBar
+                prevChartPivotLowTime := chartPivotLowTime
+                chartPivotLow := newChartLow
+                chartPivotLowBar := newChartLowBar
+                chartPivotLowTime := newChartLowTime
+                chartLastPivotType := "LOW"
+                
+                // Check for confirmation of pending bearish SMT
+                if array.size(smtArray) > 0
+                    for i = array.size(smtArray) - 1 to 0
+                        s = array.get(smtArray, i)
+                        if s.detectionMode == "PIVOT" and s.smtType == "BEARISH" and not s.confirmed
+                            s.confirmed := true
+                            break
+        
+        // Update pivot prices for OTHER symbol when a new pivot is detected
+        if smtPivotDir == 1
+            // Pivot high detected
+            float newSmtHigh = smtPivotHighVal
+            int newSmtHighBar = bar_index[3]
+            int newSmtHighTime = time[3]
+            
+            if smtLastPivotType == "HIGH"
+                // Same type - update if more extreme
+                if newSmtHigh > smtPivotHigh
+                    prevSmtPivotHigh := smtPivotHigh
+                    smtPivotHigh := newSmtHigh
+                    smtPivotHighBar := newSmtHighBar
+                    smtPivotHighTime := newSmtHighTime
+            else
+                // Different type - new pivot
+                prevSmtPivotHigh := smtPivotHigh
+                smtPivotHigh := newSmtHigh
+                smtPivotHighBar := newSmtHighBar
+                smtPivotHighTime := newSmtHighTime
+                smtLastPivotType := "HIGH"
+        
+        if smtPivotDir == -1
+            // Pivot low detected
+            float newSmtLow = smtPivotLowVal
+            int newSmtLowBar = bar_index[3]
+            int newSmtLowTime = time[3]
+            
+            if smtLastPivotType == "LOW"
+                // Same type - update if more extreme
+                if newSmtLow < smtPivotLow
+                    prevSmtPivotLow := smtPivotLow
+                    smtPivotLow := newSmtLow
+                    smtPivotLowBar := newSmtLowBar
+                    smtPivotLowTime := newSmtLowTime
+            else
+                // Different type - new pivot
+                prevSmtPivotLow := smtPivotLow
+                smtPivotLow := newSmtLow
+                smtPivotLowBar := newSmtLowBar
+                smtPivotLowTime := newSmtLowTime
+                smtLastPivotType := "LOW"
+        
+        // Divergence Detection (exact from reference)
+        // Bearish: Chart makes HH but SMT doesn't
+        bool isBearishDivergence = not na(prevChartPivotHigh) and not na(chartPivotHigh) and prevChartPivotHigh < chartPivotHigh and not na(prevSmtPivotHigh) and not na(smtPivotHigh) and prevSmtPivotHigh > smtPivotHigh
+        
+        // Bullish: Chart makes LL but SMT doesn't
+        bool isBullishDivergence = not na(prevChartPivotLow) and not na(chartPivotLow) and prevChartPivotLow > chartPivotLow and not na(prevSmtPivotLow) and not na(smtPivotLow) and prevSmtPivotLow < smtPivotLow
+        
+        // Create SMT (Pivot mode) - draw lines connecting previous pivot to current pivot
+        if isBearishDivergence and not na(prevChartPivotHigh) and not na(chartPivotHigh) and not na(prevChartPivotHighTime) and not na(chartPivotHighTime)
+            // Check if this SMT already exists (pending)
+            bool smtExists = false
+            if array.size(smtArray) > 0
+                for i = array.size(smtArray) - 1 to 0
+                    s = array.get(smtArray, i)
+                    if s.detectionMode == "PIVOT" and s.smtType == "BEARISH" and not s.confirmed
+                        smtExists := true
+                        // Update if more extreme
+                        if chartPivotHigh > s.currChartHigh
+                            s.prevChartHigh := s.currChartHigh
+                            s.prevChartHighTime := s.currChartHighTime
+                            s.currChartHigh := chartPivotHigh
+                            s.currChartHighTime := chartPivotHighTime
+                        break
+            
+            if not smtExists
+                // Check if SMT should be created (based on smtOnlyInFVG filter)
+                if shouldCreateSMT("BEARISH", prevChartPivotHigh, chartPivotHigh, na, na)
+                    newSmt = SMT.new()
+                    newSmt.smtType := "BEARISH"
+                    newSmt.detectionMode := "PIVOT"
+                    newSmt.smtPair := smtPairSymbol
+                    newSmt.prevChartHigh := prevChartPivotHigh
+                    newSmt.currChartHigh := chartPivotHigh
+                    newSmt.prevChartHighTime := prevChartPivotHighTime
+                    newSmt.currChartHighTime := chartPivotHighTime
+                    newSmt.confirmed := false
+                    newSmt.creationBar := bar_index
+                    newSmt.smtLine := na
+                    newSmt.smtLabel := na
+                    array.push(smtArray, newSmt)
+        
+        if isBullishDivergence and not na(prevChartPivotLow) and not na(chartPivotLow) and not na(prevChartPivotLowTime) and not na(chartPivotLowTime)
+            // Check if this SMT already exists (pending)
+            bool smtExists = false
+            if array.size(smtArray) > 0
+                for i = array.size(smtArray) - 1 to 0
+                    s = array.get(smtArray, i)
+                    if s.detectionMode == "PIVOT" and s.smtType == "BULLISH" and not s.confirmed
+                        smtExists := true
+                        // Update if more extreme
+                        if chartPivotLow < s.currChartLow
+                            s.prevChartLow := s.currChartLow
+                            s.prevChartLowTime := s.currChartLowTime
+                            s.currChartLow := chartPivotLow
+                            s.currChartLowTime := chartPivotLowTime
+                        break
+            
+            if not smtExists
+                // Check if SMT should be created (based on smtOnlyInFVG filter)
+                if shouldCreateSMT("BULLISH", na, na, prevChartPivotLow, chartPivotLow)
+                    newSmt = SMT.new()
+                    newSmt.smtType := "BULLISH"
+                    newSmt.detectionMode := "PIVOT"
+                    newSmt.smtPair := smtPairSymbol
+                    newSmt.prevChartLow := prevChartPivotLow
+                    newSmt.currChartLow := chartPivotLow
+                    newSmt.prevChartLowTime := prevChartPivotLowTime
+                    newSmt.currChartLowTime := chartPivotLowTime
+                    newSmt.confirmed := false
+                    newSmt.creationBar := bar_index
+                    newSmt.smtLine := na
+                    newSmt.smtLabel := na
+                    array.push(smtArray, newSmt)
+
+// Detect FVGs on new HTF candle (using reference method with confirmed bars)
+if newPeriod and not na(htfTime)
+    // Only detect bearish FVG if bias allows it
+    bool shouldDetectBearish = bias == 'No Bias' or bias == 'Bearish Bias'
+    if htfHasBearishFVG and shouldDetectBearish and not na(htfBearishBottom) and not na(htfBearishTop)
+        // Bearish FVG: bottom = HTF[0] high (rangeHigh), top = HTF[2] low (rangeLow)
+        // Only bottom (rangeHigh) can create signals (minimum of both)
+        float bearishFVGBottom = htfBearishBottom
+        float bearishFVGTop = htfBearishTop
+        candrawFVG = fvgPassesFilter(false, htfBearishTop, htfBearishBottom, htfTime)
+        // Check if this FVG already exists
+        bool fvgExists = false
+        if array.size(ranges) > 0
+            for i = 0 to array.size(ranges) - 1
+                existingRange = array.get(ranges, i)
+                if not existingRange.isSpecial and not na(existingRange.rangeHigh) and not na(existingRange.rangeLow) and existingRange.rangeHigh == bearishFVGBottom and existingRange.rangeLow == bearishFVGTop and not existingRange.highMitigated
+                    fvgExists := true
+                    break
+        
+        if not fvgExists and candrawFVG
+            // For bearish FVG: both extremes check when high interacted (separate checks)
+            int bottomFormationTime = htfTime
+            int maxLookback = math.min(500, math.max(0, bar_index - 1))  // Safety margin to prevent historical buffer errors
+            for j = 1 to maxLookback
+                if bar_index - j < 0
+                    break
+                if high[j] >= bearishFVGBottom
+                    bottomFormationTime := time[j]
+                    break
+            
+            int topFormationTime = htfTime
+            for j = 1 to maxLookback
+                if bar_index - j < 0
+                    break
+                if high[j] >= bearishFVGTop
+                    topFormationTime := time[j]
+                    break
+            
+            newRange = Range.new()
+            newRange.rangeHigh := bearishFVGBottom  // Bottom of FVG
+            newRange.rangeLow := bearishFVGTop      // Top of FVG
+            newRange.highStartTime := bottomFormationTime
+            newRange.lowStartTime := topFormationTime
+            // Don't check mitigation on creation bar - only check from next bar onwards
+            newRange.highMitigated := false
+            newRange.lowMitigated := false
+            newRange.highMitigationTime := na
+            newRange.lowMitigationTime := na
+            newRange.isSpecial := false
+            newRange.creationBar := bar_index
+            newRange.isOIBased := false
+            // Only bottom (rangeHigh) can create signals
+            newRange.canCreateSignalFromHigh := true
+            newRange.canCreateSignalFromLow := false
+            // Initialize FVG box arrays and create segments (only if toggle is enabled)
+            newRange.fvgBoxes := array.new<box>()
+            newRange.fvgBoxEndTimes := array.new<int>()
+            if showFVGBoxes
+                float fvgRange = bearishFVGTop - bearishFVGBottom
+                int segments = math.min(15,math.max(10, int(fvgRange / syminfo.mintick)))  // Minimum 10 segments (unless mintick makes it impossible)
+                float boxHeight = fvgRange / segments
+                for i = 0 to segments - 1
+                    float boxTop = bearishFVGBottom + (i + 1) * boxHeight
+                    float boxBottom = bearishFVGBottom + i * boxHeight
+                    // Calculate start time for this box level (when price first touched this level)
+                    int boxStartTime = htfTime2  // Start with HTF[2] time as precursor
+                    int maxLookback = math.min(500, math.max(1, bar_index - 1))  // Safety margin to prevent historical buffer errors
+                    for j = 1 to maxLookback  // Always start from one bar back, never current bar
+                        if bar_index - j < 0
+                            break
+                        if high[j] >= boxBottom
+                            boxStartTime := time[j]
+                            break
+                    box newBox = box.new(boxStartTime, boxTop, time, boxBottom, na, bgcolor = color.new(bearishFVGColor, 85), xloc = xloc.bar_time)
+                    array.push(newRange.fvgBoxes, newBox)
+                    array.push(newRange.fvgBoxEndTimes, na)  // No end time initially - extends to current time
+            array.push(ranges, newRange)
+            
+            // Check if this new bearish FVG invalidates any pending bullish signal
+            if not na(pendingBullish) and not na(pendingBullish.fvgRangeHigh)
+                pendingBullish := na
+    
+    // Only detect bullish FVG if bias allows it
+    bool shouldDetectBullish = bias == 'No Bias' or bias == 'Bullish Bias'
+    if htfHasBullishFVG and shouldDetectBullish and not na(htfBullishBottom) and not na(htfBullishTop)
+        // Bullish FVG: bottom = HTF[2] high (rangeHigh), top = HTF[0] low (rangeLow)
+        // Only top (rangeLow) can create signals (maximum of both)
+        float bullishFVGBottom = htfBullishBottom
+        float bullishFVGTop = htfBullishTop
+        candrawFVG = fvgPassesFilter(true, htfBullishTop, htfBullishBottom, htfTime)
+        // Check if this FVG already exists
+        bool fvgExists = false
+        if array.size(ranges) > 0
+            for i = 0 to array.size(ranges) - 1
+                existingRange = array.get(ranges, i)
+                if not existingRange.isSpecial and not na(existingRange.rangeHigh) and not na(existingRange.rangeLow) and math.abs(existingRange.rangeHigh - bullishFVGBottom) < 0.0001 and math.abs(existingRange.rangeLow - bullishFVGTop) < 0.0001 and not existingRange.lowMitigated
+                    fvgExists := true
+                    break
+        
+        if not fvgExists and candrawFVG
+            // For bullish FVG: both extremes check when low interacted (separate checks)
+            int bottomFormationTime = htfTime
+            int maxLookback = math.min(500, math.max(0, bar_index - 1))  // Safety margin to prevent historical buffer errors
+            for j = 1 to maxLookback
+                if bar_index - j < 0
+                    break
+                if low[j] <= bullishFVGBottom
+                    bottomFormationTime := time[j]
+                    break
+            
+            int topFormationTime = htfTime
+            for j = 1 to maxLookback
+                if bar_index - j < 0
+                    break
+                if low[j] <= bullishFVGTop
+                    topFormationTime := time[j]
+                    break
+            
+            newRange = Range.new()
+            newRange.rangeHigh := bullishFVGBottom  // Bottom of FVG
+            newRange.rangeLow := bullishFVGTop      // Top of FVG
+            newRange.highStartTime := bottomFormationTime
+            newRange.lowStartTime := topFormationTime
+            // Don't check mitigation on creation bar - only check from next bar onwards
+            newRange.highMitigated := false
+            newRange.lowMitigated := false
+            newRange.highMitigationTime := na
+            newRange.lowMitigationTime := na
+            newRange.isSpecial := false
+            newRange.creationBar := bar_index
+            newRange.isOIBased := false
+            // Only top (rangeLow) can create signals
+            newRange.canCreateSignalFromHigh := false
+            newRange.canCreateSignalFromLow := true
+            // Initialize FVG box arrays and create segments (only if toggle is enabled)
+            newRange.fvgBoxes := array.new<box>()
+            newRange.fvgBoxEndTimes := array.new<int>()
+            if showFVGBoxes
+                float fvgRange = bullishFVGTop - bullishFVGBottom
+                int segments = math.min(15,math.max(10, int(fvgRange / syminfo.mintick)))  // Minimum 10 segments (unless mintick makes it impossible)
+                float boxHeight = fvgRange / segments
+                for i = 0 to segments - 1
+                    float boxTop = bullishFVGBottom + (i + 1) * boxHeight
+                    float boxBottom = bullishFVGBottom + i * boxHeight
+                    // Calculate start time for this box level (when price first touched this level)
+                    int boxStartTime = htfTime2  // Start with HTF[2] time as precursor
+                    int maxLookback = math.min(500, math.max(1, bar_index - 1))  // Safety margin to prevent historical buffer errors
+                    for j = 1 to maxLookback  // Always start from one bar back, never current bar
+                        if bar_index - j < 0
+                            break
+                        if low[j] <= boxTop
+                            boxStartTime := time[j]
+                            break
+                    box newBox = box.new(boxStartTime, boxTop, time, boxBottom, na, bgcolor = color.new(bullishFVGColor, 85), xloc = xloc.bar_time)
+                    array.push(newRange.fvgBoxes, newBox)
+                    array.push(newRange.fvgBoxEndTimes, na)  // No end time initially - extends to current time
+            array.push(ranges, newRange)
+            
+            // Check if this new bullish FVG invalidates any pending bearish signal
+            if not na(pendingBearish) and not na(pendingBearish.fvgRangeLow)
+                pendingBearish := na
+
+
+if array.size(storedPivotLows) > 0
+    for i = 0 to array.size(storedPivotLows) - 1
+        storedPivotLow = array.get(storedPivotLows, i)
+        
+        // Check if this is an OI-based pivot
+        bool isOIPivot = array.includes(oiBasedPivotLows, storedPivotLow)
+        
+        // Check if this is a signal-based pivot
+        bool isSignalPivot = array.includes(signalBasedPivotLows, storedPivotLow)
+        
+        // Only create special ranges if OI-based or signal-based (skip regular special ranges)
+        if not isOIPivot and not isSignalPivot
+            continue
+        
+        int signalCreationBar = na
+        int signalConfirmationBar = na
+        if isSignalPivot
+            // Find the index in signal arrays
+            int signalIdx = array.indexof(signalBasedPivotLows, storedPivotLow)
+            if signalIdx >= 0
+                signalCreationBar := array.get(signalBasedPivotLowsCreationBar, signalIdx)
+                signalConfirmationBar := array.get(signalBasedPivotLowsConfirmationBar, signalIdx)
+        
+        // Find the time when the pivot low was formed by looping backwards
+        int pivotLowStartTime = time[1]  // Always start from one bar back, never current bar
+        int maxLookback = math.min(500, math.max(1, bar_index - 1))  // Safety margin to prevent historical buffer errors
+        for j = 1 to maxLookback  // Look back up to 500 bars
+            if bar_index - j < 0
+                break
+            if high[j] >= storedPivotLow
+                pivotLowStartTime := time[j]
+                break
+        
+        // Create special range with pivot low as rangeHigh
+        specialRange = Range.new()
+        specialRange.rangeHigh := storedPivotLow
+        specialRange.rangeLow := na  // No low extreme
+        specialRange.highStartTime := pivotLowStartTime
+        specialRange.lowStartTime := time
+        specialRange.highMitigated := false
+        specialRange.lowMitigated := true  // Always mitigated since it doesn't exist
+        specialRange.highMitigationTime := na
+        specialRange.lowMitigationTime := time
+        specialRange.isSpecial := true
+        specialRange.creationBar := bar_index
+        specialRange.isOIBased := isOIPivot
+        specialRange.isSignalBased := isSignalPivot
+        specialRange.signalCreationBar := signalCreationBar
+        specialRange.signalConfirmationBar := signalConfirmationBar
+        // Signal-based special ranges can create signals when mitigated
+        // Bearish signal stop (rangeHigh) creates bearish signal when mitigated (price goes above)
+        specialRange.canCreateSignalFromHigh := isSignalPivot  // Signal-based ranges can create signals
+        specialRange.canCreateSignalFromLow := false
+        // Initialize empty box arrays for special ranges
+        specialRange.fvgBoxes := array.new<box>()
+        specialRange.fvgBoxEndTimes := array.new<int>()
+        array.push(ranges, specialRange)
+    array.clear(storedPivotLows)
+    array.clear(oiBasedPivotLows)
+    array.clear(signalBasedPivotLows)
+    array.clear(signalBasedPivotLowsCreationBar)
+    array.clear(signalBasedPivotLowsConfirmationBar)
+
+// Create ranges with stored pivot highs as rangeLow
+if array.size(storedPivotHighs) > 0
+    for i = 0 to array.size(storedPivotHighs) - 1
+        storedPivotHigh = array.get(storedPivotHighs, i)
+        
+        // Check if this is an OI-based pivot
+        bool isOIPivot = array.includes(oiBasedPivotHighs, storedPivotHigh)
+        
+        // Check if this is a signal-based pivot
+        bool isSignalPivot = array.includes(signalBasedPivotHighs, storedPivotHigh)
+        
+        // Only create special ranges if OI-based or signal-based (skip regular special ranges)
+        if not isOIPivot and not isSignalPivot
+            continue
+        
+        int signalCreationBar = na
+        int signalConfirmationBar = na
+        if isSignalPivot
+            // Find the index in signal arrays
+            int signalIdx = array.indexof(signalBasedPivotHighs, storedPivotHigh)
+            if signalIdx >= 0
+                signalCreationBar := array.get(signalBasedPivotHighsCreationBar, signalIdx)
+                signalConfirmationBar := array.get(signalBasedPivotHighsConfirmationBar, signalIdx)
+        
+        // Find the time when the pivot high was formed by looping backwards
+        int pivotHighStartTime = time[1]  // Always start from one bar back, never current bar
+        int maxLookback = math.min(500, math.max(1, bar_index - 1))  // Safety margin to prevent historical buffer errors
+        for j = 1 to maxLookback  // Look back up to 500 bars
+            if bar_index - j < 0
+                break
+            if low[j] <= storedPivotHigh
+                pivotHighStartTime := time[j]
+                break
+        
+        // Create special range with pivot high as rangeLow
+        specialRange = Range.new()
+        specialRange.rangeHigh := na  // No high extreme
+        specialRange.rangeLow := storedPivotHigh
+        specialRange.highStartTime := time
+        specialRange.lowStartTime := pivotHighStartTime
+        specialRange.highMitigated := true  // Always mitigated since it doesn't exist
+        specialRange.lowMitigated := false
+        specialRange.highMitigationTime := time
+        specialRange.lowMitigationTime := na
+        specialRange.isSpecial := true
+        specialRange.creationBar := bar_index
+        specialRange.isOIBased := isOIPivot
+        specialRange.isSignalBased := isSignalPivot
+        specialRange.signalCreationBar := signalCreationBar
+        specialRange.signalConfirmationBar := signalConfirmationBar
+        // Signal-based special ranges can create signals when mitigated
+        // Bullish signal stop (rangeLow) creates bullish signal when mitigated (price goes below)
+        specialRange.canCreateSignalFromHigh := false
+        specialRange.canCreateSignalFromLow := isSignalPivot  // Signal-based ranges can create signals
+        // Initialize empty box arrays for special ranges
+        specialRange.fvgBoxes := array.new<box>()
+        specialRange.fvgBoxEndTimes := array.new<int>()
+        array.push(ranges, specialRange)
+    array.clear(storedPivotHighs)
+    array.clear(oiBasedPivotHighs)
+    array.clear(signalBasedPivotHighs)
+    array.clear(signalBasedPivotHighsCreationBar)
+    array.clear(signalBasedPivotHighsConfirmationBar)
+
+// Note: Fully mitigated ranges are moved to mitigatedRanges array immediately when both extremes are mitigated
+// This happens in the mitigation blocks below - no separate loop needed
+
+// Delete old mitigated ranges (protect last 2 indices - they're the most recent)
+if array.size(mitigatedRanges) > 0 and bar_index > last_bar_index - 5000
+    int protectedCount = math.min(1, array.size(mitigatedRanges))
+    int protectedStartIndex = array.size(mitigatedRanges) - protectedCount  // Last 2 indices
+    
+    for i = array.size(mitigatedRanges) - 1 to 0
+        // Skip the last 2 (most recent) - they're protected
+        if i >= protectedStartIndex
+            continue
+        
+        r = array.get(mitigatedRanges, i)
+        int barsSinceCreation = bar_index - r.creationBar
+        
+        // Clean up boxes for all non-protected mitigated ranges (not just ones being deleted)
+        if not r.isSpecial
+            cleanupFVGBoxes(r)
+        
+        // Delete mitigated ranges older than 1250 bars
+        if barsSinceCreation > 1250
+            array.remove(mitigatedRanges, i)
+
+// Check for range mitigation (any interaction with extreme)
+// Only check active ranges - mitigated ones are already moved to mitigatedRanges array
+if array.size(ranges) > 0 and bar_index > last_bar_index - 5000
+    
+    for i = array.size(ranges) - 1 to 0
+        r = array.get(ranges, i)
+        
+        // Delete signal-based special ranges if confirmation duration has passed without mitigation
+        if r.isSpecial and r.isSignalBased and not na(r.signalCreationBar) and not na(r.signalConfirmationBar)
+            int confirmationDuration = r.signalConfirmationBar - r.signalCreationBar
+            int barsSinceConfirmation = bar_index - r.signalConfirmationBar
+            bool shouldBeMitigated = (not na(r.rangeHigh) and not r.highMitigated) or (not na(r.rangeLow) and not r.lowMitigated)
+            if barsSinceConfirmation >= confirmationDuration and shouldBeMitigated
+                array.remove(ranges, i)
+                continue
+        
+        // Age-based deletion: delete active ranges older than 2500 bars
+        int barsSinceCreation = bar_index - r.creationBar
+        if barsSinceCreation > 2500
+            // Any active range older than 2500 bars - delete
+            if not r.isSpecial
+                cleanupFVGBoxes(r)
+            array.remove(ranges, i)
+            continue
+        
+        // Clean up special ranges when trading against them (if not latest)
+        if r.isSpecial
+            // Find latest special ranges (by creation bar - most recent)
+            int latestHighCreationBar = -1
+            int latestLowCreationBar = -1
+            if array.size(ranges) > 0
+                for j = 1 to array.size(ranges) - 1
+                    tempR = array.get(ranges, j)
+                    if tempR.isSpecial
+                        if not na(tempR.rangeHigh) and tempR.creationBar > latestHighCreationBar
+                            latestHighCreationBar := tempR.creationBar
+                        if not na(tempR.rangeLow) and tempR.creationBar > latestLowCreationBar
+                            latestLowCreationBar := tempR.creationBar
+            
+            // Delete if trading against and not latest
+            bool shouldDelete = false
+            if not na(r.rangeHigh)
+                // Trading above a special high (bearish stop) - delete if not latest
+                if close > r.rangeHigh and r.creationBar != latestHighCreationBar
+                    shouldDelete := true
+            else if not na(r.rangeLow)
+                // Trading below a special low (bullish stop) - delete if not latest
+                if close < r.rangeLow and r.creationBar != latestLowCreationBar
+                    shouldDelete := true
+            
+            if shouldDelete
+                array.remove(ranges, i)
+                continue
+        
+        // Determine if this is a bearish FVG or bullish FVG
+        bool isBearishFVG = not r.isSpecial and r.canCreateSignalFromHigh
+        bool isBullishFVG = not r.isSpecial and r.canCreateSignalFromLow
+        
+        // For FVGs, rangeHigh is bottom and rangeLow is top (opposite of normal)
+        // Bearish FVG: top (rangeLow) is mitigated when price goes ABOVE it
+        // Bullish FVG: bottom (rangeHigh) is mitigated when price goes BELOW it
+        
+        // Check high mitigation (only after creation bar)
+        if not r.highMitigated and not na(r.rangeHigh) and bar_index > r.creationBar
+            bool shouldMitigateHigh = false
+            if isBullishFVG
+                // Bullish FVG: bottom (rangeHigh) is mitigated when price goes BELOW it
+                shouldMitigateHigh := low <= r.rangeHigh
+            else
+                // For non-FVG ranges or bearish FVG: use standard logic (price goes above)
+                shouldMitigateHigh := high >= r.rangeHigh
+            
+            if shouldMitigateHigh
+                r.highMitigated := true
+                r.highMitigationTime := time
+                
+                // For special ranges (except signal-based), if mitigated on creation bar or next bar, remove entirely
+                // Signal-based special ranges should persist even if mitigated quickly (they're stop levels)
+                if r.isSpecial and not r.isSignalBased and (r.creationBar == bar_index or r.creationBar == bar_index - 1)
+                    array.remove(ranges, i)
+                    continue
+                
+                // Check if this range can create a signal from high mitigation
+                if r.canCreateSignalFromHigh
+                    // High (bottom) mitigated - create BEARISH signal
+                    if not na(pivotLow) and not na(pivotLowBar)
+                        pendingBearish := PendingSignal.new()
+                        pendingBearish.signalType := "BEARISH"
+                        pendingBearish.confirmationLevel := pivotLow
+                        pendingBearish.creationBar := bar_index
+                        pendingBearish.pivotBarIndex := pivotLowBar
+                        pendingBearish.maxPrice := high
+                        pendingBearish.minPrice := na
+                        pendingBearish.mitigatedLevel := r.rangeHigh
+                        pendingBearish.fvgRangeHigh := r.rangeHigh
+                        pendingBearish.fvgRangeLow := r.rangeLow
+                        pendingBearish.fvgTouchBar := r.creationBar  // Initial touch is when FVG was created
+                
+                // Don't store regular pivots - only OI-based and signal-based special ranges are created
+        
+        // Check low mitigation (only after creation bar)
+        if not r.lowMitigated and not na(r.rangeLow) and bar_index > r.creationBar
+            bool shouldMitigateLow = false
+            if isBearishFVG
+                // Bearish FVG: top (rangeLow) is mitigated when price goes ABOVE it
+                shouldMitigateLow := high >= r.rangeLow
+            else
+                // For non-FVG ranges or bullish FVG: use standard logic (price goes below)
+                shouldMitigateLow := low <= r.rangeLow
+            
+            if shouldMitigateLow
+                r.lowMitigated := true
+                r.lowMitigationTime := time
+                
+                // For special ranges (except signal-based), if mitigated on creation bar or next bar, remove entirely
+                // Signal-based special ranges should persist even if mitigated quickly (they're stop levels)
+                if r.isSpecial and not r.isSignalBased and (r.creationBar == bar_index or r.creationBar == bar_index - 1)
+                    array.remove(ranges, i)
+                    continue
+                
+                // Check if this range can create a signal from low mitigation
+                if r.canCreateSignalFromLow
+                    // Low (top) mitigated - create BULLISH signal
+                    if not na(pivotHigh) and not na(pivotHighBar)
+                        pendingBullish := PendingSignal.new()
+                        pendingBullish.signalType := "BULLISH"
+                        pendingBullish.confirmationLevel := pivotHigh
+                        pendingBullish.creationBar := bar_index
+                        pendingBullish.pivotBarIndex := pivotHighBar
+                        pendingBullish.maxPrice := na
+                        pendingBullish.minPrice := low
+                        pendingBullish.mitigatedLevel := r.rangeLow
+                        pendingBullish.fvgRangeHigh := r.rangeHigh
+                        pendingBullish.fvgRangeLow := r.rangeLow
+                        pendingBullish.fvgTouchBar := r.creationBar  // Initial touch is when FVG was created
+                
+                // Don't store regular pivots - only OI-based and signal-based special ranges are created
+        
+        // Check FVG box segment interactions (for all ranges, including mitigated ones) - only if toggle is enabled
+        if showFVGBoxes and not r.isSpecial and array.size(r.fvgBoxes) > 0
+            for boxIdx = 0 to array.size(r.fvgBoxes) - 1
+                if boxIdx < array.size(r.fvgBoxEndTimes)
+                    int endTime = array.get(r.fvgBoxEndTimes, boxIdx)
+                    // Only check segments that don't have an end time yet
+                    if na(endTime)
+                        box currentBox = array.get(r.fvgBoxes, boxIdx)
+                        float boxTop = currentBox.get_top()
+                        float boxBottom = currentBox.get_bottom()
+                        // Check if price has interacted with this segment
+                        if high > boxBottom and low < boxTop
+                            // Set end time to current time (stops extending)
+                            array.set(r.fvgBoxEndTimes, boxIdx, time)
+        
+        // Check if range is now fully mitigated (both high and low)
+        // For signal-based special ranges, keep them visible even when mitigated (they're stop levels)
+        bool isFullyMitigated = (na(r.rangeHigh) or r.highMitigated) and (na(r.rangeLow) or r.lowMitigated)
+        if isFullyMitigated
+            // Signal-based special ranges should stay in active ranges (they're important stop levels)
+            if not (r.isSpecial and r.isSignalBased)
+                // Move to mitigatedRanges array (chronologically ordered - newest at end)
+                array.push(mitigatedRanges, r)
+                array.remove(ranges, i)
+                continue
+
+// Delete all FVG labels and recreate them (ensures labels always match what's drawn)
+// Always delete existing labels first (even if showLabels is false, we need to clean up)
+if array.size(fvgLabels) > 0
+    for i = array.size(fvgLabels) - 1 to 0
+        label.delete(array.get(fvgLabels, i))
+array.clear(fvgLabels)
+
+// Delete all SMT labels and recreate them (ensures labels always match what's drawn)
+if enableSMT and bar_index > last_bar_index - 4500
+    if array.size(smtLabels) > 0
+        for i = array.size(smtLabels) - 1 to 0
+            label.delete(array.get(smtLabels, i))
+    array.clear(smtLabels)
+
+// Draw active ranges
+if array.size(ranges) > 0 and bar_index > last_bar_index - 5000
+    for i = 0 to array.size(ranges) - 1
+        r = array.get(ranges, i)
+        
+        // Determine if this is a bearish FVG (can create signal from high) or bullish FVG (can create signal from low)
+        bool isBearishFVG = not r.isSpecial and r.canCreateSignalFromHigh
+        bool isBullishFVG = not r.isSpecial and r.canCreateSignalFromLow
+        
+        // Determine right edge time for high line
+        int highRightTime = r.highMitigated ? r.highMitigationTime : time
+        color highLineColor = na
+        if not na(r.rangeHigh)
+            if isBearishFVG
+                // Bearish FVG: use bearish color, with transparency if mitigated
+                highLineColor := r.highMitigated ? color.new(bearishFVGColor, 50) : bearishFVGColor
+            else if isBullishFVG
+                // Bullish FVG bottom (rangeHigh): use bullish color, with transparency if mitigated
+                highLineColor := r.highMitigated ? color.new(bullishFVGColor, 50) : bullishFVGColor
+            else if r.isSpecial and r.isSignalBased
+                // Signal-based special range: use bearish color for high
+                highLineColor := r.highMitigated ? color.new(bearishFVGColor, 50) : bearishFVGColor
+            else
+                // Default: use bearish color
+                highLineColor := r.highMitigated ? color.new(bearishFVGColor, 50) : bearishFVGColor
+        
+        // Determine right edge time for low line
+        int lowRightTime = r.lowMitigated ? r.lowMitigationTime : time
+        color lowLineColor = na
+        if not na(r.rangeLow)
+            if isBullishFVG
+                // Bullish FVG top (rangeLow): use bullish color, with transparency if mitigated
+                lowLineColor := r.lowMitigated ? color.new(bullishFVGColor, 50) : bullishFVGColor
+            else if isBearishFVG
+                // Bearish FVG top (rangeLow): use bearish color, with transparency if mitigated
+                lowLineColor := r.lowMitigated ? color.new(bearishFVGColor, 50) : bearishFVGColor
+            else if r.isSpecial and r.isSignalBased
+                // Signal-based special range: use bullish color for low
+                lowLineColor := r.lowMitigated ? color.new(bullishFVGColor, 50) : bullishFVGColor
+            else
+                // Default: use bullish color
+                lowLineColor := r.lowMitigated ? color.new(bullishFVGColor, 50) : bullishFVGColor
+        
+        // Draw range high line using time (starts from where high was formed)
+        if not na(r.rangeHigh) and not na(highLineColor)
+            array.push(rangeLines, line.new(r.highStartTime, r.rangeHigh, highRightTime, r.rangeHigh, color = highLineColor, width = 1, xloc = xloc.bar_time))
+            
+            // Create label for high line - at middle if mitigated, at right edge if not
+            if showLabels
+                // Calculate label position: middle if mitigated, right edge if not
+                int labelTime = r.highMitigated and not na(r.highMitigationTime) ? (r.highStartTime + r.highMitigationTime) / 2 : highRightTime
+                
+                string highLabelText = isBearishFVG ? "FVG-" : ""
+                if highLabelText != ""
+                    newLabel = label.new(labelTime, r.rangeHigh, highLabelText, color = color.new(color.white, 100), textcolor = bearishFVGColor, style = label.style_label_lower_right, size = size.small, xloc = xloc.bar_time, tooltip = "Bearish FVG", textalign = text.align_right, text_font_family = font.family_monospace)
+                    array.push(fvgLabels, newLabel)
+        
+        // Draw range low line using time (starts from where low was formed)
+        if not na(r.rangeLow) and not na(lowLineColor)
+            array.push(rangeLines, line.new(r.lowStartTime, r.rangeLow, lowRightTime, r.rangeLow, color = lowLineColor, width = 1, xloc = xloc.bar_time))
+            
+            // Create label for low line - at middle if mitigated, at right edge if not
+            if showLabels
+                // Calculate label position: middle if mitigated, right edge if not
+                int labelTime = r.lowMitigated and not na(r.lowMitigationTime) ? (r.lowStartTime + r.lowMitigationTime) / 2 : lowRightTime
+                
+                string lowLabelText = isBullishFVG ? "FVG+" : ""
+                if lowLabelText != ""
+                    newLabel = label.new(labelTime, r.rangeLow, lowLabelText, color = color.new(color.white, 100), textcolor = bullishFVGColor, style = label.style_label_upper_right, size = size.small, xloc = xloc.bar_time, tooltip = "Bullish FVG", textalign = text.align_right, text_font_family = font.family_monospace)
+                    array.push(fvgLabels, newLabel)
+        
+        // Update FVG box segments - extend to end time or current time (only if toggle is enabled)
+        if showFVGBoxes and not r.isSpecial and array.size(r.fvgBoxes) > 0
+            for boxIdx = 0 to array.size(r.fvgBoxes) - 1
+                if boxIdx < array.size(r.fvgBoxEndTimes)
+                    box currentBox = array.get(r.fvgBoxes, boxIdx)
+                    int endTime = array.get(r.fvgBoxEndTimes, boxIdx)
+                    // Extend to end time if set, otherwise extend to current time
+                    int rightTime = na(endTime) ? time : endTime
+                    currentBox.set_right(rightTime)
+
+// Draw mitigated ranges (only last 2 are protected and visible)
+if array.size(mitigatedRanges) > 0 and bar_index > last_bar_index - 5000
+    int protectedCount = math.min(1, array.size(mitigatedRanges))
+    int protectedStartIndex = array.size(mitigatedRanges) - protectedCount  // Last 2 indices
+    
+    for i = protectedStartIndex to array.size(mitigatedRanges) - 1
+        r = array.get(mitigatedRanges, i)
+        
+        // Determine if this is a bearish FVG (can create signal from high) or bullish FVG (can create signal from low)
+        bool isBearishFVG = not r.isSpecial and r.canCreateSignalFromHigh
+        bool isBullishFVG = not r.isSpecial and r.canCreateSignalFromLow
+        
+        // Determine right edge time for high line
+        int highRightTime = r.highMitigationTime
+        color highLineColor = na
+        if not na(r.rangeHigh)
+            if isBearishFVG
+                // Bearish FVG: use bearish color with transparency (mitigated)
+                highLineColor := color.new(bearishFVGColor, 50)
+            else if isBullishFVG
+                // Bullish FVG bottom (rangeHigh): use bullish color with transparency (mitigated)
+                highLineColor := color.new(bullishFVGColor, 50)
+            else if r.isSpecial and r.isSignalBased
+                // Signal-based special range: use bearish color with transparency
+                highLineColor := color.new(bearishFVGColor, 50)
+            else
+                // Default: use bearish color with transparency
+                highLineColor := color.new(bearishFVGColor, 50)
+        
+        // Determine right edge time for low line
+        int lowRightTime = r.lowMitigationTime
+        color lowLineColor = na
+        if not na(r.rangeLow)
+            if isBullishFVG
+                // Bullish FVG top (rangeLow): use bullish color with transparency (mitigated)
+                lowLineColor := color.new(bullishFVGColor, 50)
+            else if isBearishFVG
+                // Bearish FVG top (rangeLow): use bearish color with transparency (mitigated)
+                lowLineColor := color.new(bearishFVGColor, 50)
+            else if r.isSpecial and r.isSignalBased
+                // Signal-based special range: use bullish color with transparency
+                lowLineColor := color.new(bullishFVGColor, 50)
+            else
+                // Default: use bullish color with transparency
+                lowLineColor := color.new(bullishFVGColor, 50)
+        
+        // Draw range high line using time (starts from where high was formed)
+        if not na(r.rangeHigh) and not na(highLineColor)
+            array.push(rangeLines, line.new(r.highStartTime, r.rangeHigh, highRightTime, r.rangeHigh, color = highLineColor, width = 1, xloc = xloc.bar_time))
+            
+            // Create label for high line - at middle (mitigated ranges are always mitigated)
+            if showLabels
+                // Calculate label position: middle of the line
+                int labelTime = not na(r.highMitigationTime) ? (r.highStartTime + r.highMitigationTime) / 2 : r.highStartTime
+                
+                string highLabelText = isBearishFVG ? "FVG-" : ""
+                if highLabelText != ""
+                    newLabel = label.new(labelTime, r.rangeHigh, highLabelText, color = color.new(color.white, 100), textcolor = bearishFVGColor,  style = label.style_label_lower_right, size = size.small, xloc = xloc.bar_time, tooltip = "Bearish FVG", textalign = text.align_right, text_font_family = font.family_monospace)
+                    array.push(fvgLabels, newLabel)
+        
+        // Draw range low line using time (starts from where low was formed)
+        if not na(r.rangeLow) and not na(lowLineColor)
+            array.push(rangeLines, line.new(r.lowStartTime, r.rangeLow, lowRightTime, r.rangeLow, color = lowLineColor, width = 1, xloc = xloc.bar_time))
+            
+            // Create label for low line - at middle (mitigated ranges are always mitigated)
+            if showLabels
+                // Calculate label position: middle of the line
+                int labelTime = not na(r.lowMitigationTime) ? (r.lowStartTime + r.lowMitigationTime) / 2 : r.lowStartTime
+                
+                string lowLabelText = isBullishFVG ? "FVG+" : ""
+                if lowLabelText != ""
+                    newLabel = label.new(labelTime, r.rangeLow, lowLabelText, color = color.new(color.white, 100), textcolor = bullishFVGColor, style = label.style_label_upper_right, size = size.small, xloc = xloc.bar_time, tooltip = "Bullish FVG", textalign = text.align_right, text_font_family = font.family_monospace)
+                    array.push(fvgLabels, newLabel)
+
+// ========================================
+// ERL (EXTERNAL RANGE LIQUIDITY) DRAWING
+// ========================================
+// Draw pivot high ERL
+if not na(erlHighLevel) and not na(erlHighTime)
+    // Determine right edge time for ERL line
+    int erlHighRightTime = erlHighMitigated ? erlHighMitigationTime : time
+    // Use transparent color if mitigated
+    color erlHighLineColor = erlHighMitigated ? color.new(erlColor, 50) : erlColor
+    
+    if na(erlHighLine)
+        // Create new ERL line
+        erlHighLine := line.new(erlHighTime, erlHighLevel, erlHighRightTime, erlHighLevel, color = erlHighLineColor, width = 1, style = line.style_solid, xloc = xloc.bar_time)
+    else
+        // Update existing ERL line (stop extending if mitigated)
+        line.set_xy2(erlHighLine, erlHighRightTime, erlHighLevel)
+        line.set_color(erlHighLine, erlHighLineColor)
+    
+    // Create/update label for pivot high ERL - at middle if mitigated, at right edge if not
+    if showLabels
+        // Calculate label position: middle if mitigated, right edge if not
+        int erlHighLabelTime = erlHighMitigated and not na(erlHighMitigationTime) ? (erlHighTime + erlHighMitigationTime) / 2 : erlHighRightTime
+        
+        if na(erlHighLabel)
+            // Create new label
+            erlHighLabel := label.new(erlHighLabelTime, erlHighLevel, "ERL-", 
+                                     color = color.new(color.white, 100), textcolor = erlColor, 
+                                     style = label.style_label_down, size = size.small, 
+                                     xloc = xloc.bar_time, tooltip = "ERL High", textalign = text.align_right, text_font_family = font.family_monospace)
+        else
+            // Update existing label position
+            label.set_xy(erlHighLabel, erlHighLabelTime, erlHighLevel)
+
+// Draw pivot low ERL
+if not na(erlLowLevel) and not na(erlLowTime)
+    // Determine right edge time for ERL line
+    int erlLowRightTime = erlLowMitigated ? erlLowMitigationTime : time
+    // Use transparent color if mitigated
+    color erlLowLineColor = erlLowMitigated ? color.new(erlColor, 50) : erlColor
+    
+    if na(erlLowLine)
+        // Create new ERL line
+        erlLowLine := line.new(erlLowTime, erlLowLevel, erlLowRightTime, erlLowLevel, color = erlLowLineColor, width = 1, style = line.style_solid, xloc = xloc.bar_time)
+    else
+        // Update existing ERL line (stop extending if mitigated)
+        line.set_xy2(erlLowLine, erlLowRightTime, erlLowLevel)
+        line.set_color(erlLowLine, erlLowLineColor)
+    
+    // Create/update label for pivot low ERL - at middle if mitigated, at right edge if not
+    if showLabels
+        // Calculate label position: middle if mitigated, right edge if not
+        int erlLowLabelTime = erlLowMitigated and not na(erlLowMitigationTime) ? (erlLowTime + erlLowMitigationTime) / 2 : erlLowRightTime
+        
+        if na(erlLowLabel)
+            // Create new label
+            erlLowLabel := label.new(erlLowLabelTime, erlLowLevel, "ERL+",  color = color.new(color.white, 100), textcolor = erlColor, style = label.style_label_up, size = size.small, xloc = xloc.bar_time, tooltip = "ERL Low", textalign = text.align_right, text_font_family = font.family_monospace)
+        else
+            // Update existing label position
+            label.set_xy(erlLowLabel, erlLowLabelTime, erlLowLevel)
+
+// ========================================
+// SMT (SAME MARKET THEORY) DRAWING
+// ========================================
+if enableSMT and array.size(smtArray) > 0 and bar_index > last_bar_index - 4500
+    // If toggle enabled, keep only latest bearish and latest bullish SMTs
+    if smtKeepOnlyLatest
+        // Find latest bearish and bullish SMTs (by creationBar - most recent)
+        SMT latestBearish = na
+        SMT latestBullish = na
+        int latestBearishBar = -1
+        int latestBullishBar = -1
+        
+        for j = 0 to array.size(smtArray) - 1
+            tempSmt = array.get(smtArray, j)
+            if tempSmt.smtType == "BEARISH" and tempSmt.creationBar > latestBearishBar
+                latestBearishBar := tempSmt.creationBar
+                latestBearish := tempSmt
+            if tempSmt.smtType == "BULLISH" and tempSmt.creationBar > latestBullishBar
+                latestBullishBar := tempSmt.creationBar
+                latestBullish := tempSmt
+        
+        // Delete all SMTs except the latest ones
+        for i = array.size(smtArray) - 1 to 0
+            s = array.get(smtArray, i)
+            bool shouldDelete = false
+            
+            if s.smtType == "BEARISH" and not na(latestBearish) and s.creationBar != latestBearish.creationBar
+                shouldDelete := true
+            else if s.smtType == "BULLISH" and not na(latestBullish) and s.creationBar != latestBullish.creationBar
+                shouldDelete := true
+            
+            if shouldDelete
+                if not na(s.smtLine)
+                    line.delete(s.smtLine)
+                if not na(s.smtLabel)
+                    label.delete(s.smtLabel)
+                array.remove(smtArray, i)
+    
+    // Clean up old SMT lines and remove old SMTs
+    for i = array.size(smtArray) - 1 to 0
+        s = array.get(smtArray, i)
+        int barsSinceCreation = bar_index - s.creationBar
+        
+        // Delete SMTs older than 2500 bars
+        if barsSinceCreation > 2500
+            if not na(s.smtLine)
+                line.delete(s.smtLine)
+            if not na(s.smtLabel)
+                label.delete(s.smtLabel)
+            array.remove(smtArray, i)
+            continue
+        
+        // Draw SMT lines - connect previous to current pivot/swing on chart
+        // (SMTs are already filtered at creation time, so all SMTs in array should be displayed)
+        if s.smtType == "BEARISH" and not na(s.prevChartHigh) and not na(s.currChartHigh) and not na(s.prevChartHighTime) and not na(s.currChartHighTime)
+            color smtLineColor = s.confirmed ? bearishFVGColor : color.new(bearishFVGColor, 70)
+            
+            if na(s.smtLine)
+                s.smtLine := line.new(s.prevChartHighTime, s.prevChartHigh, s.currChartHighTime, s.currChartHigh, xloc = xloc.bar_time, color = smtLineColor, style = s.confirmed ? line.style_solid : line.style_dashed, width = smtLineWidth)
+            else
+                line.set_xy1(s.smtLine, s.prevChartHighTime, s.prevChartHigh)
+                line.set_xy2(s.smtLine, s.currChartHighTime, s.currChartHigh)
+                line.set_color(s.smtLine, smtLineColor)
+                line.set_style(s.smtLine, s.confirmed ? line.style_solid : line.style_dashed)
+            
+            // Create label for bearish SMT
+            if showLabels
+                int labelTime = (s.prevChartHighTime + s.currChartHighTime) / 2
+                float labelPrice = (s.prevChartHigh + s.currChartHigh) / 2
+                string labelText = s.smtPair
+                
+                if na(s.smtLabel)
+                    s.smtLabel := label.new(labelTime, labelPrice, labelText, 
+                                          color = color.new(color.white, 100), textcolor = bearishFVGColor, 
+                                          style = label.style_label_center, size = size.small, 
+                                          xloc = xloc.bar_time, tooltip = "Bearish SMT", textalign = text.align_center, text_font_family = font.family_monospace)
+                    array.push(smtLabels, s.smtLabel)
+                else
+                    label.set_xy(s.smtLabel, labelTime, labelPrice)
+                    label.set_text(s.smtLabel, labelText)
+        
+        if s.smtType == "BULLISH" and not na(s.prevChartLow) and not na(s.currChartLow) and not na(s.prevChartLowTime) and not na(s.currChartLowTime)
+            color smtLineColor = s.confirmed ? bullishFVGColor : color.new(bullishFVGColor, 70)
+            
+            if na(s.smtLine)
+                s.smtLine := line.new(s.prevChartLowTime, s.prevChartLow, s.currChartLowTime, s.currChartLow, xloc = xloc.bar_time, color = smtLineColor, style = s.confirmed ? line.style_solid : line.style_dashed, width = smtLineWidth)
+            else
+                line.set_xy1(s.smtLine, s.prevChartLowTime, s.prevChartLow)
+                line.set_xy2(s.smtLine, s.currChartLowTime, s.currChartLow)
+                line.set_color(s.smtLine, smtLineColor)
+                line.set_style(s.smtLine, s.confirmed ? line.style_solid : line.style_dashed)
+            
+            // Create label for bullish SMT
+            if showLabels
+                int labelTime = (s.prevChartLowTime + s.currChartLowTime) / 2
+                float labelPrice = (s.prevChartLow + s.currChartLow) / 2
+                string labelText = s.smtPair
+                
+                if na(s.smtLabel)
+                    s.smtLabel := label.new(labelTime, labelPrice, labelText, 
+                                          color = color.new(color.white, 100), textcolor = bullishFVGColor, 
+                                          style = label.style_label_center, size = size.small, 
+                                          xloc = xloc.bar_time, tooltip = "Bullish SMT", textalign = text.align_center, text_font_family = font.family_monospace)
+                    array.push(smtLabels, s.smtLabel)
+                else
+                    label.set_xy(s.smtLabel, labelTime, labelPrice)
+                    label.set_text(s.smtLabel, labelText)
+
+// ========================================
+// SIGNAL CONFIRMATION & ALERTS
+// ========================================
+
+// Helper function to find unmitigated iFVGs between pivot bar and confirmation bar
+findInversionFVGs(string signalType, int pivotBar, int confirmationBar) =>
+    array<InversionFVG> foundIFVGs = array.new<InversionFVG>()
+    
+    // For bearish signals, we need bearish iFVGs (dir == -1)
+    // For bullish signals, we need bullish iFVGs (dir == 1)
+    array<InversionFVG> sourceArray = signalType == "BEARISH" ? bearInvArray : bullInvArray
+    
+    if array.size(sourceArray) > 0
+        for i = 0 to array.size(sourceArray) - 1
+            inv = array.get(sourceArray, i)
+            // Check if iFVG was created after pivot bar and inverted before/at confirmation bar
+            // The FVG that created this iFVG must have formed after pivot bar
+            // The inversion must have happened before/at confirmation bar
+            if not inv.mitigated and not na(inv.creationBar) and not na(inv.inversionBar)
+                if inv.creationBar > pivotBar and inv.inversionBar <= confirmationBar
+                    // Create a copy to store in confirmation line
+                    copyInv = InversionFVG.new()
+                    copyInv.left := inv.left
+                    copyInv.top := inv.top
+                    copyInv.right := inv.right
+                    copyInv.bot := inv.bot
+                    copyInv.mid := inv.mid
+                    copyInv.dir := inv.dir
+                    copyInv.state := inv.state
+                    copyInv.creationBar := inv.creationBar
+                    copyInv.inversionBar := inv.inversionBar
+                    copyInv.invBox := na  // Will be created when drawing confirmation lines
+                    copyInv.invLabel := na  // Will be created when drawing confirmation lines
+                    copyInv.mitigated := false
+                    copyInv.mitigationTime := na
+                    array.push(foundIFVGs, copyInv)
+    
+    foundIFVGs
+
+// Global update of pending signals - check if price interacts with stored mitigated level
+if not na(pendingBearish) and not na(pendingBearish.mitigatedLevel)
+    // Check if FVG still exists in ranges array
+    bool fvgStillExists = false
+    if not na(pendingBearish.fvgRangeHigh) and not na(pendingBearish.fvgRangeLow) and array.size(ranges) > 0
+        for k = 0 to array.size(ranges) - 1
+            r = array.get(ranges, k)
+            if not r.isSpecial and r.rangeHigh == pendingBearish.fvgRangeHigh and r.rangeLow == pendingBearish.fvgRangeLow
+                fvgStillExists := true
+                break
+    
+    // Only allow updates if FVG still exists
+    if fvgStillExists
+        // Check if price sweeps the stored mitigated level: open < level and high > level
+        bool priceInteractsWithHigh = open < pendingBearish.mitigatedLevel and high > pendingBearish.mitigatedLevel
+        if priceInteractsWithHigh
+            if not na(pivotLow) and not na(pivotLowBar)
+                // Update if new pivotLow is below the mitigated level
+                if pivotLow < pendingBearish.mitigatedLevel
+                    float oldConfLevel = pendingBearish.confirmationLevel
+                    pendingBearish.confirmationLevel := pivotLow
+                    pendingBearish.pivotBarIndex := pivotLowBar
+                // Reset maxPrice as start point has changed (retest happened)
+                pendingBearish.maxPrice := high
+
+if not na(pendingBullish) and not na(pendingBullish.mitigatedLevel)
+    // Check if FVG still exists in ranges array
+    bool fvgStillExists = false
+    if not na(pendingBullish.fvgRangeHigh) and not na(pendingBullish.fvgRangeLow) and array.size(ranges) > 0
+        for k = 0 to array.size(ranges) - 1
+            r = array.get(ranges, k)
+            if not r.isSpecial and r.rangeHigh == pendingBullish.fvgRangeHigh and r.rangeLow == pendingBullish.fvgRangeLow
+                fvgStillExists := true
+                break
+    
+    // Only allow updates if FVG still exists
+    if fvgStillExists
+        // Check if price sweeps the stored mitigated level: open > level and low < level
+        bool priceInteractsWithLow = open > pendingBullish.mitigatedLevel and low < pendingBullish.mitigatedLevel
+        if priceInteractsWithLow
+            if not na(pivotHigh) and not na(pivotHighBar)
+                // Update if new pivotHigh is above the mitigated level
+                if pivotHigh > pendingBullish.mitigatedLevel
+                    float oldConfLevel = pendingBullish.confirmationLevel
+                    pendingBullish.confirmationLevel := pivotHigh
+                    pendingBullish.pivotBarIndex := pivotHighBar
+                // Reset minPrice as start point has changed (retest happened)
+                pendingBullish.minPrice := low
+
+// Update max/min price tracking for pending signals
+if not na(pendingBearish)
+    // Track max price from creation to confirmation
+    if high > pendingBearish.maxPrice
+        pendingBearish.maxPrice := high
+
+if not na(pendingBullish)
+    // Track min price from creation to confirmation
+    if na(pendingBullish.minPrice) or low < pendingBullish.minPrice
+        pendingBullish.minPrice := low
+
+// Check pending bearish signal confirmation
+if not na(pendingBearish)
+    // Bearish confirmed when price closes below confirmation level (pivot low)
+    if close < pendingBearish.confirmationLevel
+        // Check if SMT is required for confirmation
+        bool smtCheckPassed = true
+        if smtRequiredForSignal and enableSMT
+            smtCheckPassed := false
+            // Check if there's a bearish SMT that occurred after FVG touch and is within FVG range
+            if not na(pendingBearish.fvgTouchBar) and not na(pendingBearish.fvgRangeHigh) and not na(pendingBearish.fvgRangeLow)
+                if array.size(smtArray) > 0
+                    for j = array.size(smtArray) - 1 to 0
+                        smt = array.get(smtArray, j)
+                        // Check if bearish SMT occurred after FVG touch and is within FVG range
+                        if smt.smtType == "BEARISH" and smt.creationBar > pendingBearish.fvgTouchBar
+                            if isSMTInFVGRange(smt.smtType, smt.prevChartHigh, smt.currChartHigh, smt.prevChartLow, smt.currChartLow, pendingBearish.fvgRangeHigh, pendingBearish.fvgRangeLow)
+                                smtCheckPassed := true
+                                break
+        
+        // Always find iFVGs - store them for display
+        array<InversionFVG> foundIFVGs = findInversionFVGs("BEARISH", pendingBearish.pivotBarIndex, bar_index)
+        
+        // Only confirm if SMT check passed (or not required)
+        if smtCheckPassed
+            // Set stop price for bearish signal - use max price from signal creation to confirmation
+            float stopPrice = pendingBearish.maxPrice
+            latestBearishStopPrice := stopPrice
+            latestBearishEntryPrice := close  // Entry is close of confirmation candle
+            
+            // Calculate position size if enabled
+            if showPositionSize
+                riskUsd = riskType == 'Percentage' ? accountBalance * riskAmount / 100 : riskAmount
+                latestBearishPositionSize := calculatePositionSize(latestBearishEntryPrice, stopPrice, riskUsd)
+            else
+                latestBearishPositionSize := na
+            
+            // Create confirmation line and label
+            if showConfirmationLines
+                // Calculate start time: pivotBarIndex is an absolute bar index, calculate offset
+                int barOffset = bar_index - pendingBearish.pivotBarIndex
+                int startTime = time[barOffset]
+                int confirmationTime = time  // Time when signal was confirmed
+                
+                // Draw confirmation line from pivot low bar to current bar (will be updated each bar if latest)
+                line newLine = line.new(startTime, pendingBearish.confirmationLevel, time, pendingBearish.confirmationLevel, color = color.new(color.red, 0), width = 1, style = line.style_solid, xloc = xloc.bar_time)
+                
+                // Create label to the right of the line - transparent background, colored text
+                label newLabel = label.new(time, pendingBearish.confirmationLevel, "OB-", xloc = xloc.bar_time, yloc = yloc.price, style = label.style_label_lower_right, color = color.new(color.white, 100), textcolor = color.red, size = size.small, tooltip = "Confirmed Bear CISD")
+                
+                // Create ConfirmationLine object with iFVGs
+                ConfirmationLine newConf = ConfirmationLine.new(newLine, newLabel, "BEARISH", pendingBearish.confirmationLevel, startTime, confirmationTime, stopPrice, close, latestBearishPositionSize, pendingBearish.fvgRangeHigh, pendingBearish.fvgRangeLow, pendingBearish.fvgTouchBar)
+                newConf.pivotBar := pendingBearish.pivotBarIndex
+                newConf.iFVGs := foundIFVGs
+                array.push(confirmationLines, newConf)
+            
+            // Trigger alert
+            alert("BEAR: " + str.tostring(stopPrice),alert.freq_once_per_bar_close)
+            
+            // Clear pending signal
+            pendingBearish := na
+
+// Check pending bullish signal confirmation
+if not na(pendingBullish)
+    // Bullish confirmed when price closes above confirmation level (pivot high)
+    if close > pendingBullish.confirmationLevel
+        // Check if SMT is required for confirmation
+        bool smtCheckPassed = true
+        if smtRequiredForSignal and enableSMT
+            smtCheckPassed := false
+            // Check if there's a bullish SMT that occurred after FVG touch and is within FVG range
+            if not na(pendingBullish.fvgTouchBar) and not na(pendingBullish.fvgRangeHigh) and not na(pendingBullish.fvgRangeLow)
+                if array.size(smtArray) > 0
+                    for j = array.size(smtArray) - 1 to 0
+                        smt = array.get(smtArray, j)
+                        // Check if bullish SMT occurred after FVG touch and is within FVG range
+                        if smt.smtType == "BULLISH" and smt.creationBar > pendingBullish.fvgTouchBar
+                            if isSMTInFVGRange(smt.smtType, smt.prevChartHigh, smt.currChartHigh, smt.prevChartLow, smt.currChartLow, pendingBullish.fvgRangeHigh, pendingBullish.fvgRangeLow)
+                                smtCheckPassed := true
+                                break
+        
+        // Always find iFVGs - store them for display
+        array<InversionFVG> foundIFVGs = findInversionFVGs("BULLISH", pendingBullish.pivotBarIndex, bar_index)
+        
+        // Only confirm if SMT check passed (or not required)
+        if smtCheckPassed
+            // Set stop price for bullish signal - use min price from signal creation to confirmation
+            float stopPrice = pendingBullish.minPrice
+            latestBullishStopPrice := stopPrice
+            latestBullishEntryPrice := close  // Entry is close of confirmation candle
+            
+            // Calculate position size if enabled
+            if showPositionSize
+                riskUsd = riskType == 'Percentage' ? accountBalance * riskAmount / 100 : riskAmount
+                latestBullishPositionSize := calculatePositionSize(latestBullishEntryPrice, stopPrice, riskUsd)
+            else
+                latestBullishPositionSize := na
+            
+            // Create confirmation line and label
+            if showConfirmationLines
+                // Calculate start time: pivotBarIndex is an absolute bar index, calculate offset
+                int barOffset = bar_index - pendingBullish.pivotBarIndex
+                int startTime = time[barOffset]
+                int confirmationTime = time  // Time when signal was confirmed
+                
+                // Draw confirmation line from pivot high bar to current bar (will be updated each bar if latest)
+                line newLine = line.new(startTime, pendingBullish.confirmationLevel, time, pendingBullish.confirmationLevel, color = color.new(color.green, 0), width = 1, style = line.style_solid, xloc = xloc.bar_time)
+                
+                // Create label to the right of the line - transparent background, colored text
+                label newLabel = label.new(time, pendingBullish.confirmationLevel, "OB+", xloc = xloc.bar_time, yloc = yloc.price, style = label.style_label_upper_right, color = color.new(color.white, 100), textcolor = color.green, size = size.small, tooltip = "Confirmed Bull CISD")
+                
+                // Create ConfirmationLine object with iFVGs
+                ConfirmationLine newConf = ConfirmationLine.new(newLine, newLabel, "BULLISH", pendingBullish.confirmationLevel, startTime, confirmationTime, stopPrice, close, latestBullishPositionSize, pendingBullish.fvgRangeHigh, pendingBullish.fvgRangeLow, pendingBullish.fvgTouchBar)
+                newConf.pivotBar := pendingBullish.pivotBarIndex
+                newConf.iFVGs := foundIFVGs
+                array.push(confirmationLines, newConf)
+            
+            // Trigger alert
+            alert("BULL: " + str.tostring(stopPrice),alert.freq_once_per_bar_close)
+            
+            // Clear pending signal
+            pendingBullish := na
+
+// Update confirmation lines (extend only latest to current bar, others stop at confirmation) and check for invalidation
+if array.size(confirmationLines) > 0
+    // Find the latest confirmation line (by confirmation time)
+    ConfirmationLine latestConf = na
+    int latestConfirmationTime = 0
+    for j = 0 to array.size(confirmationLines) - 1
+        tempConf = array.get(confirmationLines, j)
+        if tempConf.confirmationTime > latestConfirmationTime
+            latestConfirmationTime := tempConf.confirmationTime
+            latestConf := tempConf
+    
+    for i = array.size(confirmationLines) - 1 to 0
+        conf = array.get(confirmationLines, i)
+        
+        // Clean up mitigated iFVGs in this confirmation line
+        if array.size(conf.iFVGs) > 0
+            float cTop = math.max(open, close)
+            float cBot = math.min(open, close)
+            
+            for j = array.size(conf.iFVGs) - 1 to 0
+                inv = array.get(conf.iFVGs, j)
+                bool isMitigated = false
+                
+                // Check if iFVG is mitigated (gap fully filled)
+                if inv.dir == -1 and cTop > inv.top  // Bearish iFVG: price above gap top
+                    isMitigated := true
+                else if inv.dir == 1 and cBot < inv.bot  // Bullish iFVG: price below gap bottom
+                    isMitigated := true
+                
+                if isMitigated and na(inv.mitigationTime)
+                    // Mark as mitigated and store mitigation time (don't remove - keep for display)
+                    inv.mitigated := true
+                    inv.mitigationTime := time
+        
+        // Check if OB extreme (stop price) is breached
+        bool obExtremeBreached = false
+        if conf.signalType == "BEARISH" and not na(conf.stopPrice)
+            // Bearish OB extreme breached when price crosses above stop price
+            if high > conf.stopPrice
+                obExtremeBreached := true
+        else if conf.signalType == "BULLISH" and not na(conf.stopPrice)
+            // Bullish OB extreme breached when price crosses below stop price
+            if low < conf.stopPrice
+                obExtremeBreached := true
+        
+        // Check if signal should be invalidated (default to true if OB extreme breached)
+        bool isInvalidated = false
+        bool shouldCreateNewSignal = false
+        
+        // If OB extreme breached, always invalidate, but check if we should create new signal
+        if obExtremeBreached
+            // Always invalidate when OB extreme is breached (delete confirmation line)
+            isInvalidated := true
+            // Clear latest info if this was the latest
+            if conf.signalType == "BEARISH" and conf.stopPrice == latestBearishStopPrice
+                latestBearishStopPrice := na
+                latestBearishEntryPrice := na
+                latestBearishPositionSize := na
+            else if conf.signalType == "BULLISH" and conf.stopPrice == latestBullishStopPrice
+                latestBullishStopPrice := na
+                latestBullishEntryPrice := na
+                latestBullishPositionSize := na
+            
+            // Check if still within FVG and FVG not fully mitigated (for creating new signal)
+            if not na(conf.fvgRangeHigh) and not na(conf.fvgRangeLow)
+                // Check if price is still within FVG range
+                float fvgMin = math.min(conf.fvgRangeHigh, conf.fvgRangeLow)
+                float fvgMax = math.max(conf.fvgRangeHigh, conf.fvgRangeLow)
+                bool stillInFVG = low <= fvgMax and high >= fvgMin
+                
+                // Check if FVG is not fully mitigated by searching ranges array
+                bool fvgFullyMitigated = true
+                if array.size(ranges) > 0
+                    for k = 0 to array.size(ranges) - 1
+                        r = array.get(ranges, k)
+                        // Check if this is the FVG from the confirmation line
+                        if not r.isSpecial and math.abs(r.rangeHigh - conf.fvgRangeHigh) < 0.0001 and math.abs(r.rangeLow - conf.fvgRangeLow) < 0.0001
+                            // Check if FVG is fully mitigated
+                            bool isFullyMitigated = (na(r.rangeHigh) or r.highMitigated) and (na(r.rangeLow) or r.lowMitigated)
+                            fvgFullyMitigated := isFullyMitigated
+                            break
+                
+                // For bearish: check if pivotLow exists and is below FVG bottom (rangeHigh)
+                // For bullish: check if pivotHigh exists and is above FVG top (rangeLow)
+                bool pivotConditionMet = false
+                if conf.signalType == "BEARISH" and not na(pivotLow) and not na(pivotLowBar)
+                    // Bearish FVG: rangeHigh is bottom, check if pivotLow is below it
+                    if pivotLow < conf.fvgRangeHigh
+                        pivotConditionMet := true
+                else if conf.signalType == "BULLISH" and not na(pivotHigh) and not na(pivotHighBar)
+                    // Bullish FVG: rangeLow is top, check if pivotHigh is above it
+                    if pivotHigh > conf.fvgRangeLow
+                        pivotConditionMet := true
+                
+                // If still in FVG, FVG not fully mitigated, and pivot condition met, create new pending signal
+                if stillInFVG and not fvgFullyMitigated and pivotConditionMet
+                    shouldCreateNewSignal := true
+                    
+                    if conf.signalType == "BEARISH"
+                        // Create new pending bearish signal
+                        pendingBearish := PendingSignal.new()
+                        pendingBearish.signalType := "BEARISH"
+                        pendingBearish.confirmationLevel := pivotLow
+                        pendingBearish.creationBar := bar_index
+                        pendingBearish.pivotBarIndex := pivotLowBar
+                        pendingBearish.maxPrice := high
+                        pendingBearish.minPrice := na
+                        pendingBearish.mitigatedLevel := conf.fvgRangeHigh
+                        pendingBearish.fvgRangeHigh := conf.fvgRangeHigh
+                        pendingBearish.fvgRangeLow := conf.fvgRangeLow
+                        pendingBearish.fvgTouchBar := conf.fvgTouchBar
+                    else if conf.signalType == "BULLISH"
+                        // Create new pending bullish signal
+                        pendingBullish := PendingSignal.new()
+                        pendingBullish.signalType := "BULLISH"
+                        pendingBullish.confirmationLevel := pivotHigh
+                        pendingBullish.creationBar := bar_index
+                        pendingBullish.pivotBarIndex := pivotHighBar
+                        pendingBullish.maxPrice := na
+                        pendingBullish.minPrice := low
+                        pendingBullish.mitigatedLevel := conf.fvgRangeLow
+                        pendingBullish.fvgRangeHigh := conf.fvgRangeHigh
+                        pendingBullish.fvgRangeLow := conf.fvgRangeLow
+                        pendingBullish.fvgTouchBar := conf.fvgTouchBar
+        
+        if isInvalidated
+            // Delete all iFVG boxes and labels in this confirmation line
+            if array.size(conf.iFVGs) > 0
+                for j = 0 to array.size(conf.iFVGs) - 1
+                    inv = array.get(conf.iFVGs, j)
+                    if not na(inv.invBox)
+                        box.delete(inv.invBox)
+                    if not na(inv.invLabel)
+                        label.delete(inv.invLabel)
+            
+            // Delete line and label
+            line.delete(conf.confLine)
+            label.delete(conf.confLabel)
+            array.remove(confirmationLines, i)
+        else if showConfirmationLines
+            // Determine end time based on toggle setting
+            int endTime = time
+            bool isLatest = not na(latestConf) and conf.confirmationTime == latestConf.confirmationTime
+            
+            if extendOnlyLatestConfirmation
+                // Only extend the latest confirmation line to current time
+                // Prior ones stop at their confirmation time
+                endTime := isLatest ? time : conf.confirmationTime
+            // else: all lines extend to current time (endTime already set to time)
+            
+            // Update line end point
+            line.set_x2(conf.confLine, endTime)
+            
+            // Update label position
+            if extendOnlyLatestConfirmation
+                if isLatest
+                    // Latest: label at the right end (current time)
+                    label.set_x(conf.confLabel, time)
+                else
+                    // Older ones: label at the middle of the line (between start and confirmation time)
+                    int middleTime = conf.startTime + (conf.confirmationTime - conf.startTime) / 2
+                    label.set_x(conf.confLabel, middleTime)
+            else
+                // All lines extend: label at the right end (current time) for all
+                label.set_x(conf.confLabel, time)
+            label.set_y(conf.confLabel, conf.confirmationLevel)
+            
+            // Draw iFVG boxes if toggle is enabled (same colors as regular FVG boxes)
+            // Respect extendOnlyLatestConfirmation toggle: only latest extends to current time
+            if showInversionFVGs and array.size(conf.iFVGs) > 0
+                for j = 0 to array.size(conf.iFVGs) - 1
+                    inv = array.get(conf.iFVGs, j)
+                    // Determine right time: extend to mitigation time if mitigated
+                    // Otherwise: extend to current time if latest, or confirmation time if older (when toggle enabled)
+                    int rightTime = inv.mitigated and not na(inv.mitigationTime) ? inv.mitigationTime : (extendOnlyLatestConfirmation and not isLatest ? conf.confirmationTime : time)
+                    color boxColor = inv.dir == 1 ? color.new(bullishFVGColor, 85) : color.new(bearishFVGColor, 85)
+                    
+                    // Create or update box
+                    if na(inv.invBox)
+                        inv.invBox := box.new(inv.left, inv.top, rightTime, inv.bot, na, bgcolor = boxColor, xloc = xloc.bar_time)
+                    else
+                        box.set_right(inv.invBox, rightTime)
+                        box.set_bgcolor(inv.invBox, boxColor)
+                    
+                    // Create or update label (same style as regular FVG labels)
+                    if showLabels
+                        string labelText = inv.dir == 1 ? "iFVG+" : "iFVG-"
+                        // Label time: middle if mitigated, otherwise at right edge (respecting toggle)
+                        int labelTime = inv.mitigated and not na(inv.mitigationTime) ? (inv.left + inv.mitigationTime) / 2 : (extendOnlyLatestConfirmation and not isLatest ? (inv.left + rightTime) / 2 : rightTime)
+                        // Bullish iFVG: label at bottom (low), Bearish iFVG: label at top (high)
+                        float labelPrice = inv.dir == 1 ? inv.bot : inv.top
+                        color labelColor = inv.dir == 1 ? bullishFVGColor : bearishFVGColor
+                        
+                        if na(inv.invLabel)
+                            inv.invLabel := label.new(labelTime, labelPrice, labelText, 
+                                                     color = color.new(color.white, 100), 
+                                                     textcolor = labelColor, 
+                                                     style = inv.dir == 1 ? label.style_label_upper_right : label.style_label_lower_right, 
+                                                     size = size.small, 
+                                                     xloc = xloc.bar_time, 
+                                                     tooltip = inv.dir == 1 ? "Bullish iFVG" : "Bearish iFVG", 
+                                                     textalign = text.align_right, 
+                                                     text_font_family = font.family_monospace)
+                        else
+                            label.set_xy(inv.invLabel, labelTime, labelPrice)
+
+// ========================================
+// DASHBOARD
+// ========================================
+if showDashboard
+    // Check if stop has been hit (before determining table dimensions)
+    if showPositionSize and not na(latestBearishPositionSize)
+        if high > latestBearishStopPrice
+            latestBearishPositionSize := na
+            latestBearishEntryPrice := na
+    
+    if showPositionSize and not na(latestBullishPositionSize)
+        if low < latestBullishStopPrice
+            latestBullishPositionSize := na
+            latestBullishEntryPrice := na
+    
+    // Always create table with 4 rows to avoid dimension issues
+    // Row 0: Title, Row 1: Timer, Row 2: Bias, Row 3: Signals (may be empty)
+    int tableRows = 4
+    
+    // Create table if it doesn't exist
+    if na(dashboardTable)
+        dashboardTable := table.new(getTablePosition(dashboardPosition), 1, tableRows, 
+                                   bgcolor = dashboardBgColor, 
+                                   border_width = dashboardBorderWidth, 
+                                   border_color = dashboardBorderColor,
+                                   frame_width = dashboardFrameWidth,
+                                   frame_color = dashboardFrameColor)
+    
+    // Get HTF string
+    string htfStr = formatTimeframe(selectedHTF)
+    string currentTfStr = getCurrentTimeframe()
+    
+    // Title row
+    string titleText = currentTfStr + "-" + htfStr + " Model"
+    table.cell(dashboardTable, 0, 0, titleText, 
+               text_color = dashboardTextColor, 
+               text_size = dashboardSize, 
+               text_font_family = font.family_monospace,
+               bgcolor = dashboardBgColor)
+    
+    // Timer row
+    string timerText = getRemainingTime(selectedHTF)
+    table.cell(dashboardTable, 0, 1, timerText, 
+               text_color = dashboardTextColor, 
+               text_size = dashboardSize, 
+               text_font_family = font.family_monospace,
+               bgcolor = dashboardBgColor)
+    
+    // Bias row
+    string biasText = "Bias: " + (bias == 'No Bias' ? 'Neutral' : (bias == 'Bullish Bias' ? 'Bullish' : 'Bearish'))
+    table.cell(dashboardTable, 0, 2, biasText, 
+               text_color = dashboardTextColor, 
+               text_size = dashboardSize, 
+               text_font_family = font.family_monospace,
+               bgcolor = dashboardBgColor)
+    
+    // Pending/Confirmed signals row (always row 3)
+    if not na(dashboardTable)
+        string signalText = ""
+        // Priority: Show confirmed signal if available, otherwise pending
+        if showPositionSize and not na(latestBearishPositionSize) and not na(latestBearishEntryPrice) and not na(latestBearishStopPrice)
+            string precisionString = getPrecisionString()
+            signalText := "BEAR " + (abbreviatePositionInfo ? "Sz: " : "Size: ") + formatPositionSize(latestBearishPositionSize)
+            signalText := signalText + "\n" + (abbreviatePositionInfo ? "En: " : "Entry: ") + str.tostring(latestBearishEntryPrice, '#.' + precisionString)
+            signalText := signalText + "\n" + (abbreviatePositionInfo ? "St: " : "Stop: ") + str.tostring(latestBearishStopPrice, '#.' + precisionString)
+        else if showPositionSize and not na(latestBullishPositionSize) and not na(latestBullishEntryPrice) and not na(latestBullishStopPrice)
+            string precisionString = getPrecisionString()
+            signalText := "BULL " + (abbreviatePositionInfo ? "Sz: " : "Size: ") + formatPositionSize(latestBullishPositionSize)
+            signalText := signalText + "\n" + (abbreviatePositionInfo ? "En: " : "Entry: ") + str.tostring(latestBullishEntryPrice, '#.' + precisionString)
+            signalText := signalText + "\n" + (abbreviatePositionInfo ? "St: " : "Stop: ") + str.tostring(latestBullishStopPrice, '#.' + precisionString)
+        else if not na(pendingBearish)
+            signalText := "Pending: BEAR"
+        else if not na(pendingBullish)
+            signalText := "Pending: BULL"
+        else
+            signalText := "No Pending Signals"
+        
+        table.cell(dashboardTable, 0, 3, signalText, 
+                   text_color = dashboardTextColor, 
+                   text_size = dashboardSize, 
+                   text_font_family = font.family_monospace,
+                   bgcolor = dashboardBgColor)
+else
+    // Delete table if dashboard is disabled
+    if not na(dashboardTable)
+        table.delete(dashboardTable)
+        dashboardTable := na
+
+// Delete old OI-based ranges when new OI pivot of same type is detected
+if not na(oi_pivot_high_value) or not na(oi_pivot_low_value)
+    if array.size(ranges) > 0
+        for i = array.size(ranges) - 1 to 0
+            r = array.get(ranges, i)
+            if r.isSpecial and r.isOIBased
+                // Check if new pivot is same type as this range
+                bool shouldDelete = false
+                
+                // If new pivot high detected
+                if not na(oi_pivot_high_value)
+                    // pivot_high_push_to_highs = true means it creates rangeLow (bullish type)
+                    // pivot_high_push_to_highs = false means it creates rangeHigh (bearish type)
+                    if oi_pivot_high_push_to_highs and not na(r.rangeLow)
+                        // New pivot creates rangeLow, delete old OI rangeLow
+                        shouldDelete := true
+                    else if not oi_pivot_high_push_to_highs and not na(r.rangeHigh)
+                        // New pivot creates rangeHigh, delete old OI rangeHigh
+                        shouldDelete := true
+                
+                // If new pivot low detected
+                if not na(oi_pivot_low_value)
+                    // pivot_low_push_to_highs = true means it creates rangeLow (bullish type)
+                    // pivot_low_push_to_highs = false means it creates rangeHigh (bearish type)
+                    if oi_pivot_low_push_to_highs and not na(r.rangeLow)
+                        // New pivot creates rangeLow, delete old OI rangeLow
+                        shouldDelete := true
+                    else if not oi_pivot_low_push_to_highs and not na(r.rangeHigh)
+                        // New pivot creates rangeHigh, delete old OI rangeHigh
+                        shouldDelete := true
+                
+                if shouldDelete
+                    array.remove(ranges, i)
+
+// Push OI-based pivots to arrays at end of code
+if not na(oi_pivot_high_value)
+    if oi_pivot_high_push_to_highs
+        array.push(storedPivotHighs, oi_pivot_high_value)
+        array.push(oiBasedPivotHighs, oi_pivot_high_value)
+    else
+        array.push(storedPivotLows, oi_pivot_high_value)
+        array.push(oiBasedPivotLows, oi_pivot_high_value)
+    oi_pivot_high_value := na
+
+if not na(oi_pivot_low_value)
+    if oi_pivot_low_push_to_highs
+        array.push(storedPivotHighs, oi_pivot_low_value)
+        array.push(oiBasedPivotHighs, oi_pivot_low_value)
+    else
+        array.push(storedPivotLows, oi_pivot_low_value)
+        array.push(oiBasedPivotLows, oi_pivot_low_value)
+    oi_pivot_low_value := na

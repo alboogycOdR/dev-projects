@@ -1,0 +1,1441 @@
+// This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © KingdomFinancier - Wick Rejection + SMC Hybrid Strategy
+// Version: 4.1 ENHANCED (FULL SMC INTEGRATION)
+// 
+// ✅ v4.1 NEW: FVG Tap Detection (+2 confidence)
+// ✅ v4.1 NEW: Order Block Confluence (+2 confidence)
+// ✅ v4.1 NEW: Recent CHoCH Filter (+2 confidence)
+// ✅ v4.1 NEW: HTF Structure Confluence (+2 confidence)
+// ✅ v4.1 NEW: Premium/Discount Zone Filter
+// ✅ v4.1 NEW: Sweep + CHoCH Combo (+3 confidence)
+// ✅ v4.1 NEW: Dynamic Position Sizing (1-4%)
+// ✅ v4.1 NEW: Dynamic R:R Based on Confidence Tiers
+// ✅ v4.1 NEW: Enhanced Visual Labels with Tier Emojis
+
+//@version=5
+strategy("WR-SR + SMC Strategy v4.1 ENHANCED", shorttitle="WR-SMC v4.1", overlay=true, max_lines_count=100, max_boxes_count=100, max_labels_count=100, initial_capital=10000, default_qty_type=strategy.percent_of_equity, default_qty_value=2, commission_type=strategy.commission.percent, commission_value=0.05, slippage=2, pyramiding=1, close_entries_rule="ANY")
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// INPUTS - SMC FEATURES (BASE)
+// ═══════════════════════════════════════════════════════════════════════════════
+grp_smc = "══════ SMC Features ══════"
+enable_smc          = input.bool(true, "Enable SMC Components", group=grp_smc, tooltip="Turn on/off all SMC features")
+show_choch_bos      = input.bool(true, "Show CHoCH/BOS Labels", group=grp_smc)
+show_fvg            = input.bool(true, "Show FVG Zones", group=grp_smc)
+show_order_blocks   = input.bool(true, "Show Order Blocks", group=grp_smc)
+show_premium_discount = input.bool(false, "Show Premium/Discount Zones", group=grp_smc, tooltip="May use extra boxes")
+show_structure_lines = input.bool(true, "Show HTF Structure Lines", group=grp_smc)
+max_fvg_zones       = input.int(3, "Max FVG Zones per Side", minval=1, maxval=5, group=grp_smc)
+max_ob_zones        = input.int(2, "Max Order Blocks per Side", minval=1, maxval=3, group=grp_smc)
+smc_htf             = input.timeframe("60", "SMC HTF for Structure", group=grp_smc)
+fractal_sensitivity = input.int(3, "Fractal Sensitivity", minval=2, maxval=10, group=grp_smc)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// INPUTS - SMC ENHANCED FEATURES (v4.1 NEW)
+// ═══════════════════════════════════════════════════════════════════════════════
+grp_smc_enhanced = "══════ SMC Enhanced v4.1 ══════"
+use_fvg_tap_bonus       = input.bool(true, "FVG Tap Bonus (+2)", group=grp_smc_enhanced, tooltip="Add +2 confidence when price taps into FVG zone")
+use_ob_confluence_bonus = input.bool(true, "Order Block Confluence (+2)", group=grp_smc_enhanced, tooltip="Add +2 when S/R level aligns with Order Block")
+use_recent_choch_bonus  = input.bool(true, "Recent CHoCH Bonus (+2)", group=grp_smc_enhanced, tooltip="Add +2 when CHoCH occurred within lookback")
+use_htf_confluence_bonus = input.bool(true, "HTF Structure Confluence (+2)", group=grp_smc_enhanced, tooltip="Add +2 when level aligns with HTF pivot")
+use_premium_discount_filter = input.bool(true, "Premium/Discount Zone Filter", group=grp_smc_enhanced, tooltip="Filter or reject trades in wrong zones")
+pd_filter_mode          = input.string("Bonus Only", "P/D Filter Mode", options=["Reject", "Bonus Only"], group=grp_smc_enhanced, tooltip="Reject=No trade in wrong zone, Bonus=+1 in correct zone")
+use_sweep_choch_combo   = input.bool(true, "Sweep+CHoCH Combo (+3)", group=grp_smc_enhanced, tooltip="Add +3 when sweep followed by CHoCH")
+use_smc_alignment_score = input.bool(true, "SMC Alignment Score (+0-4)", group=grp_smc_enhanced, tooltip="Add 0-4 based on overall SMC alignment")
+choch_lookback_bars     = input.int(20, "CHoCH Lookback Bars", minval=5, maxval=50, group=grp_smc_enhanced)
+ob_confluence_tolerance = input.float(3.0, "OB Confluence Tolerance", minval=0.5, maxval=10.0, step=0.5, group=grp_smc_enhanced)
+htf_confluence_tolerance = input.float(5.0, "HTF Confluence Tolerance", minval=1.0, maxval=20.0, step=1.0, group=grp_smc_enhanced)
+sweep_choch_max_bars    = input.int(15, "Sweep+CHoCH Max Bars Apart", minval=5, maxval=30, group=grp_smc_enhanced)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// INPUTS - LEVEL DETECTION (EXISTING WR-SR)
+// ═══════════════════════════════════════════════════════════════════════════════
+grp_levels = "══════ Level Detection ══════"
+lookback_period     = input.int(100, "Lookback Period", minval=20, maxval=200, group=grp_levels)
+wick_threshold      = input.float(0.35, "Wick Threshold %", minval=0.30, maxval=0.80, step=0.05, group=grp_levels)
+level_proximity     = input.float(2.0, "Level Merge Distance", minval=0.5, maxval=20.0, step=0.5, group=grp_levels)
+max_levels          = input.int(8, "Max S/R Levels to Show", minval=2, maxval=10, group=grp_levels, tooltip="Reduced from 10 to save resources")
+zone_buffer         = input.float(1.5, "Zone Buffer (points)", minval=0.5, maxval=10.0, step=0.5, group=grp_levels)
+min_candle_range    = input.float(1.0, "Min Candle Range", minval=0.1, maxval=10.0, step=0.1, group=grp_levels)
+level_expiration    = input.int(500, "Level Expiration (bars)", minval=50, maxval=500, group=grp_levels)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// INPUTS - TREND FILTER
+// ═══════════════════════════════════════════════════════════════════════════════
+grp_trend = "══════ Trend Filter ══════"
+ema_length          = input.int(9, "EMA Length", minval=5, maxval=50, group=grp_trend)
+use_ema_filter      = input.bool(true, "Use EMA Filter", group=grp_trend)
+require_h1_align    = input.bool(true, "Require H1 Confluence", group=grp_trend)
+allow_reversal_trades = input.bool(true, "Allow Reversal Trades", group=grp_trend)
+reversal_min_confidence = input.int(6, "Reversal Min Confidence", minval=3, maxval=10, group=grp_trend, tooltip="v4.1: Increased for new scoring scale")
+show_ema            = input.bool(true, "Show EMA Line", group=grp_trend)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// INPUTS - CISD (Change in State of Delivery)
+// ═══════════════════════════════════════════════════════════════════════════════
+grp_cisd = "══════ CISD Settings ══════"
+use_cisd            = input.bool(true, "Enable CISD", group=grp_cisd)
+cisd_min_duration   = input.int(3, "Min CISD Duration", minval=0, maxval=20, group=grp_cisd)
+cisd_max_duration   = input.int(50, "Max CISD Validity", minval=10, maxval=200, group=grp_cisd)
+cisd_confidence_boost = input.int(1, "CISD Confidence Boost", minval=1, maxval=2, group=grp_cisd)
+show_cisd_labels    = input.bool(true, "Show CISD Labels", group=grp_cisd)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// INPUTS - SIGNAL SETTINGS
+// ═══════════════════════════════════════════════════════════════════════════════
+grp_signals = "══════ Signal Settings ══════"
+show_zone_test      = input.bool(true, "Show Zone Test Signals", group=grp_signals)
+show_sweeps         = input.bool(true, "Show Liquidity Sweeps", group=grp_signals)
+show_breakout_retest = input.bool(true, "Show Breakout Retests", group=grp_signals)
+min_confidence      = input.int(6, "Minimum Confidence Score", minval=1, maxval=15, group=grp_signals, tooltip="v4.1: Scale is now 0-20, recommend 6+ for FAIR tier")
+signal_cooldown     = input.int(8, "Signal Cooldown (bars)", minval=1, maxval=20, group=grp_signals)
+max_signal_labels   = input.int(5, "Max Signal Labels", minval=3, maxval=8, group=grp_signals, tooltip="Reduced to save label space")
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// INPUTS - VISUALS
+// ═══════════════════════════════════════════════════════════════════════════════
+grp_visuals = "══════ Visual Settings ══════"
+resistance_color    = input.color(color.red, "Resistance Color", group=grp_visuals)
+support_color       = input.color(color.green, "Support Color", group=grp_visuals)
+zone_transparency   = input.int(90, "Zone Transparency", minval=70, maxval=98, group=grp_visuals)
+show_zones          = input.bool(true, "Show Zone Boxes", group=grp_visuals)
+show_labels         = input.bool(true, "Show Price Labels", group=grp_visuals)
+show_info_table     = input.bool(true, "Show Info Table", group=grp_visuals)
+table_text_size     = input.string("Normal", "Table Font Size", options=["Small", "Normal", "Large"], group=grp_visuals)
+buy_signal_color    = input.color(color.green, "Buy Signal Color", group=grp_visuals)
+sell_signal_color   = input.color(color.red, "Sell Signal Color", group=grp_visuals)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// INPUTS - STRATEGY & RISK MANAGEMENT
+// ═══════════════════════════════════════════════════════════════════════════════
+grp_strategy = "══════ Strategy & Risk Management ══════"
+enable_strategy     = input.bool(true, "Enable Auto Trading", group=grp_strategy)
+use_dynamic_sizing  = input.bool(true, "Dynamic Position Sizing", group=grp_strategy, tooltip="v4.1: Size based on confidence tier")
+base_position_pct   = input.float(2.0, "Base Position %", minval=0.5, maxval=5.0, step=0.5, group=grp_strategy)
+use_dynamic_rr      = input.bool(true, "Dynamic R:R Based on Confidence", group=grp_strategy, tooltip="v4.1: TP levels adjust to confidence tier")
+risk_reward_ratio   = input.float(2.0, "Risk:Reward Ratio (if static)", minval=1.0, maxval=5.0, step=0.5, group=grp_strategy)
+use_dynamic_tp      = input.bool(true, "Use Dynamic TP", group=grp_strategy)
+tp_buffer           = input.float(0.5, "TP Buffer (points)", minval=0.0, maxval=5.0, step=0.5, group=grp_strategy)
+use_trailing_stop   = input.bool(false, "Use Trailing Stop", group=grp_strategy)
+trail_activation    = input.float(1.5, "Trail Activation (R)", minval=0.5, maxval=3.0, step=0.5, group=grp_strategy)
+trail_offset        = input.float(0.5, "Trail Offset (R)", minval=0.1, maxval=2.0, step=0.1, group=grp_strategy)
+close_on_opposite   = input.bool(true, "Close on Opposite Signal", group=grp_strategy)
+max_trades_per_day  = input.int(10, "Max Trades Per Day", minval=0, maxval=50, group=grp_strategy)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// INPUTS - TAKE PROFIT LEVELS
+// ═══════════════════════════════════════════════════════════════════════════════
+grp_tp = "══════ Take Profit Settings ══════"
+use_multiple_tp     = input.bool(true, "Use Multiple TP Levels", group=grp_tp)
+tp1_percent         = input.int(50, "TP1 Close %", minval=10, maxval=100, group=grp_tp)
+tp1_rr              = input.float(1.5, "TP1 R:R (if static)", minval=0.5, maxval=5.0, step=0.5, group=grp_tp)
+tp2_percent         = input.int(30, "TP2 Close %", minval=10, maxval=100, group=grp_tp)
+tp2_rr              = input.float(2.5, "TP2 R:R (if static)", minval=1.0, maxval=10.0, step=0.5, group=grp_tp)
+tp3_rr              = input.float(4.0, "TP3 R:R (if static)", minval=2.0, maxval=20.0, step=1.0, group=grp_tp)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// CALCULATIONS - EMA & HTF DATA
+// ═══════════════════════════════════════════════════════════════════════════════
+ema_9 = ta.ema(close, ema_length)
+[h1_close, h1_ema9] = request.security(syminfo.tickerid, "60", [close, ta.ema(close, ema_length)], lookahead=barmerge.lookahead_off)
+
+m5_bullish = close > ema_9
+m5_bearish = close < ema_9
+h1_bullish = h1_close > h1_ema9
+h1_bearish = h1_close < h1_ema9
+
+f_has_h1_bullish_confluence() => not require_h1_align or h1_bullish
+f_has_h1_bearish_confluence() => not require_h1_align or h1_bearish
+
+overall_bullish = m5_bullish and f_has_h1_bullish_confluence()
+overall_bearish = m5_bearish and f_has_h1_bearish_confluence()
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SMC - STRUCTURE DETECTION (CHoCH / BOS) WITH BAR TRACKING (v4.1)
+// ═══════════════════════════════════════════════════════════════════════════════
+pivotHigh = ta.pivothigh(high, fractal_sensitivity, fractal_sensitivity)
+pivotLow = ta.pivotlow(low, fractal_sensitivity, fractal_sensitivity)
+
+var float lastSwingHigh = na
+var float lastSwingLow = na
+var string smcTrendDir = "Neutral"
+
+// v4.1 NEW: Bar tracking for temporal relationships
+var int last_bull_choch_bar = 0
+var int last_bear_choch_bar = 0
+var int last_bull_bos_bar = 0
+var int last_bear_bos_bar = 0
+var int last_sweep_buy_bar = 0
+var int last_sweep_sell_bar = 0
+
+if not na(pivotHigh)
+    lastSwingHigh := high[fractal_sensitivity]
+if not na(pivotLow)
+    lastSwingLow := low[fractal_sensitivity]
+
+bullishCHoCH = not na(pivotHigh) and high[fractal_sensitivity] > nz(lastSwingHigh[1]) and smcTrendDir == "Bearish"
+bearishCHoCH = not na(pivotLow) and low[fractal_sensitivity] < nz(lastSwingLow[1]) and smcTrendDir == "Bullish"
+bullishBOS = not na(pivotLow) and low[fractal_sensitivity] > nz(lastSwingLow[1])
+bearishBOS = not na(pivotHigh) and high[fractal_sensitivity] < nz(lastSwingHigh[1])
+
+// v4.1: Update bar tracking
+if bullishCHoCH
+    last_bull_choch_bar := bar_index
+if bearishCHoCH
+    last_bear_choch_bar := bar_index
+if bullishBOS
+    last_bull_bos_bar := bar_index
+if bearishBOS
+    last_bear_bos_bar := bar_index
+
+smcTrendDir := bullishCHoCH or bullishBOS ? "Bullish" : bearishCHoCH or bearishBOS ? "Bearish" : smcTrendDir
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SMC - HTF STRUCTURE LINES
+// ═══════════════════════════════════════════════════════════════════════════════
+htfPivotHigh = request.security(syminfo.tickerid, smc_htf, ta.pivothigh(high, fractal_sensitivity, fractal_sensitivity)[1], lookahead=barmerge.lookahead_off)
+htfPivotLow = request.security(syminfo.tickerid, smc_htf, ta.pivotlow(low, fractal_sensitivity, fractal_sensitivity)[1], lookahead=barmerge.lookahead_off)
+
+var float htfLastHigh = na
+var float htfLastLow = na
+
+if not na(htfPivotHigh)
+    htfLastHigh := htfPivotHigh
+if not na(htfPivotLow)
+    htfLastLow := htfPivotLow
+
+plot(enable_smc and show_structure_lines ? htfLastHigh : na, "HTF Resistance", color=color.new(color.red, 30), linewidth=2, style=plot.style_linebr)
+plot(enable_smc and show_structure_lines ? htfLastLow : na, "HTF Support", color=color.new(color.green, 30), linewidth=2, style=plot.style_linebr)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SMC - ORDER BLOCKS (OPTIMIZED)
+// ═══════════════════════════════════════════════════════════════════════════════
+var box[] bullOBs = array.new_box()
+var box[] bearOBs = array.new_box()
+var label[] obLabels = array.new_label()
+
+if enable_smc and show_order_blocks and barstate.isconfirmed
+    if not na(pivotLow) and smcTrendDir == "Bullish"
+        if array.size(bullOBs) >= max_ob_zones
+            old_box = array.shift(bullOBs)
+            box.delete(old_box)
+        ob_box = box.new(bar_index - 5, high, bar_index + 50, low, border_color=color.new(color.green, 70), bgcolor=color.new(color.green, 90), extend=extend.right)
+        array.push(bullOBs, ob_box)
+    
+    if not na(pivotHigh) and smcTrendDir == "Bearish"
+        if array.size(bearOBs) >= max_ob_zones
+            old_box = array.shift(bearOBs)
+            box.delete(old_box)
+        ob_box = box.new(bar_index - 5, high, bar_index + 50, low, border_color=color.new(color.red, 70), bgcolor=color.new(color.red, 90), extend=extend.right)
+        array.push(bearOBs, ob_box)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SMC - FVG (FAIR VALUE GAP) ZONES (OPTIMIZED)
+// ═══════════════════════════════════════════════════════════════════════════════
+var box[] bullFVGs = array.new_box()
+var box[] bearFVGs = array.new_box()
+
+if enable_smc and show_fvg and barstate.isconfirmed
+    if low[2] > high[0] and smcTrendDir == "Bullish"
+        if array.size(bullFVGs) >= max_fvg_zones
+            old_fvg = array.shift(bullFVGs)
+            box.delete(old_fvg)
+        fvg_box = box.new(bar_index - 2, low[2], bar_index, high[0], border_color=color.new(color.lime, 50), bgcolor=color.new(color.lime, 92), extend=extend.right)
+        array.push(bullFVGs, fvg_box)
+    
+    if high[2] < low[0] and smcTrendDir == "Bearish"
+        if array.size(bearFVGs) >= max_fvg_zones
+            old_fvg = array.shift(bearFVGs)
+            box.delete(old_fvg)
+        fvg_box = box.new(bar_index - 2, high[2], bar_index, low[0], border_color=color.new(color.red, 50), bgcolor=color.new(color.red, 92), extend=extend.right)
+        array.push(bearFVGs, fvg_box)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SMC - PREMIUM/DISCOUNT ZONES (OPTIONAL VISUAL)
+// ═══════════════════════════════════════════════════════════════════════════════
+var box premiumBox = na
+var box discountBox = na
+var line eqLine = na
+
+if enable_smc and show_premium_discount and not na(lastSwingHigh) and not na(lastSwingLow) and barstate.islast
+    if not na(premiumBox)
+        box.delete(premiumBox)
+        box.delete(discountBox)
+        line.delete(eqLine)
+    eqPrice = (lastSwingHigh + lastSwingLow) / 2
+    premiumBox := box.new(bar_index, lastSwingHigh, bar_index + 50, eqPrice, bgcolor=color.new(color.red, 95), border_color=na, extend=extend.right)
+    discountBox := box.new(bar_index, eqPrice, bar_index + 50, lastSwingLow, bgcolor=color.new(color.green, 95), border_color=na, extend=extend.right)
+    eqLine := line.new(bar_index, eqPrice, bar_index + 50, eqPrice, color=color.new(color.gray, 50), width=1, style=line.style_dashed)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SMC - STRUCTURE LABELS (MEMORY-OPTIMIZED)
+// ═══════════════════════════════════════════════════════════════════════════════
+var label[] smcLabels = array.new_label()
+max_smc_labels = 8
+
+if enable_smc and show_choch_bos and barstate.isconfirmed
+    if bullishCHoCH
+        lbl = label.new(bar_index, low, "CHoCH ↑", style=label.style_label_up, color=color.new(color.orange, 30), textcolor=color.white, size=size.tiny)
+        array.push(smcLabels, lbl)
+    if bearishCHoCH
+        lbl = label.new(bar_index, high, "CHoCH ↓", style=label.style_label_down, color=color.new(color.orange, 30), textcolor=color.white, size=size.tiny)
+        array.push(smcLabels, lbl)
+    if bullishBOS
+        lbl = label.new(bar_index, low, "BOS ↑", style=label.style_label_up, color=color.new(color.lime, 30), textcolor=color.black, size=size.tiny)
+        array.push(smcLabels, lbl)
+    if bearishBOS
+        lbl = label.new(bar_index, high, "BOS ↓", style=label.style_label_down, color=color.new(color.red, 30), textcolor=color.white, size=size.tiny)
+        array.push(smcLabels, lbl)
+    
+    if array.size(smcLabels) > max_smc_labels
+        old_lbl = array.shift(smcLabels)
+        label.delete(old_lbl)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// CISD (Change in State of Delivery) TRACKING
+// ═══════════════════════════════════════════════════════════════════════════════
+bull_candle = close > open
+bear_candle = close < open
+
+var float cisd_bull_level = na
+var int cisd_bull_start = 0
+var bool cisd_bull_active = false
+var bool cisd_bearish_signal = false
+
+var float cisd_bear_level = na
+var int cisd_bear_start = 0
+var bool cisd_bear_active = false
+var bool cisd_bullish_signal = false
+
+cisd_bearish_signal := false
+cisd_bullish_signal := false
+
+if use_cisd and barstate.isconfirmed
+    if bull_candle and bear_candle[1]
+        if cisd_bull_active and not na(cisd_bull_level)
+            cisd_bull_active := false
+        cisd_bull_level := open
+        cisd_bull_start := bar_index
+        cisd_bull_active := true
+    
+    if cisd_bull_active and not na(cisd_bull_level)
+        if bar_index - cisd_bull_start <= cisd_max_duration
+            if close < cisd_bull_level
+                if bar_index - cisd_bull_start >= cisd_min_duration
+                    cisd_bearish_signal := true
+                    if show_cisd_labels
+                        label.new(bar_index, high, "CISD ▼", style=label.style_label_down, color=color.new(sell_signal_color, 80), textcolor=sell_signal_color, size=size.tiny)
+                cisd_bull_active := false
+        else
+            cisd_bull_active := false
+    
+    if bear_candle and bull_candle[1]
+        if cisd_bear_active and not na(cisd_bear_level)
+            cisd_bear_active := false
+        cisd_bear_level := open
+        cisd_bear_start := bar_index
+        cisd_bear_active := true
+    
+    if cisd_bear_active and not na(cisd_bear_level)
+        if bar_index - cisd_bear_start <= cisd_max_duration
+            if close > cisd_bear_level
+                if bar_index - cisd_bear_start >= cisd_min_duration
+                    cisd_bullish_signal := true
+                    if show_cisd_labels
+                        label.new(bar_index, low, "CISD ▲", style=label.style_label_up, color=color.new(buy_signal_color, 80), textcolor=buy_signal_color, size=size.tiny)
+                cisd_bear_active := false
+        else
+            cisd_bear_active := false
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// FUNCTIONS - WICK CALCULATIONS
+// ═══════════════════════════════════════════════════════════════════════════════
+f_candle_range() => high - low
+f_body_top() => math.max(open, close)
+f_body_bottom() => math.min(open, close)
+f_upper_wick() => high - f_body_top()
+f_lower_wick() => f_body_bottom() - low
+
+f_upper_wick_ratio() =>
+    range_size = f_candle_range()
+    range_size > min_candle_range ? f_upper_wick() / range_size : 0.0
+
+f_lower_wick_ratio() =>
+    range_size = f_candle_range()
+    range_size > min_candle_range ? f_lower_wick() / range_size : 0.0
+
+f_is_bullish_rejection() => f_lower_wick_ratio() >= wick_threshold
+f_is_bearish_rejection() => f_upper_wick_ratio() >= wick_threshold
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// v4.1 NEW: SMC CONFLUENCE FUNCTIONS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// FVG Tap Detection (+2 confidence)
+f_check_fvg_tap(bool is_bullish) =>
+    tapped = false
+    if enable_smc and use_fvg_tap_bonus
+        if is_bullish and array.size(bullFVGs) > 0
+            for i = 0 to math.min(array.size(bullFVGs) - 1, max_fvg_zones - 1)
+                fvg = array.get(bullFVGs, i)
+                if not na(fvg)
+                    fvg_top = box.get_top(fvg)
+                    fvg_bot = box.get_bottom(fvg)
+                    if low <= fvg_top and low >= fvg_bot
+                        tapped := true
+                        break
+        else if not is_bullish and array.size(bearFVGs) > 0
+            for i = 0 to math.min(array.size(bearFVGs) - 1, max_fvg_zones - 1)
+                fvg = array.get(bearFVGs, i)
+                if not na(fvg)
+                    fvg_top = box.get_top(fvg)
+                    fvg_bot = box.get_bottom(fvg)
+                    if high >= fvg_bot and high <= fvg_top
+                        tapped := true
+                        break
+    tapped
+
+// Order Block Confluence (+2 confidence)
+f_check_ob_confluence(float price, bool is_bullish) =>
+    confluence = false
+    if enable_smc and use_ob_confluence_bonus
+        if is_bullish and array.size(bullOBs) > 0
+            for i = 0 to math.min(array.size(bullOBs) - 1, max_ob_zones - 1)
+                ob = array.get(bullOBs, i)
+                if not na(ob)
+                    ob_low = box.get_bottom(ob)
+                    ob_high = box.get_top(ob)
+                    if price >= ob_low - ob_confluence_tolerance and price <= ob_high + ob_confluence_tolerance
+                        confluence := true
+                        break
+        else if not is_bullish and array.size(bearOBs) > 0
+            for i = 0 to math.min(array.size(bearOBs) - 1, max_ob_zones - 1)
+                ob = array.get(bearOBs, i)
+                if not na(ob)
+                    ob_low = box.get_bottom(ob)
+                    ob_high = box.get_top(ob)
+                    if price >= ob_low - ob_confluence_tolerance and price <= ob_high + ob_confluence_tolerance
+                        confluence := true
+                        break
+    confluence
+
+// Recent CHoCH Filter (+2 confidence)
+f_recent_choch(bool is_bullish) =>
+    recent = false
+    if enable_smc and use_recent_choch_bonus
+        if is_bullish
+            recent := bar_index - last_bull_choch_bar <= choch_lookback_bars and last_bull_choch_bar > 0
+        else
+            recent := bar_index - last_bear_choch_bar <= choch_lookback_bars and last_bear_choch_bar > 0
+    recent
+
+// HTF Structure Confluence (+2 confidence)
+f_htf_structure_confluence(float price, bool is_bullish) =>
+    confluence = false
+    if enable_smc and use_htf_confluence_bonus
+        if is_bullish and not na(htfLastLow)
+            confluence := math.abs(price - htfLastLow) <= htf_confluence_tolerance
+        else if not is_bullish and not na(htfLastHigh)
+            confluence := math.abs(price - htfLastHigh) <= htf_confluence_tolerance
+    confluence
+
+// Premium/Discount Zone Filter (+1 or reject)
+f_in_correct_zone(bool is_bullish) =>
+    correct_zone = true
+    bonus = 0
+    if enable_smc and use_premium_discount_filter
+        if not na(lastSwingHigh) and not na(lastSwingLow) and lastSwingHigh > lastSwingLow
+            eqPrice = (lastSwingHigh + lastSwingLow) / 2
+            if is_bullish
+                correct_zone := close < eqPrice
+                bonus := correct_zone ? 1 : 0
+            else
+                correct_zone := close > eqPrice
+                bonus := correct_zone ? 1 : 0
+    [correct_zone, bonus]
+
+// Sweep + CHoCH Combo (+3 confidence)
+f_sweep_then_choch(bool is_bullish, int sweep_bar) =>
+    combo = false
+    if enable_smc and use_sweep_choch_combo and sweep_bar > 0
+        if is_bullish
+            sweep_recent = bar_index - sweep_bar <= sweep_choch_max_bars
+            choch_recent = bar_index - last_bull_choch_bar <= sweep_choch_max_bars and last_bull_choch_bar > 0
+            choch_after_sweep = last_bull_choch_bar >= sweep_bar
+            combo := sweep_recent and choch_recent and choch_after_sweep
+        else
+            sweep_recent = bar_index - sweep_bar <= sweep_choch_max_bars
+            choch_recent = bar_index - last_bear_choch_bar <= sweep_choch_max_bars and last_bear_choch_bar > 0
+            choch_after_sweep = last_bear_choch_bar >= sweep_bar
+            combo := sweep_recent and choch_recent and choch_after_sweep
+    combo
+
+// SMC Alignment Score (+0-4 confidence)
+f_calculate_smc_alignment(bool is_bullish) =>
+    score = 0
+    if enable_smc and use_smc_alignment_score
+        if is_bullish and smcTrendDir == "Bullish"
+            score += 1
+        else if not is_bullish and smcTrendDir == "Bearish"
+            score += 1
+        
+        choch_recent = is_bullish ? 
+            (bar_index - last_bull_choch_bar <= 30 and last_bull_choch_bar > 0) : 
+            (bar_index - last_bear_choch_bar <= 30 and last_bear_choch_bar > 0)
+        bos_recent = is_bullish ? 
+            (bar_index - last_bull_bos_bar <= 30 and last_bull_bos_bar > 0) : 
+            (bar_index - last_bear_bos_bar <= 30 and last_bear_bos_bar > 0)
+        if choch_recent or bos_recent
+            score += 1
+        
+        if is_bullish and array.size(bullFVGs) > 0
+            score += 1
+        else if not is_bullish and array.size(bearFVGs) > 0
+            score += 1
+        
+        if is_bullish and array.size(bullOBs) > 0
+            score += 1
+        else if not is_bullish and array.size(bearOBs) > 0
+            score += 1
+    score
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// v4.1 NEW: DYNAMIC POSITION SIZING
+// ═══════════════════════════════════════════════════════════════════════════════
+f_calculate_position_size(int confidence) =>
+    multiplier = 1.0
+    if use_dynamic_sizing
+        if confidence >= 15
+            multiplier := 2.0      // 4% (PERFECT)
+        else if confidence >= 12
+            multiplier := 1.5      // 3% (EXCELLENT)
+        else if confidence >= 9
+            multiplier := 1.25     // 2.5% (GOOD)
+        else if confidence >= 6
+            multiplier := 1.0      // 2% (FAIR)
+        else if confidence >= 3
+            multiplier := 0.5      // 1% (WEAK)
+        else
+            multiplier := 0.0      // NO TRADE
+    base_position_pct * multiplier
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// v4.1 NEW: DYNAMIC R:R BASED ON CONFIDENCE
+// ═══════════════════════════════════════════════════════════════════════════════
+f_calculate_dynamic_rr_tiers(int confidence) =>
+    t1 = tp1_rr
+    t2 = tp2_rr
+    t3 = tp3_rr
+    if use_dynamic_rr
+        if confidence >= 15      // PERFECT
+            t1 := 2.0
+            t2 := 3.5
+            t3 := 6.0
+        else if confidence >= 12 // EXCELLENT
+            t1 := 1.75
+            t2 := 3.0
+            t3 := 5.0
+        else if confidence >= 9  // GOOD
+            t1 := 1.5
+            t2 := 2.5
+            t3 := 4.0
+        else if confidence >= 6  // FAIR
+            t1 := 1.25
+            t2 := 2.0
+            t3 := 3.0
+        else                     // WEAK
+            t1 := 1.0
+            t2 := 1.5
+            t3 := 2.0
+    [t1, t2, t3]
+
+// v4.1 NEW: Confidence Tier Label
+f_get_confidence_tier(int confidence) =>
+    if confidence >= 15
+        "PERFECT"
+    else if confidence >= 12
+        "EXCELLENT"
+    else if confidence >= 9
+        "GOOD"
+    else if confidence >= 6
+        "FAIR"
+    else if confidence >= 3
+        "WEAK"
+    else
+        "REJECT"
+
+f_get_tier_emoji(int confidence) =>
+    if confidence >= 15
+        "🔥🔥🔥"
+    else if confidence >= 12
+        "🔥🔥"
+    else if confidence >= 9
+        "🔥"
+    else if confidence >= 6
+        "⚡"
+    else if confidence >= 3
+        "⚠"
+    else
+        "❌"
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// LEVEL STORAGE
+// ═══════════════════════════════════════════════════════════════════════════════
+type LevelData
+    float price
+    int touches
+    int bar_created
+    int last_signal_bar
+    line level_line
+    box level_box
+    label level_label
+
+var LevelData[] support_data = array.new<LevelData>()
+var LevelData[] resistance_data = array.new<LevelData>()
+var bool levels_changed = false
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// FUNCTIONS - LEVEL MANAGEMENT
+// ═══════════════════════════════════════════════════════════════════════════════
+f_find_nearby_level_idx(LevelData[] levels, float price, float proximity) =>
+    idx = -1
+    if array.size(levels) > 0
+        for i = 0 to array.size(levels) - 1
+            level_obj = array.get(levels, i)
+            if math.abs(level_obj.price - price) <= proximity
+                idx := i
+                break
+    idx
+
+f_delete_level_drawings(LevelData level_obj) =>
+    if not na(level_obj.level_line)
+        line.delete(level_obj.level_line)
+    if not na(level_obj.level_box)
+        box.delete(level_obj.level_box)
+    if not na(level_obj.level_label)
+        label.delete(level_obj.level_label)
+
+f_remove_weakest_level(LevelData[] levels) =>
+    if array.size(levels) > 0
+        min_score = 999999.0
+        min_idx = 0
+        for i = 0 to array.size(levels) - 1
+            level_obj = array.get(levels, i)
+            age = bar_index - level_obj.bar_created
+            score = level_obj.touches * 10.0 - age * 0.1
+            if score < min_score
+                min_score := score
+                min_idx := i
+        level_to_remove = array.get(levels, min_idx)
+        f_delete_level_drawings(level_to_remove)
+        array.remove(levels, min_idx)
+
+f_add_or_update_support(float price) =>
+    changed = false
+    nearby_idx = f_find_nearby_level_idx(support_data, price, level_proximity)
+    if nearby_idx >= 0
+        level_obj = array.get(support_data, nearby_idx)
+        level_obj.touches += 1
+        level_obj.bar_created := bar_index
+        array.set(support_data, nearby_idx, level_obj)
+        changed := true
+    else
+        if array.size(support_data) >= max_levels
+            f_remove_weakest_level(support_data)
+        new_level = LevelData.new()
+        new_level.price := price
+        new_level.touches := 1
+        new_level.bar_created := bar_index
+        new_level.last_signal_bar := 0
+        new_level.level_line := na
+        new_level.level_box := na
+        new_level.level_label := na
+        array.push(support_data, new_level)
+        changed := true
+    changed
+
+f_add_or_update_resistance(float price) =>
+    changed = false
+    nearby_idx = f_find_nearby_level_idx(resistance_data, price, level_proximity)
+    if nearby_idx >= 0
+        level_obj = array.get(resistance_data, nearby_idx)
+        level_obj.touches += 1
+        level_obj.bar_created := bar_index
+        array.set(resistance_data, nearby_idx, level_obj)
+        changed := true
+    else
+        if array.size(resistance_data) >= max_levels
+            f_remove_weakest_level(resistance_data)
+        new_level = LevelData.new()
+        new_level.price := price
+        new_level.touches := 1
+        new_level.bar_created := bar_index
+        new_level.last_signal_bar := 0
+        new_level.level_line := na
+        new_level.level_box := na
+        new_level.level_label := na
+        array.push(resistance_data, new_level)
+        changed := true
+    changed
+
+f_expire_old_levels() =>
+    changed = false
+    if array.size(support_data) > 0
+        for i = array.size(support_data) - 1 to 0
+            level_obj = array.get(support_data, i)
+            if bar_index - level_obj.bar_created > level_expiration
+                f_delete_level_drawings(level_obj)
+                array.remove(support_data, i)
+                changed := true
+    if array.size(resistance_data) > 0
+        for i = array.size(resistance_data) - 1 to 0
+            level_obj = array.get(resistance_data, i)
+            if bar_index - level_obj.bar_created > level_expiration
+                f_delete_level_drawings(level_obj)
+                array.remove(resistance_data, i)
+                changed := true
+    changed
+
+levels_changed := f_expire_old_levels() or levels_changed
+
+if barstate.isconfirmed
+    if f_is_bullish_rejection()
+        levels_changed := f_add_or_update_support(low) or levels_changed
+    if f_is_bearish_rejection()
+        levels_changed := f_add_or_update_resistance(high) or levels_changed
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// TAKE PROFIT CALCULATION FUNCTIONS
+// ═══════════════════════════════════════════════════════════════════════════════
+f_calculate_tp_levels(float entry, float sl, bool is_long, float rr1, float rr2, float rr3) =>
+    risk_distance = math.abs(entry - sl)
+    tp1 = 0.0
+    tp2 = 0.0
+    tp3 = 0.0
+    if is_long
+        tp1 := entry + (risk_distance * rr1)
+        tp2 := entry + (risk_distance * rr2)
+        tp3 := entry + (risk_distance * rr3)
+    else
+        tp1 := entry - (risk_distance * rr1)
+        tp2 := entry - (risk_distance * rr2)
+        tp3 := entry - (risk_distance * rr3)
+    [tp1, tp2, tp3]
+
+f_find_next_resistance(float current_price) =>
+    nearest_res = 0.0
+    min_dist = 99999.0
+    if array.size(resistance_data) > 0
+        for i = 0 to array.size(resistance_data) - 1
+            r = array.get(resistance_data, i)
+            dist = r.price - current_price
+            if dist > 0 and dist < min_dist
+                min_dist := dist
+                nearest_res := r.price
+    nearest_res
+
+f_find_next_support(float current_price) =>
+    nearest_sup = 0.0
+    min_dist = 99999.0
+    if array.size(support_data) > 0
+        for i = 0 to array.size(support_data) - 1
+            s = array.get(support_data, i)
+            dist = current_price - s.price
+            if dist > 0 and dist < min_dist
+                min_dist := dist
+                nearest_sup := s.price
+    nearest_sup
+
+f_calculate_dynamic_tp_price(float entry, float sl, bool is_long) =>
+    dynamic_tp = 0.0
+    if use_dynamic_tp
+        if is_long
+            next_level = f_find_next_resistance(entry)
+            dynamic_tp := next_level > 0 ? next_level - tp_buffer : entry + (math.abs(entry - sl) * risk_reward_ratio)
+        else
+            next_level = f_find_next_support(entry)
+            dynamic_tp := next_level > 0 ? next_level + tp_buffer : entry - (math.abs(entry - sl) * risk_reward_ratio)
+    else
+        risk_distance = math.abs(entry - sl)
+        dynamic_tp := is_long ? entry + (risk_distance * risk_reward_ratio) : entry - (risk_distance * risk_reward_ratio)
+    dynamic_tp
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ASYMMETRIC ZONE BUFFERS
+// ═══════════════════════════════════════════════════════════════════════════════
+support_zone_above = zone_buffer * 1.2
+support_zone_below = zone_buffer * 0.8
+resist_zone_above = zone_buffer * 0.8
+resist_zone_below = zone_buffer * 1.2
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SIGNAL DETECTION (ENHANCED WITH v4.1 SMC CONFLUENCE)
+// ═══════════════════════════════════════════════════════════════════════════════
+var bool buy_signal = false
+var bool sell_signal = false
+var bool is_sweep_signal = false
+var bool is_breakout_retest = false
+var float signal_level = 0.0
+var int signal_confidence = 0
+var string signal_type = ""
+var float suggested_sl = 0.0
+var string confluence_text = ""
+
+buy_signal := false
+sell_signal := false
+is_sweep_signal := false
+is_breakout_retest := false
+signal_confidence := 0
+signal_type := ""
+confluence_text := ""
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// CHECK SUPPORT SIGNALS (WITH v4.1 SMC CONFLUENCE)
+// ═══════════════════════════════════════════════════════════════════════════════
+f_check_support_signals() =>
+    _signal_found = false
+    _is_sweep = false
+    _level = 0.0
+    _conf = 0
+    _type = ""
+    _sl = 0.0
+    _confluence = ""
+    
+    if array.size(support_data) > 0 and barstate.isconfirmed
+        for i = 0 to array.size(support_data) - 1
+            if _signal_found
+                break
+            level_obj = array.get(support_data, i)
+            level_price = level_obj.price
+            touches = level_obj.touches
+            last_sig = level_obj.last_signal_bar
+            if bar_index - last_sig < signal_cooldown and last_sig > 0
+                continue
+            
+            // v4.1: Check Premium/Discount filter first (skip if wrong zone in Reject mode)
+            [in_correct_zone, zone_bonus] = f_in_correct_zone(true)
+            if pd_filter_mode == "Reject" and not in_correct_zone
+                continue
+            
+            zone_top = level_price + support_zone_above
+            zone_bottom = level_price - support_zone_below
+            in_zone = low <= zone_top and low >= zone_bottom
+            swept = low < level_price and close > level_price
+            rejecting = in_zone and f_is_bullish_rejection()
+            
+            if show_sweeps and swept
+                _is_sweep := true
+                _signal_found := true
+                _level := level_price
+                _sl := low - (zone_buffer * 0.5)
+                _conf := 3  // Base sweep score
+                
+                // v4.1: Track sweep bar for combo detection
+                last_sweep_buy_bar := bar_index
+                
+                // Original confluence
+                _conf += touches >= 3 ? 1 : 0
+                _conf += m5_bullish ? 1 : 0
+                _conf += h1_bullish ? 1 : 0
+                _conf += enable_smc and smcTrendDir == "Bullish" ? 1 : 0
+                if use_cisd and cisd_bullish_signal
+                    _conf += cisd_confidence_boost
+                
+                // v4.1 NEW: SMC Confluence Bonuses
+                fvg_tapped = f_check_fvg_tap(true)
+                ob_conf = f_check_ob_confluence(level_price, true)
+                recent_choch = f_recent_choch(true)
+                htf_conf = f_htf_structure_confluence(level_price, true)
+                sweep_choch = f_sweep_then_choch(true, last_sweep_buy_bar)
+                smc_align = f_calculate_smc_alignment(true)
+                
+                _conf += fvg_tapped ? 2 : 0
+                _conf += ob_conf ? 2 : 0
+                _conf += recent_choch ? 2 : 0
+                _conf += htf_conf ? 2 : 0
+                _conf += sweep_choch ? 3 : 0
+                _conf += smc_align
+                _conf += zone_bonus
+                
+                // Build confluence text for label
+                _confluence := ""
+                if fvg_tapped
+                    _confluence += "FVG+"
+                if ob_conf
+                    _confluence += "OB+"
+                if recent_choch
+                    _confluence += "CHoCH+"
+                if htf_conf
+                    _confluence += "HTF+"
+                if sweep_choch
+                    _confluence += "COMBO+"
+                
+                _type := "LIQUIDITY SWEEP"
+                level_obj.last_signal_bar := bar_index
+                array.set(support_data, i, level_obj)
+                
+            else if show_zone_test and rejecting and not _signal_found
+                conf = 1  // Base zone test score
+                conf += touches >= 3 ? 1 : 0
+                conf += f_lower_wick_ratio() > 0.6 ? 1 : 0
+                conf += m5_bullish ? 1 : 0
+                conf += h1_bullish ? 1 : 0
+                conf += enable_smc and smcTrendDir == "Bullish" ? 1 : 0
+                if use_cisd and cisd_bullish_signal
+                    conf += cisd_confidence_boost
+                
+                // v4.1 NEW: SMC Confluence Bonuses
+                fvg_tapped = f_check_fvg_tap(true)
+                ob_conf = f_check_ob_confluence(level_price, true)
+                recent_choch = f_recent_choch(true)
+                htf_conf = f_htf_structure_confluence(level_price, true)
+                smc_align = f_calculate_smc_alignment(true)
+                
+                conf += fvg_tapped ? 2 : 0
+                conf += ob_conf ? 2 : 0
+                conf += recent_choch ? 2 : 0
+                conf += htf_conf ? 2 : 0
+                conf += smc_align
+                conf += zone_bonus
+                
+                if conf >= min_confidence
+                    _signal_found := true
+                    _level := level_price
+                    _sl := zone_bottom - (zone_buffer * 0.5)
+                    _conf := conf
+                    _type := "ZONE TEST"
+                    
+                    // Build confluence text
+                    _confluence := ""
+                    if fvg_tapped
+                        _confluence += "FVG+"
+                    if ob_conf
+                        _confluence += "OB+"
+                    if recent_choch
+                        _confluence += "CHoCH+"
+                    if htf_conf
+                        _confluence += "HTF+"
+                    
+                    level_obj.last_signal_bar := bar_index
+                    array.set(support_data, i, level_obj)
+                    
+    [_signal_found, _is_sweep, _level, _conf, _type, _sl, _confluence]
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// CHECK RESISTANCE SIGNALS (WITH v4.1 SMC CONFLUENCE)
+// ═══════════════════════════════════════════════════════════════════════════════
+f_check_resistance_signals() =>
+    _signal_found = false
+    _is_sweep = false
+    _level = 0.0
+    _conf = 0
+    _type = ""
+    _sl = 0.0
+    _confluence = ""
+    
+    if array.size(resistance_data) > 0 and barstate.isconfirmed
+        for i = 0 to array.size(resistance_data) - 1
+            if _signal_found
+                break
+            level_obj = array.get(resistance_data, i)
+            level_price = level_obj.price
+            touches = level_obj.touches
+            last_sig = level_obj.last_signal_bar
+            if bar_index - last_sig < signal_cooldown and last_sig > 0
+                continue
+            
+            // v4.1: Check Premium/Discount filter first
+            [in_correct_zone, zone_bonus] = f_in_correct_zone(false)
+            if pd_filter_mode == "Reject" and not in_correct_zone
+                continue
+            
+            zone_top = level_price + resist_zone_above
+            zone_bottom = level_price - resist_zone_below
+            in_zone = high >= zone_bottom and high <= zone_top
+            swept = high > level_price and close < level_price
+            rejecting = in_zone and f_is_bearish_rejection()
+            
+            if show_sweeps and swept
+                _is_sweep := true
+                _signal_found := true
+                _level := level_price
+                _sl := high + (zone_buffer * 0.5)
+                _conf := 3
+                
+                // v4.1: Track sweep bar
+                last_sweep_sell_bar := bar_index
+                
+                _conf += touches >= 3 ? 1 : 0
+                _conf += m5_bearish ? 1 : 0
+                _conf += h1_bearish ? 1 : 0
+                _conf += enable_smc and smcTrendDir == "Bearish" ? 1 : 0
+                if use_cisd and cisd_bearish_signal
+                    _conf += cisd_confidence_boost
+                
+                // v4.1 NEW: SMC Confluence
+                fvg_tapped = f_check_fvg_tap(false)
+                ob_conf = f_check_ob_confluence(level_price, false)
+                recent_choch = f_recent_choch(false)
+                htf_conf = f_htf_structure_confluence(level_price, false)
+                sweep_choch = f_sweep_then_choch(false, last_sweep_sell_bar)
+                smc_align = f_calculate_smc_alignment(false)
+                
+                _conf += fvg_tapped ? 2 : 0
+                _conf += ob_conf ? 2 : 0
+                _conf += recent_choch ? 2 : 0
+                _conf += htf_conf ? 2 : 0
+                _conf += sweep_choch ? 3 : 0
+                _conf += smc_align
+                _conf += zone_bonus
+                
+                _confluence := ""
+                if fvg_tapped
+                    _confluence += "FVG+"
+                if ob_conf
+                    _confluence += "OB+"
+                if recent_choch
+                    _confluence += "CHoCH+"
+                if htf_conf
+                    _confluence += "HTF+"
+                if sweep_choch
+                    _confluence += "COMBO+"
+                
+                _type := "LIQUIDITY SWEEP"
+                level_obj.last_signal_bar := bar_index
+                array.set(resistance_data, i, level_obj)
+                
+            else if show_zone_test and rejecting and not _signal_found
+                conf = 1
+                conf += touches >= 3 ? 1 : 0
+                conf += f_upper_wick_ratio() > 0.6 ? 1 : 0
+                conf += m5_bearish ? 1 : 0
+                conf += h1_bearish ? 1 : 0
+                conf += enable_smc and smcTrendDir == "Bearish" ? 1 : 0
+                if use_cisd and cisd_bearish_signal
+                    conf += cisd_confidence_boost
+                
+                // v4.1 NEW: SMC Confluence
+                fvg_tapped = f_check_fvg_tap(false)
+                ob_conf = f_check_ob_confluence(level_price, false)
+                recent_choch = f_recent_choch(false)
+                htf_conf = f_htf_structure_confluence(level_price, false)
+                smc_align = f_calculate_smc_alignment(false)
+                
+                conf += fvg_tapped ? 2 : 0
+                conf += ob_conf ? 2 : 0
+                conf += recent_choch ? 2 : 0
+                conf += htf_conf ? 2 : 0
+                conf += smc_align
+                conf += zone_bonus
+                
+                if conf >= min_confidence
+                    _signal_found := true
+                    _level := level_price
+                    _sl := zone_top + (zone_buffer * 0.5)
+                    _conf := conf
+                    _type := "ZONE TEST"
+                    
+                    _confluence := ""
+                    if fvg_tapped
+                        _confluence += "FVG+"
+                    if ob_conf
+                        _confluence += "OB+"
+                    if recent_choch
+                        _confluence += "CHoCH+"
+                    if htf_conf
+                        _confluence += "HTF+"
+                    
+                    level_obj.last_signal_bar := bar_index
+                    array.set(resistance_data, i, level_obj)
+                    
+    [_signal_found, _is_sweep, _level, _conf, _type, _sl, _confluence]
+
+[buy_found, buy_is_sweep, buy_level, buy_conf, buy_type, buy_sl, buy_confluence] = f_check_support_signals()
+[sell_found, sell_is_sweep, sell_level, sell_conf, sell_type, sell_sl, sell_confluence] = f_check_resistance_signals()
+
+if buy_found and (not use_ema_filter or overall_bullish or (allow_reversal_trades and buy_conf >= reversal_min_confidence))
+    buy_signal := true
+    is_sweep_signal := buy_is_sweep
+    signal_level := buy_level
+    signal_confidence := buy_conf
+    signal_type := buy_type
+    suggested_sl := buy_sl
+    confluence_text := buy_confluence
+
+if sell_found and (not use_ema_filter or overall_bearish or (allow_reversal_trades and sell_conf >= reversal_min_confidence))
+    sell_signal := true
+    is_sweep_signal := sell_is_sweep
+    signal_level := sell_level
+    signal_confidence := sell_conf
+    signal_type := sell_type
+    suggested_sl := sell_sl
+    confluence_text := sell_confluence
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// TRADE EXECUTION & MANAGEMENT
+// ═══════════════════════════════════════════════════════════════════════════════
+var int trades_today = 0
+var int last_trade_day = 0
+var float last_position_size = 0.0
+
+if dayofweek != dayofweek[1]
+    trades_today := 0
+    last_trade_day := dayofweek
+
+max_trades_reached = max_trades_per_day > 0 and trades_today >= max_trades_per_day
+
+var float entry_price = 0.0
+var float stop_loss = 0.0
+var float tp1_price = 0.0
+var float tp2_price = 0.0
+var float tp3_price = 0.0
+var float original_position_size = 0.0
+var bool tp1_hit = false
+var bool tp2_hit = false
+var bool is_long_position = false
+var int last_signal_confidence = 0
+var string last_signal_tier = ""
+
+if strategy.position_size == 0 and strategy.position_size[1] != 0
+    is_long_position := false
+    tp1_hit := false
+    tp2_hit := false
+    entry_price := 0.0
+    original_position_size := 0.0
+
+if close_on_opposite and enable_strategy
+    if buy_signal and strategy.position_size < 0
+        strategy.close("Short", alert_message="WR-SMC | Closed SHORT on opposite BUY signal")
+    if sell_signal and strategy.position_size > 0
+        strategy.close("Long", alert_message="WR-SMC | Closed LONG on opposite SELL signal")
+
+if buy_signal and enable_strategy and not max_trades_reached and strategy.position_size == 0
+    // v4.1: Calculate dynamic position size
+    pos_size = f_calculate_position_size(signal_confidence)
+    if pos_size > 0
+        // v4.1: Calculate dynamic R:R levels
+        [rr1, rr2, rr3] = f_calculate_dynamic_rr_tiers(signal_confidence)
+        
+        if use_multiple_tp
+            [tp1, tp2, tp3] = f_calculate_tp_levels(close, suggested_sl, true, rr1, rr2, rr3)
+            tp1_price := tp1
+            tp2_price := tp2
+            tp3_price := tp3
+        else
+            tp1_price := f_calculate_dynamic_tp_price(close, suggested_sl, true)
+            tp2_price := tp1_price
+            tp3_price := tp1_price
+        
+        entry_price := close
+        stop_loss := suggested_sl
+        is_long_position := true
+        tp1_hit := false
+        tp2_hit := false
+        trades_today += 1
+        last_signal_confidence := signal_confidence
+        last_signal_tier := f_get_confidence_tier(signal_confidence)
+        last_position_size := pos_size
+        
+        tier_emoji = f_get_tier_emoji(signal_confidence)
+        tier_name = f_get_confidence_tier(signal_confidence)
+        alert_msg = "WR-SMC BUY " + tier_name + " | " + signal_type + " | Conf:" + str.tostring(signal_confidence) + "/20 | Entry:" + str.tostring(close, format.mintick) + " | SL:" + str.tostring(suggested_sl, format.mintick) + " | Size:" + str.tostring(pos_size, "#.##") + "%"
+        
+        strategy.entry("Long", strategy.long, qty=pos_size, alert_message=alert_msg)
+        original_position_size := strategy.position_size
+        
+        if use_trailing_stop
+            risk_dist = math.abs(entry_price - stop_loss)
+            trail_trigger = entry_price + (risk_dist * trail_activation)
+            trail_offset_points = risk_dist * trail_offset
+            strategy.exit("Long SL/Trail", "Long", stop=stop_loss, trail_price=trail_trigger, trail_offset=trail_offset_points)
+        else
+            strategy.exit("Long SL", "Long", stop=stop_loss)
+
+if sell_signal and enable_strategy and not max_trades_reached and strategy.position_size == 0
+    pos_size = f_calculate_position_size(signal_confidence)
+    if pos_size > 0
+        [rr1, rr2, rr3] = f_calculate_dynamic_rr_tiers(signal_confidence)
+        
+        if use_multiple_tp
+            [tp1, tp2, tp3] = f_calculate_tp_levels(close, suggested_sl, false, rr1, rr2, rr3)
+            tp1_price := tp1
+            tp2_price := tp2
+            tp3_price := tp3
+        else
+            tp1_price := f_calculate_dynamic_tp_price(close, suggested_sl, false)
+            tp2_price := tp1_price
+            tp3_price := tp1_price
+        
+        entry_price := close
+        stop_loss := suggested_sl
+        is_long_position := false
+        tp1_hit := false
+        tp2_hit := false
+        trades_today += 1
+        last_signal_confidence := signal_confidence
+        last_signal_tier := f_get_confidence_tier(signal_confidence)
+        last_position_size := pos_size
+        
+        tier_emoji = f_get_tier_emoji(signal_confidence)
+        tier_name = f_get_confidence_tier(signal_confidence)
+        alert_msg = "WR-SMC SELL " + tier_name + " | " + signal_type + " | Conf:" + str.tostring(signal_confidence) + "/20 | Entry:" + str.tostring(close, format.mintick) + " | SL:" + str.tostring(suggested_sl, format.mintick) + " | Size:" + str.tostring(pos_size, "#.##") + "%"
+        
+        strategy.entry("Short", strategy.short, qty=pos_size, alert_message=alert_msg)
+        original_position_size := math.abs(strategy.position_size)
+        
+        if use_trailing_stop
+            risk_dist = math.abs(entry_price - stop_loss)
+            trail_trigger = entry_price - (risk_dist * trail_activation)
+            trail_offset_points = risk_dist * trail_offset
+            strategy.exit("Short SL/Trail", "Short", stop=stop_loss, trail_price=trail_trigger, trail_offset=trail_offset_points)
+        else
+            strategy.exit("Short SL", "Short", stop=stop_loss)
+
+if strategy.position_size != 0 and original_position_size == 0.0
+    original_position_size := math.abs(strategy.position_size)
+
+if strategy.position_size != 0
+    if is_long_position and strategy.position_size > 0
+        if use_multiple_tp
+            if not tp1_hit and high >= tp1_price
+                close_qty = original_position_size * (tp1_percent / 100.0)
+                strategy.close("Long", qty=close_qty, comment="TP1", alert_message="WR-SMC TP1 HIT | Closed " + str.tostring(tp1_percent) + "%")
+                tp1_hit := true
+            if tp1_hit and not tp2_hit and high >= tp2_price
+                close_qty = original_position_size * (tp2_percent / 100.0)
+                strategy.close("Long", qty=close_qty, comment="TP2", alert_message="WR-SMC TP2 HIT | Closed " + str.tostring(tp2_percent) + "%")
+                tp2_hit := true
+            if tp2_hit and high >= tp3_price
+                strategy.close("Long", comment="TP3", alert_message="WR-SMC TP3 HIT | Full exit")
+        else
+            if high >= tp1_price
+                strategy.close("Long", comment="TP", alert_message="WR-SMC TP HIT")
+    if not is_long_position and strategy.position_size < 0
+        if use_multiple_tp
+            if not tp1_hit and low <= tp1_price
+                close_qty = original_position_size * (tp1_percent / 100.0)
+                strategy.close("Short", qty=close_qty, comment="TP1", alert_message="WR-SMC TP1 HIT | Closed " + str.tostring(tp1_percent) + "%")
+                tp1_hit := true
+            if tp1_hit and not tp2_hit and low <= tp2_price
+                close_qty = original_position_size * (tp2_percent / 100.0)
+                strategy.close("Short", qty=close_qty, comment="TP2", alert_message="WR-SMC TP2 HIT | Closed " + str.tostring(tp2_percent) + "%")
+                tp2_hit := true
+            if tp2_hit and low <= tp3_price
+                strategy.close("Short", comment="TP3", alert_message="WR-SMC TP3 HIT | Full exit")
+        else
+            if low <= tp1_price
+                strategy.close("Short", comment="TP", alert_message="WR-SMC TP HIT")
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// VISUALIZE TP LEVELS
+// ═══════════════════════════════════════════════════════════════════════════════
+var line tp1_line = na
+var line tp2_line = na
+var line tp3_line = na
+var line sl_line = na
+
+if barstate.islast
+    if not na(tp1_line)
+        line.delete(tp1_line)
+        line.delete(tp2_line)
+        line.delete(tp3_line)
+        line.delete(sl_line)
+    tp1_line := na
+    tp2_line := na
+    tp3_line := na
+    sl_line := na
+    
+    if strategy.position_size != 0
+        tp1_line := line.new(bar_index - 10, tp1_price, bar_index + 10, tp1_price, color=color.new(color.green, 30), width=2, style=line.style_dashed, extend=extend.right)
+        if use_multiple_tp
+            tp2_line := line.new(bar_index - 10, tp2_price, bar_index + 10, tp2_price, color=color.new(color.green, 50), width=1, style=line.style_dotted, extend=extend.right)
+            tp3_line := line.new(bar_index - 10, tp3_price, bar_index + 10, tp3_price, color=color.new(color.green, 70), width=1, style=line.style_dotted, extend=extend.right)
+        sl_line := line.new(bar_index - 10, stop_loss, bar_index + 10, stop_loss, color=color.new(color.red, 30), width=2, style=line.style_solid, extend=extend.right)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// VISUALIZATION - S/R LEVELS
+// ═══════════════════════════════════════════════════════════════════════════════
+f_draw_support_levels() =>
+    if array.size(support_data) > 0
+        for i = 0 to array.size(support_data) - 1
+            level_obj = array.get(support_data, i)
+            level_price = level_obj.price
+            touches = level_obj.touches
+            lwidth = touches >= 4 ? 3 : touches >= 2 ? 2 : 1
+            lstyle = touches >= 3 ? line.style_solid : line.style_dashed
+            age = bar_index - level_obj.bar_created
+            age_factor = math.max(0.3, 1.0 - (age / level_expiration) * 0.5)
+            line_alpha = math.round((1.0 - age_factor) * 50)
+            f_delete_level_drawings(level_obj)
+            level_obj.level_line := line.new(bar_index - lookback_period, level_price, bar_index + 20, level_price, color=color.new(support_color, line_alpha), width=lwidth, style=lstyle, extend=extend.right)
+            if show_zones
+                level_obj.level_box := box.new(bar_index - lookback_period, level_price + support_zone_above, bar_index + 20, level_price - support_zone_below, bgcolor=color.new(color.green, zone_transparency), border_color=color.new(color.green, 80), extend=extend.right)
+            if show_labels
+                touch_text = touches > 1 ? " (" + str.tostring(touches) + "x)" : ""
+                level_obj.level_label := label.new(bar_index + 25, level_price, str.tostring(level_price, format.mintick) + touch_text, style=label.style_label_left, color=color.new(support_color, 60), textcolor=color.black, size=size.tiny)
+            array.set(support_data, i, level_obj)
+
+f_draw_resistance_levels() =>
+    if array.size(resistance_data) > 0
+        for i = 0 to array.size(resistance_data) - 1
+            level_obj = array.get(resistance_data, i)
+            level_price = level_obj.price
+            touches = level_obj.touches
+            lwidth = touches >= 4 ? 3 : touches >= 2 ? 2 : 1
+            lstyle = touches >= 3 ? line.style_solid : line.style_dashed
+            age = bar_index - level_obj.bar_created
+            age_factor = math.max(0.3, 1.0 - (age / level_expiration) * 0.5)
+            line_alpha = math.round((1.0 - age_factor) * 50)
+            f_delete_level_drawings(level_obj)
+            level_obj.level_line := line.new(bar_index - lookback_period, level_price, bar_index + 20, level_price, color=color.new(resistance_color, line_alpha), width=lwidth, style=lstyle, extend=extend.right)
+            if show_zones
+                level_obj.level_box := box.new(bar_index - lookback_period, level_price + resist_zone_above, bar_index + 20, level_price - resist_zone_below, bgcolor=color.new(color.red, zone_transparency), border_color=color.new(color.red, 80), extend=extend.right)
+            if show_labels
+                touch_text = touches > 1 ? " (" + str.tostring(touches) + "x)" : ""
+                level_obj.level_label := label.new(bar_index + 25, level_price, str.tostring(level_price, format.mintick) + touch_text, style=label.style_label_left, color=color.new(resistance_color, 60), textcolor=color.black, size=size.tiny)
+            array.set(resistance_data, i, level_obj)
+
+if barstate.islast or levels_changed
+    f_draw_support_levels()
+    f_draw_resistance_levels()
+    levels_changed := false
+
+plot(show_ema ? ema_9 : na, "9 EMA", color=color.red, linewidth=2)
+
+plotshape(buy_signal and not is_sweep_signal, "Buy Signal", shape.triangleup, location.belowbar, buy_signal_color, size=size.small)
+plotshape(sell_signal and not is_sweep_signal, "Sell Signal", shape.triangledown, location.abovebar, sell_signal_color, size=size.small)
+plotshape(buy_signal and is_sweep_signal, "Sweep Buy", shape.diamond, location.belowbar, color.blue, size=size.large)
+plotshape(sell_signal and is_sweep_signal, "Sweep Sell", shape.diamond, location.abovebar, color.blue, size=size.large)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// v4.1 ENHANCED SIGNAL LABELS
+// ═══════════════════════════════════════════════════════════════════════════════
+var label[] signal_labels = array.new_label()
+
+if buy_signal and barstate.isconfirmed
+    tier_emoji = f_get_tier_emoji(signal_confidence)
+    tier_name = f_get_confidence_tier(signal_confidence)
+    type_short = is_sweep_signal ? "SWEEP" : "ZONE"
+    
+    // v4.1: Enhanced label with tier and confluence info
+    label_text = tier_emoji + " BUY " + tier_name + "\n@" + str.tostring(signal_level, format.mintick) + " | SL:" + str.tostring(suggested_sl, format.mintick) + "\nConf: " + str.tostring(signal_confidence) + "/20"
+    if str.length(confluence_text) > 0
+        label_text := label_text + "\n" + str.replace(confluence_text, "+", " ")
+    
+    new_label = label.new(bar_index, low - (zone_buffer * 2), label_text, style=label.style_label_up, color=buy_signal_color, textcolor=color.black, size=size.small)
+    array.push(signal_labels, new_label)
+    if array.size(signal_labels) > max_signal_labels
+        old_label = array.shift(signal_labels)
+        label.delete(old_label)
+
+if sell_signal and barstate.isconfirmed
+    tier_emoji = f_get_tier_emoji(signal_confidence)
+    tier_name = f_get_confidence_tier(signal_confidence)
+    type_short = is_sweep_signal ? "SWEEP" : "ZONE"
+    
+    label_text = tier_emoji + " SELL " + tier_name + "\n@" + str.tostring(signal_level, format.mintick) + " | SL:" + str.tostring(suggested_sl, format.mintick) + "\nConf: " + str.tostring(signal_confidence) + "/20"
+    if str.length(confluence_text) > 0
+        label_text := label_text + "\n" + str.replace(confluence_text, "+", " ")
+    
+    new_label = label.new(bar_index, high + (zone_buffer * 2), label_text, style=label.style_label_down, color=sell_signal_color, textcolor=color.black, size=size.small)
+    array.push(signal_labels, new_label)
+    if array.size(signal_labels) > max_signal_labels
+        old_label = array.shift(signal_labels)
+        label.delete(old_label)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// INFO TABLE (ENHANCED WITH v4.1 SMC DATA)
+// ═══════════════════════════════════════════════════════════════════════════════
+f_get_table_size() =>
+    table_text_size == "Large" ? size.large : table_text_size == "Small" ? size.small : size.normal
+
+var table info_table = table.new(position.top_right, 2, 14, bgcolor=color.new(color.black, 20), border_width=2, border_color=color.new(color.gray, 50))
+
+if show_info_table and barstate.islast
+    txt_size = f_get_table_size()
+    
+    // Header
+    table.cell(info_table, 0, 0, "WR-SMC v4.1", text_color=color.white, text_size=txt_size, bgcolor=color.new(color.blue, 30), text_halign=text.align_center)
+    table.cell(info_table, 1, 0, "ENHANCED", text_color=color.yellow, text_size=txt_size, bgcolor=color.new(color.blue, 30), text_halign=text.align_center)
+    
+    // Biases
+    m5_bias_text = m5_bullish ? "BULLISH ▲" : m5_bearish ? "BEARISH ▼" : "NEUTRAL ●"
+    m5_bias_color = m5_bullish ? color.new(color.lime, 0) : m5_bearish ? color.new(color.red, 0) : color.gray
+    table.cell(info_table, 0, 1, "M5 Bias", text_color=color.new(color.silver, 0), text_size=txt_size, bgcolor=color.new(color.black, 30))
+    table.cell(info_table, 1, 1, m5_bias_text, text_color=m5_bias_color, text_size=txt_size, bgcolor=color.new(color.black, 30), text_halign=text.align_right)
+    
+    h1_bias_text = h1_bullish ? "BULLISH ▲" : h1_bearish ? "BEARISH ▼" : "NEUTRAL ●"
+    h1_bias_color = h1_bullish ? color.new(color.lime, 0) : h1_bearish ? color.new(color.red, 0) : color.gray
+    table.cell(info_table, 0, 2, "H1 Bias", text_color=color.new(color.silver, 0), text_size=txt_size, bgcolor=color.new(color.black, 30))
+    table.cell(info_table, 1, 2, h1_bias_text, text_color=h1_bias_color, text_size=txt_size, bgcolor=color.new(color.black, 30), text_halign=text.align_right)
+    
+    smc_trend_text = smcTrendDir == "Bullish" ? "BULLISH ▲" : smcTrendDir == "Bearish" ? "BEARISH ▼" : "NEUTRAL ●"
+    smc_trend_color = smcTrendDir == "Bullish" ? color.new(color.lime, 0) : smcTrendDir == "Bearish" ? color.new(color.red, 0) : color.gray
+    table.cell(info_table, 0, 3, "SMC Trend", text_color=color.new(color.silver, 0), text_size=txt_size, bgcolor=color.new(color.black, 30))
+    table.cell(info_table, 1, 3, smc_trend_text, text_color=smc_trend_color, text_size=txt_size, bgcolor=color.new(color.black, 30), text_halign=text.align_right)
+    
+    dir_text = overall_bullish ? "LONGS ONLY" : overall_bearish ? "SHORTS ONLY" : "NO TRADE"
+    dir_color = overall_bullish ? color.new(color.lime, 0) : overall_bearish ? color.new(color.red, 0) : color.orange
+    dir_bg = overall_bullish ? color.new(color.green, 80) : overall_bearish ? color.new(color.maroon, 80) : color.new(color.gray, 80)
+    table.cell(info_table, 0, 4, "Direction", text_color=color.white, text_size=txt_size, bgcolor=dir_bg)
+    table.cell(info_table, 1, 4, dir_text, text_color=dir_color, text_size=txt_size, bgcolor=dir_bg, text_halign=text.align_right)
+    
+    cisd_text = use_cisd and cisd_bullish_signal ? "BULLISH 🔥" : use_cisd and cisd_bearish_signal ? "BEARISH 🔥" : "INACTIVE"
+    cisd_color = cisd_bullish_signal ? color.new(color.lime, 0) : cisd_bearish_signal ? color.new(color.red, 0) : color.gray
+    table.cell(info_table, 0, 5, "CISD", text_color=color.new(color.silver, 0), text_size=txt_size, bgcolor=color.new(color.black, 30))
+    table.cell(info_table, 1, 5, cisd_text, text_color=cisd_color, text_size=txt_size, bgcolor=color.new(color.black, 30), text_halign=text.align_right)
+    
+    // Separator
+    table.cell(info_table, 0, 6, "━━━━━", text_color=color.new(color.gray, 30), text_size=txt_size, bgcolor=color.new(color.black, 50))
+    table.cell(info_table, 1, 6, "━━━━━", text_color=color.new(color.gray, 30), text_size=txt_size, bgcolor=color.new(color.black, 50))
+    
+    // Levels
+    nearest_sup = 0.0
+    if array.size(support_data) > 0
+        min_dist = 99999.0
+        for i = 0 to array.size(support_data) - 1
+            s = array.get(support_data, i)
+            dist = close - s.price
+            if dist > 0 and dist < min_dist
+                min_dist := dist
+                nearest_sup := s.price
+    sup_text = nearest_sup > 0 ? str.tostring(nearest_sup, format.mintick) : "N/A"
+    table.cell(info_table, 0, 7, "Support ↓", text_color=color.new(color.silver, 0), text_size=txt_size, bgcolor=color.new(color.black, 30))
+    table.cell(info_table, 1, 7, sup_text, text_color=color.new(color.lime, 0), text_size=txt_size, bgcolor=color.new(color.black, 30), text_halign=text.align_right)
+    
+    nearest_res = 0.0
+    if array.size(resistance_data) > 0
+        min_dist = 99999.0
+        for i = 0 to array.size(resistance_data) - 1
+            r = array.get(resistance_data, i)
+            dist = r.price - close
+            if dist > 0 and dist < min_dist
+                min_dist := dist
+                nearest_res := r.price
+    res_text = nearest_res > 0 ? str.tostring(nearest_res, format.mintick) : "N/A"
+    table.cell(info_table, 0, 8, "Resist ↑", text_color=color.new(color.silver, 0), text_size=txt_size, bgcolor=color.new(color.black, 30))
+    table.cell(info_table, 1, 8, res_text, text_color=color.new(color.red, 0), text_size=txt_size, bgcolor=color.new(color.black, 30), text_halign=text.align_right)
+    
+    table.cell(info_table, 0, 9, "S/R Levels", text_color=color.new(color.silver, 0), text_size=txt_size, bgcolor=color.new(color.black, 30))
+    table.cell(info_table, 1, 9, str.tostring(array.size(support_data)) + " / " + str.tostring(array.size(resistance_data)), text_color=color.white, text_size=txt_size, bgcolor=color.new(color.black, 30), text_halign=text.align_right)
+    
+    table.cell(info_table, 0, 10, "FVG Zones", text_color=color.new(color.silver, 0), text_size=txt_size, bgcolor=color.new(color.black, 30))
+    table.cell(info_table, 1, 10, str.tostring(array.size(bullFVGs)) + " / " + str.tostring(array.size(bearFVGs)), text_color=color.white, text_size=txt_size, bgcolor=color.new(color.black, 30), text_halign=text.align_right)
+    
+    table.cell(info_table, 0, 11, "Order Blocks", text_color=color.new(color.silver, 0), text_size=txt_size, bgcolor=color.new(color.black, 30))
+    table.cell(info_table, 1, 11, str.tostring(array.size(bullOBs)) + " / " + str.tostring(array.size(bearOBs)), text_color=color.white, text_size=txt_size, bgcolor=color.new(color.black, 30), text_halign=text.align_right)
+    
+    // v4.1 NEW: Last Signal Info
+    last_sig_text = last_signal_tier != "" ? last_signal_tier + " (" + str.tostring(last_signal_confidence) + "/20)" : "N/A"
+    last_sig_color = last_signal_confidence >= 15 ? color.new(color.orange, 0) : last_signal_confidence >= 12 ? color.new(color.yellow, 0) : last_signal_confidence >= 9 ? color.new(color.lime, 0) : color.white
+    table.cell(info_table, 0, 12, "Last Signal", text_color=color.new(color.silver, 0), text_size=txt_size, bgcolor=color.new(color.black, 30))
+    table.cell(info_table, 1, 12, last_sig_text, text_color=last_sig_color, text_size=txt_size, bgcolor=color.new(color.black, 30), text_halign=text.align_right)
+    
+    // v4.1 NEW: Position Size
+    pos_text = last_position_size > 0 ? str.tostring(last_position_size, "#.##") + "%" : "N/A"
+    table.cell(info_table, 0, 13, "Position Size", text_color=color.new(color.silver, 0), text_size=txt_size, bgcolor=color.new(color.black, 30))
+    table.cell(info_table, 1, 13, pos_text, text_color=color.white, text_size=txt_size, bgcolor=color.new(color.black, 30), text_halign=text.align_right)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// END OF v4.1 ENHANCED STRATEGY - WR-SR + SMC HYBRID ✅
+// ═══════════════════════════════════════════════════════════════════════════════
