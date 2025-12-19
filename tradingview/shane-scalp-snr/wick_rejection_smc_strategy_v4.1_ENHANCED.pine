@@ -479,12 +479,8 @@ f_calculate_smc_alignment(bool is_bullish) =>
         else if not is_bullish and smcTrendDir == "Bearish"
             score += 1
         
-        choch_recent = is_bullish ? 
-            (bar_index - last_bull_choch_bar <= 30 and last_bull_choch_bar > 0) : 
-            (bar_index - last_bear_choch_bar <= 30 and last_bear_choch_bar > 0)
-        bos_recent = is_bullish ? 
-            (bar_index - last_bull_bos_bar <= 30 and last_bull_bos_bar > 0) : 
-            (bar_index - last_bear_bos_bar <= 30 and last_bear_bos_bar > 0)
+        choch_recent = is_bullish ? (bar_index - last_bull_choch_bar <= 30 and last_bull_choch_bar > 0) : (bar_index - last_bear_choch_bar <= 30 and last_bear_choch_bar > 0)
+        bos_recent = is_bullish ? (bar_index - last_bull_bos_bar <= 30 and last_bull_bos_bar > 0) : (bar_index - last_bear_bos_bar <= 30 and last_bear_bos_bar > 0)
         if choch_recent or bos_recent
             score += 1
         
@@ -800,6 +796,7 @@ f_check_support_signals() =>
     _type = ""
     _sl = 0.0
     _confluence = ""
+    _sweep_bar = 0
     
     if array.size(support_data) > 0 and barstate.isconfirmed
         for i = 0 to array.size(support_data) - 1
@@ -831,7 +828,7 @@ f_check_support_signals() =>
                 _conf := 3  // Base sweep score
                 
                 // v4.1: Track sweep bar for combo detection
-                last_sweep_buy_bar := bar_index
+                _sweep_bar := bar_index
                 
                 // Original confluence
                 _conf += touches >= 3 ? 1 : 0
@@ -919,7 +916,7 @@ f_check_support_signals() =>
                     level_obj.last_signal_bar := bar_index
                     array.set(support_data, i, level_obj)
                     
-    [_signal_found, _is_sweep, _level, _conf, _type, _sl, _confluence]
+    [_signal_found, _is_sweep, _level, _conf, _type, _sl, _confluence, _sweep_bar]
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // CHECK RESISTANCE SIGNALS (WITH v4.1 SMC CONFLUENCE)
@@ -932,6 +929,7 @@ f_check_resistance_signals() =>
     _type = ""
     _sl = 0.0
     _confluence = ""
+    _sweep_bar = 0
     
     if array.size(resistance_data) > 0 and barstate.isconfirmed
         for i = 0 to array.size(resistance_data) - 1
@@ -963,7 +961,7 @@ f_check_resistance_signals() =>
                 _conf := 3
                 
                 // v4.1: Track sweep bar
-                last_sweep_sell_bar := bar_index
+                _sweep_bar := bar_index
                 
                 _conf += touches >= 3 ? 1 : 0
                 _conf += m5_bearish ? 1 : 0
@@ -1048,10 +1046,16 @@ f_check_resistance_signals() =>
                     level_obj.last_signal_bar := bar_index
                     array.set(resistance_data, i, level_obj)
                     
-    [_signal_found, _is_sweep, _level, _conf, _type, _sl, _confluence]
+    [_signal_found, _is_sweep, _level, _conf, _type, _sl, _confluence, _sweep_bar]
 
-[buy_found, buy_is_sweep, buy_level, buy_conf, buy_type, buy_sl, buy_confluence] = f_check_support_signals()
-[sell_found, sell_is_sweep, sell_level, sell_conf, sell_type, sell_sl, sell_confluence] = f_check_resistance_signals()
+[buy_found, buy_is_sweep, buy_level, buy_conf, buy_type, buy_sl, buy_confluence, buy_sweep_bar] = f_check_support_signals()
+[sell_found, sell_is_sweep, sell_level, sell_conf, sell_type, sell_sl, sell_confluence, sell_sweep_bar] = f_check_resistance_signals()
+
+// v4.1: Update global sweep bar tracking variables
+if buy_found and buy_is_sweep and buy_sweep_bar > 0
+    last_sweep_buy_bar := buy_sweep_bar
+if sell_found and sell_is_sweep and sell_sweep_bar > 0
+    last_sweep_sell_bar := sell_sweep_bar
 
 if buy_found and (not use_ema_filter or overall_bullish or (allow_reversal_trades and buy_conf >= reversal_min_confidence))
     buy_signal := true

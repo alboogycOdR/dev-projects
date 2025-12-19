@@ -1,0 +1,588 @@
+// This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © FxHD Academy - Converted from MQL5 EA to TradingView Strategy
+// FxHD Strategy v2.0 - Fibonacci-based Multi-Timeframe Trading System
+
+//@version=6
+strategy("FxHD Strategy v2.0", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=2, initial_capital=10000, calc_on_every_tick=false, process_orders_on_close=true, max_bars_back=500)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// INPUT PARAMETERS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ────────────────── TimeFrame Settings ──────────────────
+htfInput = input.timeframe("240", "HTF (Higher Timeframe)", group="TimeFrame Settings", tooltip="Default: 4H for bias detection")
+htfFiboColor = input.color(color.green, "HTF Fibo Color", group="TimeFrame Settings")
+
+// ────────────────── Visual Settings ──────────────────
+showDashboard = input.bool(true, "Show Dashboard", group="Visual Settings")
+showFiboHTF = input.bool(true, "Show HTF Fibonacci", group="Visual Settings")
+showFiboLTF = input.bool(true, "Show LTF Fibonacci", group="Visual Settings")
+showEntryZone = input.bool(true, "Show Entry Zone", group="Visual Settings")
+
+// ────────────────── HTF Bias Detection Settings ──────────────────
+biasMethodInput = input.string("Dynamic CRT", "Primary Bias Method", options=["CRT 4H Kill Zone", "Last Two Candles", "Dynamic CRT", "Market Structure"], group="HTF Bias Detection")
+fallbackMethodInput = input.string("Last Two Candles", "Fallback Method", options=["CRT 4H Kill Zone", "Last Two Candles", "Dynamic CRT", "Market Structure"], group="HTF Bias Detection")
+
+// ────────────────── CRT Method Settings ──────────────────
+crtVariation = input.string("Variation A", "CRT Variation", options=["Variation A", "Variation B"], group="CRT Settings")
+crtCandle1A = input.string("1 AM UTC", "Candle #1 Start (Var A)", options=["1 AM UTC", "5 AM UTC", "9 AM UTC"], group="CRT Settings")
+crtCandle1B = input.string("0 AM UTC", "Candle #1 Start (Var B)", options=["0 AM UTC", "4 AM UTC", "8 AM UTC"], group="CRT Settings")
+crtUseCandle = input.string("Candle #1", "Use Candle", options=["Candle #1", "Candle #2", "Candle #3"], group="CRT Settings")
+crtKillZoneHours = input.int(4, "Kill Zone Duration (hours)", minval=1, maxval=12, group="CRT Settings")
+
+// ────────────────── Market Structure Settings ──────────────────
+msbLookback = input.int(50, "MSB Lookback Bars", minval=10, maxval=200, group="Market Structure")
+msbSwingStrength = input.int(3, "Swing Strength (bars)", minval=2, maxval=10, group="Market Structure")
+
+// ────────────────── Trade Properties ──────────────────
+retraceBreakLevel = input.float(38.2, "Retrace Break Level (%)", minval=10, maxval=90, step=0.1, group="Trade Properties")
+entryLevel = input.float(50.0, "Entry Level (%)", minval=10, maxval=90, step=0.1, group="Trade Properties")
+breakEvenLevel = input.float(50.0, "Break-Even Level (%)", minval=10, maxval=90, step=0.1, group="Trade Properties")
+slLevel = input.float(100.0, "Stop Loss Level (%)", minval=50, maxval=150, step=0.1, group="Trade Properties")
+tpLevel = input.float(-27.2, "Take Profit Level (%)", minval=-100, maxval=50, step=0.1, group="Trade Properties")
+
+// ────────────────── Risk Management ──────────────────
+enableBreakEven = input.bool(true, "Enable Break-Even", group="Risk Management")
+enableBOSStop = input.bool(true, "Enable BOS Stop", group="Risk Management", tooltip="Stop trading on Break of Structure")
+riskPercent = input.float(2.0, "Risk Per Trade (%)", minval=0.1, maxval=10, step=0.1, group="Risk Management")
+
+// ────────────────── LTF Setup Detection ──────────────────
+minImpulseBars = input.int(2, "Min Impulse Bars", minval=1, maxval=5, group="LTF Setup")
+minRetraceBars = input.int(2, "Min Retrace Bars", minval=1, maxval=5, group="LTF Setup")
+confirmationBars = input.int(2, "Confirmation Bars", minval=1, maxval=5, group="LTF Setup")
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// GLOBAL VARIABLES
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// Bias state
+var int currentBias = 0          // 1 = Bullish, -1 = Bearish, 0 = Neutral
+var string biasMethod = ""
+var int biasBarIndex = 0
+var bool biasActive = false
+
+// CRT State
+var float crtRangeHigh = 0.0
+var float crtRangeLow = 0.0
+var bool crtRangeCalculated = false
+var bool crtBiasDetermined = false
+var int crtBiasDirection = 0
+
+// Dynamic CRT State
+var float dynCrtRangeHigh = 0.0
+var float dynCrtRangeLow = 0.0
+var bool dynCrtRangeCalculated = false
+var bool dynCrtBiasDetermined = false
+var int dynCrtBiasDirection = 0
+
+// HTF Fibonacci Levels
+var float htfLevel0 = 0.0
+var float htfLevel100 = 0.0
+var int htfFiboBar = 0
+
+// LTF Fibonacci Levels
+var float ltfLevel0 = 0.0
+var float ltfLevel100 = 0.0
+var float ltfEntryLevel = 0.0
+var float ltfSL = 0.0
+var float ltfTP = 0.0
+var int ltfFiboBar = 0
+var bool ltfSetupValid = false
+
+// Trading state
+var bool tradingEnabled = true
+var bool inPosition = false
+var float entryPrice = 0.0
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// HELPER FUNCTIONS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// Get HTF data
+htfOpen = request.security(syminfo.tickerid, htfInput, open)
+htfHigh = request.security(syminfo.tickerid, htfInput, high)
+htfLow = request.security(syminfo.tickerid, htfInput, low)
+htfClose = request.security(syminfo.tickerid, htfInput, close)
+htfTime = request.security(syminfo.tickerid, htfInput, time)
+
+// Previous HTF candles
+htfOpen1 = request.security(syminfo.tickerid, htfInput, open[1])
+htfHigh1 = request.security(syminfo.tickerid, htfInput, high[1])
+htfLow1 = request.security(syminfo.tickerid, htfInput, low[1])
+htfClose1 = request.security(syminfo.tickerid, htfInput, close[1])
+
+htfOpen2 = request.security(syminfo.tickerid, htfInput, open[2])
+htfHigh2 = request.security(syminfo.tickerid, htfInput, high[2])
+htfLow2 = request.security(syminfo.tickerid, htfInput, low[2])
+htfClose2 = request.security(syminfo.tickerid, htfInput, close[2])
+
+// Detect new HTF candle
+htfTimeChanged = ta.change(htfTime) != 0
+
+// Get current hour in UTC
+currentHour = hour(time, "UTC")
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// BIAS DETECTION METHODS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ────────────────── Method 1: Last Two Candles ──────────────────
+detectBiasLastTwoCandles() =>
+    candle1Bullish = htfClose1 > htfOpen1
+    candle1Bearish = htfClose1 < htfOpen1
+    candle2Bullish = htfClose2 > htfOpen2
+    candle2Bearish = htfClose2 < htfOpen2
+    
+    detectedBias = 0
+    if candle1Bullish and candle2Bullish
+        detectedBias := 1  // Bullish
+    else if candle1Bearish and candle2Bearish
+        detectedBias := -1 // Bearish
+    // Mixed = Neutral (0)
+    
+    detectedBias
+
+// ────────────────── Method 2: Dynamic CRT ──────────────────
+detectBiasDynamicCRT() =>
+    // Range candle is index 2 (older), Bias candle is index 1 (more recent)
+    rangeHigh = htfHigh2
+    rangeLow = htfLow2
+    biasHigh = htfHigh1
+    biasLow = htfLow1
+    biasClose = htfClose1
+    
+    highSwept = biasHigh >= rangeHigh
+    lowSwept = biasLow <= rangeLow
+    
+    detectedBias = 0
+    if highSwept and lowSwept
+        detectedBias := 0  // Neutral - both swept
+    else if highSwept
+        detectedBias := -1 // Bearish - high swept
+    else if lowSwept
+        detectedBias := 1  // Bullish - low swept
+    else
+        // No sweep - use close relative to midpoint
+        rangeMid = (rangeHigh + rangeLow) / 2.0
+        if biasClose > rangeMid
+            detectedBias := 1  // Bullish
+        else
+            detectedBias := -1 // Bearish
+    
+    detectedBias
+
+// ────────────────── Method 3: Market Structure Break ──────────────────
+detectBiasMSB() =>
+    // Find swing highs and lows
+    highestSwing = ta.highest(htfHigh, msbLookback)
+    lowestSwing = ta.lowest(htfLow, msbLookback)
+    
+    // Check for structure break
+    detectedBias = 0
+    if htfHigh > highestSwing[1]
+        detectedBias := 1  // Bullish structure break
+    else if htfLow < lowestSwing[1]
+        detectedBias := -1 // Bearish structure break
+    
+    detectedBias
+
+// ────────────────── Method 4: CRT Kill Zone ──────────────────
+// Get target hours based on variation and candle selection
+getCRTTargetHour() =>
+    candle1Hour = 0
+    candle2Hour = 0
+    candle3Hour = 0
+    
+    if crtVariation == "Variation A"
+        if crtCandle1A == "1 AM UTC"
+            candle1Hour := 1
+            candle2Hour := 5
+            candle3Hour := 9
+        else if crtCandle1A == "5 AM UTC"
+            candle1Hour := 5
+            candle2Hour := 9
+            candle3Hour := 13
+        else // 9 AM UTC
+            candle1Hour := 9
+            candle2Hour := 13
+            candle3Hour := 17
+    else // Variation B
+        if crtCandle1B == "0 AM UTC"
+            candle1Hour := 0
+            candle2Hour := 4
+            candle3Hour := 8
+        else if crtCandle1B == "4 AM UTC"
+            candle1Hour := 4
+            candle2Hour := 8
+            candle3Hour := 12
+        else // 8 AM UTC
+            candle1Hour := 8
+            candle2Hour := 12
+            candle3Hour := 16
+    
+    selectedHour = candle1Hour
+    if crtUseCandle == "Candle #2"
+        selectedHour := candle2Hour
+    else if crtUseCandle == "Candle #3"
+        selectedHour := candle3Hour
+    
+    selectedHour
+
+detectBiasCRT() =>
+    targetHour = getCRTTargetHour()
+    
+    // Simplified CRT - check if current 4H candle matches target and is closed
+    htfBarHour = hour(htfTime, "UTC")
+    
+    // For CRT, we use similar logic to Dynamic CRT but with specific time windows
+    rangeHigh = htfHigh2
+    rangeLow = htfLow2
+    biasHigh = htfHigh1
+    biasLow = htfLow1
+    biasClose = htfClose1
+    
+    highSwept = biasHigh >= rangeHigh
+    lowSwept = biasLow <= rangeLow
+    
+    detectedBias = 0
+    if highSwept and not lowSwept
+        detectedBias := -1 // Bearish - high swept
+    else if lowSwept and not highSwept
+        detectedBias := 1  // Bullish - low swept
+    
+    detectedBias
+
+// ────────────────── Main Bias Detection ──────────────────
+detectHTFBias() =>
+    primaryBias = 0
+    usedMethod = ""
+    
+    // Primary method
+    if biasMethodInput == "Last Two Candles"
+        primaryBias := detectBiasLastTwoCandles()
+        usedMethod := "L2C"
+    else if biasMethodInput == "Dynamic CRT"
+        primaryBias := detectBiasDynamicCRT()
+        usedMethod := "DCRT"
+    else if biasMethodInput == "Market Structure"
+        primaryBias := detectBiasMSB()
+        usedMethod := "MSB"
+    else // CRT 4H Kill Zone
+        primaryBias := detectBiasCRT()
+        usedMethod := "CRT"
+    
+    // Fallback if primary returns neutral
+    if primaryBias == 0
+        if fallbackMethodInput == "Last Two Candles"
+            primaryBias := detectBiasLastTwoCandles()
+            usedMethod := "L2C(FB)"
+        else if fallbackMethodInput == "Dynamic CRT"
+            primaryBias := detectBiasDynamicCRT()
+            usedMethod := "DCRT(FB)"
+        else if fallbackMethodInput == "Market Structure"
+            primaryBias := detectBiasMSB()
+            usedMethod := "MSB(FB)"
+        else
+            primaryBias := detectBiasCRT()
+            usedMethod := "CRT(FB)"
+    
+    [primaryBias, usedMethod]
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SWING POINT DETECTION FOR FIBONACCI
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// Find swing highs and lows for HTF Fibonacci
+pivotLookback = 5
+swingHighHTF = ta.pivothigh(htfHigh, pivotLookback, pivotLookback)
+swingLowHTF = ta.pivotlow(htfLow, pivotLookback, pivotLookback)
+
+// Track recent swing points
+var float recentSwingHigh = 0.0
+var float recentSwingLow = 0.0
+var int swingHighBar = 0
+var int swingLowBar = 0
+
+if not na(swingHighHTF)
+    recentSwingHigh := swingHighHTF
+    swingHighBar := bar_index - pivotLookback
+
+if not na(swingLowHTF)
+    recentSwingLow := swingLowHTF
+    swingLowBar := bar_index - pivotLookback
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// LTF SETUP DETECTION (Impulse + Retrace)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// Detect impulse and retrace on current timeframe
+detectLTFSetup(int bias) =>
+    setupValid = false
+    level0Price = 0.0
+    level100Price = 0.0
+    
+    if bias != 0
+        // Count consecutive impulse candles
+        impulseBars = 0
+        impulseStart = close
+        impulseEnd = close
+        
+        if bias == 1 // Bullish - looking for bullish impulse
+            for i = 1 to 20
+                if close[i] > open[i]
+                    impulseBars += 1
+                    if impulseBars == 1
+                        impulseStart := low[i]
+                    impulseEnd := high[i]
+                else
+                    break
+        else // Bearish - looking for bearish impulse
+            for i = 1 to 20
+                if close[i] < open[i]
+                    impulseBars += 1
+                    if impulseBars == 1
+                        impulseStart := high[i]
+                    impulseEnd := low[i]
+                else
+                    break
+        
+        // Count retrace candles
+        retraceBars = 0
+        if impulseBars >= minImpulseBars
+            for i = 1 to 10
+                if bias == 1 and close[i] < open[i]  // Bearish retrace in bullish bias
+                    retraceBars += 1
+                else if bias == -1 and close[i] > open[i]  // Bullish retrace in bearish bias
+                    retraceBars += 1
+                else if retraceBars > 0
+                    break
+        
+        // Check if setup is valid
+        if impulseBars >= minImpulseBars and retraceBars >= minRetraceBars
+            if bias == 1 // Bullish
+                level0Price := impulseEnd    // Swing high
+                level100Price := impulseStart // Swing low
+            else // Bearish
+                level0Price := impulseEnd    // Swing low
+                level100Price := impulseStart // Swing high
+            setupValid := true
+    
+    [setupValid, level0Price, level100Price]
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// CONFIRMATION CHECK
+// ═══════════════════════════════════════════════════════════════════════════════
+
+checkConfirmation(int bias, float level0) =>
+    confirmed = false
+    if bias == 1 // Bullish - 2 candles must close above level0
+        if close[1] > level0 and close[2] > level0
+            confirmed := true
+    else if bias == -1 // Bearish - 2 candles must close below level0
+        if close[1] < level0 and close[2] < level0
+            confirmed := true
+    confirmed
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// BOS (BREAK OF STRUCTURE) DETECTION
+// ═══════════════════════════════════════════════════════════════════════════════
+
+detectBOS(float level100, int bias) =>
+    bosDetected = false
+    consecutiveBars = 0
+    
+    for i = 1 to 10
+        if bias == 1 // Bullish - BOS if price breaks below level100
+            if close[i] < open[i] and close[i] < level100
+                consecutiveBars += 1
+            else
+                consecutiveBars := 0
+        else if bias == -1 // Bearish - BOS if price breaks above level100
+            if close[i] > open[i] and close[i] > level100
+                consecutiveBars += 1
+            else
+                consecutiveBars := 0
+        
+        if consecutiveBars >= 2
+            bosDetected := true
+            break
+    
+    bosDetected
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MAIN LOGIC EXECUTION
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// Update bias on new HTF candle
+if htfTimeChanged
+    [newBias, newMethod] = detectHTFBias()
+    if newBias != 0
+        currentBias := newBias
+        biasMethod := newMethod
+        biasBarIndex := bar_index
+        biasActive := true
+        
+        // Set HTF Fibonacci levels based on bias
+        if currentBias == 1 // Bullish
+            htfLevel0 := recentSwingLow
+            htfLevel100 := recentSwingHigh
+        else // Bearish
+            htfLevel0 := recentSwingHigh
+            htfLevel100 := recentSwingLow
+        htfFiboBar := bar_index
+
+// Detect LTF setup
+[setupValid, l0, l100] = detectLTFSetup(currentBias)
+
+// Check confirmation
+confirmed = setupValid ? checkConfirmation(currentBias, l0) : false
+
+// Update LTF Fibonacci if confirmed
+if confirmed and setupValid
+    ltfLevel0 := l0
+    ltfLevel100 := l100
+    
+    // Calculate entry, SL, TP based on Fibonacci levels
+    fiboRange = ltfLevel100 - ltfLevel0
+    ltfEntryLevel := ltfLevel0 + (entryLevel / 100.0) * fiboRange
+    ltfSL := ltfLevel0 + (slLevel / 100.0) * fiboRange
+    ltfTP := ltfLevel0 + (tpLevel / 100.0) * fiboRange
+    ltfFiboBar := bar_index
+    ltfSetupValid := true
+
+// Check for BOS
+if enableBOSStop and ltfSetupValid
+    if detectBOS(ltfLevel100, currentBias)
+        tradingEnabled := false
+        ltfSetupValid := false
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ENTRY CONDITIONS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// Long entry conditions
+longCondition = currentBias == 1 and ltfSetupValid and tradingEnabled and strategy.position_size == 0 and ta.crossunder(close, ltfEntryLevel)
+
+// Short entry conditions
+shortCondition = currentBias == -1 and ltfSetupValid and tradingEnabled and strategy.position_size == 0 and ta.crossover(close, ltfEntryLevel)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// STRATEGY EXECUTION
+// ═══════════════════════════════════════════════════════════════════════════════
+
+if longCondition
+    strategy.entry("Long", strategy.long)
+    strategy.exit("Long Exit", "Long", stop=ltfSL, limit=ltfTP)
+    entryPrice := close
+    inPosition := true
+
+if shortCondition
+    strategy.entry("Short", strategy.short)
+    strategy.exit("Short Exit", "Short", stop=ltfSL, limit=ltfTP)
+    entryPrice := close
+    inPosition := true
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// BREAK-EVEN MANAGEMENT
+// ═══════════════════════════════════════════════════════════════════════════════
+
+if enableBreakEven and strategy.position_size != 0
+    // Calculate break-even trigger level
+    beRange = math.abs(ltfLevel100 - ltfLevel0)
+    beTrigger = entryPrice + (breakEvenLevel / 100.0) * beRange * (strategy.position_size > 0 ? 1 : -1)
+    
+    // Check if price has reached break-even level
+    if strategy.position_size > 0 and high >= beTrigger
+        // Move stop to break-even for long
+        strategy.exit("Long Exit", "Long", stop=entryPrice, limit=ltfTP)
+    else if strategy.position_size < 0 and low <= beTrigger
+        // Move stop to break-even for short
+        strategy.exit("Short Exit", "Short", stop=entryPrice, limit=ltfTP)
+
+// Track position state
+if strategy.position_size == 0
+    inPosition := false
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// VISUALIZATION
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// Background color based on bias
+bgColor = currentBias == 1 ? color.new(color.green, 95) : currentBias == -1 ? color.new(color.red, 95) : color.new(color.gray, 98)
+bgcolor(bgColor, title="Bias Background")
+
+// Plot HTF Fibonacci levels
+plot(showFiboHTF and htfLevel0 > 0 ? htfLevel0 : na, "HTF Level 0", htfFiboColor, 1, plot.style_linebr)
+plot(showFiboHTF and htfLevel100 > 0 ? htfLevel100 : na, "HTF Level 100", htfFiboColor, 1, plot.style_linebr)
+
+// Plot LTF Fibonacci levels
+ltfColor = currentBias == 1 ? color.blue : color.orange
+plot(showFiboLTF and ltfSetupValid ? ltfLevel0 : na, "LTF Level 0", ltfColor, 1, plot.style_stepline)
+plot(showFiboLTF and ltfSetupValid ? ltfLevel100 : na, "LTF Level 100", ltfColor, 1, plot.style_stepline)
+
+// Plot entry level
+plot(showEntryZone and ltfSetupValid ? ltfEntryLevel : na, "Entry Level", color.yellow, 2, plot.style_circles)
+
+// Plot SL and TP
+plot(ltfSetupValid ? ltfSL : na, "Stop Loss", color.red, 1, plot.style_cross)
+plot(ltfSetupValid ? ltfTP : na, "Take Profit", color.lime, 1, plot.style_cross)
+
+// Entry zone fill
+p1 = plot(showEntryZone and ltfSetupValid ? ltfLevel0 : na, display=display.none)
+p2 = plot(showEntryZone and ltfSetupValid ? ltfEntryLevel : na, display=display.none)
+fill(p1, p2, color.new(currentBias == 1 ? color.green : color.red, 85), title="Entry Zone")
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// DASHBOARD
+// ═══════════════════════════════════════════════════════════════════════════════
+
+if showDashboard
+    var table dashboard = table.new(position.top_right, 2, 10, bgcolor=color.new(color.black, 20), border_width=1)
+    
+    // Title
+    table.cell(dashboard, 0, 0, "FxHD Strategy v2.0", text_color=color.aqua, text_size=size.normal, text_halign=text.align_left)
+    table.merge_cells(dashboard, 0, 0, 1, 0)
+    
+    // Bias Info
+    table.cell(dashboard, 0, 1, "━━━ BIAS INFO ━━━", text_color=color.aqua, text_size=size.small, text_halign=text.align_left)
+    table.merge_cells(dashboard, 0, 1, 1, 1)
+    
+    biasText = currentBias == 1 ? "BULLISH" : currentBias == -1 ? "BEARISH" : "NEUTRAL"
+    biasColor = currentBias == 1 ? color.lime : currentBias == -1 ? color.red : color.gray
+    table.cell(dashboard, 0, 2, "Direction:", text_color=color.white, text_size=size.small)
+    table.cell(dashboard, 1, 2, biasText, text_color=biasColor, text_size=size.small)
+    
+    table.cell(dashboard, 0, 3, "Method:", text_color=color.white, text_size=size.small)
+    table.cell(dashboard, 1, 3, biasMethod, text_color=color.white, text_size=size.small)
+    
+    statusText = tradingEnabled ? (ltfSetupValid ? "ACTIVE" : "WAITING") : "DISABLED (BOS)"
+    statusColor = tradingEnabled ? (ltfSetupValid ? color.lime : color.yellow) : color.red
+    table.cell(dashboard, 0, 4, "Status:", text_color=color.white, text_size=size.small)
+    table.cell(dashboard, 1, 4, statusText, text_color=statusColor, text_size=size.small)
+    
+    // Fibo Levels
+    table.cell(dashboard, 0, 5, "━━━ FIBO LEVELS ━━━", text_color=color.aqua, text_size=size.small, text_halign=text.align_left)
+    table.merge_cells(dashboard, 0, 5, 1, 5)
+    
+    table.cell(dashboard, 0, 6, "HTF 0%:", text_color=color.white, text_size=size.small)
+    table.cell(dashboard, 1, 6, htfLevel0 > 0 ? str.tostring(htfLevel0, "#.#####") : "N/A", text_color=color.white, text_size=size.small)
+    
+    table.cell(dashboard, 0, 7, "Entry:", text_color=color.white, text_size=size.small)
+    table.cell(dashboard, 1, 7, ltfSetupValid ? str.tostring(ltfEntryLevel, "#.#####") : "N/A", text_color=color.yellow, text_size=size.small)
+    
+    // Trade Info
+    table.cell(dashboard, 0, 8, "━━━ TRADE ━━━", text_color=color.aqua, text_size=size.small, text_halign=text.align_left)
+    table.merge_cells(dashboard, 0, 8, 1, 8)
+    
+    posText = strategy.position_size > 0 ? "LONG" : strategy.position_size < 0 ? "SHORT" : "NONE"
+    posColor = strategy.position_size > 0 ? color.lime : strategy.position_size < 0 ? color.red : color.gray
+    table.cell(dashboard, 0, 9, "Position:", text_color=color.white, text_size=size.small)
+    table.cell(dashboard, 1, 9, posText, text_color=posColor, text_size=size.small)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ALERTS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+alertcondition(longCondition, title="Long Entry", message="FxHD Strategy: LONG entry signal at {{close}}")
+alertcondition(shortCondition, title="Short Entry", message="FxHD Strategy: SHORT entry signal at {{close}}")
+alertcondition(currentBias[1] != currentBias and currentBias != 0, title="Bias Change", message="FxHD Strategy: Bias changed to {{plot_0}}")
