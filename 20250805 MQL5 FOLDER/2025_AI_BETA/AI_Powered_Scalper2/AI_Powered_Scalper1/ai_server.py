@@ -4,7 +4,11 @@ import threading
 import os
 
 # --- DeepSeek API Configuration (Replace with your actual API Key)
-DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "YOUR_DEEPSEEK_API_KEY_HERE")
+# SECURITY: Load API key from environment variable only. Never hardcode secrets.
+# Set this environment variable before running: export DEEPSEEK_API_KEY="your_key"
+DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
+if not DEEPSEEK_API_KEY:
+    raise ValueError("DEEPSEEK_API_KEY environment variable is not set. Please set it before running the server.")
 DEEPSEEK_API_URL = "https://api.deepseek.com/chat/completions"
 
 # --- AI Server Configuration

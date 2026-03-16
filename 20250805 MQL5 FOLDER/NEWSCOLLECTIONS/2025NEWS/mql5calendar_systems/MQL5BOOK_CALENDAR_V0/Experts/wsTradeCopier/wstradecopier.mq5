@@ -32,7 +32,7 @@ input ulong MagicFilter = 0;    // MagicFilter (0 - any)
 input group "Subscriber";
 input string SubscriberID = "SUB_ID_100";
 input string SubscribeToPublisherID = "PUB_ID_001";
-input string SubscriberAccessKey = "fd3f7a105eae8c2d9afce0a7a4e11bf267a40f04b7c216dd01cf78c7165a2a5a";
+input string SubscriberAccessKey = "YOUR_SUBSCRIBER_ACCESS_KEY_HERE"; // Replace with your actual access key
 input string SymbolSubstitute = "EURUSD=GBPUSD"; // SymbolSubstitute (<from>=<to>,...)
 input ulong SubscriberMagic = 0;
 

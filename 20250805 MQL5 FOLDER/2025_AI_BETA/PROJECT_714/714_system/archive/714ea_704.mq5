@@ -156,7 +156,7 @@ input group "=== Screenshot & Telegram Settings ===";
 input bool     enable_screenshot          = true;    // Enable/Disable taking screenshots on alerts
 input string   screenshot_subfolder       = "714_Alerts"; // Subfolder in MQL5/Files for saving screenshots
 input bool     enable_telegram_alert      = true;    // Enable/Disable sending Telegram alerts
-input string   telegram_bot_token         = "YOUR_BOT_TOKEN_HERE"; // User must replace this
+input string   telegram_bot_token         = ""; // SECURITY: Add your Telegram bot token here from environment or safely stored config
 input string   telegram_chat_id           = "YOUR_CHAT_ID_HERE";   // User must replace this (e.g., @your_channel_name or user_id)
 input string   telegram_message_prefix    = "[714EA Alert]";       // Prefix for all messages
 

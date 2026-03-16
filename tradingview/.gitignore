@@ -1,0 +1,64 @@
+# SECURITY: Prevent accidental commits of credentials and sensitive data
+
+# Environment variables and secrets
+.env
+.env.local
+.env.*.local
+*.key
+*.pem
+*.p8
+secrets.json
+credentials.json
+config.secret.json
+
+# API Keys and Tokens
+**/api_keys.txt
+**/tokens.txt
+**/credentials.txt
+**/secrets.txt
+.api_key
+.token
+.secret
+
+# Configuration files with sensitive data
+config.ini.local
+config.local.json
+settings.private.json
+**/.aws/
+**/.azure/
+**/.gcp/
+
+# TradingView specific
+**/private_scripts/
+**/*password*.pine
+**/*token*.pine
+**/*key*.pine
+**/*secret*.pine
+
+# Python related
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+env/
+.python-version
+
+# IDE and editor files
+.vscode/settings.json
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+.env*local
+
+# Backup files with credentials
+*_backup.pine
+*_old.pine
+*password*
+*secret*
+*token*
